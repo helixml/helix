@@ -665,8 +665,8 @@ if [ -x /usr/local/bin/screenshot-server ]; then
   # - HTTP API: /screenshot, /clipboard, /keyboard-state, /keyboard-reset, /upload
   # - GNOME: Creates RemoteDesktop+ScreenCast sessions, reports PipeWire node to Wolf
   # - Input bridge: Receives events from Wolf, injects via D-Bus NotifyPointer*/NotifyKeyboard*
-  # Logs go to /tmp/screenshot-server.log (use docker cp to retrieve)
-  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+  # Logs go to docker logs (stdout/stderr)
+  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server &
 fi
 
 # Verify display scale after GNOME Shell is ready (if scaling is enabled)

@@ -1,5 +1,5 @@
 //! PipeWire ScreenCast source - reuses waylanddisplaycore's CUDA conversion
-//! Cache-bust: 2026-01-12T08:10Z - AMD zero-copy DMA-BUF support
+//! Cache-bust: 2026-01-12T12:00Z - AMD VA-API zero-copy: use drm-format caps for vapostproc
 //!
 //! This element follows Wolf/gst-wayland-display's context sharing pattern:
 //! - Wolf creates the CUDA context and pushes it via set_context()
@@ -284,6 +284,9 @@ pub struct State {
     /// DMA-BUF allocator for AMD/Intel zero-copy path (OutputMode::DmaBuf)
     /// Wraps DMA-BUF file descriptors in GStreamer memory without CPU copies.
     dmabuf_allocator: Option<DmaBufAllocator>,
+    /// DRM format info (fourcc, modifier) for DmaBuf mode caps negotiation
+    /// Required by vapostproc - it needs drm-format in caps, not just format
+    drm_info: Option<(u32, u64)>,
 }
 
 impl Default for State {
@@ -298,6 +301,7 @@ impl Default for State {
             last_buffer: None,
             buffer_pool_configured: false,
             dmabuf_allocator: None,
+            drm_info: None,
         }
     }
 }
@@ -953,7 +957,16 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 eprintln!("[PIPEWIRESRC_DEBUG] Processing DmaBuf in ZERO-COPY mode (AMD/Intel)");
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
-                let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
+                let drm_format = dmabuf.format();
+                let fourcc: u32 = drm_format.code as u32;
+                let modifier: u64 = drm_format.modifier.into();
+                let video_format = drm_fourcc_to_video_format(drm_format.code);
+
+                eprintln!("[PIPEWIRESRC_DEBUG] DmaBuf DRM format: fourcc=0x{:08x} modifier=0x{:016x} -> {:?}",
+                    fourcc, modifier, video_format);
+
+                // Store DRM info for caps negotiation (required by vapostproc)
+                state.drm_info = Some((fourcc, modifier));
 
                 let allocator = state.dmabuf_allocator.as_ref().ok_or_else(|| {
                     eprintln!("[PIPEWIRESRC_DEBUG] ERROR: dmabuf_allocator is None in DmaBuf mode!");
@@ -1014,14 +1027,32 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                         .build()
                 }
                 OutputMode::DmaBuf => {
-                    // AMD/Intel zero-copy: advertise DMA-BUF memory feature
-                    VideoCapsBuilder::new()
-                        .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                        .format(actual_format)
-                        .width(width as i32)
-                        .height(height as i32)
-                        .framerate(fps)
-                        .build()
+                    // AMD/Intel zero-copy: Use VideoInfoDmaDrm for proper drm-format caps
+                    // vapostproc requires drm-format field, not just format field
+                    if let Some((fourcc, modifier)) = state.drm_info {
+                        let base_info = VideoInfo::builder(actual_format, width, height)
+                            .fps(fps)
+                            .build()
+                            .map_err(|e| {
+                                eprintln!("[PIPEWIRESRC_DEBUG] Failed to build VideoInfo for DRM caps: {:?}", e);
+                                gst::FlowError::Error
+                            })?;
+                        let dma_info = VideoInfoDmaDrm::new(base_info, fourcc, modifier);
+                        dma_info.to_caps().map_err(|e| {
+                            eprintln!("[PIPEWIRESRC_DEBUG] Failed to create DRM caps: {:?}", e);
+                            gst::FlowError::Error
+                        })?
+                    } else {
+                        // Fallback if no DRM info (shouldn't happen in DmaBuf mode)
+                        eprintln!("[PIPEWIRESRC_DEBUG] WARNING: No DRM info for DmaBuf caps, using simple caps");
+                        VideoCapsBuilder::new()
+                            .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
+                            .format(actual_format)
+                            .width(width as i32)
+                            .height(height as i32)
+                            .framerate(fps)
+                            .build()
+                    }
                 }
                 _ => {
                     VideoCapsBuilder::new()

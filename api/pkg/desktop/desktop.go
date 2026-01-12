@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -94,9 +93,6 @@ type Server struct {
 	// one operation at a time per sender. Concurrent calls return
 	// "There is an ongoing operation for this sender" error.
 	screenshotMu sync.Mutex
-
-	// Video forwarder - captures PipeWire inside container for direct WebSocket streaming
-	videoForwarder *VideoForwarder
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -191,11 +187,10 @@ func (s *Server) Run(ctx context.Context) error {
 		defer s.inputListener.Close()
 		defer os.Remove(s.inputSocketPath)
 
-		// 6. Skip video forwarder for GNOME - connect directly to pipewiresrc in VideoStreamer
-		// The shmsink/shmsrc approach causes reconnection issues and doesn't provide benefits
-		// over direct pipewiresrc (which Mutter supports well).
-		// Only Sway uses the video forwarder (with wf-recorder for wlr-screencopy).
-		s.logger.Info("GNOME: using direct pipewiresrc (no video forwarder)")
+		// 6. Both GNOME and Sway now use pipewirezerocopysrc directly
+		// The shmsink/shmsrc approach (video forwarder) has been eliminated.
+		// Both compositors use the same zero-copy DMA-BUF pipeline.
+		s.logger.Info("GNOME: using pipewirezerocopysrc (zero-copy DMA-BUF)")
 
 		// 7. Create standalone ScreenCast session for VIDEO STREAMING
 		// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
@@ -286,21 +281,21 @@ func (s *Server) Run(ctx context.Context) error {
 				"scale", s.displayScale)
 		}
 
-		// 5. Start video forwarder - captures screen and forwards via shared memory
-		// for direct WebSocket streaming.
-		// For Sway, we use wf-recorder (wlr-screencopy) instead of pipewiresrc because
-		// pipewiresrc has compatibility issues with xdg-desktop-portal-wlr and hangs
-		// during format negotiation.
-		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
-		s.videoForwarder = NewVideoForwarderForSway(shmSocketPath, s.logger)
-		if err := s.videoForwarder.Start(ctx); err != nil {
-			s.logger.Warn("failed to start video forwarder",
-				"err", err)
-		}
+		// 5. Use pipewirezerocopysrc directly with portal's PipeWire node
+		// Previously we used wf-recorder as a workaround because stock pipewiresrc
+		// hung during format negotiation with xdg-desktop-portal-wlr. Our custom
+		// pipewirezerocopysrc plugin handles format negotiation differently and
+		// should work with Sway's portal stream, giving us:
+		// - Zero-copy DMA-BUF capture (same as GNOME)
+		// - Hardware encoding via NVENC/VAAPI
+		// - Unified video path for both compositors
+		//
+		// The nodeID and pipeWireFd are already set by startPortalSession() above.
 
 		s.running.Store(true)
-		s.logger.Info("Sway portal session ready",
+		s.logger.Info("Sway portal session ready (using pipewirezerocopysrc)",
 			"node_id", s.nodeID,
+			"pipewire_fd", s.pipeWireFd,
 			"session_handle", s.portalSessionHandle)
 	} else {
 		s.logger.Info("unknown compositor environment, skipping D-Bus session setup")
@@ -334,11 +329,6 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	s.running.Store(false)
-
-	// Stop video forwarder
-	if s.videoForwarder != nil {
-		s.videoForwarder.Stop()
-	}
 
 	// Graceful HTTP shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -72,6 +72,10 @@ done
 echo "✅ Sandbox dockerd is ready!"
 docker info 2>&1 | head -5
 
+# Create /tmp/sockets for runc console sockets (required for docker exec -ti)
+mkdir -p /tmp/sockets
+echo "✅ Created /tmp/sockets for docker exec -ti support"
+
 # Enable forwarding for nested containers
 iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"

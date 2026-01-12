@@ -114,21 +114,19 @@ type StreamConfig struct {
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket.
-// Uses go-gst bindings with appsink for guaranteed in-order frame delivery.
+// Uses pipewirezerocopysrc for zero-copy DMA-BUF capture on both GNOME and Sway.
 type VideoStreamer struct {
-	nodeID             uint32
-	pipeWireFd         int       // PipeWire FD from portal (required for ScreenCast access)
-	shmSocketPath      string    // If set, use shmsrc instead of pipewiresrc
-	preEncodedH264Path string    // If set, read pre-encoded H.264 from FIFO (Sway/wf-recorder)
-	videoMode          VideoMode // Video capture mode (shm, native, zerocopy)
-	config             StreamConfig
-	ws                 *websocket.Conn
-	logger             *slog.Logger
-	gstPipeline        *GstPipeline // GStreamer pipeline with appsink
-	running            atomic.Bool
-	cancel             context.CancelFunc
-	mu                 sync.Mutex // Protects Start/Stop
-	wsMu               sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
+	nodeID     uint32
+	pipeWireFd int       // PipeWire FD from portal (required for ScreenCast access)
+	videoMode  VideoMode // Video capture mode (shm, native, zerocopy)
+	config     StreamConfig
+	ws         *websocket.Conn
+	logger     *slog.Logger
+	gstPipeline *GstPipeline // GStreamer pipeline with appsink
+	running     atomic.Bool
+	cancel      context.CancelFunc
+	mu          sync.Mutex // Protects Start/Stop
+	wsMu        sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
 
 	// Frame tracking
 	frameCount uint64
@@ -150,34 +148,6 @@ func NewVideoStreamer(nodeID uint32, pipeWireFd int, config StreamConfig, ws *we
 		logger:     logger,
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
-	return v
-}
-
-// NewVideoStreamerWithSHM creates a video streamer that reads from shared memory
-// This is used when a video forwarder is running to avoid PipeWire node conflicts
-func NewVideoStreamerWithSHM(shmSocketPath string, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
-	v := &VideoStreamer{
-		shmSocketPath: shmSocketPath,
-		videoMode:     getVideoMode(config.VideoMode),
-		config:        config,
-		ws:            ws,
-		logger:        logger,
-	}
-	v.videoEnabled.Store(true)
-	return v
-}
-
-// NewVideoStreamerWithPreEncodedH264 creates a video streamer that reads pre-encoded H.264
-// from a FIFO. This is used for Sway where wf-recorder outputs encoded video directly.
-// No additional encoding is performed - the H.264 is just parsed and RTP-packetized.
-func NewVideoStreamerWithPreEncodedH264(h264Path string, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
-	v := &VideoStreamer{
-		preEncodedH264Path: h264Path,
-		config:             config,
-		ws:                 ws,
-		logger:             logger,
-	}
-	v.videoEnabled.Store(true)
 	return v
 }
 
@@ -206,11 +176,8 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	// Build GStreamer pipeline string (outputs to appsink)
 	pipelineStr := v.buildPipelineString(encoder)
 
-	// Log with appropriate source info
+	// Log with source info
 	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
-	if v.shmSocketPath != "" {
-		sourceInfo = fmt.Sprintf("shm:%s", v.shmSocketPath)
-	}
 	v.logger.Info("starting video capture",
 		"source", sourceInfo,
 		"video_mode", string(v.videoMode),
@@ -330,35 +297,17 @@ func checkGstElement(element string) bool {
 func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	var parts []string
 
-	// Pre-encoded H.264 path (Sway/wf-recorder) - skip all encoding, just parse
-	if v.preEncodedH264Path != "" {
-		// Read pre-encoded H.264 annex-b stream from FIFO
-		// wf-recorder has already done the encoding, we just need to parse
-		parts = []string{
-			fmt.Sprintf("filesrc location=%s", v.preEncodedH264Path),
-			"h264parse config-interval=-1",
-			"video/x-h264,stream-format=byte-stream,alignment=au",
-			"appsink name=videosink emit-signals=true max-buffers=2 drop=true sync=false",
-		}
-		return strings.Join(parts, " ! ")
-	}
+	// Build source section based on video mode
+	// Both GNOME and Sway now use pipewirezerocopysrc for unified zero-copy capture.
+	// For ScreenCast nodes, pipeWireFd from OpenPipeWireRemote is REQUIRED
+	// Without it, pipewiresrc gets "target not found" because the default
+	// PipeWire connection doesn't have access to portal ScreenCast nodes.
+	//
+	// pipewirezerocopysrc supports both CUDA (NVIDIA) and DmaBuf (AMD/Intel) output.
+	// For AMD/Intel: DmaBuf output with drm-format caps -> vapostproc -> vah264enc
+	// The drm-format caps (set in pipewiresrc/imp.rs) allow vapostproc to import the DmaBuf.
 
-	// Step 1: Build source section based on video mode
-	// Note: shmSocketPath (for video forwarder) takes precedence over videoMode
-	if v.shmSocketPath != "" {
-		// Use shmsrc to read from video forwarder's shared memory socket
-		// This avoids PipeWire node conflicts when the forwarder is running
-		parts = []string{
-			fmt.Sprintf("shmsrc socket-path=%s is-live=true do-timestamp=true", v.shmSocketPath),
-			fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
-				v.config.Width, v.config.Height),
-		}
-	} else {
-		// Choose source based on video mode
-		// For ScreenCast nodes, pipeWireFd from OpenPipeWireRemote is REQUIRED
-		// Without it, pipewiresrc gets "target not found" because the default
-		// PipeWire connection doesn't have access to portal ScreenCast nodes.
-		switch v.videoMode {
+	switch v.videoMode {
 		case VideoModeZeroCopy:
 			// pipewirezerocopysrc: Zero-copy via GPU memory sharing
 			// Requires gst-plugin-pipewire-zerocopy to be installed
@@ -366,17 +315,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			//
 			// Output mode selection based on encoder:
 			// - nvenc: CUDA memory (auto mode tries CUDA first)
-			// - vaapi/vaapi-legacy/vaapi-lp: DMA-BUF (VA-API accepts DmaBuf directly)
-			// - qsv: auto (QSV handles its own memory)
-			// - x264: system memory (CPU encoder)
+			// - vaapi/qsv: system memory (vapostproc doesn't accept DMABuf)
+			// - x264/openh264: system memory (CPU encoder)
 			var outputMode string
 			switch encoder {
-			case "vaapi", "vaapi-legacy", "vaapi-lp":
-				outputMode = "dmabuf" // VA-API encoders accept DMA-BUF directly
-			case "x264":
+			case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
+				// VA-API: Use system memory because vapostproc doesn't accept DMABuf
+				// Our plugin copies DMABuf → system memory, then vapostproc uploads to GPU
+				outputMode = "system"
+			case "x264", "openh264":
 				outputMode = "system" // CPU encoder needs system memory
 			default:
-				outputMode = "auto" // NVENC/QSV: auto-detect (CUDA for NVIDIA)
+				outputMode = "auto" // NVENC: auto-detect (CUDA for NVIDIA)
 			}
 			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=%s keepalive-time=100", v.nodeID, outputMode)
 			// Add fd property if we have portal FD (required for ScreenCast access)
@@ -414,7 +364,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				// Explicit framerate prevents Mutter from defaulting to lower rate
 				fmt.Sprintf("video/x-raw,format=BGRx,framerate=%d/1", v.config.FPS),
 			}
-		}
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline
@@ -431,7 +380,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// NVIDIA NVENC encoding
 		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
-		if v.videoMode == VideoModeZeroCopy && v.shmSocketPath == "" {
+		if v.videoMode == VideoModeZeroCopy  {
 			// Zero-copy GPU path:
 			// pipewirezerocopysrc outputs CUDAMemory (BGRA/BGRx from compositor)
 			// nvh264enc accepts BGRA/BGRx directly and converts to NV12 internally
@@ -452,7 +401,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "qsv":
 		// Intel Quick Sync Video
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
 			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
 			parts = append(parts,
 				"vapostproc",
@@ -474,7 +423,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi":
 		// AMD/Intel VA-API pipeline (gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
 			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
 			parts = append(parts,
 				"vapostproc",
@@ -498,7 +447,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
 			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
 			parts = append(parts,
 				"vapostproc",
@@ -522,7 +471,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
 			// Zero-copy: vaapipostproc converts BGRA DMA-BUF → NV12 VASurface
 			parts = append(parts,
 				"video/x-raw(memory:DMABuf)",
@@ -836,33 +785,15 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		"bitrate", config.Bitrate,
 	)
 
-	// Create video streamer - select source based on compositor type
-	var streamer *VideoStreamer
-	if server != nil && server.compositorType == "sway" && server.videoForwarder != nil {
-		// For Sway: Use wf-recorder which outputs pre-encoded H.264 to a FIFO
-		// Restart forwarder for each connection to avoid stale FIFO state
-		if err := server.videoForwarder.Restart(r.Context()); err != nil {
-			logger.Error("failed to restart video forwarder", "err", err)
-			// Fall back to direct PipeWire (may not work on Sway, but try anyway)
-			logger.Info("falling back to PipeWire video source", "node_id", nodeID)
-			streamer = NewVideoStreamer(nodeID, server.pipeWireFd, config, ws, logger)
-		} else {
-			forwarderPath := server.videoForwarder.ShmSocketPath()
-			logger.Info("using pre-encoded H.264 source (Sway/wf-recorder)", "fifo", forwarderPath)
-			streamer = NewVideoStreamerWithPreEncodedH264(forwarderPath, config, ws, logger)
-		}
-	} else {
-		// For GNOME: Connect directly to pipewiresrc
-		// The shmsink/shmsrc approach has reliability issues with reconnection,
-		// so we skip the video forwarder and connect directly to PipeWire.
-		// Pass the portal FD from OpenPipeWireRemote - required for ScreenCast access
-		pipeWireFd := 0
-		if server != nil {
-			pipeWireFd = server.pipeWireFd
-		}
-		logger.Info("using PipeWire video source (direct)", "node_id", nodeID, "pipewire_fd", pipeWireFd)
-		streamer = NewVideoStreamer(nodeID, pipeWireFd, config, ws, logger)
+	// Create video streamer - unified path for both GNOME and Sway
+	// Both compositors now use pipewirezerocopysrc for zero-copy DMA-BUF capture.
+	// The portal FD from OpenPipeWireRemote is required for ScreenCast access.
+	pipeWireFd := 0
+	if server != nil {
+		pipeWireFd = server.pipeWireFd
 	}
+	logger.Info("using pipewirezerocopysrc (zero-copy)", "node_id", nodeID, "pipewire_fd", pipeWireFd)
+	streamer := NewVideoStreamer(nodeID, pipeWireFd, config, ws, logger)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
