@@ -186,8 +186,8 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server (excluding GStreamer packages)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | xargs go install
+      # Build API server (excluding GStreamer packages and test-only packages)
+      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | grep -v '_test$' | xargs go install
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
