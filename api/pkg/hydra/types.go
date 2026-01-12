@@ -210,6 +210,11 @@ type DevContainerResponse struct {
 
 	// Container type
 	ContainerType DevContainerType `json:"container_type"`
+
+	// Desktop environment info (for debug panel)
+	DesktopVersion string `json:"desktop_version,omitempty"` // helix-sway/helix-ubuntu image version (commit hash)
+	GPUVendor      string `json:"gpu_vendor,omitempty"`      // nvidia, amd, intel, or ""
+	RenderNode     string `json:"render_node,omitempty"`     // /dev/dri/renderD128 or SOFTWARE
 }
 
 // DevContainer represents a running dev container managed by Hydra

@@ -209,13 +209,22 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Str("ip_address", ipAddress).
 		Msg("Dev container started successfully")
 
+	// Get desktop version from version file
+	desktopVersion := getDesktopVersion(req.ContainerType)
+
+	// Get render node (first available or SOFTWARE for none)
+	renderNode := getRenderNode()
+
 	return &DevContainerResponse{
-		SessionID:     req.SessionID,
-		ContainerID:   resp.ID,
-		ContainerName: req.ContainerName,
-		Status:        DevContainerStatusRunning,
-		IPAddress:     ipAddress,
-		ContainerType: req.ContainerType,
+		SessionID:      req.SessionID,
+		ContainerID:    resp.ID,
+		ContainerName:  req.ContainerName,
+		Status:         DevContainerStatusRunning,
+		IPAddress:      ipAddress,
+		ContainerType:  req.ContainerType,
+		DesktopVersion: desktopVersion,
+		GPUVendor:      gpuVendor,
+		RenderNode:     renderNode,
 	}, nil
 }
 
@@ -386,8 +395,28 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
-		// Intel: mount /dev/dri/* (handled via GOW_REQUIRED_DEVICES in container)
-		log.Debug().Msg("Configured Intel GPU passthrough (via env var)")
+		// Intel: mount /dev/dri/* for VA-API encoding (same as AMD, minus /dev/kfd)
+		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		for _, dev := range driDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		for _, dev := range cardDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
 
 	default:
 		// Software rendering - no special config needed
@@ -633,5 +662,37 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	}
 
 	return nil
+}
+
+// getDesktopVersion reads the version file for the given container type.
+// Version files are mounted at /opt/images/ (e.g., helix-sway.version, helix-ubuntu.version).
+func getDesktopVersion(containerType DevContainerType) string {
+	var versionFile string
+	switch containerType {
+	case DevContainerTypeSway:
+		versionFile = "/opt/images/helix-sway.version"
+	case DevContainerTypeUbuntu:
+		versionFile = "/opt/images/helix-ubuntu.version"
+	default:
+		return ""
+	}
+
+	version, err := os.ReadFile(versionFile)
+	if err != nil {
+		log.Debug().Err(err).Str("file", versionFile).Msg("Could not read desktop version file")
+		return ""
+	}
+
+	return strings.TrimSpace(string(version))
+}
+
+// getRenderNode returns the first available render node or "SOFTWARE" if none.
+func getRenderNode() string {
+	// Check for DRI render nodes
+	matches, err := filepath.Glob("/dev/dri/renderD*")
+	if err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	return "SOFTWARE"
 }
 

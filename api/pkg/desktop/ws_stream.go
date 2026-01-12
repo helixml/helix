@@ -429,22 +429,21 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "nvenc":
 		// NVIDIA NVENC encoding
-		// For zerocopy mode: frames already in CUDA memory, skip cudaupload
-		// For other modes: use cudaupload to get frames into CUDA memory
+		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
+		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
 		if v.videoMode == VideoModeZeroCopy && v.shmSocketPath == "" {
-			// pipewirezerocopysrc outputs video/x-raw(memory:CUDAMemory) in BGRA/RGBA
-			// nvh264enc accepts CUDA memory directly in these formats
-			// No conversion needed - true zero-copy GPU pipeline
+			// Zero-copy GPU path:
+			// pipewirezerocopysrc outputs CUDAMemory (BGRA/BGRx from compositor)
+			// nvh264enc accepts BGRA/BGRx directly and converts to NV12 internally
+			// (h264parse added globally at end)
 			parts = append(parts,
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		} else {
 			// Standard path: system memory → cudaupload → nvh264enc
+			// Helix always matches desktop/client resolution, so no scaling needed
+			// nvh264enc handles format conversion internally (BGRA/BGRx → NV12)
 			parts = append(parts,
-				"videorate",
-				"videoscale",
-				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
 				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
@@ -452,79 +451,91 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "qsv":
 		// Intel Quick Sync Video
-		// QSV has its own memory system, uses CPU conversion for now
-		parts = append(parts,
-			"videoconvert",
-			"videoscale",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
-			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
-		)
-
-	case "vaapi":
-		// AMD/Intel VA-API pipeline
-		// For zerocopy/native modes: source may provide DMABuf which VA-API can use directly
-		// For shm mode: uses CPU-based videoconvert (vapostproc not widely available)
+		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
-			// Try to use vapostproc for GPU-side processing (available on newer systems)
-			// CRITICAL: format=NV12 is required for AMD VA-API to work correctly.
-			// Without explicit format, vapostproc may output incompatible format for vah264enc.
-			// This matches Wolf's working config.v6.toml pattern.
+			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
 			parts = append(parts,
 				"vapostproc",
-				fmt.Sprintf("video/x-raw(memory:VAMemory),format=NV12,width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				"video/x-raw(memory:VAMemory),format=NV12",
+				fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
 			)
 		} else {
-			// Standard path: CPU videoconvert
+			// Standard path: CPU videoconvert for colorspace
 			parts = append(parts,
 				"videoconvert",
-				"videoscale",
-				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
+			)
+		}
+
+	case "vaapi":
+		// AMD/Intel VA-API pipeline (gst-va plugin)
+		// Helix always matches desktop/client resolution, so no scaling needed
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
+			parts = append(parts,
+				"vapostproc",
+				"video/x-raw(memory:VAMemory),format=NV12",
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
+			)
+		} else {
+			// Standard path: CPU videoconvert for colorspace
+			parts = append(parts,
+				"videoconvert",
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
 			)
 		}
 
 	case "vaapi-lp":
-		// VA-API Low Power mode (Intel-specific)
+		// VA-API Low Power mode (Intel-specific, gst-va plugin)
+		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
-			// format=NV12 required for proper VA-API pipeline negotiation
+			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
 			parts = append(parts,
 				"vapostproc",
-				fmt.Sprintf("video/x-raw(memory:VAMemory),format=NV12,width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				"video/x-raw(memory:VAMemory),format=NV12",
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
 			)
 		} else {
+			// Standard path: CPU videoconvert for colorspace
 			parts = append(parts,
 				"videoconvert",
-				"videoscale",
-				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				"h264parse",
+				"video/x-h264,profile=main,stream-format=byte-stream",
 			)
 		}
 
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
-		// vaapih264enc accepts DMA-BUF directly, no need for vaapipostproc
-		// Use vaapipostproc only if we need colorspace conversion from system memory
+		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
-			// DMA-BUF path: vaapih264enc can accept DMA-BUF directly
+			// Zero-copy: vaapipostproc converts BGRA DMA-BUF → NV12 VASurface
 			parts = append(parts,
+				"video/x-raw(memory:DMABuf)",
+				"vaapipostproc",
+				"video/x-raw(memory:VASurface),format=NV12",
 				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
 					v.config.Bitrate, getGOPSize()),
 			)
 		} else {
-			// System memory path: use vaapipostproc for GPU upload
+			// Standard path: vaapipostproc uploads to GPU and converts
 			parts = append(parts,
 				"vaapipostproc",
+				"video/x-raw(memory:VASurface),format=NV12",
 				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
 					v.config.Bitrate, getGOPSize()),
 			)
@@ -532,23 +543,17 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
-		// Lower latency than x264 but may have lower quality
-		// Commonly available as it's installed by default in many distros
+		// Helix always matches desktop/client resolution, so no scaling needed
 		parts = append(parts,
 			"videoconvert",
-			"videoscale",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
 		)
 
 	case "x264":
 		// x264 software encoder - high quality but requires gst-plugins-ugly
+		// Helix always matches desktop/client resolution, so no scaling needed
 		parts = append(parts,
 			"videoconvert",
-			"videoscale",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 		)
 
@@ -557,9 +562,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		v.logger.Warn("unknown encoder, falling back to openh264", "encoder", encoder)
 		parts = append(parts,
 			"videoconvert",
-			"videoscale",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
 		)
 	}

@@ -333,12 +333,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	h.sessions[agent.SessionID] = session
 	h.mutex.Unlock()
 
-	// Update database session with container info
+	// Update database session with container info and debug info
 	if dbSession, err := h.store.GetSession(ctx, agent.SessionID); err == nil {
 		dbSession.Metadata.ContainerName = resp.ContainerName
 		dbSession.Metadata.ContainerID = resp.ContainerID
 		dbSession.Metadata.ContainerIP = resp.IPAddress
 		dbSession.Metadata.ExecutorMode = "hydra"
+
+		// Store debug info in Metadata (serialized as "config" in JSON for frontend)
+		dbSession.Metadata.SwayVersion = resp.DesktopVersion
+		dbSession.Metadata.GPUVendor = resp.GPUVendor
+		dbSession.Metadata.RenderNode = resp.RenderNode
+
 		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 			log.Warn().Err(err).Str("session_id", agent.SessionID).Msg("Failed to update session metadata with container info")
 		}

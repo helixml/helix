@@ -762,15 +762,17 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
+# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
+# Install to system GStreamer plugins directory
+# NOTE: Rust code changes less frequently than Go, so it's placed before Go binaries
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+
 # Helix Go binaries (v2: socket wait fix)
+# NOTE: Go code changes most frequently, so it's placed last before Zed
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
-
-# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
-# Install to system GStreamer plugins directory
-COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
-RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 
 # Zed binary
 RUN mkdir -p /zed-build
@@ -854,20 +856,14 @@ ADD wolf/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
 # Compile the dconf database
 RUN dconf update
 
-# Pre-build fontconfig cache (major speedup for first browser launch)
-RUN fc-cache -f -v
-
-RUN chown -R 1000:1000 /home/retro/.qwen \
-                        /home/retro/.gemini \
-                        /home/retro/.claude \
-                        /home/retro/.config/zed
-
 # ====================================================================
-# Chrome DevTools MCP Server
+# Chrome DevTools MCP Server (installed early - stable dependency)
 # ====================================================================
 # Install Google Chrome and chrome-devtools-mcp for AI agent browser control
 # See: https://developer.chrome.com/blog/chrome-devtools-mcp
 # Note: Most Chrome deps are already installed with GNOME, just need Chrome itself
+# IMPORTANT: This is installed BEFORE frequently-changing code (Go/Rust/Zed)
+# to maximize Docker layer cache hits.
 
 RUN apt-get update && \
     wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
@@ -941,3 +937,6 @@ RUN npm install -g chrome-devtools-mcp@latest
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
+
+# Pre-build fontconfig cache (major speedup for first browser launch)
+RUN fc-cache -f -v
