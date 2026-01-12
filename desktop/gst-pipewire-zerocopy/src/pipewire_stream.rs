@@ -199,6 +199,11 @@ fn spa_video_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32
         spa::param::video::VideoFormat::xBGR => 0x34324258, // XB24 = XBGR8888
         spa::param::video::VideoFormat::NV12 => 0x3231564e, // NV12
         spa::param::video::VideoFormat::I420 => 0x32315549, // I420
+        // RGB/BGR 24-bit formats (for xdg-desktop-portal-wlr SHM fallback)
+        // RG24 = 0x34324752 = RGB888
+        // BG24 = 0x34324742 = BGR888
+        spa::param::video::VideoFormat::RGB => 0x34324752, // RG24 = RGB888
+        spa::param::video::VideoFormat::BGR => 0x34324742, // BG24 = BGR888
         _ => {
             tracing::warn!("Unknown SPA video format {:?}, defaulting to ARGB8888", format);
             0x34325241 // AR24 = ARGB8888
@@ -271,16 +276,40 @@ fn run_pipewire_loop(
     let dmabuf_available = dmabuf_caps.as_ref().map(|c| c.dmabuf_available).unwrap_or(false);
     let dmabuf_available_clone = dmabuf_available;
 
+    // Track if we've already called set_active in state_changed
+    // (to avoid redundant calls from param_changed for GNOME)
+    let set_active_in_paused = Arc::new(AtomicBool::new(false));
+    let set_active_in_paused_clone = set_active_in_paused.clone();
+
     let _listener = stream
         .add_local_listener_with_user_data(spa::param::video::VideoInfoRaw::default())
-        .state_changed(move |_stream, _user_data, old, new| {
+        .state_changed(move |stream, _user_data, old, new| {
             eprintln!("[PIPEWIRE_DEBUG] PipeWire state: {:?} -> {:?}", old, new);
 
-            // Note: gnome-remote-desktop calls set_active(true) AFTER update_params in param_changed,
-            // not in state_changed. We moved set_active to after update_params succeeds.
+            // For xdg-desktop-portal-wlr (Sway), we need to call set_active(true) when
+            // entering Paused state to trigger format negotiation. GNOME sends format
+            // params automatically, but Sway's portal waits for set_active first.
+            //
+            // This is safe to call for GNOME too - it just means we call set_active
+            // slightly earlier than strictly necessary.
+            if new == pipewire::stream::StreamState::Paused {
+                if !set_active_in_paused_clone.swap(true, Ordering::SeqCst) {
+                    eprintln!("[PIPEWIRE_DEBUG] Paused state reached, calling set_active(true) to trigger format negotiation...");
+                    if let Err(e) = stream.set_active(true) {
+                        eprintln!("[PIPEWIRE_DEBUG] set_active(true) failed in state_changed: {}", e);
+                    } else {
+                        eprintln!("[PIPEWIRE_DEBUG] set_active(true) succeeded in state_changed!");
+                    }
+                }
+            }
 
             if new == pipewire::stream::StreamState::Streaming {
-                eprintln!("[PIPEWIRE_DEBUG] Stream transitioned to Streaming!");
+                eprintln!("[PIPEWIRE_DEBUG] Stream transitioned to Streaming! Frames should start arriving now.");
+            }
+
+            // Log error state with details
+            if let pipewire::stream::StreamState::Error(ref err) = new {
+                eprintln!("[PIPEWIRE_DEBUG] Stream ERROR: {}", err);
             }
         })
         .add_buffer(|_stream, _user_data, buffer| {
@@ -493,7 +522,10 @@ fn run_pipewire_loop(
 
             if let Some(mut buffer) = stream.dequeue_buffer() {
                 let datas = buffer.datas_mut();
-                if datas.is_empty() { return; }
+                if datas.is_empty() {
+                    eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer succeeded but datas is empty!", pcount);
+                    return;
+                }
 
                 let params = video_info.lock().clone();
                 if let Some(frame) = extract_frame(datas, &params) {
@@ -517,6 +549,24 @@ fn run_pipewire_loop(
                     }
 
                     let _ = frame_tx_process.try_send(frame);
+                } else {
+                    // extract_frame returned None - log why (first 5 times only to avoid spam)
+                    static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                    let fail_count = EXTRACT_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if fail_count <= 5 {
+                        let first = datas.first();
+                        let data_type = first.map(|d| d.type_());
+                        let chunk_size = first.map(|d| d.chunk().size());
+                        eprintln!("[PIPEWIRE_DEBUG] process #{}: extract_frame returned None! params={}x{} fmt=0x{:x} data_type={:?} chunk_size={:?}",
+                            pcount, params.width, params.height, params.format, data_type, chunk_size);
+                    }
+                }
+            } else {
+                // dequeue_buffer returned None - stream might not be in Streaming state yet
+                static DEQUEUE_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let fail_count = DEQUEUE_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if fail_count <= 5 || fail_count % 100 == 0 {
+                    eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer returned None (no buffer available)", pcount);
                 }
             }
         })
@@ -530,7 +580,11 @@ fn run_pipewire_loop(
     // forces GNOME to pick a GPU-tiled modifier instead of LINEAR.
     // This enables true zero-copy DmaBuf path at 60 FPS.
     //
-    // NO SHM FALLBACK - we want to fail loudly if DmaBuf doesn't work.
+    // SHM PATH for Sway (xdg-desktop-portal-wlr):
+    // Portal offers TWO format types that require DIFFERENT format pods:
+    // 1. BGRx WITH modifiers (including LINEAR 0x0)
+    // 2. RGB WITHOUT any modifier field
+    // We must offer BOTH to ensure negotiation succeeds.
     let format_pods: Vec<Vec<u8>> = if let Some(ref caps) = dmabuf_caps {
         if caps.dmabuf_available && !caps.modifiers.is_empty() {
             eprintln!("[PIPEWIRE_DEBUG] DMA-BUF available with {} modifiers, offering DmaBuf ONLY (no SHM fallback)",
@@ -539,12 +593,22 @@ fn run_pipewire_loop(
             let format_with_mod = build_video_format_params_with_modifiers(&caps.modifiers, negotiated_max_fps);
             vec![format_with_mod]
         } else {
-            eprintln!("[PIPEWIRE_DEBUG] DMA-BUF not available, offering SHM only");
-            vec![build_video_format_params_no_modifier(negotiated_max_fps)]
+            eprintln!("[PIPEWIRE_DEBUG] DMA-BUF not available, offering SHM (two format pods for xdg-desktop-portal-wlr)");
+            // Offer BOTH format pods for xdg-desktop-portal-wlr compatibility:
+            // 1. BGRx/BGRA WITH LINEAR modifier (matches portal's first offer)
+            // 2. RGB WITHOUT modifier (matches portal's second offer)
+            vec![
+                build_video_format_params_with_linear_modifier(negotiated_max_fps),
+                build_video_format_params_no_modifier(negotiated_max_fps),
+            ]
         }
     } else {
-        eprintln!("[PIPEWIRE_DEBUG] No DMA-BUF caps provided, offering SHM only");
-        vec![build_video_format_params_no_modifier(negotiated_max_fps)]
+        eprintln!("[PIPEWIRE_DEBUG] No DMA-BUF caps provided, offering SHM (two format pods for xdg-desktop-portal-wlr)");
+        // Offer BOTH format pods for xdg-desktop-portal-wlr compatibility
+        vec![
+            build_video_format_params_with_linear_modifier(negotiated_max_fps),
+            build_video_format_params_no_modifier(negotiated_max_fps),
+        ]
     };
 
     // Convert to Pod references
@@ -946,12 +1010,14 @@ fn build_single_format_pod(format: u32, with_modifier: bool) -> Vec<u8> {
 
     // MaxFramerate: Range for damage-based streaming
     // When GNOME picks framerate=0/1, it uses maxFramerate for frame pacing
-    // Use 120/1 default to avoid "too early" skipping (see build_fixated_format_pod comment)
+    // CRITICAL: min must be 0/1 to DISABLE Mutter's frame pacing entirely.
+    // With min=1/1, Mutter clamps to 1 FPS! With min=0/1, the frame pacing check is bypassed.
+    // See: meta-screen-cast-stream-src.c:1322 - if (max_framerate.num > 0) then limit applies
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 120, denom: 1 },
-            min: Fraction { num: 1, denom: 1 },
+            default: Fraction { num: 0, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1240,12 +1306,14 @@ fn build_video_format_params() -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
     });
 
-    // MaxFramerate: Range for damage-based streaming (120/1 default to test hypothesis)
+    // MaxFramerate: Range for damage-based streaming
+    // CRITICAL: min must be 0/1 to DISABLE Mutter's frame pacing entirely.
+    // With min=1/1, Mutter clamps to 1 FPS! With min=0/1, the frame pacing check is bypassed.
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 120, denom: 1 },
-            min: Fraction { num: 1, denom: 1 },
+            default: Fraction { num: 0, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1276,18 +1344,20 @@ fn build_video_format_params() -> Vec<u8> {
     }
 }
 
-/// Build video format params WITHOUT modifier (for SHM fallback).
-/// This is the second format pod in priority order - used when DmaBuf negotiation fails.
-/// OBS does the same: builds format pods first WITH modifiers, then WITHOUT.
+/// Build video format params WITH LINEAR modifier (for SHM fallback with modifier support).
+/// xdg-desktop-portal-wlr offers BGRx WITH modifier 0 (LINEAR), so we need a matching offer.
 ///
 /// # Arguments
-/// * `negotiated_max_fps` - Max framerate to negotiate with Mutter (should be target_fps * 2)
-fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
+/// * `negotiated_max_fps` - Max framerate to negotiate
+fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     use spa::param::video::VideoFormat;
     let spa_bgra = VideoFormat::BGRA.as_raw();
     let spa_rgba = VideoFormat::RGBA.as_raw();
     let spa_bgrx = VideoFormat::BGRx.as_raw();
     let spa_rgbx = VideoFormat::RGBx.as_raw();
+
+    eprintln!("[PIPEWIRE_DEBUG] LINEAR modifier format - SPA format IDs: BGRA={}, RGBA={}, BGRx={}, RGBx={}",
+        spa_bgra, spa_rgba, spa_bgrx, spa_rgbx);
 
     let mut properties = Vec::new();
 
@@ -1305,16 +1375,16 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
         value: Value::Id(Id(MediaSubtype::Raw.as_raw())),
     });
 
-    // Video format: Enum choice (same as with-modifier version)
+    // Video format: 32-bit formats that typically have modifier support
     let format_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
-            default: Id(spa_bgra),
+            default: Id(spa_bgrx),
             alternatives: vec![
-                Id(spa_bgra),
-                Id(spa_rgba),
                 Id(spa_bgrx),
+                Id(spa_bgra),
                 Id(spa_rgbx),
+                Id(spa_rgba),
             ],
         },
     );
@@ -1324,8 +1394,34 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Id(format_choice)),
     });
 
-    // NO MODIFIER - this is the key difference from build_video_format_params()
-    // This tells PipeWire we accept SHM (MemPtr) frames
+    // LINEAR modifier (0x0) - matches xdg-desktop-portal-wlr's BGRx offer
+    // Also include DRM_FORMAT_MOD_INVALID as fallback (driver picks best option)
+    //
+    // CRITICAL: Must use Choice, not single value! PipeWire format negotiation
+    // expects modifiers as an enum choice, even with one option. Using a single
+    // Long value breaks negotiation with xdg-desktop-portal-wlr.
+    const DRM_FORMAT_MOD_LINEAR: i64 = 0;
+    const DRM_FORMAT_MOD_INVALID: i64 = ((1i64 << 56) - 1); // 0x00ffffffffffffff
+
+    // Use MANDATORY | DONT_FIXATE flags like GPU modifier path
+    let modifier_flags = PropertyFlags::from_bits_retain(0x18);
+
+    let modifier_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Enum {
+            default: DRM_FORMAT_MOD_LINEAR,
+            alternatives: vec![
+                DRM_FORMAT_MOD_LINEAR,
+                DRM_FORMAT_MOD_INVALID,
+            ],
+        },
+    );
+    properties.push(Property {
+        key: FormatProperties::VideoModifier.as_raw(),
+        flags: modifier_flags,
+        value: Value::Choice(ChoiceValue::Long(modifier_choice)),
+    });
+    eprintln!("[PIPEWIRE_DEBUG] Modifier choice: LINEAR(0x0) + INVALID(0x{:x})", DRM_FORMAT_MOD_INVALID);
 
     // Size: Range from 1x1 to 8192x4320
     use spa::utils::Rectangle;
@@ -1358,13 +1454,12 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
     });
 
-    // MaxFramerate: Request 0/1 to DISABLE Mutter's frame rate limiter entirely.
-    // CRITICAL: min must be 0/1 to allow 0 to be negotiated - if min is 1/1, Mutter clamps to 1fps!
+    // MaxFramerate
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
             default: Fraction { num: negotiated_max_fps, denom: 1 },
-            min: Fraction { num: 0, denom: 1 },  // Allow 0 to disable limiter!
+            min: Fraction { num: 0, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1385,7 +1480,136 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITHOUT modifier - SHM fallback, max_fps={} (0=disabled) ({} bytes)", negotiated_max_fps, bytes.len());
+            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITH LINEAR modifier (0x0) ({} bytes)", bytes.len());
+            bytes
+        }
+        Err(e) => {
+            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize LINEAR modifier format pod: {:?}", e);
+            Vec::new()
+        }
+    }
+}
+
+/// Build video format params WITHOUT any modifier property.
+/// xdg-desktop-portal-wlr offers RGB WITHOUT modifier field - we must match exactly.
+/// This is critical for Sway - if we include a modifier property when portal doesn't,
+/// PipeWire cannot find a matching format.
+///
+/// # Arguments
+/// * `negotiated_max_fps` - Max framerate to negotiate
+fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
+    use spa::param::video::VideoFormat;
+    // RGB/BGR 24-bit formats that xdg-desktop-portal-wlr offers without modifier
+    let spa_rgb = VideoFormat::RGB.as_raw();
+    let spa_bgr = VideoFormat::BGR.as_raw();
+    // Also include 32-bit formats in case portal negotiates without modifier
+    let spa_bgra = VideoFormat::BGRA.as_raw();
+    let spa_rgba = VideoFormat::RGBA.as_raw();
+    let spa_bgrx = VideoFormat::BGRx.as_raw();
+    let spa_rgbx = VideoFormat::RGBx.as_raw();
+
+    eprintln!("[PIPEWIRE_DEBUG] SPA format IDs: RGB={}, BGR={}, BGRA={}, RGBA={}, BGRx={}, RGBx={}",
+        spa_rgb, spa_bgr, spa_bgra, spa_rgba, spa_bgrx, spa_rgbx);
+
+    let mut properties = Vec::new();
+
+    // Media type: Video
+    properties.push(Property {
+        key: FormatProperties::MediaType.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Id(Id(MediaType::Video.as_raw())),
+    });
+
+    // Media subtype: Raw
+    properties.push(Property {
+        key: FormatProperties::MediaSubtype.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Id(Id(MediaSubtype::Raw.as_raw())),
+    });
+
+    // Video format: Include all formats, prefer RGB (matches portal's no-modifier offer)
+    let format_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Enum {
+            default: Id(spa_rgb),  // Prefer RGB - matches portal's no-modifier offer
+            alternatives: vec![
+                Id(spa_rgb),
+                Id(spa_bgr),
+                Id(spa_bgra),
+                Id(spa_rgba),
+                Id(spa_bgrx),
+                Id(spa_rgbx),
+            ],
+        },
+    );
+    properties.push(Property {
+        key: FormatProperties::VideoFormat.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Choice(ChoiceValue::Id(format_choice)),
+    });
+
+    // NO MODIFIER PROPERTY - this is intentional!
+    // xdg-desktop-portal-wlr's RGB offer has no modifier field.
+    // Including any modifier property prevents format matching.
+
+    // Size: Range from 1x1 to 8192x4320
+    use spa::utils::Rectangle;
+    let size_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Range {
+            default: Rectangle { width: 1920, height: 1080 },
+            min: Rectangle { width: 1, height: 1 },
+            max: Rectangle { width: 8192, height: 4320 },
+        },
+    );
+    properties.push(Property {
+        key: FormatProperties::VideoSize.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Choice(ChoiceValue::Rectangle(size_choice)),
+    });
+
+    // Framerate: Range from 0/1 to 360/1
+    let framerate_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Range {
+            default: Fraction { num: 60, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },
+            max: Fraction { num: 360, denom: 1 },
+        },
+    );
+    properties.push(Property {
+        key: FormatProperties::VideoFramerate.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
+    });
+
+    // MaxFramerate
+    let max_framerate_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Range {
+            default: Fraction { num: negotiated_max_fps, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },
+            max: Fraction { num: 360, denom: 1 },
+        },
+    );
+    properties.push(Property {
+        key: FormatProperties::VideoMaxFramerate.as_raw(),
+        flags: PropertyFlags::empty(),
+        value: Value::Choice(ChoiceValue::Fraction(max_framerate_choice)),
+    });
+
+    // Create the format object
+    let obj = Object {
+        type_: SpaTypes::ObjectParamFormat.as_raw(),
+        id: ParamType::EnumFormat.as_raw(),
+        properties,
+    };
+
+    // Serialize to bytes
+    match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
+        Ok((cursor, _len)) => {
+            let bytes = cursor.into_inner();
+            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITHOUT modifier (for RGB/xdg-desktop-portal-wlr) ({} bytes)", bytes.len());
             bytes
         }
         Err(e) => {
@@ -1467,18 +1691,27 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
     // SHM fallback (MemFd or MemPtr) - need mutable access for data()
     // gnome-remote-desktop uses MemFd for SHM buffers, which PipeWire maps for us
     if let Some(first_mut) = datas.first_mut() {
+        // Log SHM buffer details for debugging
+        eprintln!("[PIPEWIRE_DEBUG] extract_frame SHM: type={:?} fd={} size={} stride={} params={}x{}",
+            data_type, fd, size, stride, params.width, params.height);
+
         if let Some(data_ptr) = first_mut.data() {
             let width = if params.width > 0 { params.width } else if stride > 0 { (stride / 4) as u32 } else { 0 };
             let height = if params.height > 0 { params.height } else if stride > 0 { (size / stride as usize) as u32 } else { 0 };
-            if width == 0 || height == 0 { return None; }
+            if width == 0 || height == 0 {
+                eprintln!("[PIPEWIRE_DEBUG] extract_frame SHM: invalid dimensions {}x{} (stride={}, size={})", width, height, stride, size);
+                return None;
+            }
 
-            tracing::debug!(
-                "[PIPEWIRE_DEBUG] SHM frame: {}x{} type={:?} size={}",
-                width, height, data_type, size
-            );
+            eprintln!("[PIPEWIRE_DEBUG] SHM frame SUCCESS: {}x{} stride={} format=0x{:x}", width, height, stride, params.format);
 
             let data = unsafe { std::slice::from_raw_parts(data_ptr.as_ptr(), size) }.to_vec();
             return Some(FrameData::Shm { data, width, height, stride: stride as u32, format: params.format });
+        } else {
+            // data() returned None - buffer not mapped!
+            // This can happen if MAP_BUFFERS flag wasn't set or if it's a different buffer type
+            eprintln!("[PIPEWIRE_DEBUG] extract_frame SHM: data() returned None! Buffer not mapped? type={:?} fd={}",
+                data_type, fd);
         }
     }
 

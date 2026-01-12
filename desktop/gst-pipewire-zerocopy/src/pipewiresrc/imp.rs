@@ -9,6 +9,7 @@
 
 use crate::pipewire_stream::{DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
 use crate::wlr_export_dmabuf::WlrExportDmabufStream;
+use crate::wlr_screencopy::WlrScreencopyStream;
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -21,16 +22,16 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::drm::{DrmNode, NodeType};
-use smithay::backend::egl::{EGLDevice, EGLDisplay};
 use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
+use smithay::backend::egl::{EGLDevice, EGLDisplay};
 use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
 use std::time::Duration;
 
 // Reuse battle-tested CUDA code from waylanddisplaycore
 use waylanddisplaycore::utils::allocator::cuda::{
-    init_cuda, CUDAContext, CUDAImage, EGLImage, CUDABufferPool, GstCudaContext,
-    CAPS_FEATURE_MEMORY_CUDA_MEMORY, gst_cuda_handle_context_query_wrapped,
+    gst_cuda_handle_context_query_wrapped, init_cuda, CUDABufferPool, CUDAContext, CUDAImage,
+    EGLImage, GstCudaContext, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
 };
 // DRM types from waylanddisplaycore (which re-exports from smithay)
 use waylanddisplaycore::Fourcc as DrmFourcc;
@@ -94,14 +95,22 @@ fn drm_format_to_gst_string(fourcc: DrmFourcc, modifier: u64) -> String {
 }
 
 static CAT: Lazy<gst::DebugCategory> = Lazy::new(|| {
-    gst::DebugCategory::new("pipewirezerocopysrc", gst::DebugColorFlags::empty(), Some("PipeWire zero-copy source"))
+    gst::DebugCategory::new(
+        "pipewirezerocopysrc",
+        gst::DebugColorFlags::empty(),
+        Some("PipeWire zero-copy source"),
+    )
 });
 
 /// Create EGL display from render node path (reuses waylanddisplaycore's pattern)
 fn create_egl_display(node_path: &str) -> Result<EGLDisplay, String> {
     let drm_node = DrmNode::from_path(node_path).map_err(|e| format!("DrmNode: {:?}", e))?;
-    let drm_render = drm_node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(drm_node);
-    let device = EGLDevice::enumerate().map_err(|e| format!("enumerate: {:?}", e))?
+    let drm_render = drm_node
+        .node_with_type(NodeType::Render)
+        .and_then(Result::ok)
+        .unwrap_or(drm_node);
+    let device = EGLDevice::enumerate()
+        .map_err(|e| format!("enumerate: {:?}", e))?
         .find(|d| d.try_get_render_node().unwrap_or_default() == Some(drm_render.clone()))
         .ok_or_else(|| "No EGLDevice for node".to_string())?;
     unsafe { EGLDisplay::new(device).map_err(|e| format!("EGLDisplay: {:?}", e)) }
@@ -140,22 +149,37 @@ fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
 
     // Query render format modifiers from EGL for the formats GNOME uses (BGRA/BGRx)
     let target_formats = [
-        Fourcc::Argb8888, Fourcc::Abgr8888, Fourcc::Xrgb8888, Fourcc::Xbgr8888,
-        Fourcc::Bgra8888, Fourcc::Rgba8888, Fourcc::Bgrx8888, Fourcc::Rgbx8888,
+        Fourcc::Argb8888,
+        Fourcc::Abgr8888,
+        Fourcc::Xrgb8888,
+        Fourcc::Xbgr8888,
+        Fourcc::Bgra8888,
+        Fourcc::Rgba8888,
+        Fourcc::Bgrx8888,
+        Fourcc::Rgbx8888,
     ];
 
-    let egl_modifiers: Vec<u64> = render_formats.iter()
+    let egl_modifiers: Vec<u64> = render_formats
+        .iter()
         .filter(|f| target_formats.contains(&f.code))
         .map(|f| f.modifier.into())
         .collect();
 
-    eprintln!("[PIPEWIRESRC_DEBUG] EGL reports {} render format modifiers, nvidia={} amd={} intel={}",
-        egl_modifiers.len(), has_nvidia, has_amd, has_intel);
+    eprintln!(
+        "[PIPEWIRESRC_DEBUG] EGL reports {} render format modifiers, nvidia={} amd={} intel={}",
+        egl_modifiers.len(),
+        has_nvidia,
+        has_amd,
+        has_intel
+    );
     for (i, m) in egl_modifiers.iter().enumerate().take(5) {
         eprintln!("[PIPEWIRESRC_DEBUG]   egl_modifier[{}] = 0x{:x}", i, m);
     }
     if egl_modifiers.len() > 5 {
-        eprintln!("[PIPEWIRESRC_DEBUG]   ... and {} more", egl_modifiers.len() - 5);
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG]   ... and {} more",
+            egl_modifiers.len() - 5
+        );
     }
 
     // CRITICAL FIX: Offer NVIDIA ScreenCast modifiers (0xe08xxx family)
@@ -202,20 +226,43 @@ fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
     } else if has_amd || has_intel || !egl_modifiers.is_empty() {
         // AMD/Intel detected by vendor ID, OR we have EGL modifiers (likely AMD/Intel with LINEAR)
         // Use EGL modifiers directly, with INVALID as fallback
-        let vendor_hint = if has_amd { "AMD" } else if has_intel { "Intel" } else { "Unknown (likely AMD/Intel via LINEAR)" };
-        eprintln!("[PIPEWIRESRC_DEBUG] {} GPU detected - using EGL modifiers", vendor_hint);
+        let vendor_hint = if has_amd {
+            "AMD"
+        } else if has_intel {
+            "Intel"
+        } else {
+            "Unknown (likely AMD/Intel via LINEAR)"
+        };
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG] {} GPU detected - using EGL modifiers",
+            vendor_hint
+        );
         let mut mods = egl_modifiers.clone();
         if !mods.contains(&DRM_FORMAT_MOD_INVALID) {
             mods.push(DRM_FORMAT_MOD_INVALID);
         }
         mods
     } else {
-        eprintln!("[PIPEWIRESRC_DEBUG] Unknown GPU, no EGL modifiers - using DRM_FORMAT_MOD_INVALID only");
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG] Unknown GPU, no EGL modifiers - using DRM_FORMAT_MOD_INVALID only"
+        );
         vec![DRM_FORMAT_MOD_INVALID]
     };
 
-    let vendor_name = if has_nvidia { "NVIDIA" } else if has_amd { "AMD" } else if has_intel { "Intel" } else { "Unknown" };
-    eprintln!("[PIPEWIRESRC_DEBUG] Offering {} modifiers for {} GPU", modifiers.len(), vendor_name);
+    let vendor_name = if has_nvidia {
+        "NVIDIA"
+    } else if has_amd {
+        "AMD"
+    } else if has_intel {
+        "Intel"
+    } else {
+        "Unknown"
+    };
+    eprintln!(
+        "[PIPEWIRESRC_DEBUG] Offering {} modifiers for {} GPU",
+        modifiers.len(),
+        vendor_name
+    );
     for (i, m) in modifiers.iter().enumerate().take(5) {
         eprintln!("[PIPEWIRESRC_DEBUG]   offer[{}] = 0x{:x}", i, m);
     }
@@ -230,7 +277,13 @@ fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OutputMode { #[default] Auto, Cuda, DmaBuf, System }
+pub enum OutputMode {
+    #[default]
+    Auto,
+    Cuda,
+    DmaBuf,
+    System,
+}
 
 impl OutputMode {
     fn from_str(s: &str) -> Self {
@@ -291,20 +344,23 @@ impl Default for Settings {
 }
 
 /// Unified stream abstraction for different capture backends.
-/// Supports both PipeWire (GNOME) and wlr-export-dmabuf (Sway/wlroots).
+/// Supports PipeWire (GNOME), wlr-export-dmabuf (GPU), and wlr-screencopy (SHM).
 pub enum FrameStream {
     /// PipeWire ScreenCast stream (GNOME, xdg-desktop-portal)
     PipeWire(PipeWireStream),
-    /// wlr-export-dmabuf stream (Sway, wlroots compositors)
+    /// wlr-export-dmabuf stream (Sway/wlroots with GPU memory)
     WlrExport(WlrExportDmabufStream),
+    /// wlr-screencopy stream (Sway/wlroots with SHM - simplest, most reliable)
+    WlrScreencopy(WlrScreencopyStream),
 }
 
 impl FrameStream {
-    /// Receive a frame with timeout from either stream type
+    /// Receive a frame with timeout from any stream type
     pub fn recv_frame_timeout(&self, timeout: Duration) -> Result<FrameData, RecvError> {
         match self {
             FrameStream::PipeWire(stream) => stream.recv_frame_timeout(timeout),
             FrameStream::WlrExport(stream) => stream.recv_frame_timeout(timeout),
+            FrameStream::WlrScreencopy(stream) => stream.recv_frame_timeout(timeout),
         }
     }
 }
@@ -356,7 +412,10 @@ pub struct PipeWireZeroCopySrc {
 
 impl Default for PipeWireZeroCopySrc {
     fn default() -> Self {
-        Self { settings: Mutex::new(Settings::default()), state: Mutex::new(None) }
+        Self {
+            settings: Mutex::new(Settings::default()),
+            state: Mutex::new(None),
+        }
     }
 }
 
@@ -369,7 +428,8 @@ impl ObjectSubclass for PipeWireZeroCopySrc {
 
 impl ObjectImpl for PipeWireZeroCopySrc {
     fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| vec![
+        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| {
+            vec![
             glib::ParamSpecUInt::builder("pipewire-node-id").nick("PipeWire Node ID").blurb("PipeWire node ID from ScreenCast portal").construct().build(),
             glib::ParamSpecInt::builder("pipewire-fd")
                 .nick("PipeWire FD")
@@ -405,7 +465,8 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                 .default_value(60)
                 .construct()
                 .build(),
-        ]);
+        ]
+        });
         PROPERTIES.as_ref()
     }
 
@@ -418,7 +479,14 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                 s.pipewire_fd = if fd >= 0 { Some(fd) } else { None };
             }
             "render-node" => s.render_node = value.get().unwrap(),
-            "output-mode" => s.output_mode = value.get::<Option<String>>().unwrap().as_deref().map(OutputMode::from_str).unwrap_or_default(),
+            "output-mode" => {
+                s.output_mode = value
+                    .get::<Option<String>>()
+                    .unwrap()
+                    .as_deref()
+                    .map(OutputMode::from_str)
+                    .unwrap_or_default()
+            }
             "cuda-device-id" => s.cuda_device_id = value.get().unwrap(),
             "keepalive-time" => s.keepalive_time_ms = value.get().unwrap(),
             "resend-last" => s.resend_last = value.get().unwrap(),
@@ -432,8 +500,18 @@ impl ObjectImpl for PipeWireZeroCopySrc {
         match pspec.name() {
             "pipewire-node-id" => s.pipewire_node_id.unwrap_or(0).to_value(),
             "pipewire-fd" => s.pipewire_fd.unwrap_or(-1).to_value(),
-            "render-node" => s.render_node.clone().unwrap_or_else(|| "/dev/dri/renderD128".into()).to_value(),
-            "output-mode" => match s.output_mode { OutputMode::Auto => "auto", OutputMode::Cuda => "cuda", OutputMode::DmaBuf => "dmabuf", OutputMode::System => "system" }.to_value(),
+            "render-node" => s
+                .render_node
+                .clone()
+                .unwrap_or_else(|| "/dev/dri/renderD128".into())
+                .to_value(),
+            "output-mode" => match s.output_mode {
+                OutputMode::Auto => "auto",
+                OutputMode::Cuda => "cuda",
+                OutputMode::DmaBuf => "dmabuf",
+                OutputMode::System => "system",
+            }
+            .to_value(),
             "cuda-device-id" => s.cuda_device_id.to_value(),
             "keepalive-time" => s.keepalive_time_ms.to_value(),
             "resend-last" => s.resend_last.to_value(),
@@ -458,7 +536,12 @@ impl GstObjectImpl for PipeWireZeroCopySrc {}
 impl ElementImpl for PipeWireZeroCopySrc {
     fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
         static META: Lazy<gst::subclass::ElementMetadata> = Lazy::new(|| {
-            gst::subclass::ElementMetadata::new("PipeWire Zero-Copy Source", "Source/Video", "Captures PipeWire ScreenCast with zero-copy GPU output", "Wolf Project")
+            gst::subclass::ElementMetadata::new(
+                "PipeWire Zero-Copy Source",
+                "Source/Video",
+                "Captures PipeWire ScreenCast with zero-copy GPU output",
+                "Wolf Project",
+            )
         });
         Some(&*META)
     }
@@ -469,27 +552,52 @@ impl ElementImpl for PipeWireZeroCopySrc {
             // may produce different formats depending on the DRM fourcc.
             // DRM ARGB8888 -> GST BGRA, DRM BGRA8888 -> GST ARGB on little-endian.
             let rgba_formats = [
-                VideoFormat::Bgra, VideoFormat::Rgba,
-                VideoFormat::Argb, VideoFormat::Abgr,
-                VideoFormat::Bgrx, VideoFormat::Rgbx,
-                VideoFormat::Xrgb, VideoFormat::Xbgr,
+                VideoFormat::Bgra,
+                VideoFormat::Rgba,
+                VideoFormat::Argb,
+                VideoFormat::Abgr,
+                VideoFormat::Bgrx,
+                VideoFormat::Rgbx,
+                VideoFormat::Xrgb,
+                VideoFormat::Xbgr,
                 VideoFormat::Nv12,
             ];
             let mut caps = gst::Caps::new_empty();
-            caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
+            caps.merge(
+                VideoCapsBuilder::new()
+                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                    .format_list(rgba_formats)
+                    .build(),
+            );
             // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
             // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x...
             // The drm-format field contains the DRM fourcc and modifier
-            caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
+            caps.merge(
+                VideoCapsBuilder::new()
+                    .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
+                    .format(VideoFormat::DmaDrm)
+                    .build(),
+            );
             caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
-            vec![gst::PadTemplate::new("src", gst::PadDirection::Src, gst::PadPresence::Always, &caps).unwrap()]
+            vec![gst::PadTemplate::new(
+                "src",
+                gst::PadDirection::Src,
+                gst::PadPresence::Always,
+                &caps,
+            )
+            .unwrap()]
         });
         TEMPLATES.as_ref()
     }
 
-    fn change_state(&self, transition: gst::StateChange) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+    fn change_state(
+        &self,
+        transition: gst::StateChange,
+    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         match self.parent_change_state(transition) {
-            Ok(gst::StateChangeSuccess::Success) if transition.next() == gst::State::Paused => Ok(gst::StateChangeSuccess::NoPreroll),
+            Ok(gst::StateChangeSuccess::Success) if transition.next() == gst::State::Paused => {
+                Ok(gst::StateChangeSuccess::NoPreroll)
+            }
             x => x,
         }
     }
@@ -497,7 +605,10 @@ impl ElementImpl for PipeWireZeroCopySrc {
     /// Receive CUDA context from Wolf via GStreamer's context mechanism.
     /// Wolf creates the context and pushes it to elements via gst_element_set_context().
     fn set_context(&self, context: &gst::Context) {
-        eprintln!("[PIPEWIRESRC_DEBUG] set_context called, context_type={:?}", context.context_type());
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG] set_context called, context_type={:?}",
+            context.context_type()
+        );
         let elem = self.obj().upcast_ref::<gst::Element>().to_owned();
 
         // Get raw pointer for GStreamer CUDA interop
@@ -512,14 +623,25 @@ impl ElementImpl for PipeWireZeroCopySrc {
             Ok(ctx) => {
                 let mut settings = self.settings.lock();
                 if settings.cuda_context.is_none() {
-                    eprintln!("[PIPEWIRESRC_DEBUG] Received CUDA context via set_context - SUCCESS");
-                    gst::info!(CAT, imp = self, "Received CUDA context from pipeline (via set_context)");
+                    eprintln!(
+                        "[PIPEWIRESRC_DEBUG] Received CUDA context via set_context - SUCCESS"
+                    );
+                    gst::info!(
+                        CAT,
+                        imp = self,
+                        "Received CUDA context from pipeline (via set_context)"
+                    );
                     settings.cuda_context = Some(Arc::new(std::sync::Mutex::new(ctx)));
                 }
             }
             Err(e) => {
                 eprintln!("[PIPEWIRESRC_DEBUG] set_context failed: {}", e);
-                gst::debug!(CAT, imp = self, "set_context: not a CUDA context or failed: {}", e);
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "set_context: not a CUDA context or failed: {}",
+                    e
+                );
             }
         }
 
@@ -530,13 +652,27 @@ impl ElementImpl for PipeWireZeroCopySrc {
 impl BaseSrcImpl for PipeWireZeroCopySrc {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         let mut state_guard = self.state.lock();
-        if state_guard.is_some() { return Ok(()); }
+        if state_guard.is_some() {
+            return Ok(());
+        }
 
         // Extract settings - but don't hold the lock while doing CUDA setup
         let (node_id, pipewire_fd, render_node, output_mode, device_id, target_fps) = {
             let settings = self.settings.lock();
-            let node_id = settings.pipewire_node_id.ok_or_else(|| gst::error_msg!(gst::LibraryError::Settings, ("pipewire-node-id must be set")))?;
-            (node_id, settings.pipewire_fd, settings.render_node.clone(), settings.output_mode, settings.cuda_device_id, settings.target_fps)
+            let node_id = settings.pipewire_node_id.ok_or_else(|| {
+                gst::error_msg!(
+                    gst::LibraryError::Settings,
+                    ("pipewire-node-id must be set")
+                )
+            })?;
+            (
+                node_id,
+                settings.pipewire_fd,
+                settings.render_node.clone(),
+                settings.output_mode,
+                settings.cuda_device_id,
+                settings.target_fps,
+            )
         };
 
         eprintln!("[PIPEWIRESRC_DEBUG] start() called: node_id={}, pipewire_fd={:?}, render_node={:?}, output_mode={:?}, target_fps={}", node_id, pipewire_fd, render_node, output_mode, target_fps);
@@ -560,20 +696,31 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             if let Ok(()) = init_cuda() {
                 // Check if we already received a CUDA context via set_context()
                 let have_cuda_context = self.settings.lock().cuda_context.is_some();
-                eprintln!("[PIPEWIRESRC_DEBUG] have_cuda_context={}", have_cuda_context);
+                eprintln!(
+                    "[PIPEWIRESRC_DEBUG] have_cuda_context={}",
+                    have_cuda_context
+                );
 
                 if !have_cuda_context {
                     // No context pushed by Wolf - try to acquire one from the pipeline
                     // This matches waylandsrc's fallback behavior
                     eprintln!("[PIPEWIRESRC_DEBUG] No CUDA context from set_context, acquiring via new_from_gstreamer...");
-                    gst::info!(CAT, imp = self, "No CUDA context from set_context, acquiring from pipeline");
+                    gst::info!(
+                        CAT,
+                        imp = self,
+                        "No CUDA context from set_context, acquiring from pipeline"
+                    );
                     let cuda_raw_ptr = self.settings.lock().cuda_raw_ptr.as_ptr();
                     match CUDAContext::new_from_gstreamer(&elem, device_id, cuda_raw_ptr) {
                         Ok(ctx) => {
                             eprintln!("[PIPEWIRESRC_DEBUG] new_from_gstreamer succeeded!");
                             let mut settings = self.settings.lock();
                             if settings.cuda_context.is_none() {
-                                gst::info!(CAT, imp = self, "Acquired CUDA context via new_from_gstreamer");
+                                gst::info!(
+                                    CAT,
+                                    imp = self,
+                                    "Acquired CUDA context via new_from_gstreamer"
+                                );
                                 settings.cuda_context = Some(Arc::new(std::sync::Mutex::new(ctx)));
                             } else {
                                 // CRITICAL: Context was already set via set_context() during
@@ -606,7 +753,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 eprintln!("[PIPEWIRESRC_DEBUG] After context acquisition: has_context={}, render_node={:?}", has_context, render_node);
                 if let Some(ref cuda_context) = settings.cuda_context {
                     if let Some(ref node_path) = render_node {
-                        eprintln!("[PIPEWIRESRC_DEBUG] Creating EGL display for {}...", node_path);
+                        eprintln!(
+                            "[PIPEWIRESRC_DEBUG] Creating EGL display for {}...",
+                            node_path
+                        );
                         match create_egl_display(node_path) {
                             Ok(display) => {
                                 eprintln!("[PIPEWIRESRC_DEBUG] EGL display created, creating buffer pool...");
@@ -618,13 +768,20 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                                 match CUDABufferPool::new(&cuda_ctx) {
                                     Ok(pool) => {
                                         eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool created - CUDA MODE ENABLED!");
-                                        gst::info!(CAT, imp = self, "Using CUDA mode with shared context");
+                                        gst::info!(
+                                            CAT,
+                                            imp = self,
+                                            "Using CUDA mode with shared context"
+                                        );
                                         state.egl_display = Some(Arc::new(display));
                                         state.buffer_pool = Some(pool);
                                         state.actual_output_mode = OutputMode::Cuda;
                                     }
                                     Err(e) => {
-                                        eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool creation failed: {}", e);
+                                        eprintln!(
+                                            "[PIPEWIRESRC_DEBUG] Buffer pool creation failed: {}",
+                                            e
+                                        );
                                     }
                                 }
                             }
@@ -634,12 +791,17 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                             }
                         }
                     } else {
-                        eprintln!("[PIPEWIRESRC_DEBUG] render_node is None, can't create EGL display");
+                        eprintln!(
+                            "[PIPEWIRESRC_DEBUG] render_node is None, can't create EGL display"
+                        );
                     }
                 }
             }
         } else {
-            eprintln!("[PIPEWIRESRC_DEBUG] Not trying CUDA (output_mode={:?})", output_mode);
+            eprintln!(
+                "[PIPEWIRESRC_DEBUG] Not trying CUDA (output_mode={:?})",
+                output_mode
+            );
         }
 
         // AMD/Intel fallback: if CUDA failed but we have a render node, try EGL for DmaBuf
@@ -652,7 +814,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         eprintln!("[PIPEWIRESRC_DEBUG] EGL display created (no CUDA), querying DmaBuf caps...");
                         let caps = query_dmabuf_modifiers(&display);
                         if caps.dmabuf_available {
-                            eprintln!("[PIPEWIRESRC_DEBUG] DmaBuf available via EGL! modifiers={}", caps.modifiers.len());
+                            eprintln!(
+                                "[PIPEWIRESRC_DEBUG] DmaBuf available via EGL! modifiers={}",
+                                caps.modifiers.len()
+                            );
                             dmabuf_caps = Some(caps);
                             // Store EGL display for potential future use (e.g., DmaBuf import)
                             state.egl_display = Some(Arc::new(display));
@@ -666,7 +831,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         }
                     }
                     Err(e) => {
-                        eprintln!("[PIPEWIRESRC_DEBUG] EGL display failed (fallback path): {}", e);
+                        eprintln!(
+                            "[PIPEWIRESRC_DEBUG] EGL display failed (fallback path): {}",
+                            e
+                        );
                     }
                 }
             } else {
@@ -674,13 +842,18 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        eprintln!("[PIPEWIRESRC_DEBUG] Final actual_output_mode={:?}", state.actual_output_mode);
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG] Final actual_output_mode={:?}",
+            state.actual_output_mode
+        );
         if state.actual_output_mode == OutputMode::System {
             if output_mode == OutputMode::DmaBuf {
                 state.actual_output_mode = OutputMode::DmaBuf;
                 if state.dmabuf_allocator.is_none() {
                     state.dmabuf_allocator = Some(DmaBufAllocator::new());
-                    eprintln!("[PIPEWIRESRC_DEBUG] DmaBufAllocator initialized (forced DmaBuf mode)");
+                    eprintln!(
+                        "[PIPEWIRESRC_DEBUG] DmaBufAllocator initialized (forced DmaBuf mode)"
+                    );
                 }
                 gst::info!(CAT, imp = self, "Using DMA-BUF mode");
             } else {
@@ -689,21 +862,46 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        // Determine capture mode based on output_mode property:
-        // - system: Use SHM (shared memory) - one CPU copy, then GPU upload
-        // - cuda/dmabuf/auto: Use DMA-BUF for zero-copy GPU memory
+        // Determine capture mode based on compositor and output_mode property.
         //
-        // The Go code sets output_mode based on encoder and compositor:
-        // - GNOME + NVIDIA: auto (tries DMA-BUF → CUDA)
-        // - GNOME + VA-API: system (SHM → vapostproc → GPU)
-        // - Sway + any: system (xdg-desktop-portal-wlr doesn't support GPU modifiers)
+        // For Sway (wlroots): Use wlr-screencopy protocol directly (bypasses PipeWire).
+        // PipeWire + xdg-desktop-portal-wlr has format negotiation issues, so we use
+        // the native wlr-screencopy Wayland protocol which is simpler and more reliable.
+        //
+        // For GNOME: Use PipeWire ScreenCast via xdg-desktop-portal.
+        // - output_mode=system: PipeWire SHM
+        // - output_mode=cuda/dmabuf/auto: PipeWire DMA-BUF
+        // Check if wlr-screencopy is available (Sway or other wlroots-based compositors)
+        let wlr_screencopy_available = WlrScreencopyStream::is_available();
         let use_shm = output_mode == OutputMode::System;
 
-        let frame_stream = if use_shm {
-            eprintln!("[PIPEWIRESRC_DEBUG] output-mode=system: using PipeWire SHM");
-            gst::info!(CAT, imp = self, "System memory mode: PipeWire SHM for hardware encoding");
+        let frame_stream = if wlr_screencopy_available {
+            // wlroots compositor (Sway, etc.): Use wlr-screencopy directly
+            // This bypasses PipeWire entirely and uses the native Wayland protocol.
+            // PipeWire + xdg-desktop-portal-wlr has format negotiation issues.
+            eprintln!(
+                "[PIPEWIRESRC_DEBUG] wlroots compositor detected: using wlr-screencopy (bypassing PipeWire)"
+            );
+            gst::info!(
+                CAT,
+                imp = self,
+                "wlroots compositor: using wlr-screencopy for SHM capture"
+            );
 
-            // Force system memory output mode
+            state.actual_output_mode = OutputMode::System;
+
+            let wlr_stream = WlrScreencopyStream::connect(target_fps)
+                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("wlr-screencopy: {}", e)))?;
+            FrameStream::WlrScreencopy(wlr_stream)
+        } else if use_shm {
+            // GNOME + SHM mode: Use PipeWire SHM
+            eprintln!("[PIPEWIRESRC_DEBUG] output-mode=system: using PipeWire SHM");
+            gst::info!(
+                CAT,
+                imp = self,
+                "System memory mode: PipeWire SHM for hardware encoding"
+            );
+
             state.actual_output_mode = OutputMode::System;
 
             // Pass None for dmabuf_caps to force SHM-only format negotiation
@@ -711,11 +909,17 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire SHM: {}", e)))?;
             FrameStream::PipeWire(pw_stream)
         } else {
-            eprintln!("[PIPEWIRESRC_DEBUG] output-mode={:?}: using PipeWire DMA-BUF", output_mode);
+            // DMA-BUF mode (GNOME with GPU)
+            eprintln!(
+                "[PIPEWIRESRC_DEBUG] output-mode={:?}: using PipeWire DMA-BUF",
+                output_mode
+            );
             gst::info!(CAT, imp = self, "DMA-BUF mode: zero-copy GPU memory");
 
             let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
-                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire DMA-BUF: {}", e)))?;
+                .map_err(|e| {
+                    gst::error_msg!(gst::LibraryError::Init, ("PipeWire DMA-BUF: {}", e))
+                })?;
             FrameStream::PipeWire(pw_stream)
         };
 
@@ -733,7 +937,9 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         Ok(())
     }
 
-    fn is_seekable(&self) -> bool { false }
+    fn is_seekable(&self) -> bool {
+        false
+    }
 
     /// Handle context queries from downstream elements.
     /// When downstream elements need a CUDA context, we provide ours.
@@ -741,7 +947,11 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         if query.type_() == gst::QueryType::Context {
             let settings = self.settings.lock();
             if let Some(ref cuda_context) = settings.cuda_context {
-                gst::debug!(CAT, imp = self, "Handling CUDA context query from downstream");
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Handling CUDA context query from downstream"
+                );
                 let cuda_ctx = cuda_context.lock().unwrap();
                 return gst_cuda_handle_context_query_wrapped(
                     self.obj().as_ref().as_ref(),
@@ -772,31 +982,53 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         // Include all RGBA/BGRA variants since gst_video_info_dma_drm_to_video_info()
         // may produce different formats depending on the DRM fourcc.
         let rgba_formats = [
-            VideoFormat::Bgra, VideoFormat::Rgba,
-            VideoFormat::Argb, VideoFormat::Abgr,
-            VideoFormat::Bgrx, VideoFormat::Rgbx,
-            VideoFormat::Xrgb, VideoFormat::Xbgr,
+            VideoFormat::Bgra,
+            VideoFormat::Rgba,
+            VideoFormat::Argb,
+            VideoFormat::Abgr,
+            VideoFormat::Bgrx,
+            VideoFormat::Rgbx,
+            VideoFormat::Xrgb,
+            VideoFormat::Xbgr,
             VideoFormat::Nv12,
         ];
 
         let mut caps = match output_mode {
-            OutputMode::Cuda => VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build(),
+            OutputMode::Cuda => VideoCapsBuilder::new()
+                .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                .format_list(rgba_formats)
+                .build(),
             // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
             // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x...
-            OutputMode::DmaBuf => VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build(),
+            OutputMode::DmaBuf => VideoCapsBuilder::new()
+                .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
+                .format(VideoFormat::DmaDrm)
+                .build(),
             OutputMode::System => VideoCapsBuilder::new().format_list(rgba_formats).build(),
             OutputMode::Auto => {
                 // Auto mode before start(): advertise all capabilities (like pad template)
                 // GStreamer will negotiate based on downstream requirements
                 let mut all_caps = gst::Caps::new_empty();
-                all_caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
+                all_caps.merge(
+                    VideoCapsBuilder::new()
+                        .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                        .format_list(rgba_formats)
+                        .build(),
+                );
                 // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
-                all_caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
+                all_caps.merge(
+                    VideoCapsBuilder::new()
+                        .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
+                        .format(VideoFormat::DmaDrm)
+                        .build(),
+                );
                 all_caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
                 all_caps
             }
         };
-        if let Some(f) = filter { caps = caps.intersect(f); }
+        if let Some(f) = filter {
+            caps = caps.intersect(f);
+        }
         Some(caps)
     }
 
@@ -811,15 +1043,19 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                      Check that the pipeline uses display_mode.refreshRate instead of hardcoded 0/1.",
                     fps.numer(), fps.denom());
             }
-            if let Some(s) = self.state.lock().as_mut() { s.video_info = Some(info); }
+            if let Some(s) = self.state.lock().as_mut() {
+                s.video_info = Some(info);
+            }
         }
         self.parent_set_caps(caps)
     }
-
 }
 
 impl PushSrcImpl for PipeWireZeroCopySrc {
-    fn create(&self, _buffer: Option<&mut gst::BufferRef>) -> Result<CreateSuccess, gst::FlowError> {
+    fn create(
+        &self,
+        _buffer: Option<&mut gst::BufferRef>,
+    ) -> Result<CreateSuccess, gst::FlowError> {
         // Get shared CUDA context and keepalive settings (cloning the Arc, not the context)
         let (cuda_context, keepalive_time_ms) = {
             let settings = self.settings.lock();
@@ -844,11 +1080,16 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         } else if keepalive_time_ms > 0 {
             Duration::from_millis(keepalive_time_ms as u64)
         } else {
-            Duration::from_secs(30)  // Default timeout
+            Duration::from_secs(30) // Default timeout
         };
 
         if !has_last_buffer {
-            gst::info!(CAT, imp = self, "Waiting for first frame from PipeWire (timeout: {:?})", timeout);
+            gst::info!(
+                CAT,
+                imp = self,
+                "Waiting for first frame from PipeWire (timeout: {:?})",
+                timeout
+            );
         }
 
         // Try to receive a frame with timeout
@@ -860,7 +1101,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 // Timeout with keepalive enabled: resend last buffer with updated timestamps
                 // This is normal for GNOME 49+ damage-based ScreenCast with static screens
                 if let Some(ref last_buf) = state.last_buffer {
-                    gst::debug!(CAT, imp = self, "Keepalive: resending last buffer (no new frame from PipeWire)");
+                    gst::debug!(
+                        CAT,
+                        imp = self,
+                        "Keepalive: resending last buffer (no new frame from PipeWire)"
+                    );
 
                     // Clone the buffer and update timestamps
                     let mut buf = last_buf.copy();
@@ -882,7 +1127,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 } else {
                     // No last buffer yet - first frame hasn't arrived within keepalive time
                     // This shouldn't happen often since first frame uses longer timeout
-                    gst::warning!(CAT, imp = self, "Keepalive timeout but no last buffer available (waiting for first frame)");
+                    gst::warning!(
+                        CAT,
+                        imp = self,
+                        "Keepalive timeout but no last buffer available (waiting for first frame)"
+                    );
                     // Don't error immediately - continue waiting in subsequent create() calls
                     // The 30-second first-frame timeout above should handle this
                     return Err(gst::FlowError::Error);
@@ -890,7 +1139,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
             Err(RecvError::Timeout) => {
                 // Timeout without keepalive - this is an error
-                gst::error!(CAT, imp = self, "Frame receive timeout (keepalive disabled)");
+                gst::error!(
+                    CAT,
+                    imp = self,
+                    "Frame receive timeout (keepalive disabled)"
+                );
                 return Err(gst::FlowError::Error);
             }
             Err(RecvError::Disconnected) => {
@@ -912,12 +1165,23 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
         match &frame {
             FrameData::DmaBuf(dmabuf) => {
-                eprintln!("[PIPEWIRESRC_DEBUG] Received DmaBuf frame: {}x{} fourcc=0x{:x}",
-                    dmabuf.width(), dmabuf.height(), dmabuf.format().code as u32);
+                eprintln!(
+                    "[PIPEWIRESRC_DEBUG] Received DmaBuf frame: {}x{} fourcc=0x{:x}",
+                    dmabuf.width(),
+                    dmabuf.height(),
+                    dmabuf.format().code as u32
+                );
             }
-            FrameData::Shm { width, height, format, .. } => {
-                eprintln!("[PIPEWIRESRC_DEBUG] Received SHM frame: {}x{} format=0x{:x}",
-                    width, height, format);
+            FrameData::Shm {
+                width,
+                height,
+                format,
+                ..
+            } => {
+                eprintln!(
+                    "[PIPEWIRESRC_DEBUG] Received SHM frame: {}x{} format=0x{:x}",
+                    width, height, format
+                );
             }
         }
 
@@ -945,20 +1209,30 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
                 // EGL import timing
                 let t1 = Instant::now();
-                let egl_image = EGLImage::from(&dmabuf, &raw_display)
-                    .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] EGLImage error: {}", e); gst::FlowError::Error })?;
+                let egl_image = EGLImage::from(&dmabuf, &raw_display).map_err(|e| {
+                    eprintln!("[PIPEWIRESRC_DEBUG] EGLImage error: {}", e);
+                    gst::FlowError::Error
+                })?;
                 let egl_time = t1.elapsed();
 
                 // CUDA import timing
                 let t2 = Instant::now();
-                let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
-                    .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] CUDAImage error: {}", e); gst::FlowError::Error })?;
+                let cuda_image = CUDAImage::from(egl_image, &cuda_ctx).map_err(|e| {
+                    eprintln!("[PIPEWIRESRC_DEBUG] CUDAImage error: {}", e);
+                    gst::FlowError::Error
+                })?;
                 let cuda_time = t2.elapsed();
 
                 // Derive VideoFormat from DMA-BUF's fourcc (matches waylanddisplaycore pattern)
                 let drm_format = dmabuf.format();
                 let video_format = drm_fourcc_to_video_format(drm_format.code);
-                gst::debug!(CAT, imp = self, "DMA-BUF format: {:?} -> {:?}", drm_format.code, video_format);
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "DMA-BUF format: {:?} -> {:?}",
+                    drm_format.code,
+                    video_format
+                );
 
                 let base_info = VideoInfo::builder(video_format, w, h)
                     .build()
@@ -1011,8 +1285,12 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
                 // Buffer creation timing
                 let t3 = Instant::now();
-                let buf = cuda_image.to_gst_buffer(dma_video_info, &cuda_ctx, state.buffer_pool.as_ref())
-                    .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] to_gst_buffer error: {}", e); gst::FlowError::Error })?;
+                let buf = cuda_image
+                    .to_gst_buffer(dma_video_info, &cuda_ctx, state.buffer_pool.as_ref())
+                    .map_err(|e| {
+                        eprintln!("[PIPEWIRESRC_DEBUG] to_gst_buffer error: {}", e);
+                        gst::FlowError::Error
+                    })?;
                 let buf_time = t3.elapsed();
 
                 let total = frame_start.elapsed();
@@ -1024,7 +1302,8 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
                 // Get the actual format from the buffer's VideoMeta (set by to_gst_buffer)
                 // This is the format that gst_video_info_dma_drm_to_video_info() produced
-                let actual_fmt = buf.meta::<gst_video::VideoMeta>()
+                let actual_fmt = buf
+                    .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())
                     .unwrap_or(video_format);
 
@@ -1050,7 +1329,9 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 state.drm_format_string = Some(drm_format_str);
 
                 let allocator = state.dmabuf_allocator.as_ref().ok_or_else(|| {
-                    eprintln!("[PIPEWIRESRC_DEBUG] ERROR: dmabuf_allocator is None in DmaBuf mode!");
+                    eprintln!(
+                        "[PIPEWIRESRC_DEBUG] ERROR: dmabuf_allocator is None in DmaBuf mode!"
+                    );
                     gst::FlowError::Error
                 })?;
 
@@ -1066,7 +1347,13 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 let buf = self.dmabuf_to_system(&dmabuf)?;
                 (buf, video_format, w, h)
             }
-            FrameData::Shm { data, width, height, stride, format } => {
+            FrameData::Shm {
+                data,
+                width,
+                height,
+                stride,
+                format,
+            } => {
                 // Try to convert format (fourcc) to VideoFormat, fall back to Bgra
                 let video_format = if format != 0 {
                     match DrmFourcc::try_from(format) {
@@ -1083,35 +1370,47 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
         // Check if we need to update caps to match the actual buffer format
         let needs_caps_update = match &state.video_info {
-            Some(info) => info.format() != actual_format || info.width() != width || info.height() != height,
+            Some(info) => {
+                info.format() != actual_format || info.width() != width || info.height() != height
+            }
             None => true,
         };
 
         if needs_caps_update {
-            gst::info!(CAT, imp = self, "Format/size changed, updating caps to {:?} {}x{}", actual_format, width, height);
+            gst::info!(
+                CAT,
+                imp = self,
+                "Format/size changed, updating caps to {:?} {}x{}",
+                actual_format,
+                width,
+                height
+            );
 
             // Get framerate from existing video_info or use 60/1 as default
             // GStreamer requires framerate for caps to be "fixed"
-            let fps = state.video_info.as_ref()
+            let fps = state
+                .video_info
+                .as_ref()
                 .map(|info| info.fps())
                 .unwrap_or(gst::Fraction::new(60, 1));
 
             // Build new caps with the actual format (must include framerate for fixed caps)
             let new_caps = match state.actual_output_mode {
-                OutputMode::Cuda => {
-                    VideoCapsBuilder::new()
-                        .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
-                        .format(actual_format)
-                        .width(width as i32)
-                        .height(height as i32)
-                        .framerate(fps)
-                        .build()
-                }
+                OutputMode::Cuda => VideoCapsBuilder::new()
+                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                    .format(actual_format)
+                    .width(width as i32)
+                    .height(height as i32)
+                    .framerate(fps)
+                    .build(),
                 OutputMode::DmaBuf => {
                     // AMD/Intel zero-copy: Use DMA_DRM format with drm-format field
                     // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=XR24:0x...
                     // The drm-format field is required for vapostproc to import the DMABuf
-                    let drm_fmt = state.drm_format_string.clone().unwrap_or_else(|| "XR24".to_string());
+                    let drm_fmt = state
+                        .drm_format_string
+                        .clone()
+                        .unwrap_or_else(|| "XR24".to_string());
                     VideoCapsBuilder::new()
                         .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
                         .format(VideoFormat::DmaDrm)
@@ -1121,14 +1420,12 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                         .framerate(fps)
                         .build()
                 }
-                _ => {
-                    VideoCapsBuilder::new()
-                        .format(actual_format)
-                        .width(width as i32)
-                        .height(height as i32)
-                        .framerate(fps)
-                        .build()
-                }
+                _ => VideoCapsBuilder::new()
+                    .format(actual_format)
+                    .width(width as i32)
+                    .height(height as i32)
+                    .framerate(fps)
+                    .build(),
             };
 
             // Update stored video_info
@@ -1174,8 +1471,8 @@ impl PipeWireZeroCopySrc {
         allocator: &DmaBufAllocator,
         video_format: VideoFormat,
     ) -> Result<gst::Buffer, gst::FlowError> {
-        use std::os::fd::{AsFd, AsRawFd};
         use smithay::reexports::rustix::fs::{seek, SeekFrom};
+        use std::os::fd::{AsFd, AsRawFd};
 
         let width = dmabuf.width() as u32;
         let height = dmabuf.height() as u32;
@@ -1202,11 +1499,10 @@ impl PipeWireZeroCopySrc {
                 let fd = handle.as_raw_fd();
 
                 // Get actual size of the DMA-BUF by seeking to end
-                let actual_size = seek(&handle.as_fd(), SeekFrom::End(0))
-                    .map_err(|e| {
-                        eprintln!("[PIPEWIRESRC_DEBUG] Failed to seek DMA-BUF fd: {:?}", e);
-                        gst::FlowError::Error
-                    })? as usize;
+                let actual_size = seek(&handle.as_fd(), SeekFrom::End(0)).map_err(|e| {
+                    eprintln!("[PIPEWIRESRC_DEBUG] Failed to seek DMA-BUF fd: {:?}", e);
+                    gst::FlowError::Error
+                })? as usize;
 
                 // Reset seek position
                 let _ = seek(&handle.as_fd(), SeekFrom::Start(0));
@@ -1225,7 +1521,10 @@ impl PipeWireZeroCopySrc {
                 };
 
                 gst_buf.append_memory(memory);
-                eprintln!("[PIPEWIRESRC_DEBUG] Appended DMA-BUF plane {} (fd={}, size={})", plane_idx, fd, allocation_size);
+                eprintln!(
+                    "[PIPEWIRESRC_DEBUG] Appended DMA-BUF plane {} (fd={}, size={})",
+                    plane_idx, fd, allocation_size
+                );
             }
 
             // Collect offsets and strides
@@ -1241,43 +1540,87 @@ impl PipeWireZeroCopySrc {
                 height,
                 &offsets,
                 &strides,
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 eprintln!("[PIPEWIRESRC_DEBUG] Failed to add VideoMeta: {:?}", e);
                 gst::FlowError::Error
             })?;
         }
 
-        eprintln!("[PIPEWIRESRC_DEBUG] Zero-copy DMA-BUF buffer created: {}x{} {:?}", width, height, video_format);
+        eprintln!(
+            "[PIPEWIRESRC_DEBUG] Zero-copy DMA-BUF buffer created: {}x{} {:?}",
+            width, height, video_format
+        );
         Ok(gst_buffer)
     }
 
-    fn dmabuf_to_system(&self, dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf) -> Result<gst::Buffer, gst::FlowError> {
+    fn dmabuf_to_system(
+        &self,
+        dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
+    ) -> Result<gst::Buffer, gst::FlowError> {
         use std::os::fd::AsRawFd;
         let size = (dmabuf.height() as usize) * (dmabuf.strides().next().unwrap_or(0) as usize);
         let mut data = vec![0u8; size];
 
         unsafe {
-            let fd = dmabuf.handles().next().ok_or(gst::FlowError::Error)?.as_raw_fd();
-            let ptr = libc::mmap(std::ptr::null_mut(), size, libc::PROT_READ, libc::MAP_SHARED, fd, 0);
-            if ptr == libc::MAP_FAILED { return Err(gst::FlowError::Error); }
+            let fd = dmabuf
+                .handles()
+                .next()
+                .ok_or(gst::FlowError::Error)?
+                .as_raw_fd();
+            let ptr = libc::mmap(
+                std::ptr::null_mut(),
+                size,
+                libc::PROT_READ,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            );
+            if ptr == libc::MAP_FAILED {
+                return Err(gst::FlowError::Error);
+            }
             std::ptr::copy_nonoverlapping(ptr as *const u8, data.as_mut_ptr(), size);
             libc::munmap(ptr, size);
         }
 
         // Derive format from DMA-BUF's fourcc
         let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
-        self.create_system_buffer(&data, dmabuf.width() as u32, dmabuf.height() as u32, dmabuf.strides().next().unwrap_or(0), video_format)
+        self.create_system_buffer(
+            &data,
+            dmabuf.width() as u32,
+            dmabuf.height() as u32,
+            dmabuf.strides().next().unwrap_or(0),
+            video_format,
+        )
     }
 
-    fn create_system_buffer(&self, data: &[u8], width: u32, height: u32, stride: u32, format: VideoFormat) -> Result<gst::Buffer, gst::FlowError> {
+    fn create_system_buffer(
+        &self,
+        data: &[u8],
+        width: u32,
+        height: u32,
+        stride: u32,
+        format: VideoFormat,
+    ) -> Result<gst::Buffer, gst::FlowError> {
         let mut buffer = gst::Buffer::with_size(data.len()).map_err(|_| gst::FlowError::Error)?;
         {
             let buf = buffer.get_mut().unwrap();
-            buf.map_writable().map_err(|_| gst::FlowError::Error)?.copy_from_slice(data);
+            buf.map_writable()
+                .map_err(|_| gst::FlowError::Error)?
+                .copy_from_slice(data);
         }
         {
             let buf = buffer.get_mut().unwrap();
-            gst_video::VideoMeta::add_full(buf, gst_video::VideoFrameFlags::empty(), format, width, height, &[0], &[stride as i32]).map_err(|_| gst::FlowError::Error)?;
+            gst_video::VideoMeta::add_full(
+                buf,
+                gst_video::VideoFrameFlags::empty(),
+                format,
+                width,
+                height,
+                &[0],
+                &[stride as i32],
+            )
+            .map_err(|_| gst::FlowError::Error)?;
         }
         Ok(buffer)
     }
@@ -1377,7 +1720,11 @@ mod tests {
         let format = drm_fourcc_to_video_format(DrmFourcc::Bgrx8888);
         // CRITICAL: Must be Bgrx to match the actual pixel data from PipeWire
         // If this is Xrgb, colors will be swapped (R/B channels reversed)
-        assert_eq!(format, VideoFormat::Bgrx, "BGRX8888 should map to Bgrx (CUDA workaround)");
+        assert_eq!(
+            format,
+            VideoFormat::Bgrx,
+            "BGRX8888 should map to Bgrx (CUDA workaround)"
+        );
     }
 
     #[test]
@@ -1386,7 +1733,11 @@ mod tests {
         let format = drm_fourcc_to_video_format(DrmFourcc::Rgbx8888);
         // CRITICAL: Must be Rgbx to match the actual pixel data from PipeWire
         // If this is Xbgr, colors will be swapped (R/B channels reversed)
-        assert_eq!(format, VideoFormat::Rgbx, "RGBX8888 should map to Rgbx (CUDA workaround)");
+        assert_eq!(
+            format,
+            VideoFormat::Rgbx,
+            "RGBX8888 should map to Rgbx (CUDA workaround)"
+        );
     }
 
     /// Test Settings default values
@@ -1394,7 +1745,10 @@ mod tests {
     fn test_settings_default() {
         let settings = Settings::default();
         assert!(settings.pipewire_node_id.is_none());
-        assert_eq!(settings.render_node, Some("/dev/dri/renderD128".to_string()));
+        assert_eq!(
+            settings.render_node,
+            Some("/dev/dri/renderD128".to_string())
+        );
         assert_eq!(settings.output_mode, OutputMode::Auto);
         assert_eq!(settings.cuda_device_id, -1);
         assert!(settings.cuda_context.is_none());
@@ -1418,13 +1772,22 @@ mod tests {
     fn test_framerate_validation() {
         // Valid framerates
         let valid_fps = gst::Fraction::new(60, 1);
-        assert!(valid_fps.numer() > 0 && valid_fps.denom() > 0, "60/1 should be valid");
+        assert!(
+            valid_fps.numer() > 0 && valid_fps.denom() > 0,
+            "60/1 should be valid"
+        );
 
         let valid_fps_30 = gst::Fraction::new(30, 1);
-        assert!(valid_fps_30.numer() > 0 && valid_fps_30.denom() > 0, "30/1 should be valid");
+        assert!(
+            valid_fps_30.numer() > 0 && valid_fps_30.denom() > 0,
+            "30/1 should be valid"
+        );
 
         // Invalid framerate (the bug we're preventing)
         let invalid_fps = gst::Fraction::new(0, 1);
-        assert!(invalid_fps.numer() == 0, "0/1 should be detected as invalid");
+        assert!(
+            invalid_fps.numer() == 0,
+            "0/1 should be detected as invalid"
+        );
     }
 }

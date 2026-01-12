@@ -390,6 +390,81 @@ We implemented and tested wlr-export-dmabuf (commit `a01d1640a`) but hit blocker
 2. `WLR_DRM_NO_MODIFIERS=1` forces LINEAR (CUDA-compatible) but crashes Zed
 3. PipeWire SHM achieves the same goal (hardware encoding) with simpler code
 
+## wlr-screencopy Implementation (2026-01-12)
+
+### Problem with PipeWire Path
+
+PipeWire + xdg-desktop-portal-wlr had format negotiation issues:
+- Modifier negotiation complexity between our plugin and the portal
+- Multiple format pods required (with/without modifiers)
+- Race conditions in buffer allocation
+
+### Solution: Native wlr-screencopy Protocol
+
+Bypass PipeWire entirely for Sway using the native `wlr-screencopy-unstable-v1` Wayland protocol.
+This is simpler and more reliable than xdg-desktop-portal-wlr + PipeWire.
+
+**Files Added:**
+- `desktop/gst-pipewire-zerocopy/src/wlr_screencopy.rs` - Wayland client for wlr-screencopy
+
+**Protocol Flow:**
+1. Connect to Wayland display via WAYLAND_DISPLAY
+2. Bind `zwlr_screencopy_manager_v1` and `wl_shm` globals
+3. Call `capture_output()` to request a frame
+4. Receive `buffer` event with format, width, height, stride
+5. Create memfd + wl_shm_pool + wl_buffer
+6. Call `frame.copy(buffer)` to request the screenshot
+7. Receive `ready` event when frame is captured
+8. Copy SHM data to GStreamer buffer
+
+**Detection:**
+- Check `XDG_CURRENT_DESKTOP` for "sway" or "wlroots"
+- If detected, use wlr-screencopy instead of PipeWire
+
+**Architecture:**
+```
+Sway (via wlr-screencopy):
+  Sway → wlr-screencopy (SHM) → pipewirezerocopysrc → cudaupload → NVENC
+```
+
+### Trade-offs
+
+- Uses SHM (shared memory) not DMA-BUF - one CPU copy per frame
+- Still uses hardware encoding (NVENC/VAAPI)
+- Simpler than PipeWire + portal
+- Works reliably on all wlroots compositors
+
+## Future: ext-image-copy-capture-v1
+
+The `ext-image-copy-capture-v1` protocol is a more modern, standardized replacement
+for `wlr-screencopy-unstable-v1`. It's supported by Sway 1.10+ and KWin 6.2+.
+
+**Key Benefits:**
+1. **Damage tracking** - Only sends changed regions, reducing bandwidth for static screens
+2. **Cross-compositor** - Works on Sway, KDE Plasma, and other compositors
+3. **Standardized** - Part of wayland-protocols-extra (not wlroots-specific)
+4. **Session-based** - Persistent capture sessions with better state management
+
+**Damage Tracking Benefits:**
+- Static desktops produce fewer frames
+- Slow network connections can catch up during idle periods
+- Reduced CPU/GPU usage when screen is static
+- Better for metered connections
+
+**Protocol Comparison:**
+
+| Feature | wlr-screencopy | ext-image-copy-capture |
+|---------|---------------|----------------------|
+| Compositor | wlroots only | Sway 1.10+, KDE 6.2+ |
+| Damage | No | Yes |
+| Session | Per-frame | Persistent |
+| Stability | Unstable | Stable |
+| Memory | SHM or DMA-BUF | SHM or DMA-BUF |
+
+**Implementation Priority:**
+For now, wlr-screencopy works and is widely supported. ext-image-copy-capture-v1
+can be added as an enhancement when we need damage-based streaming.
+
 ## Related Issues
 
 - wf-recorder may silently fall back to libx264 if h264_nvenc unavailable
