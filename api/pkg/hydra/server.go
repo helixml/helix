@@ -591,44 +591,70 @@ func getNvidiaGPUs() []GPUInfo {
 	return gpus
 }
 
-// getAMDGPUs queries AMD GPUs using rocm-smi
+// getAMDGPUs queries AMD GPUs using rocm-smi or fallback detection
 func getAMDGPUs() []GPUInfo {
 	var gpus []GPUInfo
 
 	// Check if rocm-smi exists
-	if _, err := os.Stat("/usr/local/bin/rocm-smi"); err != nil {
-		if _, err := os.Stat("/opt/rocm/bin/rocm-smi"); err != nil {
-			return gpus
+	hasRocmSmi := false
+	if _, err := os.Stat("/usr/local/bin/rocm-smi"); err == nil {
+		hasRocmSmi = true
+	} else if _, err := os.Stat("/opt/rocm/bin/rocm-smi"); err == nil {
+		hasRocmSmi = true
+	}
+
+	if hasRocmSmi {
+		// Query GPU info via rocm-smi
+		cmd := "rocm-smi --showid --showtemp --showuse --showmeminfo vram --csv 2>/dev/null"
+		out, err := execCommand("sh", "-c", cmd)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to query AMD GPUs via rocm-smi")
+		} else {
+			// Parse rocm-smi CSV output
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			for i, line := range lines {
+				if i == 0 || line == "" { // Skip header
+					continue
+				}
+				fields := strings.Split(line, ",")
+				if len(fields) < 4 {
+					continue
+				}
+
+				var index int
+				fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
+
+				gpus = append(gpus, GPUInfo{
+					Index:  index,
+					Name:   "AMD GPU",
+					Vendor: "amd",
+				})
+			}
+			if len(gpus) > 0 {
+				return gpus
+			}
 		}
 	}
 
-	// Query GPU info
-	cmd := "rocm-smi --showid --showtemp --showuse --showmeminfo vram --csv 2>/dev/null"
-	out, err := execCommand("sh", "-c", cmd)
-	if err != nil {
-		log.Debug().Err(err).Msg("Failed to query AMD GPUs")
-		return gpus
-	}
-
-	// Parse rocm-smi CSV output
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	for i, line := range lines {
-		if i == 0 || line == "" { // Skip header
-			continue
-		}
-		fields := strings.Split(line, ",")
-		if len(fields) < 4 {
-			continue
+	// Fallback: detect AMD GPU via /dev/kfd (AMD's kernel fusion driver)
+	// This works even without rocm-smi installed (e.g., on Azure AMD VMs)
+	if _, err := os.Stat("/dev/kfd"); err == nil {
+		// /dev/kfd exists, which indicates AMD GPU with ROCm/compute support
+		// Count renderD* devices to estimate GPU count
+		matches, _ := filepath.Glob("/dev/dri/renderD*")
+		gpuCount := len(matches)
+		if gpuCount == 0 {
+			gpuCount = 1 // At least one GPU if /dev/kfd exists
 		}
 
-		var index int
-		fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
-
-		gpus = append(gpus, GPUInfo{
-			Index:  index,
-			Name:   "AMD GPU",
-			Vendor: "amd",
-		})
+		for i := 0; i < gpuCount; i++ {
+			gpus = append(gpus, GPUInfo{
+				Index:  i,
+				Name:   "AMD GPU (detected via /dev/kfd)",
+				Vendor: "amd",
+			})
+		}
+		log.Info().Int("count", gpuCount).Msg("Detected AMD GPU(s) via /dev/kfd fallback")
 	}
 
 	return gpus

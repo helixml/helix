@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -339,7 +340,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Msg("Configured NVIDIA GPU passthrough")
 
 	case "amd":
-		// AMD: mount /dev/kfd and /dev/dri/*
+		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding
 		hostConfig.Devices = append(hostConfig.Devices,
 			container.DeviceMapping{
 				PathOnHost:        "/dev/kfd",
@@ -347,8 +348,29 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				CgroupPermissions: "rwm",
 			},
 		)
-		// DRI devices are handled via GOW_REQUIRED_DEVICES env var in the container
-		log.Debug().Msg("Configured AMD GPU passthrough")
+		// Also mount all DRI render nodes for VA-API
+		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		for _, dev := range driDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		// Also mount card devices for display
+		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		for _, dev := range cardDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
 		// Intel: mount /dev/dri/* (handled via GOW_REQUIRED_DEVICES in container)

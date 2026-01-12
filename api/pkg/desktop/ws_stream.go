@@ -259,8 +259,10 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
 // 3. VA-API (vah264enc) - Intel/AMD VA-API
-// 4. VA-API LP (vah264lpenc) - Intel/AMD VA-API Low Power mode
-// 5. x264 (x264enc) - software fallback
+// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin
+// 5. VA-API LP (vah264lpenc) - Intel/AMD VA-API Low Power mode
+// 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
+// 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
 	// Try NVENC first (NVIDIA)
 	if checkGstElement("nvh264enc") {
@@ -290,9 +292,21 @@ func (v *VideoStreamer) selectEncoder() string {
 		return "vaapi-lp"
 	}
 
-	// Fallback to software
-	v.logger.Info("using software x264 encoder (no hardware encoder found)")
-	return "x264"
+	// Try OpenH264 software encoder (Cisco's implementation, commonly installed)
+	if checkGstElement("openh264enc") {
+		v.logger.Info("using OpenH264 software encoder")
+		return "openh264"
+	}
+
+	// Fallback to x264 software encoder
+	if checkGstElement("x264enc") {
+		v.logger.Info("using x264 software encoder")
+		return "x264"
+	}
+
+	// Last resort - try openh264 anyway (it's usually available)
+	v.logger.Warn("no H.264 encoder found, trying openh264enc")
+	return "openh264"
 }
 
 // checkGstElement checks if a GStreamer element is available.
@@ -512,15 +526,37 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			)
 		}
 
-	default:
-		// Software x264 fallback - CPU-based conversion
-		// This is the slowest path but works on any system
+	case "openh264":
+		// OpenH264 software encoder (Cisco's implementation)
+		// Lower latency than x264 but may have lower quality
+		// Commonly available as it's installed by default in many distros
+		parts = append(parts,
+			"videoconvert",
+			"videoscale",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
+		)
+
+	case "x264":
+		// x264 software encoder - high quality but requires gst-plugins-ugly
 		parts = append(parts,
 			"videoconvert",
 			"videoscale",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 				v.config.Width, v.config.Height, v.config.FPS),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+		)
+
+	default:
+		// Unknown encoder - try openh264 as last resort
+		v.logger.Warn("unknown encoder, falling back to openh264", "encoder", encoder)
+		parts = append(parts,
+			"videoconvert",
+			"videoscale",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
 		)
 	}
 
