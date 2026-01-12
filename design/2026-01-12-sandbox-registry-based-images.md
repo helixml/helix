@@ -63,17 +63,112 @@ sandbox image (shipped to users)
 
 ### Phase 2: Build Script Changes
 
-**`./stack build-sway`** changes:
+#### `./stack build-sway` and `./stack build-ubuntu`
+
 ```bash
-# Current: Export tarball, transfer via docker save/load
+# Current flow:
+# 1. Build image locally
+# 2. Export to tarball
+# 3. Transfer tarball to sandbox's dockerd via docker save/load
+
+docker build -t helix-sway:$TAG .
 docker save helix-sway:$TAG > sandbox-images/helix-sway.tar
 docker exec sandbox docker load < sandbox-images/helix-sway.tar
 
-# New: Push to registry, write reference file
-docker tag helix-sway:$TAG registry.helixml.tech/helix/sway:$TAG
-docker push registry.helixml.tech/helix/sway:$TAG
-echo "registry.helixml.tech/helix/sway:$TAG" > sandbox-images/helix-sway.ref
-docker exec sandbox docker pull registry.helixml.tech/helix/sway:$TAG
+# New flow:
+# 1. Build image locally
+# 2. Push to registry (leverages layer caching)
+# 3. Write reference file (for sandbox to know what to pull)
+# 4. Trigger pull in local sandbox (for dev testing)
+
+docker build -t helix-sway:$TAG .
+docker tag helix-sway:$TAG $REGISTRY/helix/sway:$TAG
+docker push $REGISTRY/helix/sway:$TAG
+echo "$REGISTRY/helix/sway:$TAG" > sandbox-images/helix-sway.ref
+# For local dev: trigger pull in running sandbox
+docker exec sandbox docker pull $REGISTRY/helix/sway:$TAG
+```
+
+#### `./stack build-sandbox`
+
+```bash
+# Current flow:
+# 1. Build Wolf, Moonlight Web
+# 2. COPY tarballs into image (1.6GB + 1.8GB = 3.4GB copied every time)
+# 3. Ship massive image
+
+COPY sandbox-images/helix-sway.tar /sandbox-images/
+COPY sandbox-images/helix-ubuntu.tar /sandbox-images/
+
+# New flow:
+# 1. Build Wolf, Moonlight Web
+# 2. COPY only small reference files (~100 bytes each)
+# 3. Ship slim image
+
+COPY sandbox-images/helix-sway.ref /sandbox-images/
+COPY sandbox-images/helix-ubuntu.ref /sandbox-images/
+```
+
+#### CI/CD Pipeline Changes
+
+```yaml
+# Current: Multiple jobs, 3.4GB tarball artifacts passed between them
+build-desktop-images:
+  - build helix-sway, helix-ubuntu
+  - export tarballs as artifacts (3.4GB uploaded to CI cache)
+
+build-sandbox:
+  - download tarball artifacts (3.4GB)
+  - embed in sandbox image
+  - push sandbox image (~4GB)
+
+# New: Single job, no artifact passing, Docker layer cache handles efficiency
+build-sandbox:
+  # Build desktop images and push to registry (layer-cached)
+  - docker build helix-sway
+  - docker push $REGISTRY/helix/sway:$VERSION
+  - docker build helix-ubuntu
+  - docker push $REGISTRY/helix/ubuntu:$VERSION
+
+  # Write .ref files locally (same job, no artifact transfer)
+  - echo "$REGISTRY/helix/sway:$VERSION" > sandbox-images/helix-sway.ref
+  - echo "$REGISTRY/helix/ubuntu:$VERSION" > sandbox-images/helix-ubuntu.ref
+
+  # Build and push slim sandbox image (~500MB)
+  - docker build -f Dockerfile.sandbox .
+  - docker push $REGISTRY/helix/sandbox:$VERSION
+```
+
+Benefits of single job:
+- No artifact upload/download between jobs (was 3.4GB)
+- Docker build cache shared across all builds in same job
+- Simpler CI configuration
+- Atomic: either everything succeeds or nothing is published
+
+#### Dockerfile.sandbox Changes
+
+```dockerfile
+# Current:
+COPY sandbox-images/helix-sway.tar /sandbox-images/helix-sway.tar
+COPY sandbox-images/helix-ubuntu.tar /sandbox-images/helix-ubuntu.tar
+# Startup script does: docker load < /sandbox-images/*.tar
+
+# New:
+COPY sandbox-images/helix-sway.ref /sandbox-images/helix-sway.ref
+COPY sandbox-images/helix-ubuntu.ref /sandbox-images/helix-ubuntu.ref
+# Startup script does: docker pull $(cat /sandbox-images/*.ref)
+```
+
+#### Local Development Workflow
+
+For rapid iteration, developers need the local sandbox to use newly built images:
+
+```bash
+# Option A: Push to shared dev registry, pull in sandbox
+./stack build-sway  # pushes to registry, triggers pull
+
+# Option B: Direct load for offline/fast iteration (keep as fallback)
+./stack build-sway --local  # uses docker save/load, no registry
 ```
 
 ### Phase 3: Sandbox Runtime Changes
@@ -153,8 +248,11 @@ vim api/pkg/desktop/desktop.go
    - Option B: Fallback to embedded tarball if registry unreachable
 
 3. **Image garbage collection**: How to clean up old image versions in sandbox's dockerd?
-   - Option A: Prune on startup
-   - Option B: Limit disk usage, LRU eviction
+   - **Critical**: Must pull new images BEFORE pruning old ones, otherwise we lose shared layers and download the full image anyway (defeating the whole purpose)
+   - Sequence: pull new → verify success → prune old
+   - Option A: Prune previous version after successful pull of new version
+   - Option B: Keep N most recent versions, prune older ones
+   - Option C: Disk pressure based - only prune when running low on space
 
 4. **Version coordination**: How to ensure sandbox image version matches desktop image versions?
    - Embed expected versions in sandbox image
