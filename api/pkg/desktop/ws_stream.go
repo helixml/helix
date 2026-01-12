@@ -467,9 +467,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// For shm mode: uses CPU-based videoconvert (vapostproc not widely available)
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
 			// Try to use vapostproc for GPU-side processing (available on newer systems)
+			// CRITICAL: format=NV12 is required for AMD VA-API to work correctly.
+			// Without explicit format, vapostproc may output incompatible format for vah264enc.
+			// This matches Wolf's working config.v6.toml pattern.
 			parts = append(parts,
 				"vapostproc",
-				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+				fmt.Sprintf("video/x-raw(memory:VAMemory),format=NV12,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
 				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
@@ -489,9 +492,10 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific)
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+			// format=NV12 required for proper VA-API pipeline negotiation
 			parts = append(parts,
 				"vapostproc",
-				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+				fmt.Sprintf("video/x-raw(memory:VAMemory),format=NV12,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
 				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 					v.config.Bitrate, v.config.Bitrate, getGOPSize()),

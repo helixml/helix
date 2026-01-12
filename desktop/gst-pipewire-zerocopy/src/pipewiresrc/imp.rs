@@ -167,21 +167,27 @@ fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
     // Select modifiers based on detected GPU vendor:
     // - NVIDIA: Use hardcoded 0xe08xxx ScreenCast modifiers (EGL reports different family)
     // - AMD/Intel: Use EGL modifiers directly (they typically match ScreenCast output)
-    // - Unknown: Use DRM_FORMAT_MOD_INVALID as universal fallback
+    // - Unknown with EGL modifiers: Use EGL modifiers (likely AMD/Intel with LINEAR-only)
+    // - Unknown without modifiers: Use DRM_FORMAT_MOD_INVALID as universal fallback
+    //
+    // CRITICAL: AMD drivers often only report LINEAR (0x0) modifier, which has vendor_id = 0.
+    // This means has_amd = false even on AMD hardware. We must still use EGL modifiers
+    // in this case, otherwise we only offer INVALID and miss LINEAR support.
     let modifiers: Vec<u64> = if has_nvidia {
         eprintln!("[PIPEWIRESRC_DEBUG] NVIDIA GPU detected - using hardcoded ScreenCast modifiers");
         nvidia_screencast_modifiers
-    } else if has_amd || has_intel {
-        // AMD and Intel EGL modifiers typically match what ScreenCast uses
+    } else if has_amd || has_intel || !egl_modifiers.is_empty() {
+        // AMD/Intel detected by vendor ID, OR we have EGL modifiers (likely AMD/Intel with LINEAR)
         // Use EGL modifiers directly, with INVALID as fallback
-        eprintln!("[PIPEWIRESRC_DEBUG] AMD/Intel GPU detected - using EGL modifiers");
+        let vendor_hint = if has_amd { "AMD" } else if has_intel { "Intel" } else { "Unknown (likely AMD/Intel via LINEAR)" };
+        eprintln!("[PIPEWIRESRC_DEBUG] {} GPU detected - using EGL modifiers", vendor_hint);
         let mut mods = egl_modifiers.clone();
         if !mods.contains(&DRM_FORMAT_MOD_INVALID) {
             mods.push(DRM_FORMAT_MOD_INVALID);
         }
         mods
     } else {
-        eprintln!("[PIPEWIRESRC_DEBUG] Unknown GPU - using DRM_FORMAT_MOD_INVALID");
+        eprintln!("[PIPEWIRESRC_DEBUG] Unknown GPU, no EGL modifiers - using DRM_FORMAT_MOD_INVALID only");
         vec![DRM_FORMAT_MOD_INVALID]
     };
 
