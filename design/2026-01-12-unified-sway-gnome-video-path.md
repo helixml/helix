@@ -1,7 +1,7 @@
 # Unified Video Capture Path for Sway and GNOME
 
 **Date:** 2026-01-12
-**Status:** In Progress (wlr-export-dmabuf implemented, CUDA import blocked by modifier compatibility)
+**Status:** Implemented (PipeWire SHM for Sway, DMA-BUF for GNOME, both use hardware encoding)
 **Author:** Luke (with Claude)
 
 ## Problem
@@ -354,41 +354,41 @@ The only difference is `WLR_DRM_NO_MODIFIERS=1` in the environment. While this e
 should only affect DRM buffer allocation, it somehow triggers a crash path in Zed's
 GPUI during GPU context initialization.
 
-### Decision: Use System Memory Path for Sway
+### Decision: Use PipeWire SHM Path for Sway
 
-Given the Zed crash issue, the pragmatic solution is:
+Given the Zed crash issue with `WLR_DRM_NO_MODIFIERS=1`, we chose the simpler PipeWire SHM approach:
 
 1. **Remove `WLR_DRM_NO_MODIFIERS=1`** from Dockerfile.sway-helix
-2. **Keep wlr-export-dmabuf** for native Wayland capture (no PipeWire dependency)
-3. **Use System memory output mode** for Sway (not CUDA direct import)
-4. **cudaupload** transfers frames to GPU for hardware encoding
+2. **Use PipeWire SHM** instead of wlr-export-dmabuf (simpler, unified PipeWire path)
+3. **Pass `dmabuf_caps = None`** for Sway to force SHM-only format negotiation
+4. **cudaupload** transfers SHM frames to GPU for hardware encoding
 
-### Revised Final Architecture
+The wlr-export-dmabuf code remains in the codebase (committed in `a01d1640a`) but is no longer
+used for Sway. PipeWire SHM is simpler and works reliably with xdg-desktop-portal-wlr.
+
+### Final Architecture
 
 ```
-GNOME (zero-copy via PipeWire):
+GNOME (zero-copy via PipeWire DMA-BUF):
   Mutter ScreenCast → PipeWire → pipewirezerocopysrc → EGL → CUDA → NVENC
 
-Sway (hardware encoding via system memory):
-  Sway → wlr-export-dmabuf → pipewirezerocopysrc → System Memory → cudaupload → NVENC
+Sway (hardware encoding via PipeWire SHM):
+  Sway → xdg-desktop-portal-wlr → PipeWire SHM → pipewirezerocopysrc → cudaupload → NVENC
 ```
 
 **Trade-offs:**
-- Sway has one CPU copy (DMA-BUF mmap → system memory → CUDA upload)
+- Sway has one CPU copy (SHM → cudaupload → CUDA memory)
 - Still uses hardware NVENC encoding (not software x264)
 - Much better than wf-recorder fallback (which may use software encoding)
 - Avoids the Zed crash caused by WLR_DRM_NO_MODIFIERS
+- Unified PipeWire path for both GNOME and Sway (just different format negotiation)
 
-### Alternative: PipeWire SHM Path
+### Why Not wlr-export-dmabuf?
 
-If xdg-desktop-portal-wlr can provide SHM frames (not DMA-BUF), we could simplify by:
-1. Pass `dmabuf_caps = None` to `PipeWireStream::connect` for Sway
-2. This forces SHM-only format negotiation
-3. Portal accepts SHM, frames flow through PipeWire
-4. No need for wlr-export-dmabuf code at all
-
-This is simpler but requires re-enabling SHM fallback in pipewirezerocopysrc
-(which was disabled to debug a different Mutter frame-dropping issue).
+We implemented and tested wlr-export-dmabuf (commit `a01d1640a`) but hit blockers:
+1. Sway uses NVIDIA modifiers (0x606xxx) that CUDA cannot import
+2. `WLR_DRM_NO_MODIFIERS=1` forces LINEAR (CUDA-compatible) but crashes Zed
+3. PipeWire SHM achieves the same goal (hardware encoding) with simpler code
 
 ## Related Issues
 
