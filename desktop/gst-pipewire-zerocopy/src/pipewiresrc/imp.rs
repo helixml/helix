@@ -581,6 +581,36 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             eprintln!("[PIPEWIRESRC_DEBUG] Not trying CUDA (output_mode={:?})", output_mode);
         }
 
+        // AMD/Intel fallback: if CUDA failed but we have a render node, try EGL for DmaBuf
+        // This enables zero-copy DMA-BUF acquisition even without CUDA (for VA-API encoding)
+        if dmabuf_caps.is_none() {
+            if let Some(ref node_path) = render_node {
+                eprintln!("[PIPEWIRESRC_DEBUG] CUDA unavailable, trying EGL-only path for DmaBuf (AMD/Intel)...");
+                match create_egl_display(node_path) {
+                    Ok(display) => {
+                        eprintln!("[PIPEWIRESRC_DEBUG] EGL display created (no CUDA), querying DmaBuf caps...");
+                        let caps = query_dmabuf_modifiers(&display);
+                        if caps.dmabuf_available {
+                            eprintln!("[PIPEWIRESRC_DEBUG] DmaBuf available via EGL! modifiers={}", caps.modifiers.len());
+                            dmabuf_caps = Some(caps);
+                            // Store EGL display for potential future use (e.g., DmaBuf import)
+                            state.egl_display = Some(Arc::new(display));
+                            // Set DmaBuf mode if we can acquire DmaBuf frames
+                            // (output will still be system memory for VA-API, but PipeWire gives us DmaBuf)
+                            state.actual_output_mode = OutputMode::DmaBuf;
+                        } else {
+                            eprintln!("[PIPEWIRESRC_DEBUG] EGL reports no DmaBuf support");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[PIPEWIRESRC_DEBUG] EGL display failed (fallback path): {}", e);
+                    }
+                }
+            } else {
+                eprintln!("[PIPEWIRESRC_DEBUG] No render_node, can't try EGL fallback");
+            }
+        }
+
         eprintln!("[PIPEWIRESRC_DEBUG] Final actual_output_mode={:?}", state.actual_output_mode);
         if state.actual_output_mode == OutputMode::System {
             if output_mode == OutputMode::DmaBuf {
