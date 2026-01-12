@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🐳 Starting Wolf's isolated dockerd..."
+echo "🐳 Starting sandbox's isolated dockerd..."
 
 # Clean up stale PID files (common issue with Docker restarts)
 if [ -f /var/run/docker.pid ]; then
@@ -34,7 +34,7 @@ cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 }
 DAEMON_JSON
 
-echo "Configured Wolf's dockerd with nvidia runtime support"
+echo "Configured sandbox dockerd with nvidia runtime support"
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
@@ -69,7 +69,7 @@ until docker info >/dev/null 2>&1; do
     ELAPSED=$((ELAPSED + 1))
 done
 
-echo "✅ Wolf's dockerd is ready!"
+echo "✅ Sandbox dockerd is ready!"
 docker info 2>&1 | head -5
 
 # Enable forwarding for nested containers
@@ -142,7 +142,7 @@ load_desktop_image() {
         fi
     fi
 
-    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Wolf executor"
+    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Hydra executor"
 }
 
 # Load desktop images (sway is required, others are optional)
@@ -172,7 +172,7 @@ echo ""
 echo "🧹 Cleaning up old desktop images in nested Docker..."
 
 # First, remove ALL stopped containers to allow image removal
-# This is safe because Wolf/Hydra creates fresh containers for each session
+# This is safe because Hydra creates fresh containers for each session
 # Stopped containers are just leftovers from previous sessions
 STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
 if [ "$STOPPED_COUNT" -gt 0 ]; then

@@ -4,12 +4,12 @@ set -e
 # Skip if no control plane configured (local dev mode)
 # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
-    echo "ℹ️  No HELIX_API_URL set, skipping Wolf heartbeat (local mode)"
+    echo "ℹ️  No HELIX_API_URL set, skipping sandbox heartbeat (local mode)"
     return 0
 fi
 
-WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-echo "💓 Starting Wolf heartbeat daemon for instance: $WOLF_INSTANCE_ID"
+SANDBOX_INSTANCE_ID=${WOLF_INSTANCE_ID:-${SANDBOX_INSTANCE_ID:-local}}
+echo "💓 Starting sandbox heartbeat daemon for instance: $SANDBOX_INSTANCE_ID"
 
 # Log discovered desktop versions
 echo "📦 Discovering desktop versions..."
@@ -39,4 +39,4 @@ done
 ) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
-echo "✅ Wolf heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
+echo "✅ Sandbox heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"

@@ -10,7 +10,7 @@ set -e
 #   - Hydra multi-Docker daemon started (70-start-hydra.sh)
 #
 # Desktop containers (helix-sway, helix-ubuntu) are started on-demand by Hydra
-# and stream video directly via WebSocket to the browser (no Wolf/Moonlight).
+# and stream video directly via WebSocket to the browser.
 
 echo "=========================================="
 echo "  Helix Sandbox Ready"

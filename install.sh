@@ -2538,14 +2538,6 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
-    -p 47984:47984 \
-    -p 47989:47989 \
-    -p 48010:48010 \
-    -p 47415:47415/udp \
-    -p 47999:47999/udp \
-    -p 48100:48100/udp \
-    -p 48200:48200/udp \
-    -p 40000-40100:40000-40100/udp \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
