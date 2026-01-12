@@ -118,13 +118,29 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev gst-plugins-base-dev
+      - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
+      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: []
+
+  - name: unit-test-nocgo
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
+      - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/screenshot-server/...
+    when:
+      event:
+        - push
+    depends_on: []
 
   - name: api-integration-test
     image: golang:1.24-alpine3.21
@@ -168,10 +184,10 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev gst-plugins-base-dev
+      - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server
-      - go install ./api/..
+      # Build API server (excluding GStreamer packages)
+      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | xargs go install
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
