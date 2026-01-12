@@ -704,16 +704,16 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                     eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf connected successfully!");
                     gst::info!(CAT, imp = self, "Connected to wlr-export-dmabuf");
 
-                    // CRITICAL: Use DmaBuf output mode for Sway/wlroots, not CUDA
-                    // Sway uses 0x606xxx modifier family which CUDA rejects with CUDA_ERROR_INVALID_VALUE
-                    // VA-API can import these DMA-BUFs directly for zero-copy encoding
-                    if state.actual_output_mode == OutputMode::Cuda {
-                        eprintln!("[PIPEWIRESRC_DEBUG] Sway detected: switching from CUDA to DmaBuf mode (0x606xxx modifiers not CUDA-compatible)");
-                        state.actual_output_mode = OutputMode::DmaBuf;
-                        if state.dmabuf_allocator.is_none() {
-                            state.dmabuf_allocator = Some(DmaBufAllocator::new());
-                        }
-                    }
+                    // Sway/wlroots: Use system memory output, not CUDA direct import.
+                    // Sway uses NVIDIA tiled modifiers (0x606xxx) that CUDA's
+                    // cuGraphicsEGLRegisterImage() cannot import (CUDA_ERROR_INVALID_VALUE).
+                    // System memory path: wlr-export-dmabuf → mmap → cudaupload → nvh264enc
+                    // This is still hardware encoding, just with one CPU copy.
+                    // Setting WLR_DRM_NO_MODIFIERS=1 to force LINEAR would work for CUDA,
+                    // but causes Zed to crash (PortalNotFound error during GPU init).
+                    state.actual_output_mode = OutputMode::System;
+                    eprintln!("[PIPEWIRESRC_DEBUG] Sway: using System memory mode (cudaupload will transfer to GPU)");
+                    gst::info!(CAT, imp = self, "Sway: using System memory for hardware encoding (cudaupload path)");
 
                     FrameStream::WlrExport(stream)
                 }

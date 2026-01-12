@@ -333,31 +333,91 @@ matching Wolf's `drm_to_gst_format()` pattern.
 
 ## Next Steps
 
-### Step 1: Rebuild and Deploy (DONE)
+### Step 1: Rebuild and Deploy (DONE - 2026-01-12 13:50)
 
-Fix has been applied to pipewirezerocopysrc. Now:
+Fix has been applied to pipewirezerocopysrc. Built and deployed to AMD VM:
 
 ```bash
-# Rebuild helix-ubuntu image
+# Build completed: helix-ubuntu:b9a370
 ./stack build-ubuntu
 
-# Deploy to AMD VM
+# Deployed to AMD VM (172.201.248.88)
 ~/deploy-helix-ubuntu-to-amd.sh
 
-# Start a NEW session (old sessions use old image)
-# Run benchmark with zerocopy mode
+# Image verified in sandbox:
+# helix-ubuntu:b9a370   b9a370e060d3   5.42GB
 ```
 
-### Step 2: Verify Fix Works
+### Step 2: Wolf Inspection Confirmed "Legacy Pipeline" (2026-01-12 14:15)
 
-If the fix works, we should see:
+Ran Wolf on AMD VM and inspected its behavior:
+
+**Wolf log output:**
+```
+WARN  | Unable to find any compatible DMA formats for vapostproc, disabling zero copy pipeline.
+INFO  | Using legacy pipeline on AMD (/dev/dri/renderD128)
+INFO  | Using h264 encoder: va
+```
+
+**vapostproc pad templates (GStreamer 1.26.7 on AMD):**
+```
+SINK template: 'sink'
+  Capabilities:
+    video/x-raw(memory:VAMemory)    <-- GPU surface memory
+    video/x-raw                      <-- system memory
+
+    NO DMABuf support!
+```
+
+**waylanddisplaysrc output caps:**
+```
+SRC template: 'src'
+  Capabilities:
+    video/x-raw(memory:DMABuf),format=DMA_DRM
+    video/x-raw,format=RGBx           <-- Wolf uses this on AMD
+    video/x-raw(memory:CUDAMemory)    <-- NVIDIA only
+```
+
+**Conclusion:** vapostproc in GStreamer 1.26.x does NOT support DMABuf input.
+Wolf's "legacy pipeline" uses system memory → vapostproc (GPU upload) → vah264enc (GPU encode).
+This is still fast because encoding happens on GPU; only the initial frame upload goes through CPU.
+
+### Step 3: Fix Applied (2026-01-12 14:13)
+
+Updated `ws_stream.go` to use `output-mode=system` for VA-API encoders:
+```go
+switch encoder {
+case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
+    outputMode = "system"  // Match Wolf's "legacy pipeline"
+...
+}
+```
+
+Built helix-ubuntu:d6bf49 and deployed to AMD VM.
+
+### Step 4: Verify Fix Works (PENDING)
+
+Need to start helix sandbox on AMD VM (currently Wolf is running) and test:
+
+```bash
+# SSH to AMD VM
+ssh -i ~/axa-private_key.pem azureuser@172.201.248.88
+
+# Stop Wolf
+docker stop wolf WolfPulseAudio Wolf-UI_342532221405053742
+
+# Start helix sandbox (TODO: document actual command)
+
+# Create a new session and test
+/tmp/helix spectask benchmark <session-id> --video-mode zerocopy --duration 15
+```
+
+Expected behavior:
 - Pipeline links successfully (no "could not link queue to vapostproc" error)
-- Logs show: `drm-format='XR24:0x...'` or similar
+- pipewirezerocopysrc outputs system memory
+- vapostproc uploads to GPU
+- vah264enc encodes on GPU
 - Video frames flowing
-
-If it still fails:
-- Check GST_DEBUG output for caps negotiation details
-- Compare with Wolf's pipeline behavior
 
 ## References
 

@@ -1,7 +1,7 @@
 # Unified Video Capture Path for Sway and GNOME
 
 **Date:** 2026-01-12
-**Status:** Implemented
+**Status:** In Progress (wlr-export-dmabuf implemented, CUDA import blocked by modifier compatibility)
 **Author:** Luke (with Claude)
 
 ## Problem
@@ -244,6 +244,151 @@ AMD/Intel (VA-API path):
 ```
 
 Both are true zero-copy - no CPU involvement in frame transfer.
+
+## wlr-export-dmabuf Implementation (2026-01-12)
+
+### Implementation Complete
+
+Added native wlr-export-dmabuf support to pipewirezerocopysrc, bypassing xdg-desktop-portal-wlr
+entirely for Sway video capture.
+
+**Files Added/Modified:**
+- `desktop/gst-pipewire-zerocopy/src/wlr_export_dmabuf.rs` - New Wayland client for wlr-export-dmabuf
+- `desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs` - Detect Sway and use wlr-export-dmabuf
+- `desktop/gst-pipewire-zerocopy/Cargo.toml` - Added wayland-client, wayland-protocols-wlr
+
+### NVIDIA CUDA Modifier Compatibility Issue
+
+**Problem Discovered:**
+wlr-export-dmabuf captured frames successfully, but CUDA import failed:
+```
+[PIPEWIRESRC_DEBUG] CUDAImage error: CUDA_ERROR_INVALID_VALUE
+```
+
+**Root Cause Analysis:**
+Sway uses NVIDIA modifier `0x300000000606014` while GNOME uses `0x300000000e08010`.
+Decoded using `DRM_FORMAT_MOD_NVIDIA_BLOCK_LINEAR_2D(c, s, g, k, h)`:
+
+| Field | Sway (0x606014) | GNOME (0xe08010) | Meaning |
+|-------|-----------------|------------------|---------|
+| c (compression) | 0 | 1 | ROP/3D compression enabled |
+| s (sector layout) | 1 | 1 | Desktop (vs Tegra) |
+| g (kind generation) | 2 | 2 | Same |
+| k (page kind) | **6** | **8** | Different memory page kinds |
+| h (block height) | **4** (16 GOBs) | **0** (1 GOB) | Very different block heights |
+
+CUDA's `cuGraphicsEGLRegisterImage()` only supports specific page kinds/modifiers.
+
+**Key Insight:**
+The wlr-export-dmabuf protocol has **no format negotiation** - clients receive whatever modifier
+the compositor uses. Unlike PipeWire ScreenCast which can negotiate formats, wlr-export-dmabuf
+just exports the framebuffer as-is.
+
+### Solution: WLR_DRM_NO_MODIFIERS=1
+
+wlroots provides `WLR_DRM_NO_MODIFIERS=1` environment variable that forces all DRM plane allocations
+to use LINEAR modifier (0x0). LINEAR is the baseline interchange format that CUDA can import.
+
+**Trade-offs:**
+- LINEAR may have slightly lower GPU performance than tiled formats
+- For screen capture (read-only), performance impact is negligible
+- Enables true zero-copy from Sway to CUDA/NVENC
+
+### Files Modified
+
+1. **Dockerfile.sway-helix:**
+   ```dockerfile
+   # Force LINEAR DRM modifiers for CUDA zero-copy compatibility.
+   # Without this, Sway uses tiled modifiers (0x606xxx) that CUDA's
+   # cuGraphicsEGLRegisterImage() rejects with CUDA_ERROR_INVALID_VALUE.
+   ENV WLR_DRM_NO_MODIFIERS=1
+   ```
+
+2. **pipewiresrc/imp.rs:**
+   - Removed Sway→DmaBuf mode switch (no longer needed with LINEAR)
+   - Both GNOME and Sway use unified CUDA path
+
+3. **ws_stream.go:**
+   - Removed Sway-specific cudaupload handling
+   - Unified zero-copy path: `pipewirezerocopysrc → nvh264enc`
+
+### Final Architecture
+
+```
+GNOME (zero-copy via PipeWire):
+  Mutter ScreenCast → PipeWire → pipewirezerocopysrc → EGL → CUDA → NVENC
+
+Sway (zero-copy via wlr-export-dmabuf, LINEAR modifiers):
+  Sway (WLR_DRM_NO_MODIFIERS=1) → wlr-export-dmabuf → pipewirezerocopysrc → EGL → CUDA → NVENC
+```
+
+Both paths use identical GStreamer pipeline from pipewirezerocopysrc onwards.
+
+### References
+
+- [wlroots env_vars.md](https://github.com/swaywm/wlroots/blob/master/docs/env_vars.md) - WLR_DRM_NO_MODIFIERS
+- [wlr-export-dmabuf protocol](https://wayland.app/protocols/wlr-export-dmabuf-unstable-v1)
+- [GStreamer DMA buffers](https://gstreamer.freedesktop.org/documentation/additional/design/dmabuf.html) - LINEAR modifier
+- [NVIDIA DRM modifiers](https://docs.nvidia.com/drive/drive-os-6.0.4/linux/sdk/common/topics/graphics_content/NvKMS-BLOCK_LINEAR_2D-Modifier.html)
+
+## WLR_DRM_NO_MODIFIERS Causes Zed Crash (2026-01-12)
+
+### Problem
+
+While `WLR_DRM_NO_MODIFIERS=1` successfully forces LINEAR modifier for CUDA compatibility,
+it causes Zed to crash on startup with:
+
+```
+panicked at crates/gpui/src/platform/linux/platform.rs:64:64:
+Unable to init GPU context: PortalNotFound(OwnedInterfaceName("org.freedesktop.portal.Notification"))
+```
+
+### Analysis
+
+- Both old and new containers have identical portal logs with same errors
+- Both show `glfw error: No such interface "org.freedesktop.portal.Settings"`
+- Old container: Zed starts successfully despite portal errors (graceful degradation)
+- New container: Zed crashes immediately
+
+The only difference is `WLR_DRM_NO_MODIFIERS=1` in the environment. While this env var
+should only affect DRM buffer allocation, it somehow triggers a crash path in Zed's
+GPUI during GPU context initialization.
+
+### Decision: Use System Memory Path for Sway
+
+Given the Zed crash issue, the pragmatic solution is:
+
+1. **Remove `WLR_DRM_NO_MODIFIERS=1`** from Dockerfile.sway-helix
+2. **Keep wlr-export-dmabuf** for native Wayland capture (no PipeWire dependency)
+3. **Use System memory output mode** for Sway (not CUDA direct import)
+4. **cudaupload** transfers frames to GPU for hardware encoding
+
+### Revised Final Architecture
+
+```
+GNOME (zero-copy via PipeWire):
+  Mutter ScreenCast → PipeWire → pipewirezerocopysrc → EGL → CUDA → NVENC
+
+Sway (hardware encoding via system memory):
+  Sway → wlr-export-dmabuf → pipewirezerocopysrc → System Memory → cudaupload → NVENC
+```
+
+**Trade-offs:**
+- Sway has one CPU copy (DMA-BUF mmap → system memory → CUDA upload)
+- Still uses hardware NVENC encoding (not software x264)
+- Much better than wf-recorder fallback (which may use software encoding)
+- Avoids the Zed crash caused by WLR_DRM_NO_MODIFIERS
+
+### Alternative: PipeWire SHM Path
+
+If xdg-desktop-portal-wlr can provide SHM frames (not DMA-BUF), we could simplify by:
+1. Pass `dmabuf_caps = None` to `PipeWireStream::connect` for Sway
+2. This forces SHM-only format negotiation
+3. Portal accepts SHM, frames flow through PipeWire
+4. No need for wlr-export-dmabuf code at all
+
+This is simpler but requires re-enabling SHM fallback in pipewirezerocopysrc
+(which was disabled to debug a different Mutter frame-dropping issue).
 
 ## Related Issues
 

@@ -315,15 +315,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			//
 			// Output mode selection based on encoder:
 			// - nvenc: CUDA memory (auto mode tries CUDA first)
-			// - vaapi/qsv: DMABuf for true zero-copy (vapostproc imports DMABuf directly)
+			// - vaapi/qsv: system memory - vapostproc uploads to GPU (Wolf's "legacy" path)
+			//   Note: vapostproc doesn't accept DMABuf in its caps on AMD/Intel.
+			//   Wolf falls back to system memory too: "Unable to find any compatible DMA formats"
+			//   This is still hardware encoding - only the initial upload is CPU→GPU.
 			// - x264/openh264: system memory (CPU encoder)
 			var outputMode string
 			switch encoder {
 			case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
-				// VA-API: Use DMABuf for true zero-copy
-				// pipewirezerocopysrc outputs DMABuf with regular video format (BGRx/BGRA)
-				// which vapostproc can import directly for zero-copy encoding
-				outputMode = "dmabuf"
+				// VA-API: Use system memory - vapostproc will upload to GPU
+				// This matches Wolf's "legacy pipeline" which is still fast because
+				// encoding happens on GPU, only the initial frame upload goes through CPU
+				outputMode = "system"
 			case "x264", "openh264":
 				outputMode = "system" // CPU encoder needs system memory
 			default:
@@ -381,11 +384,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// NVIDIA NVENC encoding
 		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
-		if v.videoMode == VideoModeZeroCopy  {
-			// Zero-copy GPU path:
-			// pipewirezerocopysrc outputs CUDAMemory (BGRA/BGRx from compositor)
-			// nvh264enc accepts BGRA/BGRx directly and converts to NV12 internally
-			// (h264parse added globally at end)
+		if v.videoMode == VideoModeZeroCopy {
+			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
+			// Works for both GNOME and Sway (Sway requires WLR_DRM_NO_MODIFIERS=1 for LINEAR layout)
 			parts = append(parts,
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
@@ -402,94 +403,61 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "qsv":
 		// Intel Quick Sync Video
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: DMABuf → vapostproc → qsvh264enc
-			parts = append(parts,
-				"vapostproc",
-				"video/x-raw(memory:VAMemory),format=NV12",
-				fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		} else {
-			// Standard path: CPU videoconvert for colorspace
-			parts = append(parts,
-				"videoconvert",
-				fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		}
+		// Pipeline matches Wolf's working AMD/Intel config:
+		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		parts = append(parts,
+			"vapostproc",
+			"video/x-raw,format=NV12",
+			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
+			"h264parse",
+			"video/x-h264,profile=main,stream-format=byte-stream",
+		)
 
 	case "vaapi":
 		// AMD/Intel VA-API pipeline (gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: DMABuf → vapostproc → vah264enc
-			// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation
-			parts = append(parts,
-				"vapostproc",
-				"video/x-raw(memory:VAMemory),format=NV12",
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		} else {
-			// Standard path: CPU videoconvert for colorspace
-			parts = append(parts,
-				"videoconvert",
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		}
+		//
+		// Pipeline matches Wolf's working AMD config exactly:
+		// vapostproc → video/x-raw,format=NV12 (system memory caps) → vah264enc
+		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation
+		//
+		// POTENTIAL OPTIMIZATION: Could use video/x-raw(memory:VAMemory),format=NV12
+		// to keep data in GPU memory after vapostproc, avoiding a second copy.
+		// Wolf uses system memory caps for a reason (compatibility?), so we match
+		// their proven working config for now.
+		parts = append(parts,
+			"vapostproc",
+			"video/x-raw,format=NV12",
+			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+			"h264parse",
+			"video/x-h264,profile=main,stream-format=byte-stream",
+		)
 
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: DMABuf → vapostproc → vah264lpenc
-			parts = append(parts,
-				"vapostproc",
-				"video/x-raw(memory:VAMemory),format=NV12",
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		} else {
-			// Standard path: CPU videoconvert for colorspace
-			parts = append(parts,
-				"videoconvert",
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
-				"h264parse",
-				"video/x-h264,profile=main,stream-format=byte-stream",
-			)
-		}
+		// Pipeline matches Wolf's working config:
+		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		parts = append(parts,
+			"vapostproc",
+			"video/x-raw,format=NV12",
+			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+			"h264parse",
+			"video/x-h264,profile=main,stream-format=byte-stream",
+		)
 
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// Helix always matches desktop/client resolution, so no scaling needed
-		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: DMABuf → vaapipostproc → vaapih264enc
-			parts = append(parts,
-				"vaapipostproc",
-				"video/x-raw(memory:VASurface),format=NV12",
-				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
-					v.config.Bitrate, getGOPSize()),
-			)
-		} else {
-			// Standard path: vaapipostproc uploads to GPU and converts
-			parts = append(parts,
-				"vaapipostproc",
-				"video/x-raw(memory:VASurface),format=NV12",
-				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
-					v.config.Bitrate, getGOPSize()),
-			)
-		}
+		// Pipeline matches Wolf's approach: system memory caps between elements
+		parts = append(parts,
+			"vaapipostproc",
+			"video/x-raw,format=NV12",
+			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
+				v.config.Bitrate, getGOPSize()),
+		)
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
