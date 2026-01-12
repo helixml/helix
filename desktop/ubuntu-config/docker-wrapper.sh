@@ -14,6 +14,7 @@
 #
 # Updated 2025-12-13: Now uses WORKSPACE_DIR env var instead of symlink resolution.
 # This is required because /home/retro/work is now a bind mount (not a symlink).
+# Version propagation test: 2026-01-12T15:36:00Z
 
 DOCKER_REAL="/usr/bin/docker.real"
 

@@ -105,10 +105,6 @@ gpu:
     # Note: Performance will be limited without hardware acceleration
     enabled: false
 
-  # Render node path (auto-detected based on vendor if empty)
-  # Examples: /dev/dri/renderD128, SOFTWARE
-  renderNode: ""
-
 # Resource limits and requests
 resources:
   limits:
@@ -158,10 +154,10 @@ persistence:
     accessModes:
       - ReadWriteOnce
 
-  # Sandbox configuration storage
-  sandboxConfig:
+  # Hydra data storage (Docker isolation data)
+  hydraData:
     enabled: true
-    size: 1Gi
+    size: 10Gi
     storageClassName: ""
     accessModes:
       - ReadWriteOnce

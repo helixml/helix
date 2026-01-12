@@ -45,7 +45,7 @@ Running containers are NOT preserved across restarts - only images, volumes, and
 	// RevDial configuration (can also be set via environment variables)
 	rootCmd.Flags().StringVar(&apiURL, "api-url", "", "Helix API URL for RevDial (env: HELIX_API_URL)")
 	rootCmd.Flags().StringVar(&runnerToken, "token", "", "Runner authentication token (env: RUNNER_TOKEN)")
-	rootCmd.Flags().StringVar(&sandboxID, "sandbox-id", "", "Sandbox instance ID (env: SANDBOX_ID or WOLF_INSTANCE_ID)")
+	rootCmd.Flags().StringVar(&sandboxID, "sandbox-id", "", "Sandbox instance ID (env: SANDBOX_ID or SANDBOX_INSTANCE_ID)")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute command")

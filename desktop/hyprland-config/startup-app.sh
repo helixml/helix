@@ -66,15 +66,12 @@ gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
 # Start RevDial client
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
+    # Note: RevDial is now integrated into desktop-bridge
     gow_log "[start] Starting RevDial client..."
-    /usr/local/bin/revdial-client \
         -server "$REVDIAL_SERVER" \
         -runner-id "$RUNNER_ID" \
         -token "$USER_API_TOKEN" \
         -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
     gow_log "[start] RevDial client started (PID: $!)"
 fi
 
@@ -104,7 +101,7 @@ exec-once = pipewire &
 exec-once = wireplumber &
 exec-once = waybar &
 exec-once = /opt/gow/start-pipewire-screencast.sh >> /tmp/pipewire-screencast.log 2>&1 &
-exec-once = /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+exec-once = /usr/local/bin/desktop-bridge >> /tmp/desktop-bridge.log 2>&1 &
 exec-once = /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync.log 2>&1 &
 exec-once = /usr/local/bin/start-zed-helix.sh
 

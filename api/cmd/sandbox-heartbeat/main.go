@@ -60,8 +60,7 @@ type HeartbeatRequest struct {
 	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
-	GPUVendor             string               `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
-	RenderNode            string               `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
+	GPUVendor             string               `json:"gpu_vendor,omitempty"` // nvidia, amd, intel, none
 }
 
 func main() {
@@ -72,7 +71,7 @@ func main() {
 	// Get configuration from environment
 	apiURL := os.Getenv("HELIX_API_URL")
 	runnerToken := os.Getenv("RUNNER_TOKEN")
-	wolfInstanceID := os.Getenv("WOLF_INSTANCE_ID")
+	sandboxInstanceID := os.Getenv("SANDBOX_INSTANCE_ID")
 
 	if apiURL == "" || runnerToken == "" {
 		log.Info().Msg("HELIX_API_URL or RUNNER_TOKEN not set, running in local mode (no heartbeats)")
@@ -80,8 +79,8 @@ func main() {
 		select {}
 	}
 
-	if wolfInstanceID == "" {
-		wolfInstanceID = "local"
+	if sandboxInstanceID == "" {
+		sandboxInstanceID = "local"
 	}
 
 	// Check if privileged mode is enabled
@@ -89,7 +88,7 @@ func main() {
 
 	log.Info().
 		Str("api_url", apiURL).
-		Str("wolf_instance_id", wolfInstanceID).
+		Str("sandbox_instance_id", sandboxInstanceID).
 		Bool("privileged_mode_enabled", privilegedModeEnabled).
 		Dur("interval", HeartbeatInterval).
 		Msg("Starting sandbox heartbeat daemon")
@@ -103,13 +102,13 @@ func main() {
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
-	sendHeartbeat(apiURL, runnerToken, wolfInstanceID, privilegedModeEnabled)
+	sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			sendHeartbeat(apiURL, runnerToken, wolfInstanceID, privilegedModeEnabled)
+			sendHeartbeat(apiURL, runnerToken, sandboxInstanceID, privilegedModeEnabled)
 		case sig := <-sigChan:
 			log.Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 			return
@@ -117,7 +116,7 @@ func main() {
 	}
 }
 
-func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEnabled bool) {
+func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
 	// Discover all desktop versions dynamically
 	// Scans /opt/images/helix-*.version files
 	desktopVersions := discoverDesktopVersions()
@@ -126,13 +125,8 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
 
-	// Read GPU configuration from environment (set by install.sh on the sandbox)
-	gpuVendor := os.Getenv("GPU_VENDOR")        // nvidia, amd, intel, none
-	renderNode := os.Getenv("WOLF_RENDER_NODE") // /dev/dri/renderD128 or SOFTWARE
-	if renderNode == "" {
-		// Default render node if not explicitly set
-		renderNode = "/dev/dri/renderD128"
-	}
+	// Read GPU vendor from environment (set by install.sh on the sandbox)
+	gpuVendor := os.Getenv("GPU_VENDOR") // nvidia, amd, intel, none
 
 	// Build request
 	req := HeartbeatRequest{
@@ -141,7 +135,6 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
-		RenderNode:            renderNode,
 	}
 
 	// Log disk status
@@ -166,7 +159,7 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/sandboxes/%s/heartbeat", apiURL, wolfInstanceID)
+	url := fmt.Sprintf("%s/api/v1/sandboxes/%s/heartbeat", apiURL, sandboxInstanceID)
 	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create heartbeat request")
@@ -200,7 +193,6 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 	log.Debug().
 		Interface("desktop_versions", desktopVersions).
 		Str("gpu_vendor", gpuVendor).
-		Str("render_node", renderNode).
 		Msg("Heartbeat sent successfully")
 }
 

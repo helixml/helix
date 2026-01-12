@@ -27,12 +27,12 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
-# screenshot-server requires go-gst bindings (CGO) for in-process GStreamer.
+# desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
 ARG GO_CODE_HASH=unknown
 
 # Install GStreamer development libraries for go-gst bindings
-# These are required for CGO compilation of screenshot-server
+# These are required for CGO compilation of desktop-bridge
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
@@ -48,9 +48,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
@@ -130,7 +129,7 @@ WORKDIR /build
 RUN apt-get update && apt-get source libwlroots-0.18
 
 # Copy our patch into the Debian patches directory
-COPY wolf/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
+COPY desktop/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
 RUN cd /build/wlroots-* && \
     mkdir -p debian/patches && \
     cp /build/0001-wayland-backend-ignore-parent-layout-group.patch debian/patches/ && \
@@ -384,8 +383,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker wrappers for Hydra compatibility
-COPY wolf/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+COPY desktop/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -445,25 +444,25 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 # Sway configuration (GOW pattern)
-ADD wolf/sway-config/config /cfg/sway/config
-ADD wolf/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
+ADD desktop/sway-config/config /cfg/sway/config
+ADD desktop/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
 RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
 
 # Waybar default config (will be customized by startup-app.sh)
 RUN mkdir -p /cfg/waybar && touch /cfg/waybar/.keep
 
 # Helix startup script
-ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
+ADD desktop/sway-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
 # Helix helper scripts
-ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
 
 # Docker group init script
-ADD wolf/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
 # Workspace README
@@ -471,9 +470,8 @@ RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
 # Helix Go binaries
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
@@ -486,7 +484,7 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Zed desktop file and icon
-COPY wolf/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \

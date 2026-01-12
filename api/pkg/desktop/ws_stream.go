@@ -33,10 +33,13 @@ const (
 	// Requires GStreamer 1.24+ with DMA-BUF CUDA support
 	VideoModeNative VideoMode = "native"
 
-	// VideoModeZeroCopy uses pipewirezerocopysrc plugin (true zero-copy)
-	// Pipeline: pipewirezerocopysrc → video/x-raw(memory:CUDAMemory) → nvh264enc
+	// VideoModePlugin uses our custom pipewirezerocopysrc GStreamer element
+	// Output varies by compositor and GPU:
+	// - GNOME + NVIDIA: true zero-copy (DMA-BUF → CUDAMemory → nvh264enc)
+	// - Sway: SHM fallback (xdg-desktop-portal-wlr lacks NVIDIA modifier support)
+	// - AMD/Intel: DMA-BUF via EGL for zero-copy
 	// Requires gst-plugin-pipewire-zerocopy to be installed
-	VideoModeZeroCopy VideoMode = "zerocopy"
+	VideoModePlugin VideoMode = "zerocopy"
 )
 
 // getVideoMode returns the configured video mode from the stream config
@@ -46,12 +49,12 @@ func getVideoMode(configOverride string) VideoMode {
 	case "native", "dmabuf":
 		return VideoModeNative
 	case "zerocopy", "zero-copy", "plugin":
-		return VideoModeZeroCopy
+		return VideoModePlugin
 	case "shm":
 		return VideoModeSHM
 	default:
 		// Default to zerocopy (custom pipewirezerocopysrc plugin)
-		return VideoModeZeroCopy
+		return VideoModePlugin
 	}
 }
 
@@ -308,29 +311,36 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	// The drm-format caps (set in pipewiresrc/imp.rs) allow vapostproc to import the DmaBuf.
 
 	switch v.videoMode {
-		case VideoModeZeroCopy:
+		case VideoModePlugin:
 			// pipewirezerocopysrc: Zero-copy via GPU memory sharing
 			// Requires gst-plugin-pipewire-zerocopy to be installed
 			// Note: framerate is handled internally via max_framerate in PipeWire negotiation
 			//
-			// Output mode selection based on encoder:
-			// - nvenc: CUDA memory (auto mode tries CUDA first)
-			// - vaapi/qsv: system memory - vapostproc uploads to GPU (Wolf's "legacy" path)
-			//   Note: vapostproc doesn't accept DMABuf in its caps on AMD/Intel.
-			//   Wolf falls back to system memory too: "Unable to find any compatible DMA formats"
-			//   This is still hardware encoding - only the initial upload is CPU→GPU.
-			// - x264/openh264: system memory (CPU encoder)
+			// Output mode selection based on compositor and encoder:
+			// - Sway: Always use system memory (xdg-desktop-portal-wlr doesn't support GPU modifiers)
+			// - GNOME + NVIDIA: auto (tries DMA-BUF → CUDA for true zero-copy)
+			// - GNOME + VA-API: system (SHM → vapostproc → GPU, Wolf's "legacy" path)
+			// - Software encoders: system (CPU encoder needs system memory)
 			var outputMode string
-			switch encoder {
-			case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
-				// VA-API: Use system memory - vapostproc will upload to GPU
-				// This matches Wolf's "legacy pipeline" which is still fast because
-				// encoding happens on GPU, only the initial frame upload goes through CPU
-				outputMode = "system"
-			case "x264", "openh264":
-				outputMode = "system" // CPU encoder needs system memory
-			default:
-				outputMode = "auto" // NVENC: auto-detect (CUDA for NVIDIA)
+
+			// Detect Sway/wlroots - must use SHM because xdg-desktop-portal-wlr
+			// doesn't support NVIDIA tiled modifiers or DMA-BUF negotiation
+			isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway")
+
+			if isSway {
+				outputMode = "system" // Sway: SHM → cudaupload/vapostproc → encoder
+			} else {
+				switch encoder {
+				case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
+					// VA-API: Use system memory - vapostproc will upload to GPU
+					// This matches Wolf's "legacy pipeline" which is still fast because
+					// encoding happens on GPU, only the initial frame upload goes through CPU
+					outputMode = "system"
+				case "x264", "openh264":
+					outputMode = "system" // CPU encoder needs system memory
+				default:
+					outputMode = "auto" // GNOME + NVENC: try DMA-BUF → CUDA
+				}
 			}
 			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=%s keepalive-time=100", v.nodeID, outputMode)
 			// Add fd property if we have portal FD (required for ScreenCast access)
@@ -378,24 +388,31 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path
-	// Note: zerocopy mode already provides GPU memory (CUDA or DMABuf)
+	// Note: VideoModePlugin may provide GPU memory (CUDA/DMABuf) or SHM depending on compositor
 	switch encoder {
 	case "nvenc":
 		// NVIDIA NVENC encoding
 		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
-		if v.videoMode == VideoModeZeroCopy {
-			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
-			// Works for both GNOME and Sway (Sway requires WLR_DRM_NO_MODIFIERS=1 for LINEAR layout)
+		//
+		// Zero-copy path (no cudaupload needed):
+		// - GNOME with output-mode=auto: pipewirezerocopysrc outputs CUDAMemory directly
+		//
+		// SHM path (cudaupload required):
+		// - Sway: xdg-desktop-portal-wlr doesn't support NVIDIA modifiers, forces SHM
+		// - GNOME with output-mode=system: fallback when DMA-BUF fails
+		// - VideoModeSHM/Native: always system memory
+		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway")
+		needsCudaUpload := v.videoMode != VideoModePlugin || isSway
+		if needsCudaUpload {
+			// SHM path: system memory → cudaupload → nvh264enc
 			parts = append(parts,
+				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		} else {
-			// Standard path: system memory → cudaupload → nvh264enc
-			// Helix always matches desktop/client resolution, so no scaling needed
-			// nvh264enc handles format conversion internally (BGRA/BGRx → NV12)
+			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
 			parts = append(parts,
-				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		}

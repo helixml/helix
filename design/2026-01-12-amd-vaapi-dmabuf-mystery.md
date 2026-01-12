@@ -419,6 +419,48 @@ Expected behavior:
 - vah264enc encodes on GPU
 - Video frames flowing
 
+## Final Architecture: Video Pipeline Matrix
+
+```
+╔══════════════════╦═══════════════════════════════╦═══════════════════════════════╗
+║                  ║          NVIDIA               ║         AMD/Intel             ║
+╠══════════════════╬═══════════════════════════════╬═══════════════════════════════╣
+║                  ║                               ║                               ║
+║                  ║  ✨ TRUE ZERO-COPY            ║  ⚡ WOLF LEGACY PATH          ║
+║                  ║                               ║                               ║
+║                  ║  pipewirezerocopysrc          ║  pipewirezerocopysrc          ║
+║                  ║    (CUDAMemory output)        ║    (system memory output)     ║
+║      GNOME       ║           ↓                   ║           ↓                   ║
+║                  ║  cudaupload (no-op)           ║  vapostproc (GPU upload)      ║
+║                  ║           ↓                   ║           ↓                   ║
+║                  ║  nvh264enc                    ║  vah264enc                    ║
+║                  ║                               ║                               ║
+║                  ║  No CPU involvement.          ║  One CPU→GPU copy,            ║
+║                  ║  max_framerate 0/0 — Mutter   ║  GPU does all processing.     ║
+║                  ║  limits to monitor refresh.   ║                               ║
+║                  ║                               ║                               ║
+╠══════════════════╬═══════════════════════════════╬═══════════════════════════════╣
+║                  ║                               ║                               ║
+║                  ║  📦 SYSTEM MEMORY PATH        ║  📦 SYSTEM MEMORY PATH        ║
+║                  ║                               ║                               ║
+║                  ║  pipewirezerocopysrc          ║  pipewirezerocopysrc          ║
+║                  ║    (system memory output)     ║    (system memory output)     ║
+║      Sway        ║           ↓                   ║           ↓                   ║
+║                  ║  cudaupload (GPU upload)      ║  vapostproc (GPU upload)      ║
+║                  ║           ↓                   ║           ↓                   ║
+║                  ║  nvh264enc                    ║  vah264enc                    ║
+║                  ║                               ║                               ║
+║                  ║  One CPU→GPU copy,            ║  One CPU→GPU copy,            ║
+║                  ║  GPU encoding.                ║  GPU encoding.                ║
+║                  ║                               ║                               ║
+╚══════════════════╩═══════════════════════════════╩═══════════════════════════════╝
+```
+
+**Legend:**
+- **pipewirezerocopysrc** — Custom Rust GStreamer plugin for PipeWire ScreenCast
+- **max_framerate 0/0** — Workaround for Mutter bug that dropped every other frame
+- **Sway paths** — Use system memory; wlr modifiers aren't CUDA-compatible
+
 ## References
 
 - Wolf gst-wayland-display: https://github.com/games-on-whales/gst-wayland-display

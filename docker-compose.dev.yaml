@@ -92,8 +92,6 @@ services:
       # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Sandbox integration for external agents
-      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_MODE=${WOLF_MODE:-lobbies}
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
       # API URL for sandbox containers to connect back (RevDial, etc.)
@@ -262,7 +260,6 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - GPU_VENDOR=${GPU_VENDOR:-nvidia}
-      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -273,7 +270,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -286,29 +283,27 @@ services:
     privileged: true # Required for Docker-in-Docker
     volumes:
       # Desktop configuration and state
-      - ./wolf/:/etc/wolf/cfg/:rw
+      - ./desktop/:/etc/helix/desktop/:rw
       # Config template - bind-mounted for faster iteration (no rebuild needed)
-      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
+      - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
+      - sandbox-docker-storage:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
-      - /var/run/wolf:/var/run/wolf:rw
-      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
       - ./zed-build:/helix-dev/zed-build:ro
-      - ./wolf/sway-config:/helix-dev/sway-config:rw
-      - ./wolf/zorin-config:/helix-dev/zorin-config:rw
-      - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
-      - ./wolf/xfce-config:/helix-dev/xfce-config:rw
-      - ./wolf/kde-config:/helix-dev/kde-config:rw
-      - ./wolf/shared:/helix-dev/shared:ro
-      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config:/helix-dev/sway-config:rw
+      - ./desktop/zorin-config:/helix-dev/zorin-config:rw
+      - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+      - ./desktop/xfce-config:/helix-dev/xfce-config:rw
+      - ./desktop/kde-config:/helix-dev/kde-config:rw
+      - ./desktop/shared:/helix-dev/shared:ro
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -368,7 +363,6 @@ services:
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
-      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -379,7 +373,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -392,29 +386,27 @@ services:
     privileged: true # Required for Docker-in-Docker
     volumes:
       # Desktop configuration and state
-      - ./wolf/:/etc/wolf/cfg/:rw
+      - ./desktop/:/etc/helix/desktop/:rw
       # Config template - bind-mounted for faster iteration (no rebuild needed)
-      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
+      - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
+      - sandbox-docker-storage:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
-      - /var/run/wolf:/var/run/wolf:rw
-      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
       - ./zed-build:/helix-dev/zed-build:ro
-      - ./wolf/sway-config:/helix-dev/sway-config:rw
-      - ./wolf/zorin-config:/helix-dev/zorin-config:rw
-      - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
-      - ./wolf/xfce-config:/helix-dev/xfce-config:rw
-      - ./wolf/kde-config:/helix-dev/kde-config:rw
-      - ./wolf/shared:/helix-dev/shared:ro
-      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config:/helix-dev/sway-config:rw
+      - ./desktop/zorin-config:/helix-dev/zorin-config:rw
+      - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+      - ./desktop/xfce-config:/helix-dev/xfce-config:rw
+      - ./desktop/kde-config:/helix-dev/kde-config:rw
+      - ./desktop/shared:/helix-dev/shared:ro
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -470,7 +462,6 @@ services:
     environment:
       # Software rendering (CPU-only, no GPU)
       - GPU_VENDOR=none
-      - WOLF_RENDER_NODE=software
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
       # Helix dev mode (enables bind-mounts for hot reload)
@@ -483,7 +474,7 @@ services:
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
+      - SANDBOX_INSTANCE_ID=local
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
@@ -496,28 +487,26 @@ services:
     privileged: true # Required for Docker-in-Docker
     volumes:
       # Desktop configuration and state
-      - ./wolf:/etc/wolf/cfg/:rw
+      - ./desktop/:/etc/helix/desktop/:rw
       # Config template - bind-mounted for faster iteration (no rebuild needed)
-      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
+      - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
+      - sandbox-docker-storage:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
       - /run/udev:/run/udev:rw
-      - /var/run/wolf:/var/run/wolf:rw
-      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
       - ./zed-build:/helix-dev/zed-build:ro
-      - ./wolf/sway-config:/helix-dev/sway-config:rw
-      - ./wolf/zorin-config:/helix-dev/zorin-config:rw
-      - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
-      - ./wolf/xfce-config:/helix-dev/xfce-config:rw
-      - ./wolf/kde-config:/helix-dev/kde-config:rw
-      - ./wolf/shared:/helix-dev/shared:ro
-      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config:/helix-dev/sway-config:rw
+      - ./desktop/zorin-config:/helix-dev/zorin-config:rw
+      - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+      - ./desktop/xfce-config:/helix-dev/xfce-config:rw
+      - ./desktop/kde-config:/helix-dev/kde-config:rw
+      - ./desktop/shared:/helix-dev/shared:ro
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -697,9 +686,8 @@ volumes:
   helix-filestore:
   helix-typesense-db:
   helix-socket:
-  wolf-socket:
-  wolf-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
-  wolf-debug-dumps: # Sandbox debug dumps
+  sandbox-socket:
+  sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
   hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
   zed-work:

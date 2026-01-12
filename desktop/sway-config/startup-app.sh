@@ -110,28 +110,10 @@ if [ -f /cfg/sway/SWAY-USER-GUIDE.md ] && [ ! -f $WORK_DIR/SWAY-USER-GUIDE.md ];
     echo "✅ Sway user guide copied to workspace (see SWAY-USER-GUIDE.md for keyboard shortcuts)"
 fi
 
-# Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
-# CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
-# Uses user's API token for authentication (session-scoped, user-owned)
-if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
+# Note: RevDial client is now integrated into desktop-bridge
+# It starts automatically when desktop-bridge launches with the required env vars
 
-    echo "Starting RevDial client for API ↔ sandbox communication..."
-    /usr/local/bin/revdial-client \
-        -server "$REVDIAL_SERVER" \
-        -runner-id "$RUNNER_ID" \
-        -token "$USER_API_TOKEN" \
-        -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
-
-    REVDIAL_PID=$!
-    echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
-else
-    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
-fi
-
-# Start screenshot server in background (if binary exists)
+# Start desktop-bridge (screenshot, MCP, RevDial)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
 # We'll start it later in the script after Sway initializes
 
@@ -486,7 +468,7 @@ EOF
     echo "exec waybar > /tmp/waybar.log 2>&1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
-    echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/desktop-bridge > /tmp/desktop-bridge.log 2>&1" >> $HOME/.config/sway/config
     # Pass required environment variables to settings-sync-daemon
     echo "exec env HELIX_SESSION_ID=\$HELIX_SESSION_ID HELIX_API_URL=\$HELIX_API_URL HELIX_API_TOKEN=\$HELIX_API_TOKEN /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
 

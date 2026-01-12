@@ -6,7 +6,8 @@
 # ====================================================================
 
 # ====================================================================
-# Stage 1: Build Go binaries (revdial-client, hydra, sandbox-heartbeat)
+# Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
+# Note: revdial-client is built into Hydra daemon
 # ====================================================================
 FROM golang:1.24 AS go-builder
 WORKDIR /build
@@ -14,11 +15,7 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY api/ ./api/
-# Build revdial-client
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /revdial-client ./api/cmd/revdial-client
-# Build hydra (multi-Docker isolation daemon)
+# Build hydra (multi-Docker isolation daemon with built-in RevDial)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
@@ -169,10 +166,9 @@ RUN chmod +x /entrypoint.sh \
 # ====================================================================
 # Copy Go binaries
 # ====================================================================
-COPY --from=go-builder /revdial-client /usr/local/bin/revdial-client
 COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
-RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
+RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
 
 # ====================================================================
 # Copy Helix sandbox init scripts (run after GOW base scripts)
@@ -182,16 +178,13 @@ RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra /usr/local/bin/s
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
 RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 
-# Start RevDial client (optional, only if HELIX_API_URL is set)
-COPY sandbox/07-start-revdial-clients.sh /etc/cont-init.d/50-start-revdial-clients.sh
-RUN chmod +x /etc/cont-init.d/50-start-revdial-clients.sh
-
 # Start sandbox heartbeat daemon
-COPY sandbox/08-start-wolf-heartbeat.sh /etc/cont-init.d/55-start-sandbox-heartbeat.sh
+# Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)
+COPY sandbox/08-start-sandbox-heartbeat.sh /etc/cont-init.d/55-start-sandbox-heartbeat.sh
 RUN chmod +x /etc/cont-init.d/55-start-sandbox-heartbeat.sh
 
 # Setup telemetry firewall for nested agent containers
-COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/60-setup-telemetry-firewall.sh
+COPY desktop/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/60-setup-telemetry-firewall.sh
 RUN chmod +x /etc/cont-init.d/60-setup-telemetry-firewall.sh
 
 # Start Hydra multi-Docker isolation daemon

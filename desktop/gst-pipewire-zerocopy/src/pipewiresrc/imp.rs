@@ -689,39 +689,33 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        // Choose capture backend based on compositor:
-        // - Sway/wlroots: Use PipeWire with SHM (no DMA-BUF) via xdg-desktop-portal-wlr
-        // - GNOME/others: Use PipeWire with DMA-BUF for zero-copy
+        // Determine capture mode based on output_mode property:
+        // - system: Use SHM (shared memory) - one CPU copy, then GPU upload
+        // - cuda/dmabuf/auto: Use DMA-BUF for zero-copy GPU memory
         //
-        // For Sway, we must use SHM because:
-        // 1. xdg-desktop-portal-wlr doesn't support NVIDIA tiled modifiers
-        // 2. DMA-BUF format negotiation fails (param_changed never called)
-        // 3. wlr-export-dmabuf works but CUDA can't import Sway's modifiers (0x606xxx)
-        // 4. WLR_DRM_NO_MODIFIERS=1 fixes CUDA but crashes Zed
-        //
-        // SHM path: PipeWire SHM → system memory → cudaupload → nvh264enc
-        // This is still hardware encoding, just with one CPU copy.
-        let is_sway = WlrExportDmabufStream::is_available();
+        // The Go code sets output_mode based on encoder and compositor:
+        // - GNOME + NVIDIA: auto (tries DMA-BUF → CUDA)
+        // - GNOME + VA-API: system (SHM → vapostproc → GPU)
+        // - Sway + any: system (xdg-desktop-portal-wlr doesn't support GPU modifiers)
+        let use_shm = output_mode == OutputMode::System;
 
-        let frame_stream = if is_sway {
-            eprintln!("[PIPEWIRESRC_DEBUG] Sway/wlroots detected, using PipeWire with SHM (no DMA-BUF)");
-            gst::info!(CAT, imp = self, "Sway detected: using PipeWire SHM for hardware encoding");
+        let frame_stream = if use_shm {
+            eprintln!("[PIPEWIRESRC_DEBUG] output-mode=system: using PipeWire SHM");
+            gst::info!(CAT, imp = self, "System memory mode: PipeWire SHM for hardware encoding");
 
-            // Force system memory output mode for Sway
+            // Force system memory output mode
             state.actual_output_mode = OutputMode::System;
-            eprintln!("[PIPEWIRESRC_DEBUG] Sway: System memory mode (cudaupload will transfer to GPU)");
 
             // Pass None for dmabuf_caps to force SHM-only format negotiation
-            // This makes PipeWire offer SHM formats that xdg-desktop-portal-wlr accepts
             let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, None, target_fps)
                 .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire SHM: {}", e)))?;
             FrameStream::PipeWire(pw_stream)
         } else {
-            eprintln!("[PIPEWIRESRC_DEBUG] GNOME detected, using PipeWire with DMA-BUF");
-            gst::info!(CAT, imp = self, "Using PipeWire ScreenCast with DMA-BUF");
+            eprintln!("[PIPEWIRESRC_DEBUG] output-mode={:?}: using PipeWire DMA-BUF", output_mode);
+            gst::info!(CAT, imp = self, "DMA-BUF mode: zero-copy GPU memory");
 
             let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
-                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
+                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire DMA-BUF: {}", e)))?;
             FrameStream::PipeWire(pw_stream)
         };
 

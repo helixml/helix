@@ -132,21 +132,17 @@ echo "✅ Zed state symlinks created"
 # CRITICAL: Starts BEFORE GNOME so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
+    # Note: RevDial is now integrated into desktop-bridge
 
     echo "[RevDial] Starting client for API ↔ sandbox communication..."
     echo "[RevDial] Server: $REVDIAL_SERVER"
     echo "[RevDial] Runner ID: $RUNNER_ID"
 
-    /usr/local/bin/revdial-client \
         -server "$REVDIAL_SERVER" \
         -runner-id "$RUNNER_ID" \
         -token "$USER_API_TOKEN" \
         -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
 
-    REVDIAL_PID=$!
     echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
 else
     echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
@@ -302,17 +298,17 @@ EOF
 echo "✅ GNOME display configuration autostart entry created"
 
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
-cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
+cat > ~/.config/autostart/desktop-bridge.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Screenshot Server
-Exec=/usr/local/bin/screenshot-server
+Exec=/usr/local/bin/desktop-bridge
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
 
-echo "✅ screenshot-server autostart entry created"
+echo "✅ desktop-bridge autostart entry created"
 
 # Autostart devilspie2 (window rule daemon - must start early, before Firefox)
 cat > ~/.config/autostart/devilspie2.desktop <<'EOF'

@@ -231,7 +231,7 @@ lobbyResp, err := wolfClient.CreateLobby(ctx, lobbyReq)
 ```bash
 docker run -d \
     -e HELIX_API_URL=https://api.helixml.tech \
-    -e WOLF_INSTANCE_ID=us-east-1 \
+    -e SANDBOX_INSTANCE_ID=us-east-1 \
     -e RUNNER_TOKEN=xyz \
     --gpus all --privileged \
     helix-sandbox:latest

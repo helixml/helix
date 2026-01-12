@@ -54,44 +54,26 @@ func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Clien
 	)
 }
 
-// resolveImageVersion resolves :latest tags to specific versions from version files
-// This avoids race conditions when a new image is being loaded while a container is created
-func resolveImageVersion(image string) string {
-	// Only resolve :latest tags for helix images
-	if !strings.HasSuffix(image, ":latest") {
-		return image
+// validateImageVersion validates that the image has a specific version tag, never :latest.
+// The API should always resolve versions from sandbox heartbeat before calling Hydra.
+// Returns an error if :latest is passed - this indicates a bug in the API.
+func validateImageVersion(image string) error {
+	if strings.HasSuffix(image, ":latest") {
+		return fmt.Errorf("image %q uses :latest tag - API should resolve versions from sandbox heartbeat, not pass :latest to Hydra", image)
 	}
-
-	// Extract image name (e.g., "helix-ubuntu" from "helix-ubuntu:latest")
-	imageName := strings.TrimSuffix(image, ":latest")
-	if !strings.HasPrefix(imageName, "helix-") {
-		return image
+	// Also reject images without any tag (implies :latest)
+	if strings.HasPrefix(image, "helix-") && !strings.Contains(image, ":") {
+		return fmt.Errorf("image %q has no version tag - API should resolve versions from sandbox heartbeat", image)
 	}
-
-	// Read version from file (mounted at /opt/images/ in sandbox)
-	versionFile := fmt.Sprintf("/opt/images/%s.version", imageName)
-	version, err := os.ReadFile(versionFile)
-	if err != nil {
-		log.Warn().Err(err).Str("image", imageName).Str("file", versionFile).
-			Msg("Failed to read version file, using :latest")
-		return image
-	}
-
-	tag := strings.TrimSpace(string(version))
-	if tag == "" {
-		log.Warn().Str("image", imageName).Msg("Version file empty, using :latest")
-		return image
-	}
-
-	resolved := imageName + ":" + tag
-	log.Info().Str("original", image).Str("resolved", resolved).Msg("Resolved image version")
-	return resolved
+	return nil
 }
 
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
-	// Resolve :latest to specific version from version file
-	resolvedImage := resolveImageVersion(req.Image)
+	// Validate that image has a specific version tag - never accept :latest
+	if err := validateImageVersion(req.Image); err != nil {
+		return nil, err
+	}
 
 	// Use local GPU_VENDOR env var as fallback if request doesn't specify GPU vendor.
 	// This handles the case where the API server doesn't know the sandbox's GPU
@@ -108,7 +90,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	log.Info().
 		Str("session_id", req.SessionID).
-		Str("image", resolvedImage).
+		Str("image", req.Image).
 		Str("container_name", req.ContainerName).
 		Str("container_type", string(req.ContainerType)).
 		Str("gpu_vendor", gpuVendor).
@@ -123,7 +105,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Build container configuration
 	containerConfig := &container.Config{
-		Image:    resolvedImage,
+		Image:    req.Image,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
 	}

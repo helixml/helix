@@ -54,7 +54,7 @@ spec:
               {{- else }}
               value: {{ .Values.sandbox.runnerToken | quote }}
               {{- end }}
-            - name: WOLF_INSTANCE_ID
+            - name: SANDBOX_INSTANCE_ID
               {{- if .Values.sandbox.instanceId }}
               value: {{ .Values.sandbox.instanceId | quote }}
               {{- else }}
@@ -94,18 +94,12 @@ spec:
             # Sandbox configuration
             - name: XDG_RUNTIME_DIR
               value: "/tmp/sockets"
-            - name: HOST_APPS_STATE_FOLDER
-              value: "/etc/wolf/cfg"
-            - name: WOLF_SOCKET_PATH
-              value: "/var/run/wolf/wolf.sock"
             - name: GOP_SIZE
               value: {{ .Values.sandbox.gopSize | quote }}
 
             # GPU vendor configuration
             - name: GPU_VENDOR
               value: {{ $gpuVendor | quote }}
-            - name: WOLF_RENDER_NODE
-              value: {{ include "helix-sandbox.renderNode" . | quote }}
 
             {{- if eq $gpuVendor "nvidia" }}
             # NVIDIA-specific environment
@@ -136,12 +130,12 @@ spec:
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
-            - name: sandbox-config
-              mountPath: /etc/wolf/cfg
+            - name: hydra-data
+              mountPath: /hydra-data
             - name: tmp-sockets
               mountPath: /tmp/sockets
-            - name: sandbox-socket
-              mountPath: /var/run/wolf
+            - name: hydra-socket
+              mountPath: /var/run/hydra
             - name: udev
               mountPath: /run/udev
               readOnly: true
@@ -214,16 +208,16 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-        - name: sandbox-config
-          {{- if .Values.persistence.sandboxConfig.enabled }}
+        - name: hydra-data
+          {{- if .Values.persistence.hydraData.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "helix-sandbox.fullname" . }}-config
+            claimName: {{ include "helix-sandbox.fullname" . }}-hydra
           {{- else }}
           emptyDir: {}
           {{- end }}
         - name: tmp-sockets
           emptyDir: {}
-        - name: sandbox-socket
+        - name: hydra-socket
           emptyDir: {}
         - name: udev
           hostPath:

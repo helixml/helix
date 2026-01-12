@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Screenshot server wrapper that ensures correct Wayland environment
-# Replaces /usr/local/bin/screenshot-server with env-aware version
+# Replaces /usr/local/bin/desktop-bridge with env-aware version
 
 # Ensure we have correct Wayland display
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}

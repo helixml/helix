@@ -378,10 +378,11 @@ impl WlrExportDmabufStream {
         })
     }
 
-    /// Check if wlr-export-dmabuf is available
+    /// Check if we're running under a wlroots-based compositor (Sway)
     ///
-    /// Returns true if we're running under a wlroots compositor (Sway)
-    /// that supports the zwlr_export_dmabuf_manager_v1 protocol.
+    /// Returns true if XDG_CURRENT_DESKTOP indicates Sway or wlroots.
+    /// Note: We no longer use wlr-export-dmabuf for capture (PipeWire SHM instead),
+    /// but we still use this detection to determine Sway vs GNOME for format negotiation.
     pub fn is_available() -> bool {
         // Check if XDG_CURRENT_DESKTOP indicates Sway/wlroots
         if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
@@ -391,8 +392,9 @@ impl WlrExportDmabufStream {
             }
         }
 
-        // Also check WAYLAND_DISPLAY exists
-        std::env::var("WAYLAND_DISPLAY").is_ok()
+        // Don't fall back to just checking WAYLAND_DISPLAY - GNOME also has it!
+        // Only return true for explicit Sway/wlroots detection.
+        false
     }
 
     /// Receive a frame with timeout

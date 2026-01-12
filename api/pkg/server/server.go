@@ -203,11 +203,6 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	// Initialize external agent executor
-	zedImage := os.Getenv("ZED_IMAGE")
-	if zedImage == "" {
-		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
-	}
 
 	// Initialize external agent WebSocket manager BEFORE executor
 	externalAgentWSManager := NewExternalAgentWSManager()
@@ -225,7 +220,6 @@ func NewServer(
 	log.Info().Msg("Initializing Hydra executor for container management")
 	externalAgentExecutor := external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
 		Store:                         store,
-		ZedImage:                      zedImage,
 		HelixAPIURL:                   sandboxAPIURL,
 		HelixAPIToken:                 cfg.WebServer.RunnerToken,
 		WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container

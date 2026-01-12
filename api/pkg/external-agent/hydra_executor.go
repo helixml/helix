@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -26,7 +27,6 @@ type HydraExecutor struct {
 	mutex    sync.RWMutex
 
 	// Configuration
-	zedImage      string // e.g., "helix-sway:latest"
 	helixAPIURL   string
 	helixAPIToken string
 
@@ -53,7 +53,6 @@ type connmanInterface interface {
 // HydraExecutorConfig holds configuration for creating a HydraExecutor
 type HydraExecutorConfig struct {
 	Store                         store.Store
-	ZedImage                      string
 	HelixAPIURL                   string
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
@@ -64,14 +63,9 @@ type HydraExecutorConfig struct {
 
 // NewHydraExecutor creates a new HydraExecutor instance
 func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
-	if cfg.ZedImage == "" {
-		cfg.ZedImage = "helix-sway:latest"
-	}
-
 	return &HydraExecutor{
 		store:                         cfg.Store,
 		sessions:                      make(map[string]*ZedSession),
-		zedImage:                      cfg.ZedImage,
 		helixAPIURL:                   cfg.HelixAPIURL,
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
@@ -121,11 +115,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	// Get Hydra client via RevDial
-	// Hydra runner ID follows pattern: hydra-{WOLF_INSTANCE_ID}
-	// Hydra defaults WOLF_INSTANCE_ID to "local" (see api/cmd/hydra/main.go:112)
+	// Hydra runner ID follows pattern: hydra-{SANDBOX_INSTANCE_ID}
+	// Hydra defaults SANDBOX_INSTANCE_ID to "local" (see api/cmd/hydra/main.go:112)
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
-		// Use "local" to match Hydra's default WOLF_INSTANCE_ID
+		// Use "local" to match Hydra's default SANDBOX_INSTANCE_ID
 		sandboxID = "local"
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
@@ -156,8 +150,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Build container name
 	containerName := fmt.Sprintf("%s-external-%s", containerType, strings.TrimPrefix(agent.SessionID, "ses_"))
 
-	// Build container image
-	image := h.getContainerImage(containerType, agent)
+	// Build container image (looks up version from sandbox heartbeat in database)
+	image, err := h.getContainerImage(ctx, containerType, sandboxID, agent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container image: %w", err)
+	}
 
 	// CRITICAL: Fetch user for git credentials
 	// Enterprise ADO deployments reject commits from non-corporate email addresses
@@ -383,7 +380,7 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	}
 
 	if sandboxID == "" {
-		// Use "local" to match Hydra's default WOLF_INSTANCE_ID
+		// Use "local" to match Hydra's default SANDBOX_INSTANCE_ID
 		sandboxID = "local"
 	}
 
@@ -581,38 +578,53 @@ func (h *HydraExecutor) parseContainerType(desktopType string) string {
 	}
 }
 
-// getContainerImage returns the appropriate container image for the given type
-// Reads version from /opt/images/<image>.version to avoid race conditions with :latest tag
-func (h *HydraExecutor) getContainerImage(containerType string, agent *types.DesktopAgent) string {
+// getContainerImage returns the appropriate container image for the given type.
+// Looks up desktop_versions from the sandbox's database record (populated by heartbeat).
+// Returns an error if the version cannot be determined - never falls back to :latest.
+func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType string, sandboxID string, agent *types.DesktopAgent) (string, error) {
 	// Use custom image if provided
 	if agent.CustomImage != "" {
-		return agent.CustomImage
+		return agent.CustomImage, nil
 	}
 
-	// Map container type to image name
-	var imageName string
+	// Map container type to image name and version key
+	var imageName, versionKey string
 	switch containerType {
 	case "ubuntu":
 		imageName = "helix-ubuntu"
+		versionKey = "ubuntu"
 	default:
 		imageName = "helix-sway"
+		versionKey = "sway"
 	}
 
-	// Read version from file (mounted at /opt/images/ in sandbox)
-	versionFile := fmt.Sprintf("/opt/images/%s.version", imageName)
-	version, err := os.ReadFile(versionFile)
+	// Look up desktop_versions from sandbox's database record
+	// The sandbox heartbeat daemon updates this with versions from /opt/images/*.version
+	sandbox, err := h.store.GetSandbox(ctx, sandboxID)
 	if err != nil {
-		log.Warn().Err(err).Str("image", imageName).Msg("Failed to read version file, falling back to :latest")
-		return imageName + ":latest"
+		return "", fmt.Errorf("failed to get sandbox %q from database: %w (is the sandbox heartbeat running?)", sandboxID, err)
 	}
 
-	tag := strings.TrimSpace(string(version))
-	if tag == "" {
-		log.Warn().Str("image", imageName).Msg("Version file empty, falling back to :latest")
-		return imageName + ":latest"
+	// Parse desktop_versions JSON from sandbox record
+	var desktopVersions map[string]string
+	if len(sandbox.DesktopVersions) > 0 {
+		if err := json.Unmarshal(sandbox.DesktopVersions, &desktopVersions); err != nil {
+			return "", fmt.Errorf("failed to parse desktop_versions JSON for sandbox %q: %w", sandboxID, err)
+		}
 	}
 
-	return imageName + ":" + tag
+	// Get version from parsed map
+	if version, ok := desktopVersions[versionKey]; ok && version != "" {
+		log.Info().
+			Str("sandbox_id", sandboxID).
+			Str("image", imageName).
+			Str("version", version).
+			Msg("Using desktop version from sandbox heartbeat")
+		return imageName + ":" + version, nil
+	}
+
+	return "", fmt.Errorf("no %q version found in sandbox %q heartbeat (desktop_versions: %v) - is the sandbox heartbeat running?",
+		versionKey, sandboxID, desktopVersions)
 }
 
 // buildEnvVars builds environment variables for the container
@@ -666,12 +678,6 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Keep desktop alive when Zed restarts
 		"SWAY_STOP_ON_APP_EXIT=no",
-
-		// Force GNOME Shell to use headless mode with PipeWire capture
-		"WOLF_VIDEO_SOURCE_MODE=pipewire",
-
-		// Video streaming mode: direct WebSocket streaming (ws_stream.go)
-		"WOLF_FREE_MODE=true",
 	}
 
 	// Add runner API token (for internal API calls from the container)

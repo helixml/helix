@@ -33,9 +33,8 @@ COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
 # KDE Desktop - Ubuntu 25.10 base for Plasma 6.5
@@ -266,8 +265,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker wrappers for Hydra compatibility
-COPY wolf/kde-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/kde-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+COPY desktop/kde-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/kde-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -312,17 +311,17 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 # Helix startup script (GOW pattern + Helix additions)
-ADD wolf/kde-config/startup-app.sh /opt/gow/startup-app.sh
+ADD desktop/kde-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
 # Helix helper scripts
-ADD wolf/kde-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD desktop/kde-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
 
 # Docker group init script
-ADD wolf/kde-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+ADD desktop/kde-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
 # Workspace README
@@ -330,9 +329,8 @@ RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
 # Helix Go binaries
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # Zed binary
@@ -341,7 +339,7 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Zed desktop file and icon
-COPY wolf/kde-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY desktop/kde-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \

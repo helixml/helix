@@ -11,12 +11,12 @@
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
-# screenshot-server requires go-gst bindings (CGO) for in-process GStreamer.
+# desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
 ARG GO_CODE_HASH=unknown
 
 # Install GStreamer development libraries for go-gst bindings
-# These are required for CGO compilation of screenshot-server
+# These are required for CGO compilation of desktop-bridge
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
@@ -32,9 +32,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin (optional)
@@ -387,8 +386,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker wrappers for Hydra compatibility
-COPY wolf/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+COPY desktop/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -500,19 +499,7 @@ mkdir -p $QWEN_DATA_DIR
 rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
 gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
-# Start RevDial client
-if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
-    gow_log "[start] Starting RevDial client..."
-    /usr/local/bin/revdial-client \
-        -server "$REVDIAL_SERVER" \
-        -runner-id "$RUNNER_ID" \
-        -token "$USER_API_TOKEN" \
-        -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
-    gow_log "[start] RevDial client started (PID: $!)"
-fi
+# Note: RevDial client is now integrated into desktop-bridge
 
 # Disable IBus Input Method Framework
 # IBus can interfere with keyboard input in remote streaming environments
@@ -563,7 +550,7 @@ export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
 # Display scaling
-# HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by wolf_executor
+# HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by hydra_executor
 # Convert to scale factor: 100→1, 150→1.5, 200→2
 #
 # Scaling works at TWO levels:
@@ -594,31 +581,14 @@ fi
 
 # GNOME 49 Mutter SDK (--devkit) Architecture:
 # =============================================
-# Two video source modes:
-# 1. "wayland" (default): mutter-devkit renders to Wolf's Wayland display
-#    - gnome-shell --devkit spawns mutter-devkit
-#    - mutter-devkit outputs to WAYLAND_DISPLAY (Wolf's display)
-#    - Wolf uses waylanddisplaysrc to capture
-#
-# 2. "pipewire": Wolf uses pipewiresrc to read directly from PipeWire
-#    - gnome-shell --devkit runs without a display target
-#    - Container creates ScreenCast session via D-Bus
-#    - Container reports PipeWire node ID to Wolf via API
-#    - Wolf uses pipewiresrc to capture
-#
-# Mode is set by WOLF_VIDEO_SOURCE_MODE environment variable
+# PipeWire mode: gnome-shell --headless + pipewiresrc capture
+# - gnome-shell --headless creates a virtual display
+# - Container creates ScreenCast session via D-Bus
+# - Wolf/Moonlight captures via pipewiresrc
 
-VIDEO_SOURCE_MODE="\${WOLF_VIDEO_SOURCE_MODE:-wayland}"
-gow_log "[start] Video source mode: \$VIDEO_SOURCE_MODE"
-
-if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-    # PipeWire mode: mutter-devkit has nowhere to render (which is fine)
-    unset WAYLAND_DISPLAY
-    gow_log "[start] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
-else
-    # Wayland mode: keep Wolf's display for mutter-devkit to render to
-    gow_log "[start] Wayland mode: WAYLAND_DISPLAY=$WOLF_WAYLAND_DISPLAY (mutter-devkit renders here)"
-fi
+# Don't inherit any parent Wayland display
+unset WAYLAND_DISPLAY
+gow_log "[start] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
 
 gow_log "[start] Starting PipeWire + WirePlumber"
 pipewire &
@@ -659,14 +629,14 @@ if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
 fi
 
-if [ -x /usr/local/bin/screenshot-server ]; then
+if [ -x /usr/local/bin/desktop-bridge ]; then
   gow_log "[start] Starting screenshot server (includes D-Bus session + input bridge)..."
   # Screenshot server handles:
   # - HTTP API: /screenshot, /clipboard, /keyboard-state, /keyboard-reset, /upload
   # - GNOME: Creates RemoteDesktop+ScreenCast sessions, reports PipeWire node to Wolf
   # - Input bridge: Receives events from Wolf, injects via D-Bus NotifyPointer*/NotifyKeyboard*
   # Logs go to docker logs (stdout/stderr)
-  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server &
+  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/desktop-bridge &
 fi
 
 # Verify display scale after GNOME Shell is ready (if scaling is enabled)
@@ -718,24 +688,12 @@ gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMES
 gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
 gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
 
-# GNOME 49 supports two modes:
-# - PipeWire mode (--headless): No display output, Wolf uses pipewiresrc to capture from PipeWire
-# - Wayland mode (--nested): Outputs to Wolf's Wayland display, Wolf uses waylanddisplaysrc
-#
-# --virtual-monitor WxH@R creates a virtual display at the specified resolution
-
-if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-    gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
-    # --headless: No display output - Wolf captures via pipewiresrc from ScreenCast
-    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
-    #                (GNOME 41+ restricts this API to whitelisted callers only)
-    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
-else
-    gow_log "[start] Starting GNOME Shell in NESTED mode (Wayland capture)"
-    # --nested: Outputs to Wolf's Wayland display - Wolf captures via waylanddisplaysrc
-    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
-    gnome-shell --nested --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
-fi
+# Start GNOME Shell in headless mode with virtual monitor
+# --headless: No display output - captured via pipewiresrc from ScreenCast
+# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
+# --virtual-monitor WxH@R: Creates virtual display at specified resolution
+gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
+gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
 GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome
@@ -745,17 +703,17 @@ _STARTUP
 RUN chmod +x /opt/gow/startup.sh
 
 # Helix helper scripts
-ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
-ADD wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
 
 # Docker group init script
-ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+ADD desktop/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
 # Workspace README
@@ -770,9 +728,8 @@ RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 
 # Helix Go binaries (v2: socket wait fix)
 # NOTE: Go code changes most frequently, so it's placed last before Zed
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 
 # Zed binary
 RUN mkdir -p /zed-build
@@ -780,7 +737,7 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Zed desktop file and icon
-COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \
@@ -820,7 +777,7 @@ RUN git config --system http.sslVerify false
 # Clicking this button terminates the ScreenCast session and crashes the stream for everyone.
 # This extension hides the indicator to prevent accidental session termination.
 RUN mkdir -p /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection
-COPY wolf/ubuntu-config/gnome-extensions/just-perfection-desktop@just-perfection.zip /tmp/
+COPY desktop/ubuntu-config/gnome-extensions/just-perfection-desktop@just-perfection.zip /tmp/
 RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
     rm /tmp/just-perfection-desktop@just-perfection.zip && \
     # Fix permissions (metadata.json in zip has 600, needs to be readable by retro user)
@@ -851,7 +808,7 @@ RUN mkdir -p /etc/dconf/profile && \
 
 # Copy our settings as system defaults
 RUN mkdir -p /etc/dconf/db/local.d
-ADD wolf/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
+ADD desktop/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
 
 # Compile the dconf database
 RUN dconf update

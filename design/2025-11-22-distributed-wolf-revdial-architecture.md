@@ -583,7 +583,7 @@ spec:
         add:
         - SYS_ADMIN  # Required for Sysbox
     env:
-    - name: WOLF_INSTANCE_ID
+    - name: SANDBOX_INSTANCE_ID
       value: "wolf-instance-1"
     - name: API_ENDPOINT
       value: "https://api.helixml.tech"

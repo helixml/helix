@@ -1,5 +1,5 @@
 # ====================================================================
-# Go build stage for settings-sync-daemon and screenshot-server
+# Go build stage for settings-sync-daemon and desktop-bridge
 # ====================================================================
 FROM golang:1.24 AS go-build-env
 WORKDIR /app
@@ -10,8 +10,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
 
 # ====================================================================
 # Zorin OS Personal Dev Environment - Stage 2: Add Zed Integration
@@ -82,8 +81,8 @@ RUN apt-get update \
 # These wrappers intercept docker/compose commands and resolve symlinks in volume
 # paths before passing to the real binaries, enabling bind mounts to work
 # correctly when using Hydra (nested dockerd per session).
-COPY wolf/zorin-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/zorin-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+COPY desktop/zorin-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/zorin-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -109,10 +108,9 @@ RUN apt-get update && apt-get install -y \
     wmctrl xdotool devilspie2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy settings-sync-daemon, screenshot-server, and revdial-client binaries from Go build stage
+# Copy settings-sync-daemon, desktop-bridge, and revdial-client binaries from Go build stage
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 
 # ====================================================================
 # Install Node.js for qwen-code
@@ -152,22 +150,22 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Copy Zed startup script and helper scripts
-ADD wolf/zorin-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/zorin-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/zorin-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/zorin-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
 
 # Copy GOW startup script (creates autostart entries and state symlinks)
-ADD wolf/zorin-config/startup-app.sh /opt/gow/startup.sh
+ADD desktop/zorin-config/startup-app.sh /opt/gow/startup.sh
 RUN chmod +x /opt/gow/startup.sh
 
 # Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
 # CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
-ADD wolf/zorin-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+ADD desktop/zorin-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
 # Copy Helix background image for desktop wallpaper
 RUN mkdir -p /usr/share/backgrounds
-COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
+COPY desktop/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
 
 # Copy GNOME dconf settings (background, theme, keyboard, power management)
-COPY wolf/zorin-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+COPY desktop/zorin-config/dconf-settings.ini /opt/gow/dconf-settings.ini

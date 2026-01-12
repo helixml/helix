@@ -1200,6 +1200,14 @@ function transfer-desktop-to-sandbox() {
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
   local COMMIT_HASH=$(git rev-parse --short HEAD)
 
+  # Check if sandbox already has this exact image by version tag (skip transfer if so)
+  # Use the version tag, not :latest, since we don't use :latest in production
+  local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
+  if [ -n "$SANDBOX_HAS_TAG" ]; then
+    echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
+    return 0
+  fi
+
   # CRITICAL: Create image tag on host - Hydra requests images by tag
   # The heartbeat reports the tag from the version file, and Hydra uses
   # helix-${desktop}:${tag} when creating containers. Without this tag, the

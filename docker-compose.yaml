@@ -45,8 +45,6 @@ services:
       # Example: DYNAMIC_PROVIDERS=groq:gsk_xxxx:https://api.groq.com/openai/v1,cerebras:csk_xxxx:https://api.cerebras.ai/v1
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Sandbox integration for Helix Code (External Agents / PDEs)
-      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_MODE=${WOLF_MODE:-lobbies}
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
@@ -64,7 +62,7 @@ services:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
       # Bind-mount from host (sandbox creates socket here) - only needed for sandbox profiles
-      - /var/run/wolf:/var/run/wolf:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
     depends_on:
       - postgres
     extra_hosts:
@@ -218,11 +216,10 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
   helix-typesense-db:
-  wolf-debug-dumps: # Sandbox debug dumps
   helix-socket:
   helix-kodit:
   helix-vectorchord-kodit:
-  wolf-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
+  sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
 
 networks:
   default:

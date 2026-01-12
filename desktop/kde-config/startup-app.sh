@@ -78,15 +78,12 @@ gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
 # Start RevDial client for reverse proxy (API ↔ sandbox communication)
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
+    # Note: RevDial is now integrated into desktop-bridge
     gow_log "[start] Starting RevDial client..."
-    /usr/local/bin/revdial-client \
         -server "$REVDIAL_SERVER" \
         -runner-id "$RUNNER_ID" \
         -token "$USER_API_TOKEN" \
         -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
     gow_log "[start] RevDial client started (PID: $!)"
 fi
 
@@ -160,9 +157,9 @@ if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$USER_API_TOKEN" ]; then
   XDG_CURRENT_DESKTOP=KDE KDE_SESSION_VERSION=6 /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
 fi
 
-if [ -x /usr/local/bin/screenshot-server ]; then
+if [ -x /usr/local/bin/desktop-bridge ]; then
   gow_log "[start] Starting screenshot server with KDE environment..."
-  XDG_CURRENT_DESKTOP=KDE KDE_SESSION_VERSION=6 /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+  XDG_CURRENT_DESKTOP=KDE KDE_SESSION_VERSION=6 /usr/local/bin/desktop-bridge >> /tmp/desktop-bridge.log 2>&1 &
 fi
 
 # Launch Zed in background after KDE panel (plasmashell) is ready

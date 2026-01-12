@@ -331,7 +331,7 @@ Based on the architecture, here's an honest assessment of what might go wrong:
 
 4. **DNS server startup** ✅ - Uses miekg/dns, a battle-tested library. Simple UDP server.
 
-5. **RevDial connectivity** ✅ - Runner ID format verified: `hydra-{WOLF_INSTANCE_ID}` matches on both sides.
+5. **RevDial connectivity** ✅ - Runner ID format verified: `hydra-{SANDBOX_INSTANCE_ID}` matches on both sides.
 
 ### Potential Issues
 

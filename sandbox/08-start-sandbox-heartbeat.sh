@@ -8,7 +8,7 @@ if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
     return 0
 fi
 
-SANDBOX_INSTANCE_ID=${WOLF_INSTANCE_ID:-${SANDBOX_INSTANCE_ID:-local}}
+SANDBOX_INSTANCE_ID=${SANDBOX_INSTANCE_ID:-local}
 echo "💓 Starting sandbox heartbeat daemon for instance: $SANDBOX_INSTANCE_ID"
 
 # Log discovered desktop versions

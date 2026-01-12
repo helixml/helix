@@ -55,5 +55,5 @@ else
 fi
 
 # Note: Hydra includes its own built-in RevDial client
-# It reads HELIX_API_URL, RUNNER_TOKEN, WOLF_INSTANCE_ID from environment
+# It reads HELIX_API_URL, RUNNER_TOKEN, SANDBOX_INSTANCE_ID from environment
 echo "✅ Hydra daemon ready (RevDial client built-in)"

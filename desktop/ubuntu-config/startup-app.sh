@@ -161,34 +161,10 @@ FONTCONFIG_EOF
 echo "Fontconfig set to grayscale antialiasing"
 
 # ============================================================================
-# RevDial Client for API Communication
+# RevDial Note
 # ============================================================================
-# Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
-# CRITICAL: Starts BEFORE GNOME so API can reach sandbox immediately
-# Uses user's API token for authentication (session-scoped, user-owned)
-if [ "$ENABLE_REVDIAL" = "true" ] && [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
-    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
-
-    echo "[RevDial] Starting client for API <-> sandbox communication..."
-    echo "[RevDial] Server: $REVDIAL_SERVER"
-    echo "[RevDial] Runner ID: $RUNNER_ID"
-
-    /usr/local/bin/revdial-client \
-        -server "$REVDIAL_SERVER" \
-        -runner-id "$RUNNER_ID" \
-        -token "$USER_API_TOKEN" \
-        -local "localhost:9876" \
-        >> /tmp/revdial-client.log 2>&1 &
-
-    REVDIAL_PID=$!
-    echo "RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
-else
-    echo "Warning: RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
-    echo "    HELIX_API_BASE_URL: ${HELIX_API_BASE_URL:-NOT SET}"
-    echo "    HELIX_SESSION_ID: ${HELIX_SESSION_ID:-NOT SET}"
-    echo "    USER_API_TOKEN: ${USER_API_TOKEN:+SET (hidden)}"
-fi
+# RevDial client is now integrated into desktop-bridge
+# It starts automatically when desktop-bridge launches with the required env vars
 
 # ============================================================================
 # Disable GNOME Screensaver Proxy
@@ -396,18 +372,18 @@ echo "Creating GNOME autostart entries for Helix services..."
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
 if [ "$ENABLE_SCREENSHOT_SERVER" = "true" ]; then
     # CRITICAL: Pass DISPLAY=:9 for X11 clipboard support (Ubuntu GNOME runs on Xwayland)
-    cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
+    cat > ~/.config/autostart/desktop-bridge.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Screenshot Server
-Exec=/bin/bash -c "DISPLAY=:9 /usr/local/bin/screenshot-server"
+Exec=/bin/bash -c "DISPLAY=:9 /usr/local/bin/desktop-bridge"
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
-    echo "screenshot-server autostart entry created (with DISPLAY=:9 for X11 clipboard)"
+    echo "desktop-bridge autostart entry created (with DISPLAY=:9 for X11 clipboard)"
 else
-    echo "screenshot-server autostart DISABLED by feature flag"
+    echo "desktop-bridge autostart DISABLED by feature flag"
 fi
 
 # Autostart devilspie2 (window rule daemon - must start early, before Firefox)
@@ -613,14 +589,6 @@ echo "Cursor environment variables set (WLR_NO_HARDWARE_CURSORS=1)"
 #
 # See: design/2025-12-29-pipewire-wolf-bridge.md
 
-# Determine video source mode from Wolf environment variable
-VIDEO_SOURCE_MODE="${WOLF_VIDEO_SOURCE_MODE:-wayland}"
-echo "Video source mode: $VIDEO_SOURCE_MODE"
-
-# Save Wolf's Wayland display
-export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
-echo "Wolf Wayland display: $WOLF_WAYLAND_DISPLAY"
-
 # Create a script that runs inside dbus-run-session
 # This ensures all D-Bus dependent services have access to the session bus
 cat > /tmp/gnome-session.sh << GNOME_SESSION_EOF
@@ -628,12 +596,9 @@ cat > /tmp/gnome-session.sh << GNOME_SESSION_EOF
 set -e
 
 # Environment variables captured from outer script
-export WOLF_WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
 export HELIX_API_BASE_URL="$HELIX_API_BASE_URL"
 export USER_API_TOKEN="$USER_API_TOKEN"
-export WOLF_SESSION_ID="$WOLF_SESSION_ID"
 export XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"
-VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
 
 # Workaround for Mutter frame rate drops (60→40fps)
 # See: https://gitlab.gnome.org/GNOME/mutter/-/issues/3788
@@ -641,33 +606,17 @@ VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
 export MUTTER_DEBUG_KMS_THREAD_TYPE=user
 
 # Enable Mutter/Clutter debug logging for frame production analysis
-# This helps identify where the 16ms+ delay occurs in the frame chain:
-#   Actor damage → clutter_frame_clock_schedule_update → pw_stream_trigger_process
-#   → on_stream_process → dispatch → paint → on_after_paint → PipeWire buffer
-# Key log messages:
-#   "Request processing on stream %u" - when pw_stream_trigger_process called
-#   "Processing stream %u" - when on_stream_process callback fires
-#   "Recording frame on stream %u" - when frame is captured
-#   "Skipped recording frame, too early" - when frame is throttled
 export MUTTER_DEBUG=screen-cast
 export CLUTTER_DEBUG=frame-clock,frame-timings
 
 echo "[gnome-session] Starting inside dbus-run-session..."
-echo "[gnome-session] Video source mode: \$VIDEO_SOURCE_MODE"
 
-# Set WAYLAND_DISPLAY based on video source mode
-if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-    # PipeWire mode: Don't inherit Wolf's Wayland display
-    # mutter-devkit will have nowhere to output (which is fine - we use pipewiresrc)
-    unset WAYLAND_DISPLAY
-    echo "[gnome-session] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
-else
-    # Wayland mode: mutter-devkit outputs to Wolf's display
-    export WAYLAND_DISPLAY="\$WOLF_WAYLAND_DISPLAY"
-    echo "[gnome-session] Wayland mode: WAYLAND_DISPLAY=\$WAYLAND_DISPLAY (mutter-devkit outputs here)"
-fi
+# PipeWire mode: Don't inherit parent Wayland display
+# gnome-shell --headless creates its own virtual display, we capture via pipewiresrc
+unset WAYLAND_DISPLAY
+echo "[gnome-session] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
 
-# Start PipeWire + WirePlumber (needed for both modes)
+# Start PipeWire + WirePlumber
 echo "[gnome-session] Starting PipeWire + WirePlumber..."
 pipewire &
 sleep 0.5
@@ -810,9 +759,9 @@ fi
 
     # Screenshot server (unified: handles RemoteDesktop+ScreenCast sessions, PipeWire node reporting, input bridge)
     # For PipeWire mode, this creates the D-Bus sessions and reports node ID to Wolf
-    if [ -x /usr/local/bin/screenshot-server ]; then
+    if [ -x /usr/local/bin/desktop-bridge ]; then
         echo "[gnome-session] Starting screenshot server (includes D-Bus session + input bridge)..."
-        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/desktop-bridge >> /tmp/desktop-bridge.log 2>&1 &
     fi
 
     # Launch Zed after GNOME Shell is ready - it needs wayland-0
@@ -824,23 +773,13 @@ fi
     fi
 ) &
 
-# Determine GNOME Shell mode based on video source
-# - PipeWire mode: Use --headless (no display output, capture via pipewiresrc)
-# - Wayland mode: Use --nested (outputs to Wolf's Wayland display for waylanddisplaysrc)
-if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-    echo "[gnome-session] Starting GNOME Shell in HEADLESS mode (PipeWire capture)..."
-    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
-    # --headless: No display output (we capture via pipewiresrc ScreenCast)
-    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
-    # --virtual-monitor WxH@R: Creates a virtual monitor at specified size and refresh rate
-    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
-else
-    echo "[gnome-session] Starting GNOME Shell in NESTED mode (Wayland capture)..."
-    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
-    # --nested: Outputs to parent Wayland display (Wolf's waylanddisplaysrc captures this)
-    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
-    gnome-shell --nested --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
-fi
+# Start GNOME Shell in headless mode with PipeWire capture
+echo "[gnome-session] Starting GNOME Shell in HEADLESS mode (PipeWire capture)..."
+echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+# --headless: No display output (we capture via pipewiresrc ScreenCast)
+# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
+# --virtual-monitor WxH@R: Creates a virtual monitor at specified size and refresh rate
+gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
 GNOME_SESSION_EOF
 
 chmod +x /tmp/gnome-session.sh
