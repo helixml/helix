@@ -1545,9 +1545,9 @@ steps:
           -w /zed \
           zed-builder:ubuntu25 \
           bash -c '
-            export CARGO_TARGET_DIR=/zed/target-docker
+            export CARGO_TARGET_DIR=/tmp/zed-target
             cargo build --release --package zed --package cli
-            cp /zed/target-docker/release/zed /output/zed
+            cp /tmp/zed-target/release/zed /output/zed
             strip /output/zed
           '
       - ls -la /drone/src/cache/zed-build-output/
