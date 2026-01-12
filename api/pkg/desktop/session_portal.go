@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -328,7 +329,16 @@ func (s *Server) openPipeWireRemote() error {
 		return fmt.Errorf("OpenPipeWireRemote call failed: %w", err)
 	}
 
-	s.pipeWireFd = int(pipeWireFd)
+	// Duplicate the FD to prevent it from being closed when D-Bus message is garbage collected.
+	// D-Bus passes FDs via SCM_RIGHTS, but the library may close the original FD after processing.
+	dupFd, dupErr := syscall.Dup(int(pipeWireFd))
+	if dupErr != nil {
+		s.logger.Warn("failed to dup PipeWire FD, using original", "err", dupErr)
+		s.pipeWireFd = int(pipeWireFd)
+	} else {
+		s.pipeWireFd = dupFd
+		s.logger.Debug("duplicated PipeWire FD", "original", int(pipeWireFd), "dup", dupFd)
+	}
 	s.logger.Info("opened PipeWire remote", "fd", s.pipeWireFd)
 
 	// Save FD to file so other processes can use it

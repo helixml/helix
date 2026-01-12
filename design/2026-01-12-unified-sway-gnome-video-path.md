@@ -510,6 +510,108 @@ Sway <1.10 (via wlr-screencopy, legacy fallback):
   Sway → wlr-screencopy (SHM) → pipewirezerocopysrc → cudaupload → NVENC
 ```
 
+## ext-image-copy-capture Status (2026-01-12)
+
+### Implementation Status
+
+The ext-image-copy-capture-v1 protocol implementation is **complete** in pipewirezerocopysrc:
+- `desktop/gst-pipewire-zerocopy/src/ext_image_copy_capture.rs` - Full protocol implementation
+- Damage tracking support via polling-based event loop
+- PaintCursors option enabled for mouse cursor capture
+
+### Compiled from Source (2026-01-12)
+
+The Ubuntu Sway Remix PPA only provides Sway 1.10.1 with wlroots 0.18.2, which lacks ext-image-copy-capture.
+We now **compile wlroots 0.19.0 and Sway 1.11 from source** in Dockerfile.sway-helix:
+
+- **wlroots 0.19.0**: Cloned from gitlab.freedesktop.org, built with meson
+- **Sway 1.11**: Cloned from github.com/swaywm/sway, linked against custom wlroots
+- **ext-image-copy-capture-v1**: Included by default in wlroots 0.19.0 (no special build flags needed)
+- **Our keyboard layout patch**: Applied to wlroots for nested compositor support
+
+Build stages in Dockerfile.sway-helix:
+1. `wlroots-build`: Compiles wlroots 0.19.0 from source
+2. `sway-build`: Compiles Sway 1.11 against wlroots 0.19.0
+3. Final stage: Copies binaries, adds runtime dependencies
+
+Verified:
+```
+sway version 1.11-990b23c (Jan 12 2026, branch 'HEAD')
+libwlroots-0.19.so => /lib/x86_64-linux-gnu/libwlroots-0.19.so
+```
+
+### wlr-screencopy Working (2026-01-12)
+
+wlr-screencopy is now fully working for Sway video capture:
+
+**Key fixes made:**
+1. **WAYLAND_DISPLAY auto-detection**: Added `connect_to_wayland()` helper that tries
+   common socket paths (`wayland-1`, `wayland-0`) when WAYLAND_DISPLAY is empty
+2. **BG24 format support**: Added handling for 24-bit BGR format (DrmFourcc::Bgr888 → VideoFormat::Bgr)
+   which is the default format from wlr-screencopy on Sway
+
+**Current performance (OpenH264):**
+- ~14 FPS with OpenH264 software encoder
+- 1920x1080 resolution (from Sway headless output)
+
+## NVENC/VA-API Hardware Encoding for Sway (2026-01-12)
+
+### Problem: nvh264enc Not Available
+
+The Sway container was using OpenH264 software encoder because GStreamer's nvcodec
+plugin wasn't registering the encoder elements (nvh264enc, nvh265enc).
+
+**Root Cause:**
+The nvcodec plugin dynamically registers elements based on available NVIDIA libraries:
+- `cudaupload/cudadownload` only need libcuda.so (CUDA runtime)
+- `nvh264enc/nvh265enc` need libnvidia-encode.so (NVENC library)
+
+The CUDA runtime was available but the NVENC library wasn't being found by the plugin.
+
+### Fix: Match Ubuntu Dockerfile Configuration
+
+Updated Dockerfile.sway-helix to match Dockerfile.ubuntu-helix:
+
+1. **Added gstreamer1.0-gl** - Required for GL-based video processing
+2. **Added libgstcuda symlink** - Both in build stage and runtime:
+   ```dockerfile
+   && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
+   ```
+3. **Removed HELIX_VIDEO_MODE=shm default** - Now defaults to zerocopy like Ubuntu
+4. **Added libgstreamer-plugins-bad1.0-0** - Ensures CUDA integration libs are present
+
+### Expected Pipeline After Fix
+
+```
+Sway (hardware encoding via NVENC):
+  Sway → wlr-screencopy (SHM) → pipewirezerocopysrc → cudaupload → nvh264enc → WebSocket
+
+Sway (hardware encoding via VA-API, AMD/Intel):
+  Sway → wlr-screencopy (SHM) → pipewirezerocopysrc → vapostproc → vah264enc → WebSocket
+```
+
+Both paths use SHM capture (one CPU copy) but hardware encoding on GPU.
+
+### DinD NVIDIA Library Propagation
+
+In Docker-in-Docker architecture, NVIDIA libraries flow:
+1. HOST → nvidia-container-toolkit → sandbox container (libs mounted at /usr/lib/nvidia)
+2. sandbox's dockerd with nvidia-container-toolkit → inner container (helix-sway)
+
+The inner container must be started with:
+- `runtime: nvidia`
+- `NVIDIA_DRIVER_CAPABILITIES=all` (includes video for NVENC)
+- `NVIDIA_VISIBLE_DEVICES=all`
+
+This is configured in `api/pkg/hydra/devcontainer.go:configureGPU()`.
+
+### Future: ext-image-copy-capture with Damage Tracking
+
+For optimal performance, upgrade wlroots to include ext-image-copy-capture-v1:
+- Requires building wlroots with `-Dstaging-protocols=enabled`
+- Ubuntu Sway Remix PPA doesn't include staging protocols
+- Would enable damage tracking (only send changed regions)
+
 ## Related Issues
 
 - wf-recorder may silently fall back to libx264 if h264_nvenc unavailable

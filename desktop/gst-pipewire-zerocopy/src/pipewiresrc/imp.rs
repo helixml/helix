@@ -66,6 +66,11 @@ fn drm_fourcc_to_video_format(fourcc: DrmFourcc) -> VideoFormat {
                 // Map to the format that matches the actual byte order, not the DRM spec
                 DrmFourcc::Rgbx8888 => VideoFormat::Rgbx,
                 DrmFourcc::Bgrx8888 => VideoFormat::Bgrx,
+                // 24-bit formats (3 bytes per pixel) - used by wlr-screencopy on Sway
+                // BG24 = Blue-Green-Red (24-bit) = GStreamer Bgr (3 bytes/pixel)
+                // RG24 = Red-Green-Blue (24-bit) = GStreamer Rgb (3 bytes/pixel)
+                DrmFourcc::Bgr888 => VideoFormat::Bgr,
+                DrmFourcc::Rgb888 => VideoFormat::Rgb,
                 _ => {
                     eprintln!("Unknown DRM fourcc {:?}, falling back to Bgra", fourcc);
                     VideoFormat::Bgra
@@ -556,6 +561,7 @@ impl ElementImpl for PipeWireZeroCopySrc {
             // Include all RGBA/BGRA variants since gst_video_info_dma_drm_to_video_info()
             // may produce different formats depending on the DRM fourcc.
             // DRM ARGB8888 -> GST BGRA, DRM BGRA8888 -> GST ARGB on little-endian.
+            // Also include 24-bit formats (Bgr, Rgb) for wlr-screencopy on Sway.
             let rgba_formats = [
                 VideoFormat::Bgra,
                 VideoFormat::Rgba,
@@ -565,6 +571,8 @@ impl ElementImpl for PipeWireZeroCopySrc {
                 VideoFormat::Rgbx,
                 VideoFormat::Xrgb,
                 VideoFormat::Xbgr,
+                VideoFormat::Bgr,  // 24-bit BGR (wlr-screencopy BG24)
+                VideoFormat::Rgb,  // 24-bit RGB (wlr-screencopy RG24)
                 VideoFormat::Nv12,
             ];
             let mut caps = gst::Caps::new_empty();
@@ -1005,6 +1013,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
 
         // Include all RGBA/BGRA variants since gst_video_info_dma_drm_to_video_info()
         // may produce different formats depending on the DRM fourcc.
+        // Also include 24-bit formats (Bgr, Rgb) for wlr-screencopy on Sway.
         let rgba_formats = [
             VideoFormat::Bgra,
             VideoFormat::Rgba,
@@ -1014,6 +1023,8 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             VideoFormat::Rgbx,
             VideoFormat::Xrgb,
             VideoFormat::Xbgr,
+            VideoFormat::Bgr,  // 24-bit BGR (wlr-screencopy BG24)
+            VideoFormat::Rgb,  // 24-bit RGB (wlr-screencopy RG24)
             VideoFormat::Nv12,
         ];
 

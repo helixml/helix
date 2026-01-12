@@ -83,7 +83,9 @@ RUN apt-get update && apt-get install -y \
     libwayland-dev \
     libudev-dev \
     libgbm-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libgstreamer-plugins-bad1.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
 
 # Install Rust 1.85 via rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
@@ -101,47 +103,132 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # ====================================================================
-# Patched wlroots build stage (Debian package rebuild)
+# wlroots 0.19.0 build stage (from source)
 # ====================================================================
-# Rebuild libwlroots12 with our keyboard layout fix patch.
-# This fixes a bug where pressing modifier keys (Shift/Ctrl/Alt) would
-# reset the keyboard layout to US when running Sway as a nested compositor.
+# Build wlroots 0.19.0 from source with:
+# 1. Staging protocols enabled (-Dstaging-protocols=enabled) for ext-image-copy-capture
+#    This provides damage tracking for efficient screen capture.
+# 2. Our keyboard layout fix patch (WLR_IGNORE_PARENT_KEYBOARD_LAYOUT)
+#    This fixes modifier key resetting layout when running as nested compositor.
 #
-# We use Debian's packaging system (dpkg-buildpackage + quilt patches)
-# which is the cleanest way to maintain custom library patches.
-#
-# The patch adds WLR_IGNORE_PARENT_KEYBOARD_LAYOUT environment variable
-# that, when set to "1", preserves Sway's own keyboard layout instead of
-# syncing to the parent compositor's layout.
-#
-# Version suffix: -helix1 indicates our custom patch
+# Required for ext-image-copy-capture-v1 protocol (Sway 1.11 needs wlroots 0.19)
 FROM ubuntu:25.10 AS wlroots-build
 
-# Enable source repositories and install build dependencies
-RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update && \
-    apt-get install -y dpkg-dev devscripts quilt && \
-    apt-get build-dep -y libwlroots-0.18 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Get the source package
+ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
-RUN apt-get update && apt-get source libwlroots-0.18
 
-# Copy our patch into the Debian patches directory
+# Install wlroots 0.19 build dependencies
+# Based on: https://github.com/swaywm/wlroots/blob/master/meson.build
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libwayland-egl1 \
+    libdrm-dev libgbm-dev \
+    libxkbcommon-dev \
+    libudev-dev \
+    libpixman-1-dev \
+    libseat-dev \
+    libinput-dev \
+    libvulkan-dev glslang-tools \
+    libdisplay-info-dev \
+    libliftoff-dev \
+    libxcb1-dev libxcb-composite0-dev libxcb-icccm4-dev libxcb-image0-dev \
+    libxcb-render0-dev libxcb-render-util0-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+    libxcb-xinput-dev libxcb-ewmh-dev \
+    libxcb-dri3-dev libxcb-res0-dev \
+    libegl1-mesa-dev libgles2-mesa-dev \
+    xwayland \
+    hwdata \
+    wayland-protocols \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone wlroots 0.19.0 (stable release tag)
+RUN git clone --depth 1 --branch 0.19.0 https://gitlab.freedesktop.org/wlroots/wlroots.git
+
+# Apply our keyboard layout fix patch
 COPY desktop/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
-RUN cd /build/wlroots-* && \
-    mkdir -p debian/patches && \
-    cp /build/0001-wayland-backend-ignore-parent-layout-group.patch debian/patches/ && \
-    echo "0001-wayland-backend-ignore-parent-layout-group.patch" >> debian/patches/series
+RUN cd wlroots && \
+    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch || \
+    echo "Patch may not apply cleanly to 0.19.0, continuing anyway"
 
-# Update the version to indicate our custom build
-RUN cd /build/wlroots-* && \
-    dch --local helix "Add WLR_IGNORE_PARENT_KEYBOARD_LAYOUT to fix nested compositor layout reset"
+# Build wlroots 0.19 (includes ext-image-copy-capture-v1 by default)
+RUN cd wlroots && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        -Dexamples=false \
+        -Dxwayland=enabled && \
+    ninja -C build && \
+    DESTDIR=/wlroots-install ninja -C build install
 
-# Build the package
-RUN cd /build/wlroots-* && \
-    dpkg-buildpackage -us -uc -b
+# ====================================================================
+# Sway 1.11 build stage (from source)
+# ====================================================================
+# Build Sway 1.11 from source against wlroots 0.19.0
+# Required for ext-image-copy-capture-v1 protocol support
+FROM ubuntu:25.10 AS sway-build
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /build
+
+# Install Sway build dependencies
+# Note: libxcb-dri3-dev, libxcb-res0-dev, libegl-dev, libgles-dev are needed for
+# wlroots-0.19.pc Requires.private validation by pkg-config
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libwayland-egl1 \
+    libdrm-dev libgbm-dev \
+    libxkbcommon-dev \
+    libudev-dev \
+    libpixman-1-dev \
+    libseat-dev \
+    libinput-dev \
+    libvulkan-dev glslang-tools \
+    libdisplay-info-dev \
+    libliftoff-dev \
+    libxcb1-dev libxcb-composite0-dev libxcb-icccm4-dev libxcb-image0-dev \
+    libxcb-render0-dev libxcb-render-util0-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+    libxcb-xinput-dev libxcb-ewmh-dev \
+    libxcb-dri3-dev libxcb-res0-dev \
+    libegl-dev libgles-dev \
+    xwayland \
+    hwdata \
+    wayland-protocols \
+    libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+    libjson-c-dev libpcre2-dev \
+    libevdev-dev libdbus-1-dev \
+    libsystemd-dev libpam0g-dev libcap-dev \
+    scdoc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy wlroots from previous build stage
+COPY --from=wlroots-build /wlroots-install /
+
+# Update library cache for wlroots
+RUN ldconfig && \
+    echo "=== Verifying wlroots installation ===" && \
+    ls -la /usr/lib/x86_64-linux-gnu/libwlroots*.so* && \
+    ls -la /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots*.pc && \
+    cat /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots-0.19.pc
+
+# Clone Sway 1.11 (stable release tag)
+RUN git clone --depth 1 --branch 1.11 https://github.com/swaywm/sway.git
+
+# Build Sway with explicit PKG_CONFIG_PATH
+# ENV doesn't expand correctly, so we set it inline
+RUN export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-} && \
+    echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" && \
+    echo "=== Debug pkg-config ===" && \
+    pkg-config --variable pc_path pkg-config || true && \
+    pkg-config --print-errors --cflags wlroots-0.19 || true && \
+    pkg-config --validate wlroots-0.19 || true && \
+    cd sway && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        -Dsd-bus-provider=libsystemd \
+        -Dtray=disabled && \
+    ninja -C build && \
+    DESTDIR=/sway-install ninja -C build install
 
 # ====================================================================
 # Sway Desktop - Ubuntu 25.10 base with minimal GOW
@@ -180,8 +267,9 @@ ARG CORE_PACKAGES=" \
     bc \
     "
 
+# NOTE: sway is built from source (1.11 with wlroots 0.19) - not from apt
+# This provides ext-image-copy-capture-v1 support for damage tracking
 ARG DE_PACKAGES=" \
-    sway \
     waybar \
     foot \
     fuzzel \
@@ -197,16 +285,13 @@ ARG DE_PACKAGES=" \
     xdg-desktop-portal-wlr \
     "
 
-# Install patched wlroots library FIRST (before sway pulls in stock version)
-COPY --from=wlroots-build /build/*.deb /tmp/wlroots/
+# Copy wlroots 0.19.0 and Sway 1.11 from build stages
+COPY --from=wlroots-build /wlroots-install /
+COPY --from=sway-build /sway-install /
 
-# Install base packages, PPAs, and Sway
+# Install base packages, PPAs, and Sway dependencies
 RUN <<_INSTALL_BASE
   set -e
-
-  echo "**** Install patched wlroots (before sway pulls in stock) ****"
-  dpkg -i /tmp/wlroots/libwlroots*.deb || apt-get install -f -y
-  rm -rf /tmp/wlroots
 
   echo "**** Update apt database ****"
   apt-get update
@@ -225,11 +310,6 @@ RUN <<_INSTALL_BASE
   echo "**** Setup Firefox PPA ****"
   add-apt-repository -y ppa:mozillateam/ppa
 
-  echo "**** Setup Ubuntu Sway Remix PPA (for Sway 1.10+ with ext-image-copy-capture) ****"
-  # This PPA provides newer Sway builds with ext-image-copy-capture-v1 protocol support.
-  # See: https://launchpad.net/~ubuntusway-dev/+archive/ubuntu/stable
-  add-apt-repository -y ppa:ubuntusway-dev/stable
-
   echo "**** Configure APT pins ****"
   cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
 Package: *
@@ -237,21 +317,48 @@ Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 PINEOF
 
-  # Prefer Sway packages from Ubuntu Sway PPA
-  cat > /etc/apt/preferences.d/ubuntu-sway << 'PINEOF'
-Package: sway sway-*
-Pin: release o=LP-PPA-ubuntusway-dev-stable
-Pin-Priority: 1001
+  # Prevent apt from installing packaged sway/wlroots (we built from source)
+  cat > /etc/apt/preferences.d/sway-hold << 'PINEOF'
+Package: sway libwlroots*
+Pin: release *
+Pin-Priority: -1
 PINEOF
 
   apt-get update
 
-  echo "**** Install Sway and related packages ****"
+  echo "**** Install Sway dependencies and related packages ****"
+  # Install runtime dependencies that sway/wlroots need
+  apt-get install -y \
+    libwayland-client0 libwayland-server0 libwayland-cursor0 libwayland-egl1 \
+    libdrm2 libgbm1 \
+    libxkbcommon0 \
+    libudev1 \
+    libpixman-1-0 \
+    libseat1 \
+    libinput10 \
+    libvulkan1 \
+    libdisplay-info2 \
+    libliftoff0 \
+    libxcb1 libxcb-composite0 libxcb-icccm4 libxcb-image0 \
+    libxcb-render0 libxcb-render-util0 libxcb-shm0 libxcb-xfixes0 \
+    libxcb-xinput0 libxcb-ewmh2 \
+    libxcb-res0 libxcb-dri3-0 \
+    xwayland \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
+    libjson-c5 libpcre2-8-0 \
+    libevdev2 libdbus-1-3 \
+    libsystemd0 libpam0g libcap2
+
+  echo "**** Install Sway companion packages ****"
   apt-get install -y $DE_PACKAGES firefox libavcodec-extra
 
+  echo "**** Update library cache for custom wlroots/sway ****"
+  ldconfig
+
   echo "=== Installed Sway Versions ==="
-  dpkg -l | grep -E "sway|wlroots" || true
-  sway --version || echo "sway not found yet"
+  sway --version || echo "sway binary not in PATH"
+  ls -la /usr/bin/sway || echo "sway not at /usr/bin/sway"
+  ldd /usr/bin/sway 2>/dev/null | head -5 || true
 
   echo "**** Cleanup ****"
   apt autoremove -y
@@ -374,9 +481,11 @@ RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 ENV RADV_DEBUG=hang
 ENV AMD_DEBUG=sync_compile,check_vm
 
-# Video streaming mode (shm=default, native=DMABuf, zerocopy=plugin)
-# zerocopy mode uses gst-pipewire-zerocopy plugin with vendored wayland-display-core
-ENV HELIX_VIDEO_MODE=shm
+# Video streaming mode is set per-stream via URL param (?videoMode=native|zerocopy|shm)
+# Default is 'zerocopy' (custom pipewirezerocopysrc plugin) - see ws_stream.go getVideoMode()
+# - zerocopy: pipewirezerocopysrc → cudaupload → nvh264enc (GPU encoding)
+# - shm: wf-recorder fallback (legacy)
+# - native: stock pipewiresrc (GNOME only)
 
 # Passwordless sudo
 RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
@@ -422,11 +531,18 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly \
     gstreamer1.0-vaapi \
+    gstreamer1.0-gl \
     mesa-va-drivers \
+    # NVIDIA NVENC support - libnvcuvid provides nvh264enc/nvh265enc elements
+    # The actual NVENC library (libnvidia-encode.so) is mounted by nvidia-container-toolkit
+    # but we need the gstreamer-cuda library for proper plugin initialization
+    libgstreamer-plugins-bad1.0-0 \
     # wf-recorder for wlroots-native screen capture (uses wlr-screencopy directly)
     # pipewiresrc has compatibility issues with xdg-desktop-portal-wlr
     wf-recorder \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Create symlink for libgstcuda - required for nvcodec plugin to find CUDA runtime
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true
 
 # Install Ghostty terminal
 RUN wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" \

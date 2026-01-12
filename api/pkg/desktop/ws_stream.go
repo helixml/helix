@@ -405,8 +405,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway")
 		needsCudaUpload := v.videoMode != VideoModePlugin || isSway
 		if needsCudaUpload {
-			// SHM path: system memory → cudaupload → nvh264enc
+			// SHM path: system memory → videoconvert → cudaupload → nvh264enc
+			// IMPORTANT: ext-image-copy-capture on Sway outputs BGR888 (24-bit, 3 bytes/pixel)
+			// but cudaupload/nvh264enc require 32-bit formats (BGRx/BGRA).
+			// videoconvert handles the BGR → BGRx conversion.
 			parts = append(parts,
+				"videoconvert",
+				"video/x-raw,format=BGRx", // Force 32-bit format for cudaupload
 				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)

@@ -26,6 +26,37 @@ use wayland_client::{
     protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
+
+/// Try to connect to Wayland, setting WAYLAND_DISPLAY if needed.
+/// Sway often uses wayland-1 instead of the default wayland-0.
+fn connect_to_wayland() -> Result<Connection, String> {
+    // If WAYLAND_DISPLAY is already set, use it
+    if std::env::var("WAYLAND_DISPLAY").map(|s| !s.is_empty()).unwrap_or(false) {
+        return Connection::connect_to_env()
+            .map_err(|e| format!("Failed to connect to Wayland: {}", e));
+    }
+
+    // Try common socket names
+    let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| "/run/user/1000".to_string());
+
+    for socket_name in &["wayland-1", "wayland-0"] {
+        let socket_path = format!("{}/{}", xdg_runtime_dir, socket_name);
+        if std::path::Path::new(&socket_path).exists() {
+            eprintln!("[WLR_SCREENCOPY] Found Wayland socket: {}", socket_path);
+            std::env::set_var("WAYLAND_DISPLAY", socket_name);
+            match Connection::connect_to_env() {
+                Ok(conn) => return Ok(conn),
+                Err(e) => {
+                    eprintln!("[WLR_SCREENCOPY] Failed to connect to {}: {}", socket_name, e);
+                    continue;
+                }
+            }
+        }
+    }
+
+    Err("No Wayland socket found".to_string())
+}
 use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
@@ -658,9 +689,8 @@ fn run_screencopy_loop(
         target_fps
     );
 
-    // Connect to Wayland display
-    let conn =
-        Connection::connect_to_env().map_err(|e| format!("Failed to connect to Wayland: {}", e))?;
+    // Connect to Wayland display - use connect_to_wayland() which handles missing WAYLAND_DISPLAY
+    let conn = connect_to_wayland()?;
 
     let display = conn.display();
 

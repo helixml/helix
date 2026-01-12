@@ -239,25 +239,35 @@ func (s *Server) Run(ctx context.Context) error {
 			s.monitorSession(ctx)
 		}()
 	} else if isSwayEnvironment() {
-		// Sway: Use XDG Desktop Portal D-Bus APIs (via xdg-desktop-portal-wlr)
-		// Sway runs as a headless compositor, xdg-desktop-portal-wlr captures via wlr-screencopy,
-		// exposes frames via PipeWire, and our GStreamer pipeline consumes directly.
+		// Sway: Use native Wayland protocols for video capture
+		// Our pipewirezerocopysrc plugin uses ext-image-copy-capture (Sway 1.10+) or
+		// wlr-screencopy (legacy) directly, bypassing xdg-desktop-portal-wlr entirely.
+		// This avoids the portal ScreenCast interface which isn't properly supported.
 		s.compositorType = "sway"
 
-		// 1. Connect to D-Bus portal (with retry)
+		// 1. Connect to D-Bus portal for RemoteDesktop (optional, for input forwarding)
+		// NOTE: We don't use portal ScreenCast - pipewirezerocopysrc handles capture directly
 		if err := s.connectDBusPortal(ctx); err != nil {
-			return fmt.Errorf("dbus portal connect: %w", err)
-		}
-		defer s.conn.Close()
+			s.logger.Warn("D-Bus portal connection failed (non-fatal for Sway)",
+				"err", err,
+				"note", "pipewirezerocopysrc will use ext-image-copy-capture directly")
+		} else {
+			defer s.conn.Close()
 
-		// 2. Create ScreenCast session via portal
-		if err := s.createPortalSession(ctx); err != nil {
-			return fmt.Errorf("create portal session: %w", err)
-		}
-
-		// 3. Start portal session, get PipeWire node ID
-		if err := s.startPortalSession(ctx); err != nil {
-			return fmt.Errorf("start portal session: %w", err)
+			// 2. Try to create ScreenCast session via portal (non-fatal)
+			// This will likely fail because xdg-desktop-portal-wlr doesn't expose ScreenCast
+			// But pipewirezerocopysrc doesn't need it - it uses ext-image-copy-capture directly
+			if err := s.createPortalSession(ctx); err != nil {
+				s.logger.Warn("Portal ScreenCast session failed (expected for Sway)",
+					"err", err,
+					"note", "pipewirezerocopysrc will use ext-image-copy-capture directly")
+			} else {
+				// 3. Start portal session, get PipeWire node ID (only if session created)
+				if err := s.startPortalSession(ctx); err != nil {
+					s.logger.Warn("Portal start failed (non-fatal)",
+						"err", err)
+				}
+			}
 		}
 
 		// 4. Create Wayland-native virtual input for Sway
@@ -281,22 +291,16 @@ func (s *Server) Run(ctx context.Context) error {
 				"scale", s.displayScale)
 		}
 
-		// 5. Use pipewirezerocopysrc directly with portal's PipeWire node
-		// Previously we used wf-recorder as a workaround because stock pipewiresrc
-		// hung during format negotiation with xdg-desktop-portal-wlr. Our custom
-		// pipewirezerocopysrc plugin handles format negotiation differently and
-		// should work with Sway's portal stream, giving us:
-		// - Zero-copy DMA-BUF capture (same as GNOME)
-		// - Hardware encoding via NVENC/VAAPI
-		// - Unified video path for both compositors
-		//
-		// The nodeID and pipeWireFd are already set by startPortalSession() above.
+		// 5. pipewirezerocopysrc uses native Wayland protocols for Sway
+		// It automatically detects Sway and uses:
+		// - ext-image-copy-capture-v1 (Sway 1.10+) - modern protocol with damage tracking
+		// - wlr-screencopy-unstable-v1 (legacy fallback)
+		// Both paths bypass PipeWire entirely - no portal node ID needed.
+		// Video is captured directly from Sway via Wayland, then hardware encoded.
 
 		s.running.Store(true)
-		s.logger.Info("Sway portal session ready (using pipewirezerocopysrc)",
-			"node_id", s.nodeID,
-			"pipewire_fd", s.pipeWireFd,
-			"session_handle", s.portalSessionHandle)
+		s.logger.Info("Sway session ready (using pipewirezerocopysrc with ext-image-copy-capture)",
+			"note", "bypasses xdg-desktop-portal, uses native Wayland protocols")
 	} else {
 		s.logger.Info("unknown compositor environment, skipping D-Bus session setup")
 		// In non-GNOME/non-Sway mode, still set running for HTTP server
@@ -378,13 +382,9 @@ func (s *Server) isRunning() bool {
 // This streams H.264 encoded video directly from PipeWire to the browser
 // and handles input events in the same connection.
 //
-// EXPERIMENTAL: Testing linked session for video to check if it receives more damage events.
-// Standalone sessions only received 2-5 process callbacks in 10-20 second streaming.
-// Linked sessions are connected to RemoteDesktop which may trigger more frame production.
+// For GNOME: Uses PipeWire ScreenCast with nodeID from portal session.
+// For Sway: Uses pipewirezerocopysrc with ext-image-copy-capture (no PipeWire needed).
 func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
-	// EXPERIMENTAL: Use linked session (node 47) instead of standalone (node 50)
-	// to test if linked sessions receive more damage events from GNOME PASSIVE frame clock.
-	// Both sessions now have DmaBuf/NVIDIA modifiers, so zero-copy should work either way.
 	nodeID := s.nodeID // Use linked session
 	if nodeID == 0 {
 		nodeID = s.videoNodeID // Fallback to standalone
@@ -393,16 +393,26 @@ func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
 				"fallback_node_id", nodeID)
 		}
 	} else {
-		s.logger.Info("EXPERIMENTAL: using linked session for video (testing damage events)",
+		s.logger.Info("using linked session for video",
 			"linked_node_id", nodeID,
 			"standalone_node_id", s.videoNodeID)
 	}
 
-	if nodeID == 0 {
-		s.logger.Error("cannot stream video: no PipeWire node ID available")
+	// For Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture
+	// directly via native Wayland protocols (bypasses PipeWire entirely).
+	// The plugin detects Sway via XDG_CURRENT_DESKTOP and uses the appropriate capture method.
+	if nodeID == 0 && s.compositorType != "sway" {
+		s.logger.Error("cannot stream video: no PipeWire node ID available (GNOME requires portal)")
 		http.Error(w, "Video streaming not available - no screen capture session", http.StatusServiceUnavailable)
 		return
 	}
+
+	if nodeID == 0 {
+		// Sway: use dummy node ID (pipewirezerocopysrc will ignore it and use ext-image-copy-capture)
+		s.logger.Info("Sway mode: using ext-image-copy-capture (no PipeWire node needed)")
+		nodeID = 1 // Dummy value - ignored by pipewirezerocopysrc for Sway
+	}
+
 	// Call handleStreamWebSocketInternal directly with our selected nodeID
 	// (handleStreamWebSocketWithServer has its own logic that would override our choice)
 	handleStreamWebSocketInternal(w, r, nodeID, s.logger, s)

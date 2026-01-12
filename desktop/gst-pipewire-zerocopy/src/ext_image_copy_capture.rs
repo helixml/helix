@@ -29,6 +29,37 @@ use wayland_client::{
     protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
+
+/// Try to connect to Wayland, setting WAYLAND_DISPLAY if needed.
+/// Sway often uses wayland-1 instead of the default wayland-0.
+fn connect_to_wayland() -> Result<Connection, String> {
+    // If WAYLAND_DISPLAY is already set, use it
+    if std::env::var("WAYLAND_DISPLAY").map(|s| !s.is_empty()).unwrap_or(false) {
+        return Connection::connect_to_env()
+            .map_err(|e| format!("Failed to connect to Wayland: {}", e));
+    }
+
+    // Try common socket names
+    let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| "/run/user/1000".to_string());
+
+    for socket_name in &["wayland-1", "wayland-0"] {
+        let socket_path = format!("{}/{}", xdg_runtime_dir, socket_name);
+        if std::path::Path::new(&socket_path).exists() {
+            eprintln!("[EXT_IMAGE_COPY] Found Wayland socket: {}", socket_path);
+            std::env::set_var("WAYLAND_DISPLAY", socket_name);
+            match Connection::connect_to_env() {
+                Ok(conn) => return Ok(conn),
+                Err(e) => {
+                    eprintln!("[EXT_IMAGE_COPY] Failed to connect to {}: {}", socket_name, e);
+                    continue;
+                }
+            }
+        }
+    }
+
+    Err("No Wayland socket found".to_string())
+}
 use wayland_protocols::ext::image_capture_source::v1::client::{
     ext_image_capture_source_v1::ExtImageCaptureSourceV1,
     ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1,
@@ -58,8 +89,12 @@ struct ShmBuffer {
     fd: OwnedFd,
     ptr: *mut u8,
     size: usize,
-    wl_buffer: Option<wl_buffer::WlBuffer>,
-    _pool: Option<wl_shm_pool::WlShmPool>,
+}
+
+/// A wl_buffer created from an ShmBuffer - one per capture
+struct WlBufferWrapper {
+    wl_buffer: wl_buffer::WlBuffer,
+    _pool: wl_shm_pool::WlShmPool,
 }
 
 impl ShmBuffer {
@@ -104,9 +139,30 @@ impl ShmBuffer {
             fd,
             ptr: ptr as *mut u8,
             size,
-            wl_buffer: None,
-            _pool: None,
         })
+    }
+
+    /// Create a wl_buffer for this ShmBuffer
+    fn create_wl_buffer(
+        &self,
+        shm: &wl_shm::WlShm,
+        width: u32,
+        height: u32,
+        stride: u32,
+        format: wl_shm::Format,
+        qh: &QueueHandle<ExtCaptureState>,
+    ) -> WlBufferWrapper {
+        let pool = shm.create_pool(self.fd.as_fd(), self.size as i32, qh, ());
+        let wl_buffer = pool.create_buffer(
+            0, // offset
+            width as i32,
+            height as i32,
+            stride as i32,
+            format,
+            qh,
+            (),
+        );
+        WlBufferWrapper { wl_buffer, _pool: pool }
     }
 
     fn copy_to_vec(&self) -> Vec<u8> {
@@ -152,6 +208,8 @@ struct ExtCaptureState {
 
     // Buffer management
     shm_buffer: Option<ShmBuffer>,
+    /// Current wl_buffer for active capture - created fresh for each frame
+    current_wl_buffer: Option<WlBufferWrapper>,
 
     // Frame events
     session_stopped: bool,
@@ -195,6 +253,7 @@ impl ExtCaptureState {
             selected_format: None,
             buffer_size: None,
             shm_buffer: None,
+            current_wl_buffer: None,
             session_stopped: false,
             frame_ready: false,
             frame_failed: false,
@@ -262,32 +321,25 @@ impl ExtCaptureState {
         }
     }
 
-    /// Create wl_buffer from SHM
-    fn create_wl_buffer(&mut self, qh: &QueueHandle<Self>) -> Result<(), String> {
-        let shm = self.shm.as_ref().ok_or("No wl_shm")?;
-        let format = self.selected_format.as_ref().ok_or("No format selected")?;
-        let size = self.buffer_size.as_ref().ok_or("No buffer size")?;
-        let shm_buf = self.shm_buffer.as_mut().ok_or("No SHM buffer")?;
-
-        // Stride = width * 4 bytes per pixel (RGBA/XRGB)
-        let stride = size.width * 4;
-
-        let pool = shm.create_pool(shm_buf.fd.as_fd(), shm_buf.size as i32, qh, ());
-
-        let buffer = pool.create_buffer(
-            0, // offset
-            size.width as i32,
-            size.height as i32,
-            stride as i32,
-            format.format,
-            qh,
-            (),
-        );
-
-        shm_buf.wl_buffer = Some(buffer);
-        shm_buf._pool = Some(pool);
-
-        Ok(())
+    /// Get bytes per pixel for a given SHM format
+    fn bytes_per_pixel(format: wl_shm::Format) -> u32 {
+        match format {
+            // 24-bit formats (3 bytes per pixel)
+            wl_shm::Format::Bgr888 | wl_shm::Format::Rgb888 => 3,
+            // 16-bit formats (2 bytes per pixel)
+            wl_shm::Format::Rgb565
+            | wl_shm::Format::Bgr565
+            | wl_shm::Format::Rgbx4444
+            | wl_shm::Format::Rgba4444
+            | wl_shm::Format::Bgrx4444
+            | wl_shm::Format::Bgra4444
+            | wl_shm::Format::Rgbx5551
+            | wl_shm::Format::Rgba5551
+            | wl_shm::Format::Bgrx5551
+            | wl_shm::Format::Bgra5551 => 2,
+            // Default: 32-bit formats (4 bytes per pixel)
+            _ => 4,
+        }
     }
 
     /// Request a new frame capture
@@ -314,6 +366,15 @@ impl ExtCaptureState {
         self.current_frame = Some(frame);
         self.capturing = true;
         eprintln!("[EXT_IMAGE_COPY] Requested frame capture");
+
+        // ext-image-copy-capture protocol: frames don't send buffer_size events.
+        // The session sends buffer_size during initialization, and we use that
+        // for all subsequent frames. Immediately attach the buffer after create_frame.
+        if let Some(ref size) = self.buffer_size.clone() {
+            self.handle_buffer_size(size.width, size.height, qh);
+        } else {
+            eprintln!("[EXT_IMAGE_COPY] ERROR: No buffer size available from session!");
+        }
     }
 
     /// Handle buffer_size event - create buffer and attach
@@ -328,7 +389,7 @@ impl ExtCaptureState {
             self.select_format();
         }
 
-        let _format = match &self.selected_format {
+        let format = match &self.selected_format {
             Some(f) => f.clone(),
             None => {
                 eprintln!("[EXT_IMAGE_COPY] No format available!");
@@ -337,17 +398,27 @@ impl ExtCaptureState {
             }
         };
 
-        // Calculate buffer size (stride * height)
-        let stride = width * 4;
+        let shm = match &self.shm {
+            Some(s) => s.clone(),
+            None => {
+                eprintln!("[EXT_IMAGE_COPY] No wl_shm available!");
+                self.handle_frame_failed(qh);
+                return;
+            }
+        };
+
+        // Calculate buffer size based on format's bytes per pixel
+        let bpp = Self::bytes_per_pixel(format.format);
+        let stride = width * bpp;
         let buf_size = (stride * height) as usize;
 
-        // Create or reuse SHM buffer
-        let need_new_buffer = match &self.shm_buffer {
+        // Create or reuse SHM buffer (memory only - wl_buffer created fresh each frame)
+        let need_new_shm = match &self.shm_buffer {
             Some(buf) => buf.size != buf_size,
             None => true,
         };
 
-        if need_new_buffer {
+        if need_new_shm {
             match ShmBuffer::new(buf_size) {
                 Ok(buf) => {
                     eprintln!("[EXT_IMAGE_COPY] Created SHM buffer: {} bytes", buf_size);
@@ -361,22 +432,27 @@ impl ExtCaptureState {
             }
         }
 
-        // Create wl_buffer
-        if let Err(e) = self.create_wl_buffer(qh) {
-            eprintln!("[EXT_IMAGE_COPY] Failed to create wl_buffer: {}", e);
-            self.handle_frame_failed(qh);
-            return;
+        // Create a NEW wl_buffer for this frame.
+        // Unlike wlr-screencopy which can reuse buffers, ext-image-copy-capture
+        // seems to require fresh wl_buffer objects for each capture to avoid
+        // the compositor rejecting captures after a few frames.
+        // The old wl_buffer (if any) is dropped here, which destroys the Wayland object.
+        if let Some(shm_buf) = &self.shm_buffer {
+            eprintln!(
+                "[EXT_IMAGE_COPY] Creating wl_buffer: {}x{} stride={} bpp={} format={:?}",
+                width, height, stride, bpp, format.format
+            );
+            let wl_buf_wrapper = shm_buf.create_wl_buffer(&shm, width, height, stride, format.format, qh);
+            self.current_wl_buffer = Some(wl_buf_wrapper);
         }
 
         // Attach buffer and capture
-        if let (Some(frame), Some(shm_buf)) = (&self.current_frame, &self.shm_buffer) {
-            if let Some(ref wl_buf) = shm_buf.wl_buffer {
-                eprintln!("[EXT_IMAGE_COPY] Attaching buffer and capturing...");
-                frame.attach_buffer(wl_buf);
-                // Request full damage (entire buffer)
-                frame.damage_buffer(0, 0, width as i32, height as i32);
-                frame.capture();
-            }
+        if let (Some(frame), Some(wl_buf_wrapper)) = (&self.current_frame, &self.current_wl_buffer) {
+            eprintln!("[EXT_IMAGE_COPY] Attaching buffer and capturing...");
+            frame.attach_buffer(&wl_buf_wrapper.wl_buffer);
+            // Request full damage (entire buffer)
+            frame.damage_buffer(0, 0, width as i32, height as i32);
+            frame.capture();
         }
     }
 
@@ -393,7 +469,8 @@ impl ExtCaptureState {
             eprintln!("[EXT_IMAGE_COPY] Frame ready!");
 
             let data = shm_buf.copy_to_vec();
-            let stride = size.width * 4;
+            let bpp = Self::bytes_per_pixel(format.format);
+            let stride = size.width * bpp;
 
             let frame = FrameData::Shm {
                 data,
@@ -406,7 +483,10 @@ impl ExtCaptureState {
             let _ = self.frame_tx.try_send(frame);
         }
 
-        // Clean up frame
+        // Clean up frame and wl_buffer
+        // We must drop the wl_buffer AFTER copying data from shm_buf (done above)
+        // The wl_buffer wrapper is dropped here, which destroys the Wayland object
+        self.current_wl_buffer = None;
         if let Some(frame) = self.current_frame.take() {
             frame.destroy();
         }
@@ -433,6 +513,8 @@ impl ExtCaptureState {
         self.frame_failed = true;
         eprintln!("[EXT_IMAGE_COPY] Frame capture failed");
 
+        // Clean up frame and wl_buffer
+        self.current_wl_buffer = None;
         if let Some(frame) = self.current_frame.take() {
             frame.destroy();
         }
@@ -741,7 +823,8 @@ impl ExtImageCopyCaptureStream {
         }
 
         // Try to connect and check for the protocol
-        match Connection::connect_to_env() {
+        // Use connect_to_wayland() which handles missing WAYLAND_DISPLAY
+        match connect_to_wayland() {
             Ok(conn) => {
                 let display = conn.display();
                 let mut event_queue = conn.new_event_queue();
@@ -764,8 +847,10 @@ impl ExtImageCopyCaptureStream {
                         if let wl_registry::Event::Global { interface, .. } = event {
                             if interface == "ext_image_copy_capture_manager_v1" {
                                 state.has_capture_manager = true;
+                                eprintln!("[EXT_IMAGE_COPY] Found ext_image_copy_capture_manager_v1");
                             } else if interface == "ext_output_image_capture_source_manager_v1" {
                                 state.has_source_manager = true;
+                                eprintln!("[EXT_IMAGE_COPY] Found ext_output_image_capture_source_manager_v1");
                             }
                         }
                     }
@@ -778,9 +863,15 @@ impl ExtImageCopyCaptureStream {
                 let _registry = display.get_registry(&qh, ());
                 let _ = event_queue.roundtrip(&mut check);
 
-                check.has_capture_manager && check.has_source_manager
+                let available = check.has_capture_manager && check.has_source_manager;
+                eprintln!("[EXT_IMAGE_COPY] Protocol check: capture_manager={} source_manager={} available={}",
+                    check.has_capture_manager, check.has_source_manager, available);
+                available
             }
-            Err(_) => false,
+            Err(e) => {
+                eprintln!("[EXT_IMAGE_COPY] is_available: connection failed: {}", e);
+                false
+            }
         }
     }
 
@@ -815,8 +906,8 @@ fn run_capture_loop(
         target_fps
     );
 
-    let conn =
-        Connection::connect_to_env().map_err(|e| format!("Failed to connect to Wayland: {}", e))?;
+    // Use connect_to_wayland() which handles missing WAYLAND_DISPLAY
+    let conn = connect_to_wayland()?;
 
     let display = conn.display();
     let mut event_queue: EventQueue<ExtCaptureState> = conn.new_event_queue();
