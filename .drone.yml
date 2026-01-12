@@ -1439,30 +1439,30 @@ steps:
         echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
         echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
         echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
-      # Clone Zed only if not cached
+      # Clone Zed only if not cached (clone into cache volume so nested docker can access)
       - |
         . /drone/src/sandbox-versions.txt
         if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ]; then
           echo "Zed binary cached for $${ZED_COMMIT:0:12}, skipping clone"
         else
           echo "Cloning Zed at commit $${ZED_COMMIT}..."
-          rm -rf /drone/src/external/zed
-          mkdir -p /drone/src/external/zed
-          cd /drone/src/external/zed
+          rm -rf /drone/src/cache/zed-source
+          mkdir -p /drone/src/cache/zed-source
+          cd /drone/src/cache/zed-source
           git init
           git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
           git checkout FETCH_HEAD
         fi
-      # Clone qwen-code only if not cached
+      # Clone qwen-code only if not cached (clone into cache volume so nested docker can access)
       - |
         . /drone/src/sandbox-versions.txt
         if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT:0:12}/dist/index.js" ]; then
           echo "qwen-code cached for $${QWEN_COMMIT:0:12}, skipping clone"
         else
           echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-          rm -rf /drone/src/external/qwen-code
-          mkdir -p /drone/src/external/qwen-code
-          cd /drone/src/external/qwen-code
+          rm -rf /drone/src/cache/qwen-source
+          mkdir -p /drone/src/cache/qwen-source
+          cd /drone/src/cache/qwen-source
           git init
           git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
           git checkout FETCH_HEAD
@@ -1487,7 +1487,8 @@ steps:
         fi
       - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
       - mkdir -p qwen-code-build
-      - cd /drone/src/external/qwen-code
+      # qwen-code source is cloned to cache volume (see clone-dependencies step)
+      - cd /drone/src/cache/qwen-source
       - npm ci --ignore-scripts
       - npm run bundle
       - cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
@@ -1529,13 +1530,18 @@ steps:
       - docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
       # Run Zed build in container
       # Note: Don't mount .rustup - it's already installed in the image
-      - mkdir -p zed-build /drone/src/cargo-registry /drone/src/cargo-git
+      # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
+      #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
+      #       Docker-in-Docker mounts use HOST paths, not container paths.
+      # Output goes to cache volume (known host path for Docker-in-Docker)
       - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        mkdir -p /drone/src/cache/zed-build-output
         docker run --rm \
-          -v "/drone/src/external/zed:/zed:ro" \
-          -v "/drone/src/cargo-registry:/root/.cargo/registry" \
-          -v "/drone/src/cargo-git:/root/.cargo/git" \
-          -v "$(pwd)/zed-build:/output" \
+          -v "/var/cache/drone/sandbox-build/zed-source:/zed:ro" \
+          -v "/var/cache/drone/cargo/registry:/root/.cargo/registry" \
+          -v "/var/cache/drone/cargo/git:/root/.cargo/git" \
+          -v "/var/cache/drone/sandbox-build/zed-build-output:/output" \
           -w /zed \
           zed-builder:ubuntu25 \
           bash -c '
@@ -1544,8 +1550,10 @@ steps:
             cp /zed/target-docker/release/zed /output/zed
             strip /output/zed
           '
-      - ls -la zed-build/
-      # Cache the binary
+      - ls -la /drone/src/cache/zed-build-output/
+      # Copy to workspace and cache
+      - mkdir -p zed-build
+      - cp /drone/src/cache/zed-build-output/zed zed-build/zed
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         mkdir -p /drone/src/cache/zed-$${ZED_COMMIT}
