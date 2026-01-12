@@ -1,5 +1,5 @@
 //! PipeWire ScreenCast source - reuses waylanddisplaycore's CUDA conversion
-//! Cache-bust: 2026-01-12T12:00Z - AMD VA-API zero-copy: use drm-format caps for vapostproc
+//! Cache-bust: 2026-01-12T13:30Z - AMD VA-API zero-copy: use DMA_DRM format like Wolf
 //!
 //! This element follows Wolf/gst-wayland-display's context sharing pattern:
 //! - Wolf creates the CUDA context and pushes it via set_context()
@@ -71,6 +71,25 @@ fn drm_fourcc_to_video_format(fourcc: DrmFourcc) -> VideoFormat {
             }
         }
         format => format,
+    }
+}
+
+/// Convert DRM fourcc and modifier to GStreamer drm-format string.
+/// Format: "{fourcc}:0x{modifier:016x}" for non-linear modifiers
+///         "{fourcc}" for LINEAR modifier (0x0)
+/// Examples: "XR24:0x0300000000e08010", "AB24" (linear)
+/// This matches Wolf's drm_to_gst_format() function.
+fn drm_format_to_gst_string(fourcc: DrmFourcc, modifier: u64) -> String {
+    // Convert fourcc enum to 4-char string (e.g., Xrgb8888 -> "XR24")
+    let fourcc_str = fourcc.to_string();
+    let fourcc_str = fourcc_str.trim();
+
+    if modifier == 0 {
+        // LINEAR modifier - no need to include modifier in string
+        format!("{:<4}", fourcc_str)
+    } else {
+        // Non-linear modifier - include in format string
+        format!("{:<4}:0x{:016x}", fourcc_str, modifier)
     }
 }
 
@@ -307,9 +326,10 @@ pub struct State {
     /// DMA-BUF allocator for AMD/Intel zero-copy path (OutputMode::DmaBuf)
     /// Wraps DMA-BUF file descriptors in GStreamer memory without CPU copies.
     dmabuf_allocator: Option<DmaBufAllocator>,
-    /// DRM format info (fourcc, modifier) for DmaBuf mode caps negotiation
-    /// Required by vapostproc - it needs drm-format in caps, not just format
-    drm_info: Option<(u32, u64)>,
+    /// DRM format string for DmaBuf mode caps negotiation (e.g., "XR24:0x0300000000e08010")
+    /// Required by vapostproc - it needs drm-format in caps for zero-copy DMABuf import
+    /// Format: "{fourcc}:0x{modifier:016x}" or "{fourcc}" for LINEAR modifier
+    drm_format_string: Option<String>,
 }
 
 impl Default for State {
@@ -324,7 +344,7 @@ impl Default for State {
             last_buffer: None,
             buffer_pool_configured: false,
             dmabuf_allocator: None,
-            drm_info: None,
+            drm_format_string: None,
         }
     }
 }
@@ -457,9 +477,10 @@ impl ElementImpl for PipeWireZeroCopySrc {
             ];
             let mut caps = gst::Caps::new_empty();
             caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
-            // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
-            // Wolf uses: video/x-raw(memory:DMABuf) with regular format, NOT format=DMA_DRM
-            caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build());
+            // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
+            // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x...
+            // The drm-format field contains the DRM fourcc and modifier
+            caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
             caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
             vec![gst::PadTemplate::new("src", gst::PadDirection::Src, gst::PadPresence::Always, &caps).unwrap()]
         });
@@ -678,10 +699,22 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             eprintln!("[PIPEWIRESRC_DEBUG] Sway/wlroots detected, trying wlr-export-dmabuf...");
             gst::info!(CAT, imp = self, "Sway/wlroots detected, using wlr-export-dmabuf");
 
-            match WlrExportDmabufStream::connect(dmabuf_caps.clone()) {
+            match WlrExportDmabufStream::connect(dmabuf_caps.clone(), target_fps) {
                 Ok(stream) => {
                     eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf connected successfully!");
                     gst::info!(CAT, imp = self, "Connected to wlr-export-dmabuf");
+
+                    // CRITICAL: Use DmaBuf output mode for Sway/wlroots, not CUDA
+                    // Sway uses 0x606xxx modifier family which CUDA rejects with CUDA_ERROR_INVALID_VALUE
+                    // VA-API can import these DMA-BUFs directly for zero-copy encoding
+                    if state.actual_output_mode == OutputMode::Cuda {
+                        eprintln!("[PIPEWIRESRC_DEBUG] Sway detected: switching from CUDA to DmaBuf mode (0x606xxx modifiers not CUDA-compatible)");
+                        state.actual_output_mode = OutputMode::DmaBuf;
+                        if state.dmabuf_allocator.is_none() {
+                            state.dmabuf_allocator = Some(DmaBufAllocator::new());
+                        }
+                    }
+
                     FrameStream::WlrExport(stream)
                 }
                 Err(e) => {
@@ -765,16 +798,17 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
 
         let mut caps = match output_mode {
             OutputMode::Cuda => VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build(),
-            // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
-            OutputMode::DmaBuf => VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build(),
+            // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
+            // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x...
+            OutputMode::DmaBuf => VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build(),
             OutputMode::System => VideoCapsBuilder::new().format_list(rgba_formats).build(),
             OutputMode::Auto => {
                 // Auto mode before start(): advertise all capabilities (like pad template)
                 // GStreamer will negotiate based on downstream requirements
                 let mut all_caps = gst::Caps::new_empty();
                 all_caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
-                // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
-                all_caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build());
+                // DMABuf with DMA_DRM format (like Wolf's waylanddisplaysrc)
+                all_caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
                 all_caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
                 all_caps
             }
@@ -1023,11 +1057,14 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 let modifier: u64 = drm_format.modifier.into();
                 let video_format = drm_fourcc_to_video_format(drm_format.code);
 
-                eprintln!("[PIPEWIRESRC_DEBUG] DmaBuf DRM format: fourcc=0x{:08x} modifier=0x{:016x} -> {:?}",
-                    fourcc, modifier, video_format);
+                // Build drm-format string for caps (e.g., "XR24:0x0300000000e08010")
+                // This format is required by vapostproc for zero-copy DMABuf import
+                let drm_format_str = drm_format_to_gst_string(drm_format.code, modifier);
+                eprintln!("[PIPEWIRESRC_DEBUG] DmaBuf DRM format: fourcc=0x{:08x} modifier=0x{:016x} drm-format='{}' -> {:?}",
+                    fourcc, modifier, drm_format_str, video_format);
 
-                // Store DRM info for caps negotiation (required by vapostproc)
-                state.drm_info = Some((fourcc, modifier));
+                // Store DRM format string for caps negotiation (required by vapostproc)
+                state.drm_format_string = Some(drm_format_str);
 
                 let allocator = state.dmabuf_allocator.as_ref().ok_or_else(|| {
                     eprintln!("[PIPEWIRESRC_DEBUG] ERROR: dmabuf_allocator is None in DmaBuf mode!");
@@ -1088,12 +1125,14 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                         .build()
                 }
                 OutputMode::DmaBuf => {
-                    // AMD/Intel zero-copy: Use regular format with DMABuf feature
-                    // Wolf uses: video/x-raw(memory:DMABuf),format=BGRx - vapostproc accepts this directly
-                    // NOT format=DMA_DRM which requires glupload/gldownload conversion
+                    // AMD/Intel zero-copy: Use DMA_DRM format with drm-format field
+                    // Wolf uses: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=XR24:0x...
+                    // The drm-format field is required for vapostproc to import the DMABuf
+                    let drm_fmt = state.drm_format_string.clone().unwrap_or_else(|| "XR24".to_string());
                     VideoCapsBuilder::new()
                         .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                        .format(actual_format)
+                        .format(VideoFormat::DmaDrm)
+                        .field("drm-format", &drm_fmt)
                         .width(width as i32)
                         .height(height as i32)
                         .framerate(fps)

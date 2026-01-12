@@ -7,6 +7,7 @@ use gst::glib;
 
 mod pipewire_stream;
 mod pipewiresrc;
+mod wlr_export_dmabuf;
 
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     pipewiresrc::register(plugin)?;

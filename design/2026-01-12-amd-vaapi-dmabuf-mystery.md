@@ -49,8 +49,11 @@ Ours:   pipewirezerocopysrc ! video/x-raw(memory:DMABuf) ! vapostproc ! vah264en
 
 This is the exact pipeline we're trying to achieve. Wolf's works, so ours should too.
 
+**Confirmed:** Wolf's AMD pipeline definitely works - verified with own eyes. It's
+zero-copy, high performance, smooth. So the pipeline IS achievable.
+
 **The mystery:** When we inspect vapostproc's pad templates, it does NOT advertise
-DMABuf support - yet Wolf's pipeline claims to work.
+DMABuf support - yet Wolf's pipeline definitely works.
 
 ## Observed Facts
 
@@ -224,11 +227,146 @@ Current implementation (2026-01-12):
 
 This might work if Hypothesis A or D is correct. Needs testing.
 
+### Hypothesis F: Wolf's waylanddisplaysrc Outputs VAMemory, Not DMABuf
+
+**DISPROVEN:** Code inspection of Wolf's gst-wayland-display shows waylanddisplaysrc
+outputs these formats (from `imp.rs:352-394`):
+
+```rust
+// pad_templates():
+// 1. DMABuf with DMA_DRM format
+let dmabuf_caps = VideoCapsBuilder::new()
+    .features([CAPS_FEATURE_MEMORY_DMABUF])
+    .format(VideoFormat::DmaDrm)
+    .field("drm-format", ...)  // includes fourcc:modifier
+    .build();
+
+// 2. CUDA memory (when cuda feature enabled)
+let cuda_caps = VideoCapsBuilder::new()
+    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+    .format_list([VideoFormat::Bgra, VideoFormat::Rgba])
+    .build();
+
+// 3. System memory
+let caps = VideoCapsBuilder::new()
+    .format(VideoFormat::Rgbx)
+    .build();
+```
+
+**Wolf does NOT output VAMemory.** It outputs DMABuf with DMA_DRM format.
+
+### Hypothesis G: GStreamer Runtime DMABuf → VA-API Bridge (NEW)
+
+Wolf's pipeline uses `format=DMA_DRM` with drm-format field:
+```
+waylanddisplaysrc outputs: video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x...
+```
+
+The caps filter in their example forces DMABuf output:
+```
+video/x-raw(memory:DMABuf),width=1920,height=1080,framerate=60/1
+```
+
+But vapostproc's pad template doesn't show DMABuf support. So either:
+
+1. **Runtime caps addition**: vapostproc adds DMABuf to its caps at runtime when VA-API
+   driver supports DRM PRIME import (not visible in static templates)
+
+2. **Auto converter insertion**: GStreamer automatically inserts a converter element
+   (like vaaimport or glupload) when linking DMABuf → vapostproc
+
+3. **Different GStreamer build**: Wolf's GStreamer might have patches we don't have
+
+**Test:** Run Wolf's pipeline with `GST_DEBUG=*:4` and check:
+- Actual negotiated caps at runtime
+- Whether any elements are auto-inserted
+- What vapostproc's actual sink caps are at runtime
+
+## Test Result: Linking Failure (2026-01-12)
+
+**Error:** `could not link queue to vapostproc`
+
+Our current pipeline with DMABuf output FAILS at link time:
+```
+pipewirezerocopysrc pipewire-node-id=44 output-mode=dmabuf keepalive-time=100 !
+  queue max-size-buffers=3 leaky=downstream !
+  vapostproc !  <-- LINKING FAILS HERE
+  video/x-raw(memory:VAMemory),format=NV12 !
+  vah264enc ...
+```
+
+This confirms vapostproc rejects DMABuf caps at link time, not just at runtime.
+**Hypothesis F is now the most likely explanation for why Wolf works.**
+
+## Critical Difference Found
+
+**Wolf uses `format=DMA_DRM` caps, we were using regular format caps!**
+
+Wolf's waylanddisplaysrc outputs (from code inspection):
+```
+video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=AB24:0x0300000000000013
+```
+
+Our pipewirezerocopysrc was outputting (after a mistaken change):
+```
+video/x-raw(memory:DMABuf),format=BGRx,width=1920,height=1080
+```
+
+This is a significant difference. `format=DMA_DRM` includes the modifier in the drm-format
+field, which might trigger different caps negotiation behavior in vapostproc.
+
+## Fix Applied (2026-01-12 13:30)
+
+Updated pipewirezerocopysrc to match Wolf's output format:
+
+1. **pad_templates()**: Changed DMABuf caps to use `format=DMA_DRM`
+2. **caps()**: Changed DmaBuf mode to use `format=DMA_DRM`
+3. **create()**: Build caps with `format=DMA_DRM` and `drm-format` field
+
+Now outputs:
+```
+video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=XR24:0x0000000000000000
+```
+
+Helper function `drm_format_to_gst_string()` added to format the drm-format field
+matching Wolf's `drm_to_gst_format()` pattern.
+
+## Next Steps
+
+### Step 1: Rebuild and Deploy (DONE)
+
+Fix has been applied to pipewirezerocopysrc. Now:
+
+```bash
+# Rebuild helix-ubuntu image
+./stack build-ubuntu
+
+# Deploy to AMD VM
+~/deploy-helix-ubuntu-to-amd.sh
+
+# Start a NEW session (old sessions use old image)
+# Run benchmark with zerocopy mode
+```
+
+### Step 2: Verify Fix Works
+
+If the fix works, we should see:
+- Pipeline links successfully (no "could not link queue to vapostproc" error)
+- Logs show: `drm-format='XR24:0x...'` or similar
+- Video frames flowing
+
+If it still fails:
+- Check GST_DEBUG output for caps negotiation details
+- Compare with Wolf's pipeline behavior
+
 ## References
 
 - Wolf gst-wayland-display: https://github.com/games-on-whales/gst-wayland-display
+- Wolf AMD/VAAPI issues: https://github.com/games-on-whales/wolf/issues/103
 - GStreamer DMABuf design: https://gstreamer.freedesktop.org/documentation/additional/design/dmabuf.html
 - DMABuf modifier negotiation: https://blogs.igalia.com/vjaquez/dmabuf-modifier-negotiation-in-gstreamer/
+- libva DRM PRIME2: https://github.com/intel/libva/pull/125
+- gstreamer-vaapi EGLImage DMABuf: https://github.com/GStreamer/gstreamer-vaapi/commit/7a3b258
 
 ## Test Commands for AMD VM
 

@@ -17,6 +17,10 @@ gstreamer-allocators = "0.23"
 pipewire = "0.8"
 libspa = "0.8"
 
+# Wayland bindings for wlr-export-dmabuf (Sway/wlroots zero-copy capture)
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+
 # Reuse CUDA/EGL allocator (vendored from games-on-whales/gst-wayland-display)
 waylanddisplaycore = { path = "../wayland-display-core", package = "wayland-display-core", features = ["cuda"] }
 
