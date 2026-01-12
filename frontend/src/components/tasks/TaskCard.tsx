@@ -530,7 +530,7 @@ export default function TaskCard({
     }
   }
 
-  const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation'
+  const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation' || task.status === 'spec_approved'
 
   const handleRemoveFromQueue = async () => {
     if (!task.id) return
@@ -839,14 +839,15 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="info"
-              startIcon={<SpecIcon />}
+              startIcon={task.status === 'spec_approved' ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
               onClick={(e) => {
                 e.stopPropagation()
                 onReviewDocs(task)
               }}
+              disabled={task.status === 'spec_approved'}
               fullWidth
             >
-              Review Spec
+              {task.status === 'spec_approved' ? 'Queued' : 'Review Spec'}
             </Button>
           </Box>
         )}
