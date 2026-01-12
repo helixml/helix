@@ -1847,12 +1847,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		// If using a user token (not runner token), validate session ownership
 		if user.TokenType != types.TokenTypeRunner {
-			// Extract session ID from runner ID (format: sandbox-{session_id})
-			sessionID := strings.TrimPrefix(runnerID, "sandbox-")
+			// Extract session ID from runner ID (format: desktop-{session_id})
+			// Note: "desktop-" prefix is for per-session containers, "sandbox-" is for the outer sandbox
+			sessionID := strings.TrimPrefix(runnerID, "desktop-")
 			if sessionID == runnerID {
 				log.Error().
 					Str("runner_id", runnerID).
-					Msg("Invalid runner ID format - must be sandbox-{session_id}")
+					Msg("Invalid runner ID format - must be desktop-{session_id}")
 				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
 				return
 			}

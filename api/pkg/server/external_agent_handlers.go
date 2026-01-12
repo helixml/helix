@@ -656,9 +656,10 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 	}
 
-	// Try RevDial connection to sandbox first (registered as "sandbox-{session_id}")
-	// RevDial is the primary communication mechanism for sandbox access
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	// RevDial is the primary communication mechanism for desktop container access
+	// Note: "desktop-" prefix is for per-session containers, "sandbox-" is for the outer sandbox
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -776,8 +777,8 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	}
 	log.Info().Int("body_len", len(bodyBytes)).Msg("🔧 execInSandbox: body read successfully")
 
-	// Connect to sandbox via RevDial
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Connect to desktop container via RevDial
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
@@ -785,7 +786,7 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 			Err(err).
 			Str("runner_id", runnerID).
 			Str("session_id", sessionID).
-			Msg("🔧 execInSandbox: Failed to connect to sandbox via RevDial for exec")
+			Msg("🔧 execInSandbox: Failed to connect to desktop container via RevDial for exec")
 		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
 		return
 	}
@@ -983,8 +984,8 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1108,8 +1109,8 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Int("clipboard_size", len(clipboardContent)).
 		Msg("Setting clipboard in sandbox via RevDial")
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1223,8 +1224,8 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 		return
 	}
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1347,8 +1348,8 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("content_type", req.Header.Get("Content-Type")).
 		Msg("Uploading file to sandbox via RevDial")
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1516,8 +1517,8 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 		return
 	}
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -1665,8 +1666,8 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		return
 	}
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
 	log.Info().
 		Str("session_id", sessionID).

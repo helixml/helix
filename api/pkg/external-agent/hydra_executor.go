@@ -131,24 +131,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 
-	// Fetch sandbox's GPU vendor (GPU is on sandbox, not API server)
-	var gpuVendor string
-	if sandboxID != "" && sandboxID != "local" {
-		sandbox, err := h.store.GetSandbox(ctx, sandboxID)
-		if err != nil {
-			log.Warn().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to get sandbox for GPU vendor")
-		} else if sandbox != nil {
-			gpuVendor = sandbox.GPUVendor
-			log.Debug().
-				Str("sandbox_id", sandboxID).
-				Str("gpu_vendor", gpuVendor).
-				Msg("Got GPU vendor from sandbox")
-		}
-	}
-	// Fallback to static config if sandbox lookup failed
-	if gpuVendor == "" {
-		gpuVendor = h.gpuVendor
-	}
+	// NOTE: GPU vendor is NOT passed from API - Hydra reads it from its own
+	// GPU_VENDOR env var (set by install.sh). This avoids the complexity of
+	// the API needing to know the sandbox's GPU type.
 
 	// Determine container type from desktop type
 	containerType := h.parseContainerType(agent.DesktopType)
@@ -269,6 +254,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
+	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:     agent.SessionID,
 		Image:         image,
@@ -280,7 +266,6 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		DisplayHeight: agent.DisplayHeight,
 		DisplayFPS:    agent.DisplayRefreshRate,
 		ContainerType: hydra.DevContainerType(containerType),
-		GPUVendor:     gpuVendor,
 		UserID:        agent.UserID,
 		Network:       "bridge",
 	}

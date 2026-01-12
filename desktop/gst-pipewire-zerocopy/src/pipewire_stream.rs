@@ -266,6 +266,11 @@ fn run_pipewire_loop(
     let stream_activated = Arc::new(AtomicBool::new(false));
     let stream_activated_clone = stream_activated.clone();
 
+    // Flag to track if DmaBuf is available (from EGL caps)
+    // When false, we request MemFd (SHM) instead of DmaBuf to avoid allocation failures
+    let dmabuf_available = dmabuf_caps.as_ref().map(|c| c.dmabuf_available).unwrap_or(false);
+    let dmabuf_available_clone = dmabuf_available;
+
     let _listener = stream
         .add_local_listener_with_user_data(spa::param::video::VideoInfoRaw::default())
         .state_changed(move |_stream, _user_data, old, new| {
@@ -398,14 +403,20 @@ fn run_pipewire_loop(
             let vendor_id = modifier >> 56;
             let is_gpu_tiled = modifier != u64::MAX && modifier != 0 && vendor_id != 0;
 
-            eprintln!("[PIPEWIRE_DEBUG] Format modifier=0x{:x} vendor_id=0x{:x} is_gpu_tiled={}",
-                modifier, vendor_id, is_gpu_tiled);
+            eprintln!("[PIPEWIRE_DEBUG] Format modifier=0x{:x} vendor_id=0x{:x} is_gpu_tiled={} dmabuf_available={}",
+                modifier, vendor_id, is_gpu_tiled, dmabuf_available_clone);
 
-            // OBS pattern: ALWAYS request DmaBuf when modifier field is present
-            // Even LINEAR (0x0) gets DmaBuf - let GNOME fail if it can't allocate
-            let required_buffer_type: u32 = 8;  // Always DmaBuf
-
-            eprintln!("[PIPEWIRE_DEBUG] Requesting DmaBuf (buffer_type=8) for modifier 0x{:x}", modifier);
+            // Buffer type selection:
+            // - If DmaBuf is available (GPU accessible), request DmaBuf (8) for zero-copy
+            // - If DmaBuf is NOT available (no GPU or EGL failed), request MemFd (4) for SHM fallback
+            // This prevents "error alloc buffers: Invalid argument" when GPU isn't accessible
+            let (required_buffer_type, use_dmabuf): (u32, bool) = if dmabuf_available_clone {
+                eprintln!("[PIPEWIRE_DEBUG] Requesting DmaBuf (buffer_type=8) for modifier 0x{:x}", modifier);
+                (8, true)  // DmaBuf
+            } else {
+                eprintln!("[PIPEWIRE_DEBUG] Requesting MemFd (buffer_type=4) - DmaBuf not available");
+                (4, false)  // MemFd (SHM)
+            };
 
             // Check if we need to (re-)negotiate.
             // Only skip if we already requested DmaBuf with the same buffer type.
@@ -428,9 +439,9 @@ fn run_pipewire_loop(
             // This confirms to GNOME which format was selected and stops the renegotiation loop.
             // We also include Buffers + Meta params.
             //
-            // Note: Since we skip LINEAR modifiers above, is_gpu_tiled_modifier is always true here,
-            // so we always request DmaBuf. This is intentional - we want zero-copy GPU path only.
-            let negotiation_params = build_negotiation_params(width, height, format_raw, modifier, true /* use_dmabuf */);
+            // use_dmabuf is determined above based on whether GPU/EGL is available.
+            // When GPU isn't accessible, we fall back to MemFd (SHM) for software encoding.
+            let negotiation_params = build_negotiation_params(width, height, format_raw, modifier, use_dmabuf);
 
             if !negotiation_params.is_empty() {
                 // Convert byte buffers to Pod references

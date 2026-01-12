@@ -115,7 +115,7 @@ fi
 # Uses user's API token for authentication (session-scoped, user-owned)
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
     REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
-    RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
+    RUNNER_ID="desktop-${HELIX_SESSION_ID}"
 
     echo "Starting RevDial client for API ↔ sandbox communication..."
     /usr/local/bin/revdial-client \

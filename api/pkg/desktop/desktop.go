@@ -85,6 +85,11 @@ type Server struct {
 	screenWidth  int
 	screenHeight int
 
+	// Display scale factor for Sway (from HELIX_ZOOM_LEVEL, default: 1.0)
+	// With scale 2.0, physical 3840x2160 becomes logical 1920x1080
+	// GNOME handles scaling internally so this is only used for Sway
+	displayScale float64
+
 	// Screenshot serialization - GNOME D-Bus Screenshot API only allows
 	// one operation at a time per sender. Concurrent calls return
 	// "There is an ongoing operation for this sender" error.
@@ -104,7 +109,7 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 	}
 
 	// Read screen dimensions from environment (set by Dockerfile)
-	// These are the PHYSICAL dimensions - but for mouse scaling we need LOGICAL dimensions
+	// These should match the video resolution being captured/streamed
 	screenWidth := 1920
 	screenHeight := 1080
 	if w := os.Getenv("GAMESCOPE_WIDTH"); w != "" {
@@ -118,25 +123,19 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		}
 	}
 
-	// Apply display scaling to get logical dimensions
-	// HELIX_ZOOM_LEVEL is a percentage (100 = 1x, 200 = 2x, etc.)
-	// Mouse coordinates from the frontend are in logical (visible) space
-	zoomLevel := 100
+	// Read display scale from HELIX_ZOOM_LEVEL (percentage, default 100)
+	// Used for Sway to convert physical coords to logical coords
+	displayScale := 1.0
 	if z := os.Getenv("HELIX_ZOOM_LEVEL"); z != "" {
 		if parsed, err := strconv.Atoi(z); err == nil && parsed > 0 {
-			zoomLevel = parsed
+			displayScale = float64(parsed) / 100.0
 		}
-	}
-	if zoomLevel > 100 {
-		scale := float64(zoomLevel) / 100.0
-		screenWidth = int(float64(screenWidth) / scale)
-		screenHeight = int(float64(screenHeight) / scale)
 	}
 
 	logger.Info("screen dimensions for mouse scaling",
 		"width", screenWidth,
 		"height", screenHeight,
-		"zoom_level", zoomLevel)
+		"display_scale", displayScale)
 
 	return &Server{
 		config:          cfg,
@@ -144,6 +143,7 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		logger:          logger,
 		screenWidth:     screenWidth,
 		screenHeight:    screenHeight,
+		displayScale:    displayScale,
 	}
 }
 
@@ -268,13 +268,22 @@ func (s *Server) Run(ctx context.Context) error {
 		// 4. Create Wayland-native virtual input for Sway
 		// Uses zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1 protocols
 		// No /dev/uinput or root privileges required
-		wi, err := NewWaylandInput(s.logger, s.screenWidth, s.screenHeight)
+		//
+		// IMPORTANT: Use LOGICAL dimensions (physical / scale), not physical!
+		// Sway's virtual pointer operates in logical coordinate space.
+		// With scale=2.0, physical 3840x2160 becomes logical 1920x1080.
+		logicalWidth := int(float64(s.screenWidth) / s.displayScale)
+		logicalHeight := int(float64(s.screenHeight) / s.displayScale)
+		wi, err := NewWaylandInput(s.logger, logicalWidth, logicalHeight)
 		if err != nil {
 			s.logger.Error("failed to create Wayland virtual input", "err", err)
 			// This is a critical failure for Sway - input won't work without it
 		} else {
 			s.waylandInput = wi
-			s.logger.Info("Wayland virtual input created for Sway")
+			s.logger.Info("Wayland virtual input created for Sway",
+				"physical", fmt.Sprintf("%dx%d", s.screenWidth, s.screenHeight),
+				"logical", fmt.Sprintf("%dx%d", logicalWidth, logicalHeight),
+				"scale", s.displayScale)
 		}
 
 		// 5. Start video forwarder - captures screen and forwards via shared memory

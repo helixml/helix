@@ -293,10 +293,22 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 
 	// Fallback to Wayland-native input for Sway/wlroots
 	// WaylandInput converts absolute to relative movement internally
+	//
+	// IMPORTANT: Use LOGICAL dimensions for Sway, not physical!
+	// With scale 2.0, physical 3840x2160 → logical 1920x1080.
+	// The video is captured at physical resolution, so frontend sends physical coords.
+	// We must normalize to 0-1 using physical, then let WaylandInput convert to logical.
 	if s.waylandInput != nil {
+		// Normalize using physical dimensions (what the video is captured at)
 		sw := float64(s.screenWidth)
 		sh := float64(s.screenHeight)
-		if err := s.waylandInput.MouseMoveAbsolute(absX/sw, absY/sh, int(sw), int(sh)); err != nil {
+		normX := absX / sw
+		normY := absY / sh
+
+		// WaylandInput was created with logical dimensions, so pass those
+		logicalW := int(sw / s.displayScale)
+		logicalH := int(sh / s.displayScale)
+		if err := s.waylandInput.MouseMoveAbsolute(normX, normY, logicalW, logicalH); err != nil {
 			s.logger.Debug("Wayland virtual mouse absolute failed", "err", err)
 		}
 	}

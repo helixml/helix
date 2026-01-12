@@ -23,15 +23,14 @@ type WaylandInput struct {
 	mu              sync.Mutex
 	closed          bool
 
-	// Screen dimensions for absolute positioning
+	// Screen dimensions for relative mouse movement bounds checking
 	screenWidth  int
 	screenHeight int
 
-	// Track current mouse position for absolute->relative conversion
-	// Wayland virtual pointer only supports relative movement
+	// Track current mouse position for relative movement
+	// (Only used by MouseMove for relative deltas, not for absolute positioning)
 	currentX float64
 	currentY float64
-	positionInitialized bool
 }
 
 // NewWaylandInput creates a new Wayland virtual input handler.
@@ -201,8 +200,9 @@ func (w *WaylandInput) MouseMove(dx, dy int32) error {
 }
 
 // MouseMoveAbsolute moves the mouse to absolute coordinates.
-// x, y are in the range 0-1 representing screen position.
-func (w *WaylandInput) MouseMoveAbsolute(x, y float64, screenWidth, screenHeight int) error {
+// x, y are in the range 0-1 representing normalized screen position.
+// extentX, extentY are the logical screen dimensions (accounting for display scaling).
+func (w *WaylandInput) MouseMoveAbsolute(x, y float64, extentX, extentY int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -210,35 +210,17 @@ func (w *WaylandInput) MouseMoveAbsolute(x, y float64, screenWidth, screenHeight
 		return nil
 	}
 
-	// Calculate target absolute position
-	targetX := x * float64(screenWidth)
-	targetY := y * float64(screenHeight)
+	// Convert normalized (0-1) to absolute pixel coordinates
+	// The wlr-virtual-pointer-v1 protocol uses absolute coordinates with extent
+	absX := uint32(x * float64(extentX))
+	absY := uint32(y * float64(extentY))
 
-	// Calculate relative movement from current position
-	dx := targetX - w.currentX
-	dy := targetY - w.currentY
-
-	// Update tracked position
-	w.currentX = targetX
-	w.currentY = targetY
-
-	// If this is the first movement, we need to initialize position
-	// by moving from center of screen
-	if !w.positionInitialized {
-		// Start from center of screen
-		centerX := float64(screenWidth) / 2
-		centerY := float64(screenHeight) / 2
-		dx = targetX - centerX
-		dy = targetY - centerY
-		w.positionInitialized = true
+	// Use true absolute positioning via MotionAbsolute
+	// This avoids drift issues from relative movement + position tracking
+	if err := w.pointer.MotionAbsolute(time.Now(), absX, absY, uint32(extentX), uint32(extentY)); err != nil {
+		return err
 	}
-
-	// Use relative movement (Wayland virtual pointer doesn't support absolute)
-	if dx != 0 || dy != 0 {
-		w.pointer.MoveRelative(dx, dy)
-	}
-
-	return nil
+	return w.pointer.Frame()
 }
 
 // MouseButtonDown presses a mouse button.

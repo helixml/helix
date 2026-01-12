@@ -1,5 +1,5 @@
 //! PipeWire ScreenCast source - reuses waylanddisplaycore's CUDA conversion
-//! Cache-bust: 2026-01-09T03:40Z - set_active + 30s first-frame timeout
+//! Cache-bust: 2026-01-12T08:10Z - AMD zero-copy DMA-BUF support
 //!
 //! This element follows Wolf/gst-wayland-display's context sharing pattern:
 //! - Wolf creates the CUDA context and pushes it via set_context()
@@ -15,6 +15,7 @@ use gst_base::prelude::BaseSrcExt;
 use gst_base::subclass::base_src::CreateSuccess;
 use gst_base::subclass::prelude::*;
 use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
+use gstreamer_allocators::{DmaBufAllocator, FdMemoryFlags};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use smithay::backend::allocator::Buffer;
@@ -274,6 +275,9 @@ pub struct State {
     /// Pool configuration happens on first frame when dimensions are known.
     /// This enables buffer reuse, eliminating per-frame allocation overhead.
     buffer_pool_configured: bool,
+    /// DMA-BUF allocator for AMD/Intel zero-copy path (OutputMode::DmaBuf)
+    /// Wraps DMA-BUF file descriptors in GStreamer memory without CPU copies.
+    dmabuf_allocator: Option<DmaBufAllocator>,
 }
 
 impl Default for State {
@@ -287,6 +291,7 @@ impl Default for State {
             frame_count: 0,
             last_buffer: None,
             buffer_pool_configured: false,
+            dmabuf_allocator: None,
         }
     }
 }
@@ -596,8 +601,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                             // Store EGL display for potential future use (e.g., DmaBuf import)
                             state.egl_display = Some(Arc::new(display));
                             // Set DmaBuf mode if we can acquire DmaBuf frames
-                            // (output will still be system memory for VA-API, but PipeWire gives us DmaBuf)
+                            // AMD/Intel: output DMA-BUF directly for VA-API zero-copy
                             state.actual_output_mode = OutputMode::DmaBuf;
+                            state.dmabuf_allocator = Some(DmaBufAllocator::new());
+                            eprintln!("[PIPEWIRESRC_DEBUG] DmaBufAllocator initialized for AMD/Intel zero-copy");
                         } else {
                             eprintln!("[PIPEWIRESRC_DEBUG] EGL reports no DmaBuf support");
                         }
@@ -615,6 +622,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         if state.actual_output_mode == OutputMode::System {
             if output_mode == OutputMode::DmaBuf {
                 state.actual_output_mode = OutputMode::DmaBuf;
+                if state.dmabuf_allocator.is_none() {
+                    state.dmabuf_allocator = Some(DmaBufAllocator::new());
+                    eprintln!("[PIPEWIRESRC_DEBUG] DmaBufAllocator initialized (forced DmaBuf mode)");
+                }
                 gst::info!(CAT, imp = self, "Using DMA-BUF mode");
             } else {
                 eprintln!("[PIPEWIRESRC_DEBUG] Using SYSTEM MEMORY mode (not CUDA!)");
@@ -931,8 +942,24 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
                 (buf, actual_fmt, w, h)
             }
+            FrameData::DmaBuf(dmabuf) if state.actual_output_mode == OutputMode::DmaBuf => {
+                // AMD/Intel zero-copy path: wrap DMA-BUF fds directly in GStreamer buffer
+                eprintln!("[PIPEWIRESRC_DEBUG] Processing DmaBuf in ZERO-COPY mode (AMD/Intel)");
+                let w = dmabuf.width() as u32;
+                let h = dmabuf.height() as u32;
+                let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
+
+                let allocator = state.dmabuf_allocator.as_ref().ok_or_else(|| {
+                    eprintln!("[PIPEWIRESRC_DEBUG] ERROR: dmabuf_allocator is None in DmaBuf mode!");
+                    gst::FlowError::Error
+                })?;
+
+                let buf = self.dmabuf_to_gst_dmabuf(&dmabuf, allocator, video_format)?;
+                (buf, video_format, w, h)
+            }
             FrameData::DmaBuf(dmabuf) => {
-                eprintln!("[PIPEWIRESRC_DEBUG] Processing DmaBuf in FALLBACK (non-CUDA) mode");
+                // System memory fallback path (copies DMA-BUF to system memory)
+                eprintln!("[PIPEWIRESRC_DEBUG] Processing DmaBuf in FALLBACK (system memory) mode");
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
                 let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
@@ -974,6 +1001,16 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 OutputMode::Cuda => {
                     VideoCapsBuilder::new()
                         .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                        .format(actual_format)
+                        .width(width as i32)
+                        .height(height as i32)
+                        .framerate(fps)
+                        .build()
+                }
+                OutputMode::DmaBuf => {
+                    // AMD/Intel zero-copy: advertise DMA-BUF memory feature
+                    VideoCapsBuilder::new()
+                        .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
                         .format(actual_format)
                         .width(width as i32)
                         .height(height as i32)
@@ -1023,6 +1060,93 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 }
 
 impl PipeWireZeroCopySrc {
+    /// Zero-copy DMA-BUF to GStreamer buffer (AMD/Intel VA-API path)
+    ///
+    /// Wraps the DMA-BUF file descriptors directly in a GStreamer buffer without any CPU copies.
+    /// The downstream VA-API encoder can then access the GPU memory directly via DMA-BUF import.
+    fn dmabuf_to_gst_dmabuf(
+        &self,
+        dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
+        allocator: &DmaBufAllocator,
+        video_format: VideoFormat,
+    ) -> Result<gst::Buffer, gst::FlowError> {
+        use std::os::fd::{AsFd, AsRawFd};
+        use smithay::reexports::rustix::fs::{seek, SeekFrom};
+
+        let width = dmabuf.width() as u32;
+        let height = dmabuf.height() as u32;
+
+        // Calculate expected buffer size for GStreamer
+        let required_size = gst_video::VideoInfo::builder(video_format, width, height)
+            .build()
+            .map_err(|e| {
+                eprintln!("[PIPEWIRESRC_DEBUG] Failed to build VideoInfo: {:?}", e);
+                gst::FlowError::Error
+            })?
+            .size();
+
+        let mut gst_buffer = gst::Buffer::new();
+
+        // Get mutable reference and append memory for each DMA-BUF plane
+        {
+            let gst_buf = gst_buffer.get_mut().ok_or_else(|| {
+                eprintln!("[PIPEWIRESRC_DEBUG] Failed to get mutable buffer reference");
+                gst::FlowError::Error
+            })?;
+
+            for (plane_idx, handle) in dmabuf.handles().enumerate() {
+                let fd = handle.as_raw_fd();
+
+                // Get actual size of the DMA-BUF by seeking to end
+                let actual_size = seek(&handle.as_fd(), SeekFrom::End(0))
+                    .map_err(|e| {
+                        eprintln!("[PIPEWIRESRC_DEBUG] Failed to seek DMA-BUF fd: {:?}", e);
+                        gst::FlowError::Error
+                    })? as usize;
+
+                // Reset seek position
+                let _ = seek(&handle.as_fd(), SeekFrom::Start(0));
+
+                // Use the larger of required and actual sizes
+                let allocation_size = required_size.max(actual_size);
+
+                // Allocate GStreamer memory wrapping the DMA-BUF fd
+                // DONT_CLOSE: fd is owned by smithay Dmabuf, will be closed when it's dropped
+                let memory = unsafe {
+                    allocator.alloc_with_flags(fd, allocation_size, FdMemoryFlags::DONT_CLOSE)
+                        .map_err(|e| {
+                            eprintln!("[PIPEWIRESRC_DEBUG] DmaBufAllocator alloc failed for plane {}: {:?}", plane_idx, e);
+                            gst::FlowError::Error
+                        })?
+                };
+
+                gst_buf.append_memory(memory);
+                eprintln!("[PIPEWIRESRC_DEBUG] Appended DMA-BUF plane {} (fd={}, size={})", plane_idx, fd, allocation_size);
+            }
+
+            // Collect offsets and strides
+            let offsets: Vec<usize> = dmabuf.offsets().map(|o| o as usize).collect();
+            let strides: Vec<i32> = dmabuf.strides().map(|s| s as i32).collect();
+
+            // Add video metadata with plane info
+            gst_video::VideoMeta::add_full(
+                gst_buf,
+                gst_video::VideoFrameFlags::empty(),
+                video_format,
+                width,
+                height,
+                &offsets,
+                &strides,
+            ).map_err(|e| {
+                eprintln!("[PIPEWIRESRC_DEBUG] Failed to add VideoMeta: {:?}", e);
+                gst::FlowError::Error
+            })?;
+        }
+
+        eprintln!("[PIPEWIRESRC_DEBUG] Zero-copy DMA-BUF buffer created: {}x{} {:?}", width, height, video_format);
+        Ok(gst_buffer)
+    }
+
     fn dmabuf_to_system(&self, dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf) -> Result<gst::Buffer, gst::FlowError> {
         use std::os::fd::AsRawFd;
         let size = (dmabuf.height() as usize) * (dmabuf.strides().next().unwrap_or(0) as usize);

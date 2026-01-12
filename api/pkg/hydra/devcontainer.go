@@ -93,12 +93,25 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// Resolve :latest to specific version from version file
 	resolvedImage := resolveImageVersion(req.Image)
 
+	// Use local GPU_VENDOR env var as fallback if request doesn't specify GPU vendor.
+	// This handles the case where the API server doesn't know the sandbox's GPU
+	// (e.g., sandbox not registered in database, or heartbeat not reaching API).
+	// The sandbox sets GPU_VENDOR during install.sh based on detected hardware.
+	gpuVendor := req.GPUVendor
+	if gpuVendor == "" {
+		gpuVendor = os.Getenv("GPU_VENDOR")
+		if gpuVendor != "" {
+			log.Info().Str("gpu_vendor", gpuVendor).Msg("Using local GPU_VENDOR env var (API didn't specify)")
+		}
+	}
+	req.GPUVendor = gpuVendor
+
 	log.Info().
 		Str("session_id", req.SessionID).
 		Str("image", resolvedImage).
 		Str("container_name", req.ContainerName).
 		Str("container_type", string(req.ContainerType)).
-		Str("gpu_vendor", req.GPUVendor).
+		Str("gpu_vendor", gpuVendor).
 		Msg("Creating dev container via Hydra")
 
 	// Get Docker client for the specified socket
