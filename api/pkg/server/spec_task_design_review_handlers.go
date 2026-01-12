@@ -245,13 +245,6 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Get project for branch info (needed later in the function)
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -264,58 +257,6 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		now := time.Now()
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
-
-		// Get base branch and primary repo name for implementation
-		var baseBranch string
-		var primaryRepoName string
-		if project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo != nil {
-				baseBranch = repo.DefaultBranch
-				primaryRepoName = repo.Name
-			}
-		}
-		if baseBranch == "" {
-			baseBranch = "main"
-		}
-
-		// Generate unique feature branch name (checks for collisions across all projects)
-		branchName, err := services.GenerateUniqueBranchName(ctx, s.Store, specTask)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to generate unique branch name, using fallback")
-			branchName = services.GenerateFeatureBranchName(specTask)
-		}
-
-		// Move to implementation status
-		specTask.Status = types.TaskStatusImplementation
-		specTask.BranchName = branchName
-		specTask.SpecApprovedBy = user.ID
-		specTask.SpecApprovedAt = &now
-		specTask.StartedAt = &now
-
-		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Send implementation instruction to agent via WebSocket
-		// This sends the detailed prompt with tasks.md progress tracking instructions
-		go func() {
-			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch, primaryRepoName)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("task_id", specTask.ID).
-					Str("session_id", specTask.PlanningSessionID).
-					Msg("Failed to send approval instruction to agent via WebSocket")
-			} else {
-				log.Info().
-					Str("task_id", specTask.ID).
-					Str("session_id", specTask.PlanningSessionID).
-					Str("branch_name", branchName).
-					Msg("Design approved - sent detailed implementation instruction to agent via WebSocket")
-			}
-		}()
 
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
