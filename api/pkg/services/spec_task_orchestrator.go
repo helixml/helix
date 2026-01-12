@@ -117,6 +117,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		types.TaskStatusQueuedSpecGeneration: true,
 		types.TaskStatusQueuedImplementation: true,
 		types.TaskStatusSpecGeneration:       true,
+		types.TaskStatusSpecApproved:         true,
 		types.TaskStatusSpecReview:           true,
 		types.TaskStatusSpecRevision:         true,
 		types.TaskStatusImplementationQueued: true,
@@ -164,6 +165,8 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 		return o.handleSpecReview(ctx, task)
 	case types.TaskStatusSpecRevision:
 		return o.handleSpecRevision(ctx, task)
+	case types.TaskStatusSpecApproved:
+		return o.handleSpecApproved(ctx, task)
 	case types.TaskStatusImplementationQueued:
 		return o.handleImplementationQueued(ctx, task)
 	case types.TaskStatusImplementation:
@@ -330,16 +333,24 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
-	// NOTE: PR status polling removed from here to avoid hammering ADO API every
-	// 10 seconds. Now handled by dedicated prPollLoop which runs every 1 minute.
-	// Tasks move to pull_request status when user approves implementation, then
-	// prPollLoop polls ADO for merge status. See conversation with Karolis.
-
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
 	log.Debug().
 		Str("task_id", task.ID).
 		Msg("Task in implementation (using reused agent pattern)")
+	return nil
+}
+
+func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *types.SpecTask) error {
+	log.Info().
+		Str("task_id", task.ID).
+		Msg("Processing approved spec")
+
+	// Task is approved, move to implementation
+	err := o.specTaskService.ApproveSpecs(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to approve specs: %w", err)
+	}
 	return nil
 }
 

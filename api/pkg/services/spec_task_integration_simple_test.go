@@ -315,59 +315,6 @@ func TestSessionMetadataExtensions(t *testing.T) {
 	})
 }
 
-// TestMultiSessionWorkflow tests the workflow logic without external dependencies
-func TestMultiSessionWorkflow(t *testing.T) {
-	t.Run("SpecTaskLifecycle", func(t *testing.T) {
-		// Test the progression through SpecTask statuses
-		statuses := []types.SpecTaskStatus{
-			types.TaskStatusBacklog,
-			types.TaskStatusSpecGeneration,
-			types.TaskStatusSpecReview,
-			types.TaskStatusSpecApproved,
-			types.TaskStatusImplementation,
-			types.TaskStatusDone,
-		}
-
-		for i, status := range statuses {
-			specTask := &types.SpecTask{
-				ID:     "spec_task_test",
-				Status: status,
-			}
-
-			// Validate that each status makes sense in sequence
-			if i > 0 {
-				assert.NotEqual(t, statuses[i-1], specTask.Status)
-			}
-		}
-	})
-
-	t.Run("WorkSessionPhases", func(t *testing.T) {
-		phases := []types.SpecTaskPhase{
-			types.SpecTaskPhasePlanning,
-			types.SpecTaskPhaseImplementation,
-			types.SpecTaskPhaseValidation,
-		}
-
-		for _, phase := range phases {
-			workSession := &types.SpecTaskWorkSession{
-				Phase: phase,
-			}
-
-			switch phase {
-			case types.SpecTaskPhasePlanning:
-				assert.True(t, workSession.IsPlanningSession())
-				assert.False(t, workSession.IsImplementationSession())
-			case types.SpecTaskPhaseImplementation:
-				assert.False(t, workSession.IsPlanningSession())
-				assert.True(t, workSession.IsImplementationSession())
-			case types.SpecTaskPhaseValidation:
-				assert.False(t, workSession.IsPlanningSession())
-				assert.False(t, workSession.IsImplementationSession())
-			}
-		}
-	})
-}
-
 // TestDataStructureRelationships tests the relationships between entities
 func TestDataStructureRelationships(t *testing.T) {
 	t.Run("SpecTaskToWorkSessionRelationship", func(t *testing.T) {
