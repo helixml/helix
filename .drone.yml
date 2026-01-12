@@ -118,9 +118,9 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
+      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev gst-plugins-base-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - CGO_ENABLED=0 ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
       event:
         - push
@@ -168,12 +168,12 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
+      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev gst-plugins-base-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server (CGO disabled for GStreamer stubs)
-      - CGO_ENABLED=0 go install ./api/..
+      # Build API server
+      - go install ./api/..
       # Run tests
-      - CGO_ENABLED=0 ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
