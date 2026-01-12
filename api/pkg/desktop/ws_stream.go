@@ -426,8 +426,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
 			// Zero-copy GPU path: DMABuf → vapostproc → vah264enc
-			// pipewirezerocopysrc outputs video/x-raw(memory:DMABuf) with regular format (BGRx/BGRA)
-			// Wolf uses the same approach: waylanddisplaysrc ! video/x-raw(memory:DMABuf) ! vapostproc
+			// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation
 			parts = append(parts,
 				"vapostproc",
 				"video/x-raw(memory:VAMemory),format=NV12",

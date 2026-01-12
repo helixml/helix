@@ -8,6 +8,7 @@
 //! - Fallback: if no context pushed, acquire via new_from_gstreamer()
 
 use crate::pipewire_stream::{DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
+use crate::wlr_export_dmabuf::WlrExportDmabufStream;
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -270,8 +271,27 @@ impl Default for Settings {
     }
 }
 
+/// Unified stream abstraction for different capture backends.
+/// Supports both PipeWire (GNOME) and wlr-export-dmabuf (Sway/wlroots).
+pub enum FrameStream {
+    /// PipeWire ScreenCast stream (GNOME, xdg-desktop-portal)
+    PipeWire(PipeWireStream),
+    /// wlr-export-dmabuf stream (Sway, wlroots compositors)
+    WlrExport(WlrExportDmabufStream),
+}
+
+impl FrameStream {
+    /// Receive a frame with timeout from either stream type
+    pub fn recv_frame_timeout(&self, timeout: Duration) -> Result<FrameData, RecvError> {
+        match self {
+            FrameStream::PipeWire(stream) => stream.recv_frame_timeout(timeout),
+            FrameStream::WlrExport(stream) => stream.recv_frame_timeout(timeout),
+        }
+    }
+}
+
 pub struct State {
-    stream: Option<PipeWireStream>,
+    stream: Option<FrameStream>,
     video_info: Option<VideoInfo>,
     egl_display: Option<Arc<EGLDisplay>>,
     buffer_pool: Option<CUDABufferPool>,
@@ -648,8 +668,42 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        let stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps).map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
-        state.stream = Some(stream);
+        // Choose capture backend based on compositor:
+        // - Sway/wlroots: Use wlr-export-dmabuf protocol (native, no PipeWire dependency)
+        // - GNOME/others: Use PipeWire ScreenCast (xdg-desktop-portal)
+        //
+        // wlr-export-dmabuf provides true zero-copy DMA-BUF capture on Sway without
+        // needing xdg-desktop-portal-wlr or wf-recorder as intermediaries.
+        let frame_stream = if WlrExportDmabufStream::is_available() {
+            eprintln!("[PIPEWIRESRC_DEBUG] Sway/wlroots detected, trying wlr-export-dmabuf...");
+            gst::info!(CAT, imp = self, "Sway/wlroots detected, using wlr-export-dmabuf");
+
+            match WlrExportDmabufStream::connect(dmabuf_caps.clone()) {
+                Ok(stream) => {
+                    eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf connected successfully!");
+                    gst::info!(CAT, imp = self, "Connected to wlr-export-dmabuf");
+                    FrameStream::WlrExport(stream)
+                }
+                Err(e) => {
+                    eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf failed: {}, falling back to PipeWire", e);
+                    gst::warning!(CAT, imp = self, "wlr-export-dmabuf failed: {}, falling back to PipeWire", e);
+
+                    // Fallback to PipeWire (may work via xdg-desktop-portal-wlr)
+                    let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
+                        .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire fallback: {}", e)))?;
+                    FrameStream::PipeWire(pw_stream)
+                }
+            }
+        } else {
+            eprintln!("[PIPEWIRESRC_DEBUG] Not Sway/wlroots, using PipeWire ScreenCast");
+            gst::info!(CAT, imp = self, "Using PipeWire ScreenCast");
+
+            let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
+                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
+            FrameStream::PipeWire(pw_stream)
+        };
+
+        state.stream = Some(frame_stream);
         *state_guard = Some(state);
         Ok(())
     }
