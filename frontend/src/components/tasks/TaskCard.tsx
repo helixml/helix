@@ -26,16 +26,12 @@ import {
   CheckCircle as ApproveIcon,
   Stop as StopIcon,
   RocketLaunch as LaunchIcon,
-  Close as CloseIcon,
-  Restore as RestoreIcon,
-  MenuBook as DesignDocsIcon,
+  Close as CloseIcon,  
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as UncheckedIcon,
-  ContentCopy as CopyIcon,
+  RadioButtonUnchecked as UncheckedIcon,  
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
-  Archive as ArchiveIcon,
 } from '@mui/icons-material'
 import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'

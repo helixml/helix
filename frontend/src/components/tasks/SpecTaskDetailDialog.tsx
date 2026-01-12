@@ -1244,6 +1244,9 @@ I'll give you feedback and we can iterate on any changes needed.`
                 <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
+                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+                  Status: {displayTask.status || 'N/A'}
+                </Typography>
                 {displayTask.task_number && (
                   <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                     Task Number: {displayTask.task_number}
