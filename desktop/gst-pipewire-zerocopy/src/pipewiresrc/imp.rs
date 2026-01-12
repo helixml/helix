@@ -160,8 +160,11 @@ fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
         0x300000000e08014,
         0x300000000e08015,
         0x300000000e08016,
-        // Also include LINEAR (0x0) as last resort - some headless configs might need it
-        // But put GPU-tiled first so GNOME prefers those
+        // Include LINEAR (0x0) for Sway/wlroots compatibility.
+        // xdg-desktop-portal-wlr doesn't support NVIDIA tiled modifiers,
+        // so LINEAR is required as fallback for Sway sessions.
+        // Put GPU-tiled first so GNOME prefers those for zero-copy.
+        0x0, // LINEAR - required for xdg-desktop-portal-wlr (Sway)
     ];
 
     // Select modifiers based on detected GPU vendor:
@@ -434,7 +437,9 @@ impl ElementImpl for PipeWireZeroCopySrc {
             ];
             let mut caps = gst::Caps::new_empty();
             caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
-            caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
+            // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
+            // Wolf uses: video/x-raw(memory:DMABuf) with regular format, NOT format=DMA_DRM
+            caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build());
             caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
             vec![gst::PadTemplate::new("src", gst::PadDirection::Src, gst::PadPresence::Always, &caps).unwrap()]
         });
@@ -706,14 +711,16 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
 
         let mut caps = match output_mode {
             OutputMode::Cuda => VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build(),
-            OutputMode::DmaBuf => VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build(),
+            // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
+            OutputMode::DmaBuf => VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build(),
             OutputMode::System => VideoCapsBuilder::new().format_list(rgba_formats).build(),
             OutputMode::Auto => {
                 // Auto mode before start(): advertise all capabilities (like pad template)
                 // GStreamer will negotiate based on downstream requirements
                 let mut all_caps = gst::Caps::new_empty();
                 all_caps.merge(VideoCapsBuilder::new().features([CAPS_FEATURE_MEMORY_CUDA_MEMORY]).format_list(rgba_formats).build());
-                all_caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format(VideoFormat::DmaDrm).build());
+                // DMABuf with regular formats (like Wolf's waylanddisplaysrc) - vapostproc accepts this directly
+                all_caps.merge(VideoCapsBuilder::new().features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF]).format_list(rgba_formats).build());
                 all_caps.merge(VideoCapsBuilder::new().format_list(rgba_formats).build());
                 all_caps
             }
@@ -1027,32 +1034,16 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                         .build()
                 }
                 OutputMode::DmaBuf => {
-                    // AMD/Intel zero-copy: Use VideoInfoDmaDrm for proper drm-format caps
-                    // vapostproc requires drm-format field, not just format field
-                    if let Some((fourcc, modifier)) = state.drm_info {
-                        let base_info = VideoInfo::builder(actual_format, width, height)
-                            .fps(fps)
-                            .build()
-                            .map_err(|e| {
-                                eprintln!("[PIPEWIRESRC_DEBUG] Failed to build VideoInfo for DRM caps: {:?}", e);
-                                gst::FlowError::Error
-                            })?;
-                        let dma_info = VideoInfoDmaDrm::new(base_info, fourcc, modifier);
-                        dma_info.to_caps().map_err(|e| {
-                            eprintln!("[PIPEWIRESRC_DEBUG] Failed to create DRM caps: {:?}", e);
-                            gst::FlowError::Error
-                        })?
-                    } else {
-                        // Fallback if no DRM info (shouldn't happen in DmaBuf mode)
-                        eprintln!("[PIPEWIRESRC_DEBUG] WARNING: No DRM info for DmaBuf caps, using simple caps");
-                        VideoCapsBuilder::new()
-                            .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                            .format(actual_format)
-                            .width(width as i32)
-                            .height(height as i32)
-                            .framerate(fps)
-                            .build()
-                    }
+                    // AMD/Intel zero-copy: Use regular format with DMABuf feature
+                    // Wolf uses: video/x-raw(memory:DMABuf),format=BGRx - vapostproc accepts this directly
+                    // NOT format=DMA_DRM which requires glupload/gldownload conversion
+                    VideoCapsBuilder::new()
+                        .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
+                        .format(actual_format)
+                        .width(width as i32)
+                        .height(height as i32)
+                        .framerate(fps)
+                        .build()
                 }
                 _ => {
                     VideoCapsBuilder::new()

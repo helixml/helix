@@ -99,45 +99,65 @@ dependency on Sway.
 
 ## Test Results (2026-01-12)
 
-### Video Streaming: SUCCESS
+### Initial Test: Portal PipeWire Path FAILED
 
-The unified pipewirezerocopysrc path works with Sway's xdg-desktop-portal-wlr!
-
-```
-Session: ses_01kes2xcp7k3c71ep6mjbk5hgh (Sway)
-Video frames: 455 in 10s
-Average FPS: 45.5 fps
-Instant FPS: up to 83 fps
-Resolution: 1920x1080
-Codec: H.264
-```
-
-### Latency Measurements
+The initial attempt to use pipewirezerocopysrc with xdg-desktop-portal-wlr's
+PipeWire stream **failed**. Format negotiation never completed:
 
 ```
-Tests: 10 @ 500ms interval
-Completed: 9 (1 timeout)
+[PIPEWIRE_DEBUG] PipeWire state: Unconnected -> Connecting
+[PIPEWIRE_DEBUG] PipeWire state: Connecting -> Paused
+[PIPEWIRE_DEBUG] DMA-BUF available with 7 modifiers, offering DmaBuf ONLY (no SHM fallback)
+  offer[0] = 0x300000000e08010 (NVIDIA tiled)
+  offer[1] = 0x300000000e08011
+  ...
 
-Key-to-Eyeball Latency:
-  Min:     52ms   (good!)
-  Median:  171ms
-  Average: 322ms
-  Max:     816ms  (needs investigation)
-  Std Dev: 296ms  (high variance)
+Video frames: 0 (param_changed callback NEVER called!)
 ```
 
-The high variance (52ms - 816ms) suggests intermittent delays. Possible causes:
-1. xdg-desktop-portal-wlr frame delivery timing
-2. PipeWire buffer accumulation
-3. keepalive-time=100 affecting frame timing
-4. Format negotiation overhead on some frames
+**Root Cause:** xdg-desktop-portal-wlr does NOT support NVIDIA tiled modifiers.
+It only supports modifiers that wlr-screencopy can produce. The PipeWire stream
+from xdg-desktop-portal-wlr is a passthrough of wlr-screencopy frames.
+
+### Key Insight: wlroots DMA-BUF Protocols
+
+For true zero-copy with wlroots compositors (Sway), we need to use the native
+Wayland protocols rather than going through xdg-desktop-portal-wlr's PipeWire:
+
+1. **`wlr-export-dmabuf-unstable-v1`** - Primary protocol for DMA-BUF frame export
+   - Allows a client to receive DMA-BUF file descriptors directly from the compositor
+   - Provides full frames with GPU-accessible buffers
+   - No PipeWire intermediary - direct compositor → client path
+
+2. **`wlr-screencopy-unstable-v1`** with `linux-dmabuf`** - DMA-BUF via screencopy
+   - Recent versions support linux-dmabuf parameters for zero-copy capture
+   - Can request DMA-BUF instead of SHM buffers
+   - Same protocol wf-recorder uses, but with DMA-BUF mode
+
+### Revised Architecture
+
+```
+GNOME (zero-copy via PipeWire):
+  Mutter ScreenCast → PipeWire → pipewirezerocopysrc → DMA-BUF → CUDA → NVENC
+
+Sway (zero-copy via Wayland protocols):
+  Option A: Sway → wlr-export-dmabuf → wlrexportdmabufsrc → DMA-BUF → CUDA → NVENC
+  Option B: Sway → wlr-screencopy(dmabuf) → wlrscreencopysrc → DMA-BUF → CUDA → NVENC
+```
 
 ### Next Steps
 
-1. Investigate latency variance - why do some frames take 800ms?
-2. Compare with GNOME latency to isolate Sway-specific issues
-3. Check PipeWire node stats during streaming
-4. Consider reducing keepalive-time for Sway
+1. **Implement `wlrexportdmabufsrc` GStreamer element** using wlr-export-dmabuf-unstable-v1
+   - Connect to Wayland compositor via WAYLAND_DISPLAY
+   - Bind zwlr_export_dmabuf_manager_v1
+   - Request frame capture, receive DMA-BUF fds
+   - Output to GStreamer as video/x-raw(memory:DMABuf)
+
+2. **Alternative: Implement `wlrscreencopysrc`** with DMA-BUF mode
+   - Use wlr-screencopy-unstable-v1 with linux-dmabuf
+   - May be simpler as wlr-screencopy is more widely supported
+
+3. **Both approaches bypass xdg-desktop-portal-wlr entirely** for video capture
 
 ## Testing Plan
 
@@ -166,6 +186,64 @@ The high variance (52ms - 816ms) suggests intermittent delays. Possible causes:
 - `api/pkg/desktop/desktop.go` - Try zero-copy before wf-recorder fallback
 - `api/pkg/desktop/ws_stream.go` - No changes if portal stream works
 - `api/pkg/desktop/video_forwarder.go` - Keep as fallback, may remove later
+
+## AMD/Intel Zero-Copy VA-API Path (2026-01-12)
+
+### Problem
+
+The initial AMD/Intel VA-API implementation used `format=DMA_DRM` caps with `glupload/gldownload`
+before `vapostproc`. This was an unnecessary intermediate step.
+
+### Solution: Match Wolf's Approach
+
+Wolf's waylanddisplaysrc outputs DMABuf with **regular video format** (not DMA_DRM):
+
+```
+waylanddisplaysrc ! video/x-raw(memory:DMABuf) ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah265enc
+```
+
+vapostproc accepts `video/x-raw(memory:DMABuf)` with regular formats (BGRx, BGRA) directly.
+It does NOT accept `format=DMA_DRM`.
+
+### Implementation
+
+1. **pipewirezerocopysrc caps** - Output regular format with DMABuf feature:
+   ```
+   video/x-raw(memory:DMABuf),format=BGRx,width=1920,height=1080
+   ```
+   NOT:
+   ```
+   video/x-raw(memory:DMABuf),format=DMA_DRM,drm-format=XR24:0x...
+   ```
+
+2. **GStreamer pipeline** - Direct DMABuf to vapostproc:
+   ```
+   pipewirezerocopysrc ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah264enc
+   ```
+   No glupload/gldownload needed.
+
+### Files Modified
+
+- `desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs`:
+  - pad_templates(): DMABuf caps now use `format_list(rgba_formats)` not `format(DmaDrm)`
+  - caps(): Same change for DmaBuf output mode
+  - create(): DmaBuf caps update uses regular format, not VideoInfoDmaDrm
+
+- `api/pkg/desktop/ws_stream.go`:
+  - Removed glupload/gldownload from VA-API pipeline paths
+  - vapostproc connects directly to pipewirezerocopysrc output
+
+### Pipeline Comparison
+
+```
+NVIDIA (CUDA path):
+  pipewirezerocopysrc ! video/x-raw(memory:CUDAMemory) ! nvh264enc
+
+AMD/Intel (VA-API path):
+  pipewirezerocopysrc ! video/x-raw(memory:DMABuf) ! vapostproc ! vah264enc
+```
+
+Both are true zero-copy - no CPU involvement in frame transfer.
 
 ## Related Issues
 

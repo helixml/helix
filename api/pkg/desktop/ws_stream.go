@@ -315,14 +315,15 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			//
 			// Output mode selection based on encoder:
 			// - nvenc: CUDA memory (auto mode tries CUDA first)
-			// - vaapi/qsv: system memory (vapostproc doesn't accept DMABuf)
+			// - vaapi/qsv: DMABuf for true zero-copy (vapostproc imports DMABuf directly)
 			// - x264/openh264: system memory (CPU encoder)
 			var outputMode string
 			switch encoder {
 			case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
-				// VA-API: Use system memory because vapostproc doesn't accept DMABuf
-				// Our plugin copies DMABuf → system memory, then vapostproc uploads to GPU
-				outputMode = "system"
+				// VA-API: Use DMABuf for true zero-copy
+				// pipewirezerocopysrc outputs DMABuf with regular video format (BGRx/BGRA)
+				// which vapostproc can import directly for zero-copy encoding
+				outputMode = "dmabuf"
 			case "x264", "openh264":
 				outputMode = "system" // CPU encoder needs system memory
 			default:
@@ -402,7 +403,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Intel Quick Sync Video
 		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
+			// Zero-copy GPU path: DMABuf → vapostproc → qsvh264enc
 			parts = append(parts,
 				"vapostproc",
 				"video/x-raw(memory:VAMemory),format=NV12",
@@ -424,7 +425,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// AMD/Intel VA-API pipeline (gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
+			// Zero-copy GPU path: DMABuf → vapostproc → vah264enc
+			// pipewirezerocopysrc outputs video/x-raw(memory:DMABuf) with regular format (BGRx/BGRA)
+			// Wolf uses the same approach: waylanddisplaysrc ! video/x-raw(memory:DMABuf) ! vapostproc
 			parts = append(parts,
 				"vapostproc",
 				"video/x-raw(memory:VAMemory),format=NV12",
@@ -448,7 +451,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy GPU path: vapostproc converts DMA-BUF to VAMemory NV12
+			// Zero-copy GPU path: DMABuf → vapostproc → vah264lpenc
 			parts = append(parts,
 				"vapostproc",
 				"video/x-raw(memory:VAMemory),format=NV12",
@@ -472,9 +475,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// Helix always matches desktop/client resolution, so no scaling needed
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative)  {
-			// Zero-copy: vaapipostproc converts BGRA DMA-BUF → NV12 VASurface
+			// Zero-copy GPU path: DMABuf → vaapipostproc → vaapih264enc
 			parts = append(parts,
-				"video/x-raw(memory:DMABuf)",
 				"vaapipostproc",
 				"video/x-raw(memory:VASurface),format=NV12",
 				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
