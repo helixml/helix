@@ -457,34 +457,105 @@ EOF
     echo "}" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
-    echo "# Start PipeWire and XDG portal for screen capture" >> $HOME/.config/sway/config
-    echo "exec pipewire > /tmp/pipewire.log 2>&1" >> $HOME/.config/sway/config
-    echo "exec pipewire-pulse > /tmp/pipewire-pulse.log 2>&1" >> $HOME/.config/sway/config
-    echo "exec /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1" >> $HOME/.config/sway/config
-    echo "exec /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1" >> $HOME/.config/sway/config
+    # NOTE: PipeWire and XDG portals are started manually in sway-session.sh
+    # to ensure proper D-Bus integration and startup ordering.
+    # Only waybar and ydotoold are started via Sway exec.
     echo "# Start ydotoold for input injection (ydotool daemon)" >> $HOME/.config/sway/config
     echo "exec ydotoold > /tmp/ydotoold.log 2>&1" >> $HOME/.config/sway/config
     echo "# Start waybar status bar" >> $HOME/.config/sway/config
     echo "exec waybar > /tmp/waybar.log 2>&1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
-    echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/desktop-bridge > /tmp/desktop-bridge.log 2>&1" >> $HOME/.config/sway/config
-    # Pass required environment variables to settings-sync-daemon
-    echo "exec env HELIX_SESSION_ID=\$HELIX_SESSION_ID HELIX_API_URL=\$HELIX_API_URL HELIX_API_TOKEN=\$HELIX_API_TOKEN /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
-
     # Configure headless output resolution (using GAMESCOPE_WIDTH/HEIGHT like Ubuntu desktop)
     echo "# Headless output resolution: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz" >> $HOME/.config/sway/config
     echo "output HEADLESS-1 resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz position 0,0" >> $HOME/.config/sway/config
     echo "workspace number 1; exec $@" >> $HOME/.config/sway/config
 
-    # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop
-    # Desktop/Spec Task/Exploratory sessions need persistent Sway compositor for reconnection
-    # if [ "$SWAY_STOP_ON_APP_EXIT" == "yes" ]; then
-    #   echo -n " && killall sway" >> $HOME/.config/sway/config
-    # fi
+    # Create sway-session script that runs inside dbus-run-session
+    # This is the same pattern Ubuntu uses for GNOME
+    cat > $XDG_RUNTIME_DIR/sway-session.sh << 'SWAY_SESSION_EOF'
+#!/bin/bash
+echo "[sway-session] Starting inside D-Bus session..."
+echo "[sway-session] DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
-    # Start sway
-    dbus-run-session -- sway --unsupported-gpu
+# Write D-Bus session env to file for init scripts to source
+DBUS_ENV_FILE="${XDG_RUNTIME_DIR}/dbus-session.env"
+echo "export DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'" > "$DBUS_ENV_FILE"
+echo "[sway-session] D-Bus env written to $DBUS_ENV_FILE"
+
+# Start PipeWire BEFORE Sway (needed for screen capture)
+echo "[sway-session] Starting PipeWire..."
+pipewire > /tmp/pipewire.log 2>&1 &
+sleep 0.3
+pipewire-pulse > /tmp/pipewire-pulse.log 2>&1 &
+sleep 0.3
+
+# Start sway in background
+sway --unsupported-gpu &
+SWAY_PID=$!
+echo "[sway-session] Sway started with PID $SWAY_PID"
+
+# Wait for Wayland socket before starting portals
+echo "[sway-session] Waiting for Wayland socket..."
+for i in $(seq 1 30); do
+    if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
+        echo "[sway-session] Wayland socket ready"
+        break
+    fi
+    sleep 0.5
+done
+
+# Start XDG portals in correct order:
+# 1. First start xdg-desktop-portal-wlr (the Sway-specific backend)
+# 2. Wait for it to register on D-Bus
+# 3. Then start xdg-desktop-portal (the main portal that uses backends)
+echo "[sway-session] Starting xdg-desktop-portal-wlr (backend)..."
+WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
+PORTAL_WLR_PID=$!
+
+# Wait for portal-wlr to register on D-Bus
+echo "[sway-session] Waiting for portal-wlr to register on D-Bus..."
+for i in $(seq 1 30); do
+    if gdbus introspect --session --dest org.freedesktop.impl.portal.desktop.wlr --object-path /org/freedesktop/portal/desktop 2>/dev/null | grep -q "org.freedesktop.impl.portal"; then
+        echo "[sway-session] portal-wlr registered on D-Bus"
+        break
+    fi
+    # Check if portal-wlr crashed
+    if ! kill -0 $PORTAL_WLR_PID 2>/dev/null; then
+        echo "[sway-session] ERROR: portal-wlr crashed, checking log..."
+        cat /tmp/portal-wlr.log
+        break
+    fi
+    sleep 0.5
+done
+
+# Now start xdg-desktop-portal (the main portal)
+echo "[sway-session] Starting xdg-desktop-portal (main)..."
+/usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
+
+# Wait for portal ScreenCast interface to be ready
+echo "[sway-session] Waiting for portal ScreenCast interface..."
+for i in $(seq 1 30); do
+    if gdbus introspect --session --dest org.freedesktop.portal.Desktop --object-path /org/freedesktop/portal/desktop 2>/dev/null | grep -q "org.freedesktop.portal.ScreenCast"; then
+        echo "[sway-session] Portal ScreenCast interface ready"
+        break
+    fi
+    sleep 0.5
+done
+
+# Start services via shared init scripts (they wait for Wayland socket internally)
+# Logs are prefixed and go to docker logs (stdout)
+/usr/local/bin/start-desktop-bridge.sh &
+/usr/local/bin/start-settings-sync-daemon.sh &
+
+# Wait for sway to exit (keeps container alive)
+wait $SWAY_PID
+SWAY_SESSION_EOF
+    chmod +x $XDG_RUNTIME_DIR/sway-session.sh
+
+    # Start D-Bus session using dbus-run-session (same pattern as Ubuntu/GNOME)
+    # This properly sets up DBUS_SESSION_BUS_ADDRESS for all child processes
+    echo "[startup] Starting Sway inside D-Bus session (via dbus-run-session)..."
+    dbus-run-session -- $XDG_RUNTIME_DIR/sway-session.sh
   else
     echo "[exec] Starting: $@"
     exec $@
