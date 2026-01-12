@@ -1942,7 +1942,7 @@ EOF
                 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
 
                 # Always refresh the GPG key (keys can expire)
-                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
                 # Fix file permissions so _apt user can read the keyring
                 sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 
