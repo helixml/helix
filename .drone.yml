@@ -76,8 +76,8 @@ steps:
       - apk add --no-cache bash git
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
-      - chmod +x ./wolf/sway-config/test-helix-specs-creation.sh
-      - ./wolf/sway-config/test-helix-specs-creation.sh
+      - chmod +x ./desktop/sway-config/test-helix-specs-creation.sh
+      - ./desktop/sway-config/test-helix-specs-creation.sh
     when:
       event:
         - push
@@ -121,7 +121,7 @@ steps:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
     when:
       event:
         - push
@@ -136,7 +136,7 @@ steps:
         path: /go/pkg/mod
     commands:
       # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
-      - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/screenshot-server/...
+      - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/desktop-bridge/...
     when:
       event:
         - push
@@ -187,7 +187,7 @@ steps:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server (excluding GStreamer packages and test-only packages)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/screenshot-server' | grep -v '_test$' | xargs go install
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | grep -v '_test$' | xargs go install
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
