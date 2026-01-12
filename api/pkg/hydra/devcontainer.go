@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
 	"github.com/rs/zerolog/log"
 )
@@ -190,6 +192,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Str("container_name", req.ContainerName).
 		Str("ip_address", ipAddress).
 		Msg("Dev container started successfully")
+
+	// Start streaming container logs to sandbox stdout in background.
+	// This aggregates inner container logs (GStreamer errors, etc.) to the outer
+	// sandbox's stdout, making debugging easier for operators.
+	// Uses context.Background() so streaming continues after API request completes.
+	go dm.streamContainerLogs(context.Background(), resp.ID, req.ContainerName, req.DockerSocket)
 
 	// Get desktop version from version file
 	desktopVersion := getDesktopVersion(req.ContainerType)
@@ -628,6 +636,9 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 					dm.containers[sessionID] = dc
 					dm.mu.Unlock()
 
+					// Start streaming logs for recovered container
+					go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
+
 					recoveredCount++
 					log.Info().
 						Str("session_id", sessionID).
@@ -676,5 +687,72 @@ func getRenderNode() string {
 		return matches[0]
 	}
 	return "SOFTWARE"
+}
+
+// streamContainerLogs tails a container's logs and writes them to stdout with a prefix.
+// This aggregates inner desktop container logs to the outer sandbox's stdout,
+// allowing administrators to see all logs (including GStreamer errors) with:
+//
+//	docker compose logs sandbox
+//
+// The goroutine runs until the container stops or the context is cancelled.
+func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containerID, containerName, dockerSocket string) {
+	// Create a new Docker client for log streaming (long-lived connection)
+	dockerClient, err := dm.getDockerClient(dockerSocket)
+	if err != nil {
+		log.Error().Err(err).Str("container", containerName).Msg("Failed to create Docker client for log streaming")
+		return
+	}
+	defer dockerClient.Close()
+
+	// Create a prefix for log lines, e.g., "[DESKTOP ubuntu-external-ses_01abc]"
+	// Truncate container name if too long to keep logs readable
+	shortName := containerName
+	if len(shortName) > 40 {
+		shortName = shortName[:40]
+	}
+	prefix := fmt.Sprintf("[DESKTOP %s] ", shortName)
+
+	// Follow logs from the beginning (to catch startup errors) with follow=true
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false, // Container logs already have timestamps
+		Since:      "",    // From the beginning
+	}
+
+	logReader, err := dockerClient.ContainerLogs(ctx, containerID, options)
+	if err != nil {
+		log.Error().Err(err).Str("container", containerName).Msg("Failed to start container log streaming")
+		return
+	}
+	defer logReader.Close()
+
+	log.Info().Str("container", containerName).Msg("Started streaming container logs to sandbox stdout")
+
+	// Docker multiplexes stdout/stderr in its log stream with an 8-byte header per frame.
+	// Use stdcopy.StdCopy to demultiplex into a pipe, then read lines with bufio.Scanner.
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		// Demultiplex both stdout and stderr into the same pipe (we prefix all lines the same)
+		stdcopy.StdCopy(pw, pw, logReader)
+	}()
+
+	// Read lines and print with prefix
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			fmt.Printf("%s%s\n", prefix, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		log.Debug().Err(err).Str("container", containerName).Msg("Container log streaming ended")
+	}
+
+	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 

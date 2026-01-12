@@ -623,21 +623,12 @@ if [ -n "\$HELIX_SCALE_FACTOR" ] && [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
     gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
 fi
 
-# Start Helix services - these need wayland-0 (Mutter's client socket)
-if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
-  gow_log "[start] Starting settings-sync-daemon..."
-  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
-fi
-
-if [ -x /usr/local/bin/desktop-bridge ]; then
-  gow_log "[start] Starting screenshot server (includes D-Bus session + input bridge)..."
-  # Screenshot server handles:
-  # - HTTP API: /screenshot, /clipboard, /keyboard-state, /keyboard-reset, /upload
-  # - GNOME: Creates RemoteDesktop+ScreenCast sessions, reports PipeWire node to Wolf
-  # - Input bridge: Receives events from Wolf, injects via D-Bus NotifyPointer*/NotifyKeyboard*
-  # Logs go to docker logs (stdout/stderr)
-  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/desktop-bridge &
-fi
+# Start Helix services via shared init scripts
+# These scripts handle D-Bus/Wayland waiting and log prefixing consistently
+# across both Sway and Ubuntu desktops
+gow_log "[start] Starting Helix services via shared init scripts..."
+/usr/local/bin/start-desktop-bridge.sh &
+/usr/local/bin/start-settings-sync-daemon.sh &
 
 # Verify display scale after GNOME Shell is ready (if scaling is enabled)
 # Global scaling-factor from GSettings is applied at Mutter startup
@@ -707,7 +698,11 @@ ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh
+# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
