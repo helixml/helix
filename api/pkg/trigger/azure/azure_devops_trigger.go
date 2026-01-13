@@ -1,3 +1,4 @@
+// Package azure provides a trigger for Azure DevOps webhooks.
 package azure
 
 import (
