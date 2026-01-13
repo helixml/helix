@@ -1415,7 +1415,6 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
     - fix/ci-sandbox-build-concurrency
 
 volumes:
@@ -1577,17 +1576,17 @@ steps:
           # Build the Zed builder image
           docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
-          # Run Zed build in container
+          # Run Zed build in container, output directly to cache directory
           # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
           #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
           #       Docker-in-Docker mounts use HOST paths, not container paths.
-          mkdir -p /drone/src/cache/zed-build-output
+          mkdir -p /drone/src/cache/$${CACHE_KEY}
           docker run --rm \\
             -v '/var/cache/drone/sandbox-build/zed-source:/zed:ro' \\
             -v '/var/cache/drone/cargo/registry:/root/.cargo/registry' \\
             -v '/var/cache/drone/cargo/git:/root/.cargo/git' \\
             -v '/var/cache/drone/cargo/zed-target:/zed-target' \\
-            -v '/var/cache/drone/sandbox-build/zed-build-output:/output' \\
+            -v \"/var/cache/drone/sandbox-build/$${CACHE_KEY}:/output\" \\
             -w /zed \\
             zed-builder:ubuntu25 \\
             bash -c '
@@ -1597,18 +1596,13 @@ steps:
               cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
             '
 
-          ls -la /drone/src/cache/zed-build-output/
+          ls -la /drone/src/cache/$${CACHE_KEY}/
 
-          # Copy to workspace
+          # Copy from cache to workspace
           mkdir -p zed-build
-          cp /drone/src/cache/zed-build-output/zed zed-build/zed
-          cp /drone/src/cache/zed-build-output/app-icon.png zed-build/app-icon.png
+          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
           chmod +x zed-build/zed
-
-          # Cache the build
-          mkdir -p /drone/src/cache/$${CACHE_KEY}
-          cp zed-build/zed /drone/src/cache/$${CACHE_KEY}/zed
-          cp zed-build/app-icon.png /drone/src/cache/$${CACHE_KEY}/app-icon.png
         "
       - chmod +x zed-build/zed
     volumes:
@@ -1754,7 +1748,6 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
         - fix/ci-sandbox-build-concurrency
     depends_on:
       - build-sandbox
