@@ -10,12 +10,12 @@ This document analyzes the exact pixel formats that flow through the video strea
 
 ## The 4 Cases
 
-| Case | Compositor | GPU | capture-source | buffer-type | Output Mode |
-|------|-----------|-----|----------------|-------------|-------------|
-| 1 | GNOME | NVIDIA | pipewire | dmabuf | CUDAMemory |
-| 2 | GNOME | AMD/Intel | pipewire | shm | System |
-| 3 | Sway | NVIDIA | wayland | shm | System |
-| 4 | Sway | AMD/Intel | wayland | shm | System |
+| Case | Compositor | GPU | GStreamer Source | Buffer Type | Notes |
+|------|-----------|-----|------------------|-------------|-------|
+| 1 | GNOME | NVIDIA | pipewirezerocopysrc | DmaBuf→CUDA | Zero-copy GPU path |
+| 2 | GNOME | AMD/Intel | pipewiresrc (native) | DmaBuf | Uses native pipewiresrc (see fix below) |
+| 3 | Sway | NVIDIA | pipewirezerocopysrc | SHM | ext-image-copy-capture |
+| 4 | Sway | AMD/Intel | pipewirezerocopysrc | SHM | ext-image-copy-capture |
 
 ---
 
@@ -136,12 +136,16 @@ This appears correct because both refer to the same byte layout. The naming diff
 - GStreamer names by the byte order
 
 ### Known Facts
-- ✅ SHM path works (screenshot server uses this)
-- ✅ vapostproc handles BGRA→NV12 conversion
+- ✅ AMD headless GNOME **ONLY supports DmaBuf** - Mutter ignores MemFd requests
+- ✅ vapostproc handles BGRA→NV12 conversion and GPU detiling
 
-### Unknowns / Risks
-- ⚠️ **AMD headless GNOME may ONLY support DmaBuf**: Previous errors showed "error alloc buffers: Invalid argument" when requesting MemFd. Current code requests both MemFd+DmaBuf and lets PipeWire choose.
-- ⚠️ **Need to verify the actual format Mutter sends in SHM mode**: Could be BGRx, BGRA, or something else.
+### Solution (2026-01-13)
+AMD headless GNOME cannot use `pipewirezerocopysrc` with `buffer-type=shm` because:
+1. We request MemFd, but Mutter allocates DmaBuf anyway
+2. AMD DmaBufs have tiled formats that cannot be directly mmap'd
+3. Our `dmabuf_to_system()` fails with tiled DmaBufs
+
+**Fix:** ws_stream.go now detects GNOME + AMD/Intel and uses native `pipewiresrc` instead of `pipewirezerocopysrc`. Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
 
 ---
 

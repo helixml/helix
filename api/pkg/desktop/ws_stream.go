@@ -344,29 +344,44 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
 			isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
 
-			// Set explicit properties based on the 4 cases
-			var captureSource, bufferType string
-			if isSway {
-				// Cases 3 & 4: Sway always uses ext-image-copy-capture (Wayland protocol)
-				captureSource = "wayland"
-				bufferType = "shm"
-			} else if isNvidiaGnome {
-				// Case 1: GNOME + NVIDIA → true zero-copy CUDA
-				captureSource = "pipewire"
-				bufferType = "dmabuf"
-			} else {
-				// Case 2: GNOME + AMD/Intel → SHM (VA-API handles GPU upload)
-				captureSource = "pipewire"
-				bufferType = "shm"
-			}
+			// GNOME + AMD/Intel: Fall back to native pipewiresrc
+			// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
+			// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
+			// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
+			isAmdGnome := !isSway && !isNvidiaGnome
 
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=100",
-				v.nodeID, captureSource, bufferType)
-			// Add fd property if we have portal FD (required for ScreenCast access)
-			if v.pipeWireFd > 0 {
-				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
+			if isAmdGnome {
+				// Case 2: GNOME + AMD/Intel → use native pipewiresrc (handles DmaBuf properly)
+				slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc instead of pipewirezerocopysrc")
+				srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+				if v.pipeWireFd > 0 {
+					srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+				}
+				parts = []string{
+					srcPart,
+					fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
+				}
+			} else {
+				// Set explicit properties based on the remaining cases
+				var captureSource, bufferType string
+				if isSway {
+					// Cases 3 & 4: Sway always uses ext-image-copy-capture (Wayland protocol)
+					captureSource = "wayland"
+					bufferType = "shm"
+				} else {
+					// Case 1: GNOME + NVIDIA → true zero-copy CUDA
+					captureSource = "pipewire"
+					bufferType = "dmabuf"
+				}
+
+				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=100",
+					v.nodeID, captureSource, bufferType)
+				// Add fd property if we have portal FD (required for ScreenCast access)
+				if v.pipeWireFd > 0 {
+					srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
+				}
+				parts = []string{srcPart}
 			}
-			parts = []string{srcPart}
 
 		case VideoModeNative:
 			// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
