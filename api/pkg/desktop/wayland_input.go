@@ -285,8 +285,10 @@ func (w *WaylandInput) MouseClick(button int) error {
 	return w.MouseButtonUp(button)
 }
 
-// MouseWheel sends a scroll event.
+// MouseWheel sends a scroll event using Wayland axis protocol.
 // deltaY: positive = scroll down, negative = scroll up
+// Uses AxisDiscrete for discrete scroll steps (required by apps like Zed)
+// plus continuous Axis for smooth scrolling support.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -295,12 +297,25 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 		return nil
 	}
 
+	now := time.Now()
+
+	// Set axis source to wheel (required for proper scroll handling)
+	w.pointer.AxisSource(virtual_pointer.AxisSourceWheel)
+
+	// Send vertical scroll with discrete steps
+	// Discrete value is the number of 120ths of a wheel notch (Linux HID standard)
+	// We calculate discrete from the delta: ~15 units = 1 wheel notch = 120 discrete
 	if deltaY != 0 {
-		w.pointer.ScrollVertical(deltaY)
+		discrete := int32(deltaY * 8) // Scale to discrete units
+		w.pointer.AxisDiscrete(now, virtual_pointer.AxisVertical, deltaY, discrete)
 	}
+
+	// Send horizontal scroll with discrete steps
 	if deltaX != 0 {
-		w.pointer.ScrollHorizontal(deltaX)
+		discrete := int32(deltaX * 8)
+		w.pointer.AxisDiscrete(now, virtual_pointer.AxisHorizontal, deltaX, discrete)
 	}
+
 	w.pointer.Frame()
 
 	return nil

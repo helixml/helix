@@ -405,10 +405,6 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 		gnomeFlags = 0x04 // WHEEL source (discrete clicks)
 	}
 
-	if s.conn == nil || s.rdSessionPath == "" {
-		return
-	}
-
 	// Log for debugging (first few and then periodically)
 	s.scrollLogCount++
 	if s.scrollLogCount <= 5 || s.scrollLogCount%100 == 0 {
@@ -421,10 +417,20 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 			"flags", gnomeFlags)
 	}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
-	if err != nil {
-		s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
+	// Try GNOME D-Bus first
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
+		if err != nil {
+			s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
+		}
+	} else if s.waylandInput != nil {
+		// Fallback to Wayland-native input for Sway/wlroots
+		// Use gnomeDY which already has correct direction for GNOME-like behavior
+		// (negated from browser convention)
+		if err := s.waylandInput.MouseWheel(gnomeDX, gnomeDY); err != nil {
+			s.logger.Debug("Wayland virtual scroll failed", "err", err)
+		}
 	}
 
 	// Step 5: Schedule scroll finish for trackpad (enables kinetic scrolling)

@@ -407,11 +407,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		if needsCudaUpload {
 			// SHM path: system memory → videoconvert → cudaupload → nvh264enc
 			// IMPORTANT: ext-image-copy-capture on Sway outputs BGR888 (24-bit, 3 bytes/pixel)
-			// but cudaupload/nvh264enc require 32-bit formats (BGRx/BGRA).
-			// videoconvert handles the BGR → BGRx conversion.
+			// but cudaupload/nvh264enc require 32-bit formats.
+			// videoconvert handles BGR → RGBA conversion (swaps R↔B channels).
+			// Using RGBA not BGRx because nvh264enc expects RGB order.
 			parts = append(parts,
 				"videoconvert",
-				"video/x-raw,format=BGRx", // Force 32-bit format for cudaupload
+				"video/x-raw,format=RGBA", // Convert BGR→RGB and add alpha for cudaupload
 				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
