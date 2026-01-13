@@ -769,18 +769,16 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
     // SPA_DATA_MemFd = 2 (memory-mapped file descriptor - GNOME SHM)
     // SPA_DATA_DmaBuf = 3 (DMA-BUF fd - zero-copy GPU)
     //
-    // Select buffer type based on whether we can use DmaBuf:
-    // - use_dmabuf=true: GPU-tiled modifier → use DmaBuf (zero-copy)
-    // - use_dmabuf=false: LINEAR or no modifier → use MemFd (SHM, more reliable)
+    // CRITICAL: Always request BOTH buffer types and let PipeWire negotiate.
+    // On AMD with GNOME headless, Mutter ONLY supports DmaBuf (not MemFd).
+    // Our EGL check may return empty, but Mutter still requires DmaBuf.
+    // By requesting both, PipeWire will pick the one Mutter supports.
     //
-    // CRITICAL: LINEAR modifier (0x0) causes "error alloc buffers: Invalid argument"
-    // when requesting DmaBuf. Fall back to MemFd for LINEAR.
-    let buffer_types: i32 = if use_dmabuf {
-        1 << 3  // DmaBuf = 8
-    } else {
-        1 << 2  // MemFd = 4
-    };
-    let buffer_type_name = if use_dmabuf { "DmaBuf (zero-copy)" } else { "MemFd (SHM fallback)" };
+    // The use_dmabuf parameter now indicates our PREFERENCE:
+    // - use_dmabuf=true: Prefer DmaBuf, fall back to MemFd
+    // - use_dmabuf=false: Prefer MemFd, but still accept DmaBuf if Mutter requires it
+    let buffer_types: i32 = (1 << 2) | (1 << 3);  // MemFd | DmaBuf = 4 | 8 = 12
+    let buffer_type_name = "MemFd+DmaBuf (let PipeWire negotiate)";
     eprintln!("[PIPEWIRE_DEBUG] Buffer types: 0x{:x} ({}) - use_dmabuf={}", buffer_types, buffer_type_name, use_dmabuf);
 
     // Use FLAGS choice for dataType (like gnome-remote-desktop's SPA_POD_CHOICE_FLAGS_Int)
