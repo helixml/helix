@@ -250,32 +250,16 @@ func (s *Server) Run(ctx context.Context) error {
 		// This avoids the portal ScreenCast interface which isn't properly supported.
 		s.compositorType = "sway"
 
-		// 1. Connect to D-Bus portal for RemoteDesktop (optional, for input forwarding)
-		// NOTE: We don't use portal ScreenCast - pipewirezerocopysrc handles capture directly
-		if err := s.connectDBusPortal(ctx); err != nil {
-			s.logger.Warn("D-Bus portal connection failed (non-fatal for Sway)",
-				"err", err,
-				"note", "pipewirezerocopysrc will use ext-image-copy-capture directly")
-		} else {
-			defer s.conn.Close()
+		// SKIP portal connection for Sway - we don't use it at all:
+		// - Video capture: pipewirezerocopysrc uses ext-image-copy-capture directly (Wayland)
+		// - Input injection: WaylandInput uses zwlr_virtual_pointer/keyboard directly (Wayland)
+		//
+		// Previously we tried to connect to the portal (with 60s timeout) "just in case",
+		// but this caused 1+ minute startup delays when the portal was slow to respond.
+		// Since we don't actually use the portal for anything on Sway, skip it entirely.
+		s.logger.Info("Sway mode: skipping portal connection (using native Wayland protocols)")
 
-			// 2. Try to create ScreenCast session via portal (non-fatal)
-			// This will likely fail because xdg-desktop-portal-wlr doesn't expose ScreenCast
-			// But pipewirezerocopysrc doesn't need it - it uses ext-image-copy-capture directly
-			if err := s.createPortalSession(ctx); err != nil {
-				s.logger.Warn("Portal ScreenCast session failed (expected for Sway)",
-					"err", err,
-					"note", "pipewirezerocopysrc will use ext-image-copy-capture directly")
-			} else {
-				// 3. Start portal session, get PipeWire node ID (only if session created)
-				if err := s.startPortalSession(ctx); err != nil {
-					s.logger.Warn("Portal start failed (non-fatal)",
-						"err", err)
-				}
-			}
-		}
-
-		// 4. Create Wayland-native virtual input for Sway
+		// Create Wayland-native virtual input for Sway
 		// Uses zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1 protocols
 		// No /dev/uinput or root privileges required
 		//

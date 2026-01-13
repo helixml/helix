@@ -281,25 +281,24 @@ docker compose logs --tail 50 sandbox 2>&1 | grep -E "session|GPU|hydra"
 docker compose logs --tail 50 api 2>&1 | grep -E "external-agent|screenshot|session"
 ```
 
-### Desktop Container Log File Locations
-Log files inside the desktop container (helix-ubuntu/helix-sway):
+### Desktop Container Log Locations
+The Go streaming server (includes pipewirezerocopysrc plugin logs) has different names per desktop:
+- **Ubuntu/GNOME**: `screenshot-server` → logs to `/tmp/screenshot-server.log`
+- **Sway**: `desktop-bridge` → logs to stdout (visible in `docker logs`)
+
 ```bash
-# CRITICAL: These logs are NOT in docker logs! They're in /tmp/ inside the container.
-
-# screenshot-server logs (Go streaming server + pipewirezerocopysrc plugin)
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/screenshot-server.log
-
-# RevDial client logs (WebSocket tunnel to API)
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/revdial-client.log
-
-# Settings sync daemon logs
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/settings-sync-daemon.log
-
 # Find container name:
 docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep -E "ubuntu-external|sway-external"
-```
 
-**Why /tmp/?** The screenshot-server redirects stdout/stderr to `/tmp/screenshot-server.log` via the startup script. This means `docker logs` only shows gnome-shell/sway output, not our Go/Rust code.
+# Ubuntu/GNOME: Read from log file (screenshot-server redirects to file)
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/screenshot-server.log
+
+# Sway: Use docker logs directly (desktop-bridge logs to stdout)
+docker compose exec -T sandbox-nvidia docker logs {CONTAINER} 2>&1 | grep -E "PIPEWIRE|zerocopy|video"
+
+# Other log files (both desktops):
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/settings-sync.log
+```
 
 ### Debugging pipewirezerocopysrc (Zero-Copy GPU Streaming)
 

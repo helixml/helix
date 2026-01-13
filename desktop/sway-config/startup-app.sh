@@ -504,43 +504,14 @@ for i in $(seq 1 30); do
     sleep 0.5
 done
 
-# Start XDG portals in correct order:
-# 1. First start xdg-desktop-portal-wlr (the Sway-specific backend)
-# 2. Wait for it to register on D-Bus
-# 3. Then start xdg-desktop-portal (the main portal that uses backends)
-echo "[sway-session] Starting xdg-desktop-portal-wlr (backend)..."
+# Start XDG portals in background - NO WAITING NEEDED
+# Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
+# which are native Wayland protocols that bypass the portal entirely.
+# Portals are only needed for file dialogs, etc. - not critical path.
+echo "[sway-session] Starting XDG portals in background (not needed for video)..."
 WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
-PORTAL_WLR_PID=$!
-
-# Wait for portal-wlr to register on D-Bus
-echo "[sway-session] Waiting for portal-wlr to register on D-Bus..."
-for i in $(seq 1 30); do
-    if gdbus introspect --session --dest org.freedesktop.impl.portal.desktop.wlr --object-path /org/freedesktop/portal/desktop 2>/dev/null | grep -q "org.freedesktop.impl.portal"; then
-        echo "[sway-session] portal-wlr registered on D-Bus"
-        break
-    fi
-    # Check if portal-wlr crashed
-    if ! kill -0 $PORTAL_WLR_PID 2>/dev/null; then
-        echo "[sway-session] ERROR: portal-wlr crashed, checking log..."
-        cat /tmp/portal-wlr.log
-        break
-    fi
-    sleep 0.5
-done
-
-# Now start xdg-desktop-portal (the main portal)
-echo "[sway-session] Starting xdg-desktop-portal (main)..."
 /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
-
-# Wait for portal ScreenCast interface to be ready
-echo "[sway-session] Waiting for portal ScreenCast interface..."
-for i in $(seq 1 30); do
-    if gdbus introspect --session --dest org.freedesktop.portal.Desktop --object-path /org/freedesktop/portal/desktop 2>/dev/null | grep -q "org.freedesktop.portal.ScreenCast"; then
-        echo "[sway-session] Portal ScreenCast interface ready"
-        break
-    fi
-    sleep 0.5
-done
+echo "[sway-session] Portals started (non-blocking)"
 
 # Start services via shared init scripts (they wait for Wayland socket internally)
 # Logs are prefixed and go to docker logs (stdout)

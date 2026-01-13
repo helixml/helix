@@ -413,7 +413,7 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Node.js 20 (for Qwen Code)
+# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -422,6 +422,84 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Chrome + DevTools MCP Server (stable dependency - installed early)
+# ====================================================================
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control.
+# Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+RUN apt-get update && \
+    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
+    rm /tmp/google-chrome.deb && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json && \
+    # Create master preferences to skip first run and welcome page
+    mkdir -p /opt/google/chrome && \
+    echo '{ \
+      "distribution": { \
+        "skip_first_run_ui": true, \
+        "suppress_first_run_default_browser_prompt": true, \
+        "do_not_create_desktop_shortcut": true, \
+        "do_not_create_quick_launch_shortcut": true, \
+        "do_not_create_taskbar_shortcut": true, \
+        "do_not_launch_chrome": true, \
+        "do_not_register_for_update_launch": true, \
+        "make_chrome_default": false, \
+        "make_chrome_default_for_user": false, \
+        "suppress_first_run_bubble": true, \
+        "import_bookmarks": false, \
+        "import_history": false, \
+        "import_home_page": false, \
+        "import_search_engine": false \
+      }, \
+      "browser": { \
+        "check_default_browser": false, \
+        "show_home_button": false \
+      }, \
+      "sync_promo": { \
+        "show_on_first_run_allowed": false \
+      }, \
+      "first_run_tabs": ["about:blank"] \
+    }' > /opt/google/chrome/master_preferences && \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
+    # Create wrapper script so --password-store=basic is always used (even from command line)
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable && \
+    chmod +x /usr/bin/google-chrome-stable
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
+
+# Install chrome-devtools-mcp globally and pre-build fontconfig cache
+RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
 # Qwen Code
 ARG QWEN_CODE_HASH=unknown
@@ -808,87 +886,3 @@ ADD desktop/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
 # Compile the dconf database
 RUN dconf update
 
-# ====================================================================
-# Chrome DevTools MCP Server (installed early - stable dependency)
-# ====================================================================
-# Install Google Chrome and chrome-devtools-mcp for AI agent browser control
-# See: https://developer.chrome.com/blog/chrome-devtools-mcp
-# Note: Most Chrome deps are already installed with GNOME, just need Chrome itself
-# IMPORTANT: This is installed BEFORE frequently-changing code (Go/Rust/Zed)
-# to maximize Docker layer cache hits.
-
-RUN apt-get update && \
-    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
-    rm /tmp/google-chrome.deb && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Configure Chrome enterprise policies (suppress all first-run dialogs)
-    mkdir -p /etc/opt/chrome/policies/managed && \
-    echo '{ \
-      "DefaultBrowserSettingEnabled": false, \
-      "MetricsReportingEnabled": false, \
-      "BrowserSignin": 0, \
-      "PromotionalTabsEnabled": false, \
-      "ShowFirstRunBubble": false, \
-      "WelcomePageOnOSUpgradeEnabled": false, \
-      "SyncDisabled": true, \
-      "ImportBookmarks": false, \
-      "ImportHistory": false, \
-      "ImportSavedPasswords": false, \
-      "ImportSearchEngine": false, \
-      "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
-    }' > /etc/opt/chrome/policies/managed/helix.json && \
-    # Create master preferences to skip first run and welcome page
-    mkdir -p /opt/google/chrome && \
-    echo '{ \
-      "distribution": { \
-        "skip_first_run_ui": true, \
-        "suppress_first_run_default_browser_prompt": true, \
-        "do_not_create_desktop_shortcut": true, \
-        "do_not_create_quick_launch_shortcut": true, \
-        "do_not_create_taskbar_shortcut": true, \
-        "do_not_launch_chrome": true, \
-        "do_not_register_for_update_launch": true, \
-        "make_chrome_default": false, \
-        "make_chrome_default_for_user": false, \
-        "suppress_first_run_bubble": true, \
-        "import_bookmarks": false, \
-        "import_history": false, \
-        "import_home_page": false, \
-        "import_search_engine": false \
-      }, \
-      "browser": { \
-        "check_default_browser": false, \
-        "show_home_button": false \
-      }, \
-      "sync_promo": { \
-        "show_on_first_run_allowed": false \
-      }, \
-      "first_run_tabs": ["about:blank"] \
-    }' > /opt/google/chrome/master_preferences && \
-    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
-    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
-    # Create wrapper script so --password-store=basic is always used (even from command line)
-    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
-    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable && \
-    chmod +x /usr/bin/google-chrome-stable
-
-# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
-# Chrome checks for this file to determine if it's the first launch
-RUN mkdir -p /etc/skel/.config/google-chrome && \
-    touch /etc/skel/.config/google-chrome/"First Run" && \
-    # Also create Default profile directory with minimal preferences
-    mkdir -p /etc/skel/.config/google-chrome/Default && \
-    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
-      > /etc/skel/.config/google-chrome/Default/Preferences
-
-# Install chrome-devtools-mcp globally
-RUN npm install -g chrome-devtools-mcp@latest
-
-# Chrome MCP server configuration for headless mode
-ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
-    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
-
-# Pre-build fontconfig cache (major speedup for first browser launch)
-RUN fc-cache -f -v

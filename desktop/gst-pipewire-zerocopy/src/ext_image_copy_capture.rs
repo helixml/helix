@@ -20,6 +20,28 @@
 
 use crate::pipewire_stream::{FrameData, RecvError};
 use parking_lot::Mutex;
+// DRM fourcc from waylanddisplaycore (re-exports smithay's Fourcc)
+use waylanddisplaycore::Fourcc;
+
+/// Convert wl_shm::Format to DRM fourcc code.
+/// wl_shm format enum values are NOT the same as DRM fourcc codes!
+/// This mapping is required because FrameData expects DRM fourcc for downstream processing.
+fn wl_shm_to_drm_fourcc(format: wl_shm::Format) -> u32 {
+    match format {
+        wl_shm::Format::Argb8888 => Fourcc::Argb8888 as u32,
+        wl_shm::Format::Xrgb8888 => Fourcc::Xrgb8888 as u32,
+        wl_shm::Format::Abgr8888 => Fourcc::Abgr8888 as u32,
+        wl_shm::Format::Xbgr8888 => Fourcc::Xbgr8888 as u32,
+        wl_shm::Format::Bgra8888 => Fourcc::Bgra8888 as u32,
+        wl_shm::Format::Bgrx8888 => Fourcc::Bgrx8888 as u32,
+        wl_shm::Format::Rgba8888 => Fourcc::Rgba8888 as u32,
+        wl_shm::Format::Rgbx8888 => Fourcc::Rgbx8888 as u32,
+        wl_shm::Format::Rgb888 => Fourcc::Rgb888 as u32,
+        wl_shm::Format::Bgr888 => Fourcc::Bgr888 as u32,
+        // Default to XRGB8888 for unknown formats
+        _ => Fourcc::Xrgb8888 as u32,
+    }
+}
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -472,12 +494,20 @@ impl ExtCaptureState {
             let bpp = Self::bytes_per_pixel(format.format);
             let stride = size.width * bpp;
 
+            // Convert wl_shm format to DRM fourcc for downstream processing
+            // (pipewiresrc/imp.rs expects DRM fourcc codes, not wl_shm enum values)
+            let drm_fourcc = wl_shm_to_drm_fourcc(format.format);
+            eprintln!(
+                "[EXT_IMAGE_COPY] Frame format: wl_shm={:?} -> DRM fourcc=0x{:08x}",
+                format.format, drm_fourcc
+            );
+
             let frame = FrameData::Shm {
                 data,
                 width: size.width,
                 height: size.height,
                 stride,
-                format: format.format_raw,
+                format: drm_fourcc,
             };
 
             let _ = self.frame_tx.try_send(frame);

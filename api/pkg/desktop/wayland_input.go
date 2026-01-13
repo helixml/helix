@@ -31,7 +31,37 @@ type WaylandInput struct {
 	// (Only used by MouseMove for relative deltas, not for absolute positioning)
 	currentX float64
 	currentY float64
+
+	// Modifier state tracking for zwp_virtual_keyboard_v1 protocol.
+	// The protocol requires calling Modifiers() after modifier key events
+	// to update the compositor's modifier state (XKB modifier masks).
+	modsDepressed uint32 // Currently held modifiers (Shift=1, Ctrl=4, Alt=8, Meta=64)
 }
+
+// XKB modifier masks (from linux/input-event-codes.h and xkbcommon)
+// These are the standard XKB modifier bits used by wlroots/Sway.
+const (
+	xkbModShift = 1 << 0  // Shift
+	xkbModLock  = 1 << 1  // Caps Lock (in modsLocked, not modsDepressed)
+	xkbModCtrl  = 1 << 2  // Control
+	xkbModAlt   = 1 << 3  // Alt (Mod1)
+	xkbModMod2  = 1 << 4  // Num Lock (in modsLocked)
+	xkbModMod3  = 1 << 5  // (unused on most layouts)
+	xkbModMod4  = 1 << 6  // Super/Meta/Win
+	xkbModMod5  = 1 << 7  // (unused on most layouts)
+)
+
+// Evdev keycodes for modifier keys
+const (
+	evdevLeftShift  = 42
+	evdevRightShift = 54
+	evdevLeftCtrl   = 29
+	evdevRightCtrl  = 97
+	evdevLeftAlt    = 56
+	evdevRightAlt   = 100
+	evdevLeftMeta   = 125
+	evdevRightMeta  = 126
+)
 
 // NewWaylandInput creates a new Wayland virtual input handler.
 // Connects to the Wayland compositor and creates virtual pointer and keyboard devices.
@@ -135,7 +165,22 @@ func (w *WaylandInput) KeyDownEvdev(evdevCode int) error {
 		return nil
 	}
 
-	return w.keyboard.Key(time.Now(), uint32(evdevCode), virtual_keyboard.KeyStatePressed)
+	// Send key event
+	if err := w.keyboard.Key(time.Now(), uint32(evdevCode), virtual_keyboard.KeyStatePressed); err != nil {
+		return err
+	}
+
+	// Update modifier state if this is a modifier key
+	if mod := evdevToXkbMod(evdevCode); mod != 0 {
+		w.modsDepressed |= mod
+		// Send modifiers event to update compositor's modifier state
+		// This is REQUIRED by zwp_virtual_keyboard_v1 protocol for modifiers to work
+		if err := w.keyboard.Modifiers(w.modsDepressed, 0, 0, 0); err != nil {
+			w.logger.Debug("failed to send modifiers", "err", err)
+		}
+	}
+
+	return nil
 }
 
 // KeyUpEvdev sends a key release event with a Linux evdev keycode.
@@ -147,7 +192,38 @@ func (w *WaylandInput) KeyUpEvdev(evdevCode int) error {
 		return nil
 	}
 
-	return w.keyboard.Key(time.Now(), uint32(evdevCode), virtual_keyboard.KeyStateReleased)
+	// Send key event
+	if err := w.keyboard.Key(time.Now(), uint32(evdevCode), virtual_keyboard.KeyStateReleased); err != nil {
+		return err
+	}
+
+	// Update modifier state if this is a modifier key
+	if mod := evdevToXkbMod(evdevCode); mod != 0 {
+		w.modsDepressed &^= mod // Clear the modifier bit
+		// Send modifiers event to update compositor's modifier state
+		if err := w.keyboard.Modifiers(w.modsDepressed, 0, 0, 0); err != nil {
+			w.logger.Debug("failed to send modifiers", "err", err)
+		}
+	}
+
+	return nil
+}
+
+// evdevToXkbMod converts an evdev keycode to an XKB modifier mask.
+// Returns 0 if the key is not a modifier.
+func evdevToXkbMod(evdevCode int) uint32 {
+	switch evdevCode {
+	case evdevLeftShift, evdevRightShift:
+		return xkbModShift
+	case evdevLeftCtrl, evdevRightCtrl:
+		return xkbModCtrl
+	case evdevLeftAlt, evdevRightAlt:
+		return xkbModAlt
+	case evdevLeftMeta, evdevRightMeta:
+		return xkbModMod4
+	default:
+		return 0
+	}
 }
 
 // KeyDown sends a key press event (VK code converted to evdev).

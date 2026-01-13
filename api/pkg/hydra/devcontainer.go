@@ -483,8 +483,9 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 	defer dockerClient.Close()
 
-	// Stop container with timeout
-	timeout := 10
+	// Stop container with short timeout - these are disposable dev containers
+	// that can be killed immediately; no need to wait for graceful shutdown
+	timeout := 2
 	if err := dockerClient.ContainerStop(ctx, dc.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to stop container gracefully")
 	}

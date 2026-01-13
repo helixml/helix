@@ -39,45 +39,57 @@ use waylanddisplaycore::Fourcc as DrmFourcc;
 
 /// Convert DRM fourcc to GStreamer VideoFormat.
 ///
-/// IMPORTANT: This mapping compensates for a CUDA limitation. When receiving frames from
-/// PipeWire/GNOME ScreenCast:
-/// - PipeWire sends BGRx format (bytes: B, G, R, x in memory)
-/// - The correct DRM fourcc would be XRGB8888, but CUDA rejects it with tiled modifiers
-/// - So we use BGRX8888 (which CUDA accepts) but need to tell GStreamer the actual byte order
+/// CRITICAL: We use EXPLICIT byte-order formats (Bgra, Bgrx, etc.) rather than
+/// native-endian formats (xRGB, etc.) because:
+/// 1. GStreamer's videoconvert handles explicit formats more predictably
+/// 2. Different GStreamer versions may interpret native formats differently
+/// 3. Explicit formats match DRM fourcc semantics on little-endian (x86/ARM)
 ///
-/// The mappings here ensure cudaconvertscale interprets the pixel data correctly despite
-/// the "incorrect" fourcc used for CUDA import.
+/// DRM fourcc naming convention (little-endian):
+/// - XRGB8888: 32-bit word 0xXXRRGGBB → bytes [B,G,R,x] → GStreamer Bgrx
+/// - ARGB8888: 32-bit word 0xAARRGGBB → bytes [B,G,R,A] → GStreamer Bgra
+/// - XBGR8888: 32-bit word 0xXXBBGGRR → bytes [R,G,B,x] → GStreamer Rgbx
+/// - ABGR8888: 32-bit word 0xAABBGGRR → bytes [R,G,B,A] → GStreamer Rgba
+///
+/// NOTE: We intentionally DO NOT use VideoFormat::from_fourcc() because it returns
+/// native-endian formats (Xrgb) which can cause R/B color swaps with some encoders.
 fn drm_fourcc_to_video_format(fourcc: DrmFourcc) -> VideoFormat {
-    // Try GStreamer's built-in conversion first
-    match VideoFormat::from_fourcc(fourcc as u32) {
-        VideoFormat::Unknown => {
-            // CUDA compatibility mappings:
-            // We use BGRX8888/RGBX8888 for CUDA import (it accepts them with tiled modifiers)
-            // but the actual pixel data is in Bgrx/Rgbx layout (from PipeWire BGRx/RGBx).
-            // So we map to the GStreamer format that matches the ACTUAL byte order.
-            match fourcc {
-                DrmFourcc::Argb8888 => VideoFormat::Bgra,
-                DrmFourcc::Abgr8888 => VideoFormat::Rgba,
-                DrmFourcc::Xrgb8888 => VideoFormat::Bgrx,
-                DrmFourcc::Xbgr8888 => VideoFormat::Rgbx,
-                DrmFourcc::Rgba8888 => VideoFormat::Abgr,
-                DrmFourcc::Bgra8888 => VideoFormat::Argb,
-                // CUDA workaround: BGRX8888/RGBX8888 contain Bgrx/Rgbx data from PipeWire
-                // Map to the format that matches the actual byte order, not the DRM spec
-                DrmFourcc::Rgbx8888 => VideoFormat::Rgbx,
-                DrmFourcc::Bgrx8888 => VideoFormat::Bgrx,
-                // 24-bit formats (3 bytes per pixel) - used by wlr-screencopy on Sway
-                // BG24 = Blue-Green-Red (24-bit) = GStreamer Bgr (3 bytes/pixel)
-                // RG24 = Red-Green-Blue (24-bit) = GStreamer Rgb (3 bytes/pixel)
-                DrmFourcc::Bgr888 => VideoFormat::Bgr,
-                DrmFourcc::Rgb888 => VideoFormat::Rgb,
-                _ => {
-                    eprintln!("Unknown DRM fourcc {:?}, falling back to Bgra", fourcc);
-                    VideoFormat::Bgra
-                }
-            }
+    // ALWAYS use our explicit byte-order mapping - never rely on from_fourcc()
+    // This ensures consistent behavior regardless of GStreamer version
+    match fourcc {
+        // 32-bit formats with alpha
+        DrmFourcc::Argb8888 => VideoFormat::Bgra,  // 0xAARRGGBB → [B,G,R,A]
+        DrmFourcc::Abgr8888 => VideoFormat::Rgba,  // 0xAABBGGRR → [R,G,B,A]
+        DrmFourcc::Rgba8888 => VideoFormat::Abgr,  // 0xRRGGBBAA → [A,B,G,R]
+        DrmFourcc::Bgra8888 => VideoFormat::Argb,  // 0xBBGGRRAA → [A,R,G,B]
+
+        // 32-bit formats without alpha (x = padding)
+        DrmFourcc::Xrgb8888 => VideoFormat::Bgrx,  // 0xXXRRGGBB → [B,G,R,x]
+        DrmFourcc::Xbgr8888 => VideoFormat::Rgbx,  // 0xXXBBGGRR → [R,G,B,x]
+        DrmFourcc::Rgbx8888 => VideoFormat::Xbgr,  // 0xRRGGBBXX → [x,B,G,R]
+        DrmFourcc::Bgrx8888 => VideoFormat::Xrgb,  // 0xBBGGRRXX → [x,R,G,B]
+
+        // 24-bit formats (3 bytes per pixel) - used by ext-image-copy-capture on Sway
+        // CRITICAL: DRM format names describe BIT LAYOUT, not byte order in memory!
+        // DRM uses [high_bits:low_bits] notation with "little endian" storage.
+        //
+        // DRM_FORMAT_BGR888: [23:0] B:G:R means B in bits 23-16, G in 15-8, R in 7-0
+        //   Value = (B << 16) | (G << 8) | R = 0xBBGGRR
+        //   Little-endian memory: [R, G, B] (low byte first)
+        //   GStreamer format: Rgb (bytes R, G, B in memory order)
+        //
+        // DRM_FORMAT_RGB888: [23:0] R:G:B means R in bits 23-16, G in 15-8, B in 7-0
+        //   Value = (R << 16) | (G << 8) | B = 0xRRGGBB
+        //   Little-endian memory: [B, G, R] (low byte first)
+        //   GStreamer format: Bgr (bytes B, G, R in memory order)
+        DrmFourcc::Bgr888 => VideoFormat::Rgb,     // DRM BGR888 = memory [R,G,B]
+        DrmFourcc::Rgb888 => VideoFormat::Bgr,     // DRM RGB888 = memory [B,G,R]
+
+        _ => {
+            eprintln!("[PIPEWIRESRC_DEBUG] Unknown DRM fourcc {:?} (0x{:08x}), falling back to Bgra",
+                fourcc, fourcc as u32);
+            VideoFormat::Bgra
         }
-        format => format,
     }
 }
 
@@ -1745,33 +1757,65 @@ mod tests {
         assert_eq!(format, VideoFormat::Argb, "BGRA8888 should map to Argb");
     }
 
-    /// Test CUDA workaround mappings for BGRX8888/RGBX8888
-    /// These are CRITICAL: PipeWire sends BGRx/RGBx data, but we use BGRX8888/RGBX8888
-    /// fourcc for CUDA compatibility (CUDA rejects XRGB8888 with NVIDIA tiled modifiers).
-    /// We must map these to Bgrx/Rgbx so GStreamer interprets the colors correctly.
+    /// Test DRM BGRX8888 mapping
+    /// BGRX8888: 32-bit word 0xBBGGRRXX → little-endian bytes [X,R,G,B] → GStreamer Xrgb
     #[test]
-    fn test_drm_fourcc_to_video_format_bgrx8888_cuda_workaround() {
+    fn test_drm_fourcc_to_video_format_bgrx8888() {
         gst::init().unwrap();
         let format = drm_fourcc_to_video_format(DrmFourcc::Bgrx8888);
-        // CRITICAL: Must be Bgrx to match the actual pixel data from PipeWire
-        // If this is Xrgb, colors will be swapped (R/B channels reversed)
+        // BGRX8888 word layout: B in high bits, X in low bits
+        // Little-endian byte order: [X,R,G,B] = Xrgb
         assert_eq!(
             format,
-            VideoFormat::Bgrx,
-            "BGRX8888 should map to Bgrx (CUDA workaround)"
+            VideoFormat::Xrgb,
+            "BGRX8888 should map to Xrgb (little-endian byte order)"
         );
     }
 
+    /// Test DRM RGBX8888 mapping
+    /// RGBX8888: 32-bit word 0xRRGGBBXX → little-endian bytes [X,B,G,R] → GStreamer Xbgr
     #[test]
-    fn test_drm_fourcc_to_video_format_rgbx8888_cuda_workaround() {
+    fn test_drm_fourcc_to_video_format_rgbx8888() {
         gst::init().unwrap();
         let format = drm_fourcc_to_video_format(DrmFourcc::Rgbx8888);
-        // CRITICAL: Must be Rgbx to match the actual pixel data from PipeWire
-        // If this is Xbgr, colors will be swapped (R/B channels reversed)
+        // RGBX8888 word layout: R in high bits, X in low bits
+        // Little-endian byte order: [X,B,G,R] = Xbgr
         assert_eq!(
             format,
-            VideoFormat::Rgbx,
-            "RGBX8888 should map to Rgbx (CUDA workaround)"
+            VideoFormat::Xbgr,
+            "RGBX8888 should map to Xbgr (little-endian byte order)"
+        );
+    }
+
+    /// Test DRM BGR888 mapping (24-bit format for Sway ext-image-copy-capture)
+    /// DRM_FORMAT_BGR888: [23:0] B:G:R = bits B(23-16):G(15-8):R(7-0)
+    /// Little-endian memory: [R,G,B] = GStreamer Rgb
+    #[test]
+    fn test_drm_fourcc_to_video_format_bgr888() {
+        gst::init().unwrap();
+        let format = drm_fourcc_to_video_format(DrmFourcc::Bgr888);
+        // DRM BGR888 stores R at lowest address due to little-endian
+        // So memory layout is [R,G,B] which is GStreamer Rgb
+        assert_eq!(
+            format,
+            VideoFormat::Rgb,
+            "BGR888 should map to Rgb (DRM bit layout != memory byte order)"
+        );
+    }
+
+    /// Test DRM RGB888 mapping (24-bit format)
+    /// DRM_FORMAT_RGB888: [23:0] R:G:B = bits R(23-16):G(15-8):B(7-0)
+    /// Little-endian memory: [B,G,R] = GStreamer Bgr
+    #[test]
+    fn test_drm_fourcc_to_video_format_rgb888() {
+        gst::init().unwrap();
+        let format = drm_fourcc_to_video_format(DrmFourcc::Rgb888);
+        // DRM RGB888 stores B at lowest address due to little-endian
+        // So memory layout is [B,G,R] which is GStreamer Bgr
+        assert_eq!(
+            format,
+            VideoFormat::Bgr,
+            "RGB888 should map to Bgr (DRM bit layout != memory byte order)"
         );
     }
 

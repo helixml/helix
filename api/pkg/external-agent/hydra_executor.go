@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -310,6 +311,20 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_name", resp.ContainerName).
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
+
+	// Wait for desktop-bridge to be ready before returning
+	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
+	// Without this, frontend connects immediately but screenshot/video fail
+	if containerType != "headless" && resp.IPAddress != "" && resp.IPAddress != "host" {
+		if err := h.waitForDesktopBridge(ctx, resp.IPAddress, agent.SessionID); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", agent.SessionID).
+				Str("container_ip", resp.IPAddress).
+				Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
+			// Don't fail - container is running, just not fully ready yet
+			// Frontend should handle this gracefully with retry logic
+		}
+	}
 
 	// Track session
 	session := &ZedSession{
@@ -826,4 +841,58 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	}
 
 	return mounts
+}
+
+// waitForDesktopBridge polls the desktop-bridge health endpoint until it's ready.
+// Desktop-bridge startup includes: D-Bus wait, Wayland socket wait, portal wait, GStreamer init.
+// This can take 10-30 seconds depending on the compositor and GPU.
+func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, containerIP, sessionID string) error {
+	healthURL := fmt.Sprintf("http://%s:9876/health", containerIP)
+
+	// Create client with short timeout per request
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	// Poll for up to 60 seconds (desktop startup can be slow)
+	maxAttempts := 60
+	pollInterval := 1 * time.Second
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("health_url", healthURL).
+		Msg("Waiting for desktop-bridge to be ready...")
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		resp, err := client.Get(healthURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				log.Info().
+					Str("session_id", sessionID).
+					Int("attempts", attempt).
+					Msg("Desktop-bridge is ready")
+				return nil
+			}
+		}
+
+		// Log progress every 10 attempts
+		if attempt%10 == 0 {
+			log.Debug().
+				Str("session_id", sessionID).
+				Int("attempt", attempt).
+				Int("max_attempts", maxAttempts).
+				Msg("Still waiting for desktop-bridge...")
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return fmt.Errorf("desktop-bridge not ready after %d seconds", maxAttempts)
 }

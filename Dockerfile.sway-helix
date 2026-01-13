@@ -555,7 +555,7 @@ RUN wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/rele
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Node.js 20 (for Qwen Code)
+# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -564,6 +564,74 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Chrome + DevTools MCP Server (stable dependency - installed early)
+# ====================================================================
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control.
+# Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+RUN apt-get update && apt-get install -y \
+    fonts-liberation \
+    libasound2t64 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
+    && rm /tmp/google-chrome.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    && mkdir -p /etc/opt/chrome/policies/managed \
+    && echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
+    # Create wrapper script with VA-API for hardware video decoding
+    && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
+    && chmod +x /usr/bin/google-chrome-stable
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
+
+# Install chrome-devtools-mcp globally and pre-build fontconfig cache
+RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
 # Qwen Code
 ARG QWEN_CODE_HASH=unknown
@@ -666,74 +734,6 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
                         /home/retro/.config/zed
-
-# ====================================================================
-# Chrome DevTools MCP Server
-# ====================================================================
-# Install Google Chrome and chrome-devtools-mcp for AI agent browser control
-# See: https://developer.chrome.com/blog/chrome-devtools-mcp
-
-RUN apt-get update && apt-get install -y \
-    fonts-liberation \
-    libasound2t64 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xdg-utils \
-    && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
-    && rm /tmp/google-chrome.deb \
-    && rm -rf /var/lib/apt/lists/* \
-    # Configure Chrome enterprise policies (suppress all first-run dialogs)
-    && mkdir -p /etc/opt/chrome/policies/managed \
-    && echo '{ \
-      "DefaultBrowserSettingEnabled": false, \
-      "MetricsReportingEnabled": false, \
-      "BrowserSignin": 0, \
-      "PromotionalTabsEnabled": false, \
-      "ShowFirstRunBubble": false, \
-      "WelcomePageOnOSUpgradeEnabled": false, \
-      "SyncDisabled": true, \
-      "ImportBookmarks": false, \
-      "ImportHistory": false, \
-      "ImportSavedPasswords": false, \
-      "ImportSearchEngine": false, \
-      "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
-    }' > /etc/opt/chrome/policies/managed/helix.json \
-    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
-    && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
-    # Create wrapper script so --password-store=basic is always used (even from command line)
-    && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
-    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
-    && chmod +x /usr/bin/google-chrome-stable
-
-# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
-RUN mkdir -p /etc/skel/.config/google-chrome && \
-    touch /etc/skel/.config/google-chrome/"First Run" && \
-    mkdir -p /etc/skel/.config/google-chrome/Default && \
-    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
-      > /etc/skel/.config/google-chrome/Default/Preferences
-
-# Install chrome-devtools-mcp globally (requires Node.js 22+ for best support)
-# Using npx at runtime instead for latest version compatibility
-RUN npm install -g chrome-devtools-mcp@latest
-
-# Chrome MCP server configuration for headless mode
-ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
-    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
 # Hardware video decoding configuration for Firefox/Chrome
 # NVD_BACKEND=direct: nvidia-vaapi-driver uses NVIDIA EGL interop (ignored on AMD/Intel)

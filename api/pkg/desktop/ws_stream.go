@@ -428,7 +428,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Helix always matches desktop/client resolution, so no scaling needed
 		// Pipeline matches Wolf's working AMD/Intel config:
 		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		// videoconvert added for Sway 24-bit format compatibility
 		parts = append(parts,
+			"videoconvert",
 			"vapostproc",
 			"video/x-raw,format=NV12",
 			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
@@ -444,11 +446,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// vapostproc → video/x-raw,format=NV12 (system memory caps) → vah264enc
 		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation
 		//
+		// IMPORTANT: ext-image-copy-capture on Sway outputs BGR888 (24-bit, 3 bytes/pixel)
+		// but vapostproc may not accept 24-bit input. Add videoconvert to handle
+		// 24-bit → 32-bit conversion for Sway compatibility.
+		//
 		// POTENTIAL OPTIMIZATION: Could use video/x-raw(memory:VAMemory),format=NV12
 		// to keep data in GPU memory after vapostproc, avoiding a second copy.
 		// Wolf uses system memory caps for a reason (compatibility?), so we match
 		// their proven working config for now.
 		parts = append(parts,
+			"videoconvert",
 			"vapostproc",
 			"video/x-raw,format=NV12",
 			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
@@ -462,7 +469,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Helix always matches desktop/client resolution, so no scaling needed
 		// Pipeline matches Wolf's working config:
 		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		// videoconvert added for Sway 24-bit format compatibility
 		parts = append(parts,
+			"videoconvert",
 			"vapostproc",
 			"video/x-raw,format=NV12",
 			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
@@ -475,7 +484,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// Helix always matches desktop/client resolution, so no scaling needed
 		// Pipeline matches Wolf's approach: system memory caps between elements
+		// videoconvert added for Sway 24-bit format compatibility
 		parts = append(parts,
+			"videoconvert",
 			"vaapipostproc",
 			"video/x-raw,format=NV12",
 			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
