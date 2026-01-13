@@ -352,15 +352,15 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 			if isAmdGnome {
 				// Case 2: GNOME + AMD/Intel → use native pipewiresrc (handles DmaBuf properly)
+				// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
+				// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
+				// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
 				slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc instead of pipewirezerocopysrc")
 				srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
 				if v.pipeWireFd > 0 {
 					srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 				}
-				parts = []string{
-					srcPart,
-					fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
-				}
+				parts = []string{srcPart}
 			} else {
 				// Set explicit properties based on the remaining cases
 				var captureSource, bufferType string
