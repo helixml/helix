@@ -489,6 +489,10 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// From URL like /git/{repo-id}/info/refs, extract /info/refs
 	gitPath := strings.TrimPrefix(r.URL.Path, "/git/"+repoID)
 
+	// Track which branches were pushed (for receive-pack requests)
+	// We'll extract these from the git protocol data
+	var pushedBranches []string
+
 	// Build CGI environment variables following RFC 3875
 	// Reference: Go's net/http/cgi package and git-http-backend documentation
 	env := []string{
@@ -568,6 +572,29 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 				Int64("compressed_size", r.ContentLength).
 				Msg("Decompressing gzip-encoded git request body")
 		}
+
+		// For receive-pack requests, parse the pushed branches from the git protocol data
+		// The git receive-pack protocol sends ref updates as pkt-lines at the start of the body
+		if strings.HasSuffix(gitPath, "/git-receive-pack") {
+			// Buffer the body so we can parse it and still pass it to git http-backend
+			bodyBytes, err := io.ReadAll(body)
+			if err != nil {
+				log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to read request body for branch parsing")
+				http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+				return
+			}
+
+			// Parse pushed branches from the git protocol pkt-lines
+			pushedBranches = parseGitReceivePackRefs(bodyBytes)
+			log.Debug().
+				Str("repo_id", repoID).
+				Strs("pushed_branches", pushedBranches).
+				Msg("Parsed pushed branches from receive-pack request")
+
+			// Use the buffered body for git http-backend
+			body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+
 		cmd.Stdin = body
 	}
 
@@ -708,7 +735,8 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// Post-push hook: Check for design doc commits (async, don't block response)
 	if strings.HasSuffix(gitPath, "/git-receive-pack") {
 		// Use background context - request context gets canceled after response
-		go s.handlePostPushHook(context.Background(), repoID, repo.LocalPath)
+		// Pass the pushed branches that were parsed from the request body
+		go s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
 	}
 
 	// Calculate data rate for debugging slow transfers
@@ -728,9 +756,11 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 // handlePostPushHook processes commits after a successful push
 // Checks for design doc commits and auto-transitions SpecTasks
 // Also detects feature branch pushes and merges to main
-func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string) {
+// pushedBranches contains the branch names that were pushed (parsed from git receive-pack protocol)
+func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string, pushedBranches []string) {
 	log.Info().
 		Str("repo_id", repoID).
+		Strs("pushed_branches", pushedBranches).
 		Msg("Processing post-push hook")
 
 	// Get the repository to find associated project/spec tasks
@@ -740,41 +770,46 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		return
 	}
 
-	// Get the current branch that was pushed
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = repoPath
-	branchOutput, err := cmd.Output()
-	var pushedBranch string
-	if err == nil {
-		pushedBranch = strings.TrimSpace(string(branchOutput))
-	}
+	// Process each pushed branch
+	for _, pushedBranch := range pushedBranches {
+		// Get the latest commit hash for this branch
+		cmd := exec.Command("git", "rev-parse", pushedBranch)
+		cmd.Dir = repoPath
+		hashOutput, err := cmd.Output()
+		var latestCommitHash string
+		if err == nil {
+			latestCommitHash = strings.TrimSpace(string(hashOutput))
+		} else {
+			log.Warn().Err(err).Str("branch", pushedBranch).Msg("Failed to get commit hash for pushed branch")
+			continue
+		}
 
-	// Get the latest commit hash
-	cmd = exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoPath
-	hashOutput, err := cmd.Output()
-	var latestCommitHash string
-	if err == nil {
-		latestCommitHash = strings.TrimSpace(string(hashOutput))
-	}
+		log.Info().
+			Str("repo_id", repoID).
+			Str("branch", pushedBranch).
+			Str("commit", latestCommitHash).
+			Str("repo_path", repoPath).
+			Msg("Processing pushed branch")
 
-	log.Info().
-		Str("repo_id", repoID).
-		Str("branch", pushedBranch).
-		Str("commit", latestCommitHash).
-		Str("repo_path", repoPath).
-		Msg("Detected push to repository")
+		// Check for feature branch pushes (implementation workflow)
+		if strings.HasPrefix(pushedBranch, "feature/") {
+			s.handleFeatureBranchPush(ctx, repo, pushedBranch, latestCommitHash, repoPath)
+		}
 
-	// Check for feature branch pushes (implementation workflow)
-	if strings.HasPrefix(pushedBranch, "feature/") {
-		s.handleFeatureBranchPush(ctx, repo, pushedBranch, latestCommitHash, repoPath)
-	}
+		// Check for pushes to the default branch (merge detection)
+		// Only trigger if we know the default branch - don't assume main/master
+		if repo.DefaultBranch != "" && pushedBranch == repo.DefaultBranch {
+			s.handleMainBranchPush(ctx, repo, latestCommitHash, repoPath)
+		}
 
-	// Check for pushes to the default branch (merge detection)
-	// Only trigger if we know the default branch - don't assume main/master
-	if repo.DefaultBranch != "" && pushedBranch == repo.DefaultBranch {
-		s.handleMainBranchPush(ctx, repo, latestCommitHash, repoPath)
+		// Process design docs for this branch
+		s.processDesignDocsForBranch(ctx, repo, repoPath, pushedBranch, latestCommitHash)
 	}
+}
+
+// processDesignDocsForBranch handles design doc detection and spec task processing for a single branch
+func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *types.GitRepository, repoPath, pushedBranch, latestCommitHash string) {
+	repoID := repo.ID
 
 	// Check if design docs were pushed and extract which task IDs
 	pushedTaskIDs, err := s.getTaskIDsFromPushedDesignDocs(ctx, repoPath, latestCommitHash)
@@ -1956,4 +1991,72 @@ func flushingCopy(dst io.Writer, src io.Reader) (int64, error) {
 			return totalWritten, readErr
 		}
 	}
+}
+
+// parseGitReceivePackRefs parses the git receive-pack request body to extract pushed branch names.
+// The git receive-pack protocol sends ref updates as pkt-lines at the start of the request body.
+// Each pkt-line has format: <4-byte hex length><old-sha> <new-sha> <ref-name>[\0<capabilities>]\n
+// The pkt-lines end with "0000" (flush-pkt), followed by the packfile data.
+//
+// Example pkt-line:
+// 00a8<40-char old sha> <40-char new sha> refs/heads/feature/0004-my-branch\0report-status...
+func parseGitReceivePackRefs(data []byte) []string {
+	var branches []string
+	offset := 0
+
+	for offset < len(data) {
+		// Need at least 4 bytes for the pkt-line length
+		if offset+4 > len(data) {
+			break
+		}
+
+		// Parse the 4-byte hex length prefix
+		lenStr := string(data[offset : offset+4])
+
+		// "0000" is the flush-pkt, marks end of ref updates
+		if lenStr == "0000" {
+			break
+		}
+
+		// Parse hex length
+		var pktLen int
+		_, err := fmt.Sscanf(lenStr, "%04x", &pktLen)
+		if err != nil || pktLen < 4 {
+			// Invalid pkt-line, stop parsing
+			break
+		}
+
+		// Ensure we have enough data
+		if offset+pktLen > len(data) {
+			break
+		}
+
+		// Extract the pkt-line content (excluding the 4-byte length prefix)
+		pktContent := string(data[offset+4 : offset+pktLen])
+
+		// Remove trailing newline
+		pktContent = strings.TrimRight(pktContent, "\n")
+
+		// Remove capabilities (everything after \0)
+		if nullIdx := strings.Index(pktContent, "\x00"); nullIdx != -1 {
+			pktContent = pktContent[:nullIdx]
+		}
+
+		// Parse: <old-sha> <new-sha> <ref-name>
+		// Each SHA is 40 characters, separated by spaces
+		parts := strings.Fields(pktContent)
+		if len(parts) >= 3 {
+			refName := parts[2]
+			// Extract branch name from refs/heads/<branch-name>
+			if strings.HasPrefix(refName, "refs/heads/") {
+				branchName := strings.TrimPrefix(refName, "refs/heads/")
+				branches = append(branches, branchName)
+			}
+		}
+
+		// Move to next pkt-line
+		offset += pktLen
+	}
+
+	return branches
 }
