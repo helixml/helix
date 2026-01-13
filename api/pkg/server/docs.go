@@ -20129,6 +20129,12 @@ const docTemplate = `{
                 "project_manager_helix_app_id": {
                     "type": "string"
                 },
+                "pull_request_reviewer_helix_app_id": {
+                    "type": "string"
+                },
+                "pull_request_reviews_enabled": {
+                    "type": "boolean"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -20286,6 +20292,14 @@ const docTemplate = `{
                 "project_manager_helix_app_id": {
                     "description": "Project manager agent",
                     "type": "string"
+                },
+                "pull_request_reviewer_helix_app_id": {
+                    "description": "Pull request reviewer agent",
+                    "type": "string"
+                },
+                "pull_request_reviews_enabled": {
+                    "description": "Whether pull request reviews are enabled",
+                    "type": "boolean"
                 },
                 "startup_script": {
                     "type": "string"
@@ -20627,6 +20641,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PullRequestReview": {
+            "type": "object",
+            "properties": {
+                "commit_hash": {
+                    "type": "string"
+                },
+                "reviewed_at": {
                     "type": "string"
                 }
             }
@@ -22510,6 +22535,9 @@ const docTemplate = `{
                     "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
                 },
+                "planning_started_at": {
+                    "type": "string"
+                },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
                     "allOf": [
@@ -22527,6 +22555,9 @@ const docTemplate = `{
                 "pull_request_id": {
                     "type": "string"
                 },
+                "pull_request_review": {
+                    "$ref": "#/definitions/types.PullRequestReview"
+                },
                 "pull_request_url": {
                     "description": "Computed field, not stored",
                     "type": "string"
@@ -22542,6 +22573,9 @@ const docTemplate = `{
                 "short_title": {
                     "description": "Short title for tab display (auto-generated from agent writing short-title.txt)\nUserShortTitle takes precedence if set (user override)",
                     "type": "string"
+                },
+                "spec_approval": {
+                    "$ref": "#/definitions/types.SpecApprovalResponse"
                 },
                 "spec_approved_at": {
                     "type": "string"

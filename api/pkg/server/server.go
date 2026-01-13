@@ -370,6 +370,7 @@ func NewServer(
 			RequestTimeout:    5 * time.Minute,
 		},
 		apiServer.authorizeUserToResource, // Use server's existing RBAC system
+		apiServer.trigger,
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
