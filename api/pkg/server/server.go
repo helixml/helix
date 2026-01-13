@@ -31,7 +31,6 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
-	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -117,11 +116,9 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              *services.KoditService
-	mcpGateway                *MCPGateway
-	gitHTTPServer             *services.GitHTTPServer
-	moonlightProxy            *moonlight.MoonlightProxy
-	moonlightServer           *moonlight.MoonlightServer
-	// Rate limiting for streaming connections (prevents Wolf deadlock from rapid reconnects)
+	mcpGateway    *MCPGateway
+	gitHTTPServer *services.GitHTTPServer
+	// Rate limiting for streaming connections
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
@@ -130,6 +127,7 @@ type HelixAPIServer struct {
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
 	wg                         sync.WaitGroup // Control for goroutines to enable tests
+	summaryService             *SummaryService
 }
 
 func NewServer(
@@ -205,17 +203,6 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	// Initialize external agent executor with Wolf executor
-	// Wolf will spawn Zed agents in containers and stream them via moonlight
-	wolfSocketPath := os.Getenv("WOLF_SOCKET_PATH")
-	if wolfSocketPath == "" {
-		wolfSocketPath = "/var/run/wolf/wolf.sock"
-	}
-
-	zedImage := os.Getenv("ZED_IMAGE")
-	if zedImage == "" {
-		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
-	}
 
 	// Initialize external agent WebSocket manager BEFORE executor
 	externalAgentWSManager := NewExternalAgentWSManager()
@@ -229,14 +216,17 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
-	externalAgentExecutor := external_agent.NewWolfExecutor(
-		wolfSocketPath,
-		zedImage,
-		sandboxAPIURL,
-		cfg.WebServer.RunnerToken,
-		store,
-		connectionManager,
-	)
+	// Create Hydra executor for container lifecycle management
+	log.Info().Msg("Initializing Hydra executor for container management")
+	externalAgentExecutor := external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
+		Store:                         store,
+		HelixAPIURL:                   sandboxAPIURL,
+		HelixAPIToken:                 cfg.WebServer.RunnerToken,
+		WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container
+		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
+		Connman:                       connectionManager,
+		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
+	})
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
@@ -303,7 +293,7 @@ func NewServer(
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
-			externalAgentExecutor,      // Wolf executor for launching external agents
+			externalAgentExecutor,      // Hydra executor for launching external agents
 			gitRepositoryService,
 			nil, // Will set callback after apiServer is constructed
 		),
@@ -312,19 +302,8 @@ func NewServer(
 		auditLogService:          services.NewAuditLogService(store),
 	}
 
-	// Initialize Moonlight proxy and server
-	publicURL := cfg.WebServer.URL
-	if publicURL == "" {
-		publicURL = "localhost"
-	}
-
-	apiServer.moonlightProxy = moonlight.NewMoonlightProxy(connectionManager, publicURL)
-	apiServer.moonlightServer = moonlight.NewMoonlightServer(apiServer.moonlightProxy, store, publicURL, authenticator)
-
-	// Start Moonlight proxy
-	if err := apiServer.moonlightProxy.Start(); err != nil {
-		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
-	}
+	// Initialize SummaryService for async interaction summaries and session titles
+	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
 
 	// Initialize git repository base directory
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
@@ -354,7 +333,10 @@ func NewServer(
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, controller))
 
-	log.Info().Msg("Initialized MCP Gateway with Kodit and Helix backends")
+	// Register Session MCP backend (session navigation and context tools)
+	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, and Session backends")
 
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
@@ -395,7 +377,7 @@ func NewServer(
 		controller,
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
-		apiServer.externalAgentExecutor, // Wolf executor for external agent management
+		apiServer.externalAgentExecutor, // Hydra executor for external agent management
 	)
 
 	// Start orchestrator
@@ -615,10 +597,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/wolf-app-state", apiServer.getSessionWolfAppState).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/idle-status", system.Wrapper(apiServer.getSessionIdleStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
+
+	// Session TOC and turn-based navigation for agent context retrieval
+	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/turns/{turn}", system.Wrapper(apiServer.getInteractionByTurn)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/search", system.Wrapper(apiServer.searchSessionInteractions)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)
@@ -633,11 +620,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.updateSecret)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.deleteSecret)).Methods(http.MethodDelete)
-
-	authRouter.HandleFunc("/ssh-keys", system.Wrapper(apiServer.listSSHKeys)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/ssh-keys", system.Wrapper(apiServer.createSSHKey)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/ssh-keys/generate", system.Wrapper(apiServer.generateSSHKey)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/ssh-keys/{id}", system.Wrapper(apiServer.deleteSSHKey)).Methods(http.MethodDelete)
 
 	// Prompt history endpoints (cross-device sync)
 	authRouter.HandleFunc("/prompt-history", system.Wrapper(apiServer.listPromptHistory)).Methods(http.MethodGet)
@@ -723,35 +705,26 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")
 	authRouter.HandleFunc("/bandwidth-probe", apiServer.getInitialBandwidthProbe).Methods("GET") // Initial probe (no session required)
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
+	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST") // Execute safe commands in sandbox (vkcube, glxgears)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // Direct WebSocket input
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // Direct WebSocket video streaming
+	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")
 
-	// Wolf pairing routes
-	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
-	authRouter.HandleFunc("/wolf/pairing/complete", apiServer.completeWolfPairing).Methods("POST")
-	authRouter.HandleFunc("/wolf/ui-app-id", apiServer.getWolfUIAppID).Methods("GET")
-	// Wolf system health monitoring (thread heartbeats, deadlock detection)
-	authRouter.HandleFunc("/wolf/health", apiServer.getWolfHealth).Methods("GET")
-	// Wolf keyboard state observability (debugging stuck keys, modifier state)
-	authRouter.HandleFunc("/wolf/keyboard-state", apiServer.getWolfKeyboardState).Methods("GET")
-	authRouter.HandleFunc("/wolf/keyboard-state/reset", apiServer.resetWolfKeyboardState).Methods("POST")
-
-	// Wolf instance registry routes (multi-Wolf support)
-	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")
-	authRouter.HandleFunc("/wolf-instances/{id}/heartbeat", apiServer.wolfInstanceHeartbeat).Methods("POST")
-	authRouter.HandleFunc("/wolf-instances/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
-	authRouter.HandleFunc("/wolf-instances", apiServer.listWolfInstances).Methods("GET")
-	authRouter.HandleFunc("/wolf-instances/{id}", apiServer.deregisterWolfInstance).Methods("DELETE")
-
+	// Sandbox instance registry routes (multi-sandbox support)
+	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
+	authRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods("POST")
+	authRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
+	authRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods("GET")
+	authRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods("DELETE")
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
 	// Accepts user API tokens with session ownership validation
-	// Future: May also accept runner tokens for remote Wolf instances
 	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
@@ -760,18 +733,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// External agent WebSocket runner endpoint
 	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
 
-	// Moonlight streaming server routes - no auth required for Moonlight protocol compatibility
-	// Moonlight server routes disabled - using proxy approach instead (see line ~868)
-	// The proxy validates Helix auth and injects moonlight-web credentials
-	// apiServer.moonlightServer.RegisterRoutes(router)
-
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
-	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
+	// Agent Sandboxes debugging routes (admin only)
 	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
 	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
-	authRouter.HandleFunc("/admin/wolf/lobbies/{lobbyId}", apiServer.deleteWolfLobby).Methods("DELETE")
-	authRouter.HandleFunc("/admin/wolf/sessions/{sessionId}", apiServer.deleteWolfSession).Methods("DELETE")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -955,11 +921,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
-
-	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
-	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
-	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
-	moonlightRouter.PathPrefix("/").HandlerFunc(apiServer.proxyToMoonlightWeb)
 
 	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
 	// These routes don't use authRouter - they have their own auth middleware
@@ -1514,13 +1475,13 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 			switch msg.Header.Get("kind") {
 			case "zed_agent":
-				messageType = types.RunnerEventRequestZedAgent
+				messageType = types.RunnerEventRequestDesktopAgent
 				log.Info().
 					Str("ZED_FLOW_DEBUG", "message_type_zed_agent").
 					Str("runner_id", runnerID).
 					Msg("🎯 ZED_FLOW_DEBUG: Message type identified as zed_agent")
 			case "stop_zed_agent":
-				messageType = types.RunnerEventRequestZedAgent // Handle stop requests
+				messageType = types.RunnerEventRequestDesktopAgent // Handle stop requests
 				log.Info().
 					Str("ZED_FLOW_DEBUG", "message_type_stop_zed_agent").
 					Str("runner_id", runnerID).
@@ -1531,7 +1492,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 					Str("kind", msg.Header.Get("kind")).
 					Str("runner_id", runnerID).
 					Msg("⚠️ ZED_FLOW_DEBUG: Unknown message kind, defaulting to zed_agent")
-				messageType = types.RunnerEventRequestZedAgent
+				messageType = types.RunnerEventRequestDesktopAgent
 			}
 
 			envelope := &types.RunnerEventRequestEnvelope{
@@ -1777,60 +1738,60 @@ func getWebSocketMessageTypeName(messageType int) string {
 }
 
 // handleRevDial handles reverse dial connections from external agent runners
-// ensureWolfInstanceRegistered auto-registers a Wolf instance if it doesn't exist
-// This allows Wolf containers to self-register on first connection
-func (apiServer *HelixAPIServer) ensureWolfInstanceRegistered(ctx context.Context, wolfInstanceID string, remoteAddr string) {
+// ensureSandboxRegistered auto-registers a sandbox instance if it doesn't exist
+// This allows sandbox containers to self-register on first connection
+func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sandboxID string, remoteAddr string) {
 	// Check if already registered
-	instances, err := apiServer.Store.ListWolfInstances(ctx)
+	instances, err := apiServer.Store.ListSandboxes(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to check existing Wolf instances for auto-registration")
+		log.Error().Err(err).Msg("Failed to check existing sandboxes for auto-registration")
 		return
 	}
 
 	for _, instance := range instances {
-		if instance.ID == wolfInstanceID {
+		if instance.ID == sandboxID {
 			// Already registered - reset sandbox count and mark online
 			// This handles reconnects after crashes/restarts where stale counts remain
-			err := apiServer.Store.ResetWolfInstanceOnReconnect(ctx, wolfInstanceID)
+			err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
 			if err != nil {
 				log.Error().
 					Err(err).
-					Str("wolf_instance_id", wolfInstanceID).
-					Msg("Failed to reset Wolf instance on reconnect")
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to reset sandbox on reconnect")
 			} else {
 				log.Info().
-					Str("wolf_instance_id", wolfInstanceID).
-					Int("previous_sandbox_count", instance.ConnectedSandboxes).
-					Msg("🔄 Reset Wolf instance on reconnect (cleared stale sandbox count)")
+					Str("sandbox_id", sandboxID).
+					Int("previous_container_count", instance.ActiveSandboxes).
+					Msg("Reset sandbox on reconnect (cleared stale container count)")
 			}
 			return
 		}
 	}
 
 	// Not registered - auto-register it
-	instance := &types.WolfInstance{
-		ID:           wolfInstanceID,
-		Name:         fmt.Sprintf("Wolf %s", wolfInstanceID),
-		Address:      remoteAddr,
+	instance := &types.SandboxInstance{
+		ID:           sandboxID,
+		Hostname:     fmt.Sprintf("sandbox-%s", sandboxID),
+		IPAddress:    remoteAddr,
 		MaxSandboxes: 20, // Default capacity
-		GPUType:      "",
+		Status:       "online",
 	}
 
-	err = apiServer.Store.RegisterWolfInstance(ctx, instance)
+	err = apiServer.Store.RegisterSandbox(ctx, instance)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("wolf_instance_id", wolfInstanceID).
-			Msg("Failed to auto-register Wolf instance")
+			Str("sandbox_id", sandboxID).
+			Msg("Failed to auto-register sandbox")
 		return
 	}
 
 	log.Info().
-		Str("wolf_instance_id", wolfInstanceID).
-		Str("name", instance.Name).
-		Str("address", instance.Address).
+		Str("sandbox_id", sandboxID).
+		Str("hostname", instance.Hostname).
+		Str("ip_address", instance.IPAddress).
 		Int("max_sandboxes", instance.MaxSandboxes).
-		Msg("✅ Auto-registered Wolf instance on first RevDial connection")
+		Msg("Auto-registered sandbox on first RevDial connection")
 }
 
 func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
@@ -1881,12 +1842,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		// If using a user token (not runner token), validate session ownership
 		if user.TokenType != types.TokenTypeRunner {
-			// Extract session ID from runner ID (format: sandbox-{session_id})
-			sessionID := strings.TrimPrefix(runnerID, "sandbox-")
+			// Extract session ID from runner ID (format: desktop-{session_id})
+			// Note: "desktop-" prefix is for per-session containers, "sandbox-" is for the outer sandbox
+			sessionID := strings.TrimPrefix(runnerID, "desktop-")
 			if sessionID == runnerID {
 				log.Error().
 					Str("runner_id", runnerID).
-					Msg("Invalid runner ID format - must be sandbox-{session_id}")
+					Msg("Invalid runner ID format - must be desktop-{session_id}")
 				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
 				return
 			}
@@ -1915,10 +1877,16 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			Str("token_type", string(user.TokenType)).
 			Msg("Authenticated RevDial connection (runner or user token)")
 
-		// Auto-register Wolf instances if this is a wolf-* or moonlight-* runner ID
-		if strings.HasPrefix(runnerID, "wolf-") {
-			wolfInstanceID := strings.TrimPrefix(runnerID, "wolf-")
-			apiServer.ensureWolfInstanceRegistered(r.Context(), wolfInstanceID, r.RemoteAddr)
+		// Auto-register sandbox instances if this is a sandbox-* or hydra-* runner ID
+		var sandboxID string
+		switch {
+		case strings.HasPrefix(runnerID, "hydra-"):
+			sandboxID = strings.TrimPrefix(runnerID, "hydra-")
+		case strings.HasPrefix(runnerID, "sandbox-"):
+			sandboxID = strings.TrimPrefix(runnerID, "sandbox-")
+		}
+		if sandboxID != "" {
+			apiServer.ensureSandboxRegistered(r.Context(), sandboxID, r.RemoteAddr)
 		}
 
 		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")

@@ -56,6 +56,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		OrganizationID:         session.OrganizationID,
 		QuestionSetID:          session.QuestionSetID,
 		QuestionSetExecutionID: session.QuestionSetExecutionID,
+		Metadata:               session.Metadata,
 	}, nil
 }
 

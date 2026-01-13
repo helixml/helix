@@ -544,22 +544,29 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
 	if task.JustDoItMode {
-		// go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task, opts)
-		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusQueuedImplementation
 	} else {
 		// Normal mode: Start spec generation
-		// go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task, opts)
-		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
 
+	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask to queued status")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Start the agent immediately in background (don't wait for orchestrator's 10s poll)
+	// This makes the UX feel responsive - task starts immediately instead of waiting
+	go func() {
+		if task.JustDoItMode {
+			s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
+		} else {
+			s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+		}
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

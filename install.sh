@@ -135,7 +135,7 @@ SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
-MOONLIGHT_CREDENTIALS=""  # Moonlight Web credentials for sandbox nodes (default: helix)
+# MOONLIGHT_CREDENTIALS removed - no longer used (direct WebSocket streaming)
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 
 # Enhanced environment detection
@@ -242,14 +242,13 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
-  --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
+  --sandbox                Install sandbox node (RevDial client with direct WebSocket streaming for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
-  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
+  --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
   --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
-  --moonlight-credentials <creds> Specify the Moonlight Web credentials for sandbox nodes (default: helix, must match control plane MOONLIGHT_CREDENTIALS)
   --privileged-docker        Enable privileged Docker mode in sandbox (allows agents to access host Docker socket for Helix-in-Helix development)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
@@ -310,7 +309,7 @@ Examples:
 14. Install runner excluding GPU 0 (use GPUs 1-7 only):
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
-15. Install sandbox node (Wolf + Moonlight Web + RevDial client):
+15. Install sandbox node (RevDial client with direct WebSocket streaming):
     ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD
 
 EOF
@@ -409,14 +408,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --turn-password)
             TURN_PASSWORD="$2"
-            shift 2
-            ;;
-        --moonlight-credentials=*)
-            MOONLIGHT_CREDENTIALS="${1#*=}"
-            shift
-            ;;
-        --moonlight-credentials)
-            MOONLIGHT_CREDENTIALS="$2"
             shift 2
             ;;
         --privileged-docker)
@@ -1219,6 +1210,7 @@ gather_modifications() {
 
     if [ "$CONTROLPLANE" = true ]; then
         modifications+="  - Set up Docker Compose stack for Helix Control Plane ${LATEST_RELEASE}\n"
+        modifications+="  - Start/upgrade controlplane services and delete old Helix Docker images\n"
     fi
 
     if [ "$RUNNER" = true ]; then
@@ -1231,6 +1223,7 @@ gather_modifications() {
             fi
         fi
         modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
+        modifications+="  - Start/upgrade runner containers and delete old Helix runner images\n"
     fi
 
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
@@ -1247,7 +1240,8 @@ gather_modifications() {
 
 
     if [ "$SANDBOX" = true ]; then
-        modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
+        modifications+="  - Set up Docker Compose for Sandbox Node (RevDial client with direct WebSocket streaming)\n"
+        modifications+="  - Start/upgrade sandbox container and delete old Helix sandbox images\n"
     fi
 
     echo -e "$modifications"
@@ -1308,7 +1302,7 @@ if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
     fi
 fi
 
-# Load uhid kernel module for Helix Code (required for virtual HID devices in Wolf)
+# Load uhid kernel module for Helix Code (required for virtual HID devices in sandbox)
 if [ "$CODE" = true ]; then
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         echo "Skipping uhid module check on Windows Git Bash"
@@ -1327,7 +1321,7 @@ if [ "$CODE" = true ]; then
                     echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
                 fi
             else
-                echo "Warning: Failed to load uhid module - Wolf may not work correctly"
+                echo "Warning: Failed to load uhid module - virtual HID devices may not work correctly"
             fi
         fi
     fi
@@ -1449,17 +1443,6 @@ generate_password() {
     fi
 }
 
-# Function to generate random 4-digit PIN for Moonlight pairing
-generate_moonlight_pin() {
-    if [ "$ENVIRONMENT" = "gitbash" ]; then
-        # Generate random 4-digit number on Git Bash
-        echo $((RANDOM % 9000 + 1000))
-    else
-        # Use /dev/urandom for better randomness on Linux/macOS
-        echo $(($(od -An -N2 -i /dev/urandom) % 9000 + 1000))
-    fi
-}
-
 # Function to generate 64-character hex encryption key (32 bytes for AES-256)
 generate_encryption_key() {
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -1473,6 +1456,76 @@ generate_encryption_key() {
     else
         # Use openssl for crypto-secure random bytes
         openssl rand -hex 32
+    fi
+}
+
+# Function to clean up old Helix Docker images that are no longer needed
+# This helps reclaim disk space after upgrades by removing old image versions
+# Parameters:
+#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "registry.helixml.tech/helix/")
+#   $2 - keep_version: Version tag to keep (e.g., "1.5.0") - all other versions are removed
+#   $3 - image_filter: Optional filter pattern (e.g., "controlplane" or "runner")
+cleanup_old_helix_images() {
+    local image_prefix="${1:-registry.helixml.tech/helix/}"
+    local keep_version="${2:-}"
+    local image_filter="${3:-}"
+
+    echo ""
+    echo "🧹 Cleaning up old Docker images..."
+
+    # Safety check: don't clean up if we don't know what version to keep
+    if [ -z "$keep_version" ]; then
+        echo "   Skipping cleanup: no version specified to keep"
+        return 0
+    fi
+
+    # Get all Helix images matching the prefix (and optional filter)
+    local all_images
+    if [ -n "$image_filter" ]; then
+        all_images=$($DOCKER_CMD images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${image_prefix}" | grep "$image_filter" | sort -u)
+    else
+        all_images=$($DOCKER_CMD images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${image_prefix}" | sort -u)
+    fi
+
+    # Skip if no images found
+    if [ -z "$all_images" ]; then
+        echo "   No old images to clean up"
+        return 0
+    fi
+
+    local removed_count=0
+    local kept_count=0
+
+    # Remove images that don't match the version we're installing
+    while IFS= read -r image; do
+        # Skip images with <none> tags
+        if [[ "$image" == *":<none>"* ]]; then
+            continue
+        fi
+
+        # Extract the tag from the image
+        local image_tag="${image##*:}"
+
+        # Keep images matching the installed version (or containing it, e.g., "1.5.0-small")
+        if [ -n "$keep_version" ] && [[ "$image_tag" == *"$keep_version"* ]]; then
+            kept_count=$((kept_count + 1))
+        else
+            echo "   Removing old image: $image"
+            if $DOCKER_CMD rmi "$image" 2>/dev/null; then
+                removed_count=$((removed_count + 1))
+            fi
+        fi
+    done <<< "$all_images"
+
+    # Final summary
+    if [ "$removed_count" -gt 0 ]; then
+        echo "✅ Cleaned up $removed_count old image(s), kept $kept_count current image(s)"
+    else
+        if [ "$kept_count" -gt 0 ]; then
+            echo "   No old images to clean up (all $kept_count images are current version)"
+        else
+            echo "   No images matched cleanup criteria"
+        fi
     fi
 }
 
@@ -1575,8 +1628,6 @@ EOF
         # Preserve Code credentials if --code flag is set
         if [[ -n "$CODE" ]]; then
             TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
-            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
-            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
         fi
 
     else
@@ -1590,8 +1641,6 @@ EOF
         # Generate Code credentials if --code flag is set
         if [[ -n "$CODE" ]]; then
             TURN_PASSWORD=$(generate_password)
-            MOONLIGHT_CREDENTIALS=$(generate_password)
-            MOONLIGHT_PIN=$(generate_moonlight_pin)
         fi
     fi
 
@@ -1752,13 +1801,11 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
-        # Auto-detect GPU render node for Wolf based on GPU_VENDOR
+        # Auto-detect GPU render node for sandbox based on GPU_VENDOR
         # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
-        WOLF_RENDER_NODE="/dev/dri/renderD128"  # Default
 
         # Handle "none" case for software rendering (no GPU available)
         if [ "$GPU_VENDOR" = "none" ]; then
-            WOLF_RENDER_NODE="SOFTWARE"
             echo "No GPU detected - using software rendering (llvmpipe)"
         elif [ -d "/sys/class/drm" ]; then
             # Determine which driver to look for based on GPU_VENDOR
@@ -1783,8 +1830,6 @@ EOF
                         if [ -L "$driver_link" ]; then
                             driver=$(readlink "$driver_link" | grep -o '[^/]*$')
                             if [[ "$driver" == "$target_driver" ]]; then
-                                WOLF_RENDER_NODE="$render_node"
-                                echo "Auto-detected $GPU_VENDOR render node: $WOLF_RENDER_NODE (driver: $driver)"
                                 break
                             fi
                         fi
@@ -1796,19 +1841,14 @@ EOF
         cat << EOF >> "$ENV_FILE"
 
 ## Helix Code Configuration (External Agents / PDEs)
-# Wolf streaming platform
-WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-WOLF_RENDER_NODE=${WOLF_RENDER_NODE}
+# Sandbox streaming configuration
 # GPU vendor for video pipeline configuration: nvidia, amd, intel, none (software rendering)
 GPU_VENDOR=${GPU_VENDOR}
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
-# Helix hostname (displayed in Moonlight client to distinguish between servers)
+# Helix hostname (displayed in browser to distinguish between servers)
 HELIX_HOSTNAME=${TURN_HOST}
-
-# Moonlight Web credentials (secure random, shared between API and moonlight-web)
-MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
 
 # TURN server for WebRTC NAT traversal
 TURN_ENABLED=true
@@ -1818,102 +1858,13 @@ TURN_REALM=${TURN_HOST}
 TURN_USERNAME=helix
 TURN_PASSWORD=${TURN_PASSWORD}
 
-# Moonlight Web pairing (internal, secure random)
-MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
-
-# Wolf GOP size (keyframe interval in frames)
+# GOP size (keyframe interval in frames)
 # 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
 # 60 = keyframe every 1s (balanced)
 # 120 = keyframe every 2s (lower bandwidth, recommended for Helix Code)
 GOP_SIZE=120
 EOF
 
-        # Generate moonlight-web config from template
-        # Create directories for bind-mounted config persistence
-        mkdir -p "$INSTALL_DIR/moonlight-web-config"
-        mkdir -p "$INSTALL_DIR/wolf"
-
-        echo "Moonlight-web and Wolf config directories created (configs will be generated by containers)"
-        echo "Note: config.json and config.toml will be created by container init scripts on first startup"
-
-        # Always regenerate moonlight-web config.json from template
-        # (config.json has no runtime state - only data.json has pairing state to preserve)
-        MOONLIGHT_CONFIG_CHANGED=false
-        if [ -f "$INSTALL_DIR/moonlight-web-config/config.json" ]; then
-            echo "Removing existing config.json to regenerate from template (data.json preserved for pairing state)"
-            rm -f "$INSTALL_DIR/moonlight-web-config/config.json"
-            MOONLIGHT_CONFIG_CHANGED=true
-        fi
-
-        # Wolf config.toml.template and init script are baked into the container
-        # The container's /etc/cont-init.d/05-init-wolf-config.sh will handle initialization on startup
-        # Template is at: /opt/wolf-defaults/config.toml.template (in container image)
-        # Init script will copy template → /etc/wolf/cfg/config.toml on first run
-        echo "Wolf will use containerized template and init script"
-        WOLF_CONFIG_CHANGED=false
-        if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
-            echo "Note: config.toml will be created by container init script on first startup"
-        else
-            # Update hostname in existing config.toml if it differs
-            if grep -q "hostname = 'Helix ($TURN_HOST)'" "$INSTALL_DIR/wolf/config.toml"; then
-                echo "Wolf config.toml hostname matches, preserving existing config"
-            else
-                echo "Hostname changed - updating Wolf config.toml hostname field"
-                sed -i "s/^hostname = .*/hostname = 'Helix ($TURN_HOST)'/" "$INSTALL_DIR/wolf/config.toml"
-                WOLF_CONFIG_CHANGED=true
-            fi
-        fi
-
-        # Update moonlight-web data.json hostname (preserve pairing state)
-        if [ -f "$INSTALL_DIR/moonlight-web-config/data.json" ]; then
-            if grep -q "\"name\": \"Helix ($TURN_HOST)\"" "$INSTALL_DIR/moonlight-web-config/data.json"; then
-                echo "Moonlight-web data.json hostname matches, preserving existing config"
-            else
-                echo "Hostname changed - updating moonlight-web data.json hostname field"
-                sed -i "s/\"name\": \"Helix ([^\"]*)\"/\"name\": \"Helix ($TURN_HOST)\"/" "$INSTALL_DIR/moonlight-web-config/data.json"
-                MOONLIGHT_CONFIG_CHANGED=true
-            fi
-        fi
-
-
-        # Generate self-signed certificates for Wolf HTTPS only if they don't exist
-        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
-        # CRITICAL: Include SANs for both "localhost" AND "wolf" (Docker hostname)
-        # This allows moonlight-web to connect via "wolf" hostname without cert validation errors
-        if [ ! -f "$INSTALL_DIR/wolf/cert.pem" ] || [ ! -f "$INSTALL_DIR/wolf/key.pem" ]; then
-            echo "Generating Wolf SSL certificates..."
-            # Create temp config for SAN (Subject Alternative Names)
-            cat > /tmp/wolf-cert-san.conf <<EOF
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
-
-[req_distinguished_name]
-C = IT
-O = GamesOnWhales
-CN = localhost
-
-[v3_req]
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = localhost
-DNS.2 = wolf
-EOF
-            openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
-                -days 365 -nodes -config /tmp/wolf-cert-san.conf -extensions v3_req 2>/dev/null
-            rm -f /tmp/wolf-cert-san.conf
-            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/ (with SANs: localhost, wolf)"
-        else
-            echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
-        fi
-
-        # Moonlight-web templates and init script are baked into the container
-        # The container's init-moonlight-config.sh will handle initialization on startup
-        # Templates are at: /app/templates/{data.json.template,config.json.template}
-        # Init script is at: /app/server/init-moonlight-config.sh (baked into container)
-        echo "Moonlight-web will use containerized templates and init script"
     fi
 
     # Continue with the rest of the .env file
@@ -1951,12 +1902,10 @@ EOF
                 echo "Installing Caddy..."
                 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
 
-                # Check if the keyring file already exists
-                if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
-                    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-                    # Fix file permissions so _apt user can read the keyring
-                    sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-                fi
+                # Always refresh the GPG key (keys can expire)
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                # Fix file permissions so _apt user can read the keyring
+                sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 
                 # Check if the source list file already exists
                 if [ ! -f /etc/apt/sources.list.d/caddy-stable.list ]; then
@@ -2036,50 +1985,33 @@ CADDYEOF"
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
         echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
-    # When sandbox is being installed with controlplane, we auto-start services later
+    # When sandbox is being installed with controlplane, we start services later (after sandbox setup)
     if [ "$SANDBOX" = true ]; then
         echo "│"
-        echo "│ Services will be started automatically."
+        echo "│ Services will be started automatically after sandbox setup."
         echo "│ Helix will be available at $API_HOST"
         echo "└───────────────────────────────────────────────────────────────────────────"
     else
+        # Always start/upgrade controlplane services
         echo "│"
-        echo "│ Start the Helix services by running:"
-        echo "│"
-        echo "│ cd $INSTALL_DIR"
-        if [ "$NEED_SUDO" = "true" ]; then
-            echo "│ sudo docker compose up -d --remove-orphans"
-        else
-            echo "│ docker compose up -d --remove-orphans"
-        fi
-        if [ "$CADDY" = true ]; then
-            echo "│ sudo systemctl restart caddy"
-        fi
-        echo "│"
-        echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-        echo "│ This will take a minute or so to boot."
+        echo "│ Starting Helix services..."
         echo "└───────────────────────────────────────────────────────────────────────────"
-    fi
-
-    # Auto-restart services if configs were changed and services are running
-    if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
-        # Check if wolf or moonlight-web containers are running
-        if $DOCKER_CMD ps --format '{{.Names}}' | grep -qE '^(wolf-1|moonlight-web-1)$'; then
-            echo
-            echo "Hostname configuration changed - restarting Wolf and Moonlight Web to apply..."
-            cd "$INSTALL_DIR"
-            if [ "$NEED_SUDO" = "true" ]; then
-                sudo docker compose down wolf moonlight-web
-                sudo docker compose up -d wolf moonlight-web
-            else
-                docker compose down wolf moonlight-web
-                docker compose up -d wolf moonlight-web
-            fi
-            echo "✓ Services restarted with new hostname configuration"
+        echo
+        cd "$INSTALL_DIR"
+        if [ "$NEED_SUDO" = "true" ]; then
+            sudo docker compose up -d --remove-orphans
         else
-            echo
-            echo "Note: Hostname configuration updated. Start services with: docker compose up -d"
+            docker compose up -d --remove-orphans
         fi
+        # Clean up old controlplane Docker images to free disk space
+        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        if [ "$CADDY" = true ]; then
+            echo "Restarting Caddy reverse proxy..."
+            sudo systemctl restart caddy
+        fi
+        echo
+        echo "✅ Helix $LATEST_RELEASE started"
+        echo "   Helix is available at $API_HOST"
     fi
 fi
 
@@ -2324,6 +2256,46 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
 done
 
 echo "Successfully started \$SPLIT_RUNNERS runner container(s)"
+
+# Clean up old runner images to free disk space
+echo ""
+echo "🧹 Cleaning up old runner Docker images..."
+
+# Safety check: don't clean up if RUNNER_TAG is empty
+if [ -z "\$RUNNER_TAG" ]; then
+    echo "   Skipping cleanup: no version specified to keep"
+else
+    # Get all runner images
+    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/runner" | sort -u)
+
+    REMOVED_COUNT=0
+    KEPT_COUNT=0
+    for image in \$ALL_RUNNER_IMAGES; do
+        # Extract the tag from the image
+        IMAGE_TAG="\${image##*:}"
+
+        # Keep images matching the installed version (RUNNER_TAG contains version like "1.5.0-small")
+        # RUNNER_TAG is set at the top of this script
+        if [[ "\$IMAGE_TAG" == "\$RUNNER_TAG" ]]; then
+            KEPT_COUNT=\$((KEPT_COUNT + 1))
+        else
+            echo "   Removing old image: \$image"
+            if docker rmi "\$image" 2>/dev/null; then
+                REMOVED_COUNT=\$((REMOVED_COUNT + 1))
+            fi
+        fi
+    done
+
+    if [ "\$REMOVED_COUNT" -gt 0 ]; then
+        echo "✅ Cleaned up \$REMOVED_COUNT old runner image(s), kept \$KEPT_COUNT current"
+    else
+        if [ "\$KEPT_COUNT" -gt 0 ]; then
+            echo "   No old runner images to clean up (all \$KEPT_COUNT images are current version)"
+        else
+            echo "   No runner images found to clean up"
+        fi
+    fi
+fi
 EOF
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -2332,21 +2304,22 @@ EOF
         sudo chmod +x $INSTALL_DIR/runner.sh
     fi
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
-    echo "┌───────────────────────────────────────────────────────────────────────────"
-    echo "│ To start the runner, run:"
-    echo "│"
+
+    # Always start/upgrade runner
+    echo
+    echo "Starting runner..."
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│   sudo $INSTALL_DIR/runner.sh"
+        sudo $INSTALL_DIR/runner.sh
     else
-        echo "│   $INSTALL_DIR/runner.sh"
+        $INSTALL_DIR/runner.sh
     fi
-    echo "│"
-    echo "└───────────────────────────────────────────────────────────────────────────"
+    echo
+    echo "✅ Runner started with version $RUNNER_TAG"
 fi
 
 # Install sandbox node if requested
 if [ "$SANDBOX" = true ]; then
-    echo -e "\nInstalling Helix Sandbox Node (Wolf + Moonlight Web + RevDial client)..."
+    echo -e "\nInstalling Helix Sandbox Node (RevDial client with direct WebSocket streaming)..."
     echo "=================================================="
     echo
     echo "API Host: $API_HOST"
@@ -2380,13 +2353,9 @@ if [ "$SANDBOX" = true ]; then
         GPU_VENDOR="none"
     fi
 
-    # Generate unique Wolf instance ID (hostname)
-    WOLF_ID=$(hostname)
-    echo "Wolf Instance ID: $WOLF_ID"
-
-    # Generate random 4-digit PIN for auto-pairing (Wolf <-> Moonlight Web)
-    PAIRING_PIN=$(shuf -i 1000-9999 -n 1)
-    echo "Auto-pairing PIN: $PAIRING_PIN"
+    # Generate unique sandbox instance ID (hostname)
+    SANDBOX_ID=$(hostname)
+    echo "Sandbox Instance ID: $SANDBOX_ID"
     echo
 
     # Configure NVIDIA runtime if needed
@@ -2402,15 +2371,13 @@ if [ "$SANDBOX" = true ]; then
 # Configuration variables (set by install.sh)
 SANDBOX_TAG="${SANDBOX_TAG}"
 HELIX_API_URL="${HELIX_API_URL}"
-WOLF_INSTANCE_ID="${WOLF_INSTANCE_ID}"
+SANDBOX_INSTANCE_ID="${SANDBOX_INSTANCE_ID}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 GPU_VENDOR="${GPU_VENDOR}"
 MAX_SANDBOXES="${MAX_SANDBOXES}"
 TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
-MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
-PAIRING_PIN="${PAIRING_PIN}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
 # Check if helix_default network exists
@@ -2470,7 +2437,7 @@ elif [ "$GPU_VENDOR" = "intel" ]; then
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
-    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e WOLF_RENDER_NODE=SOFTWARE -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5 -e WOLF_USE_ZERO_COPY=FALSE"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5"
     echo "Using software rendering (no GPU detected)"
 else
     GPU_FLAGS=""
@@ -2480,7 +2447,7 @@ fi
 
 echo "Starting Helix Sandbox container..."
 echo "  Control Plane: $HELIX_API_URL"
-echo "  Wolf Instance ID: $WOLF_INSTANCE_ID"
+echo "  Sandbox Instance ID: $SANDBOX_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
 echo "  TURN Server: $TURN_PUBLIC_IP"
@@ -2506,46 +2473,69 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     --name helix-sandbox \
     --network="helix_default" \
     -e HELIX_API_URL="$HELIX_API_URL" \
-    -e WOLF_INSTANCE_ID="$WOLF_INSTANCE_ID" \
+    -e SANDBOX_INSTANCE_ID="$SANDBOX_INSTANCE_ID" \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
     -e ZED_IMAGE=helix-sway:latest \
     -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
     -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
-    -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
-    -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -e HOST_APPS_STATE_FOLDER=/etc/wolf \
-    -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
-    -e WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem \
-    -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
     -e GOP_SIZE=120 \
-    -e WOLF_MAX_DUMPS=6 \
-    -e WOLF_MAX_DUMPS_GB=20 \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-data:/data \
-    -v sandbox-debug-dumps:/var/wolf-debug-dumps \
     -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
-    -p 47984:47984 \
-    -p 47989:47989 \
-    -p 48010:48010 \
-    -p 47415:47415/udp \
-    -p 47999:47999/udp \
-    -p 48100:48100/udp \
-    -p 48200:48200/udp \
-    -p 40000-40100:40000-40100/udp \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
     echo "✅ Helix Sandbox container started successfully"
+
+    # Clean up old sandbox images to free disk space
+    echo ""
+    echo "🧹 Cleaning up old sandbox Docker images..."
+
+    # Safety check: don't clean up if SANDBOX_TAG is empty
+    if [ -z "$SANDBOX_TAG" ]; then
+        echo "   Skipping cleanup: no version specified to keep"
+    else
+        # Get all sandbox images
+        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/helix-sandbox" | sort -u)
+
+        REMOVED_COUNT=0
+        KEPT_COUNT=0
+        for image in $ALL_SANDBOX_IMAGES; do
+            # Extract the tag from the image
+            IMAGE_TAG="${image##*:}"
+
+            # Keep images matching the installed version (SANDBOX_TAG is set at the top of this script)
+            if [ "$IMAGE_TAG" = "$SANDBOX_TAG" ]; then
+                KEPT_COUNT=$((KEPT_COUNT + 1))
+            else
+                echo "   Removing old image: $image"
+                if docker rmi "$image" 2>/dev/null; then
+                    REMOVED_COUNT=$((REMOVED_COUNT + 1))
+                fi
+            fi
+        done
+
+        if [ "$REMOVED_COUNT" -gt 0 ]; then
+            echo "✅ Cleaned up $REMOVED_COUNT old sandbox image(s), kept $KEPT_COUNT current"
+        else
+            if [ "$KEPT_COUNT" -gt 0 ]; then
+                echo "   No old sandbox images to clean up (all $KEPT_COUNT images are current version)"
+            else
+                echo "   No sandbox images found to clean up"
+            fi
+        fi
+    fi
+
     echo
     echo "To view logs: docker logs -f helix-sandbox"
     echo "To stop: docker stop helix-sandbox"
@@ -2560,8 +2550,6 @@ EOF
     # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
     TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
     HELIX_HOSTNAME="$TURN_PUBLIC_IP"
-    # Default Moonlight credentials (must match control plane configuration)
-    MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS:-helix}"
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
@@ -2572,15 +2560,13 @@ EOF
     else
         sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
     fi
-    sed -i "s|\${WOLF_INSTANCE_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${SANDBOX_INSTANCE_ID}|${SANDBOX_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${PAIRING_PIN}|${PAIRING_PIN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -2601,6 +2587,8 @@ EOF
         else
             docker compose up -d --remove-orphans
         fi
+        # Clean up old controlplane Docker images to free disk space
+        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
         # Restart Caddy if it was installed (for HTTPS reverse proxy)
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."
@@ -2623,17 +2611,13 @@ EOF
     echo "│ ✅ Helix Sandbox Node installed successfully!"
     echo "│"
     echo "│ Connected to: $API_HOST"
-    echo "│ Wolf Instance ID: $WOLF_ID"
+    echo "│ Sandbox Instance ID: $SANDBOX_ID"
     echo "│ TURN Server: $TURN_PUBLIC_IP"
     echo "│"
     echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
     echo "│"
     echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
     echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
-    echo "│"
-    echo "│ ⚠️  For native Moonlight client connections, also open:"
-    echo "│   - TCP 47984, 47989, 48010: Moonlight protocol"
-    echo "│   - UDP 47415, 47999, 48100, 48200: Moonlight streaming"
     echo "│"
     echo "│ ⚠️  Ensure the control plane has these ports open:"
     echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"

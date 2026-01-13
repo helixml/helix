@@ -19,7 +19,7 @@ import {
     Switch,
 } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import { TypesModel, TypesRuntime } from "../../api/api"; // Assuming TypesModel is the correct type
+import { TypesModel, GithubComHelixmlHelixApiPkgTypesRuntime as TypesRuntime } from "../../api/api";
 import {
     useListHelixModels,
     useUpdateHelixModel,

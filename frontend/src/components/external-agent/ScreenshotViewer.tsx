@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Typography, Alert, IconButton, Button, Paper, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { Refresh, OpenInNew, Fullscreen, FullscreenExit, Videocam, CameraAlt } from '@mui/icons-material';
-import MoonlightStreamViewer from './MoonlightStreamViewer';
+import DesktopStreamViewer from './DesktopStreamViewer';
 
 interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
-  wolfLobbyId?: string; // For Moonlight streaming mode
+  sandboxId?: string; // For desktop video streaming mode
   onError?: (error: string) => void;
   width?: number;
   height?: number;
@@ -21,7 +21,7 @@ interface ScreenshotViewerProps {
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   sessionId,
   isRunner = false,
-  wolfLobbyId,
+  sandboxId,
   onError,
   width = 3840,
   height = 2160,
@@ -46,6 +46,15 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mountTimeRef = React.useRef<Date>(new Date());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+  // Handle mode switch - clear error and loading state when switching modes
+  const handleModeChange = useCallback((newMode: 'screenshot' | 'stream') => {
+    setStreamingMode(newMode);
+    setError(null); // Clear any error from previous mode
+    if (newMode === 'screenshot') {
+      setIsLoading(true); // Reset loading for screenshot mode
+    }
+  }, []);
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
@@ -192,8 +201,8 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // If in streaming mode, render MoonlightWebPlayer instead
-  if (streamingMode === 'stream' && enableStreaming && wolfLobbyId) {
+  // If in streaming mode, render DesktopStreamViewer instead
+  if (streamingMode === 'stream' && enableStreaming && sandboxId) {
     return (
       <Box
         ref={containerRef}
@@ -207,14 +216,14 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           flexDirection: 'column',
         }}
       >
-        {/* Mode Toggle */}
+        {/* Mode Toggle - high z-index to stay above DesktopStreamViewer's connection overlay */}
         <Box
           sx={{
             position: 'absolute',
             top: 8,
             left: '50%',
             transform: 'translateX(-50%)',
-            zIndex: 1001,
+            zIndex: 1100,
             backgroundColor: 'rgba(0,0,0,0.8)',
             borderRadius: 1,
           }}
@@ -222,7 +231,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           <ToggleButtonGroup
             value={streamingMode}
             exclusive
-            onChange={(_, value) => value && setStreamingMode(value)}
+            onChange={(_, value) => value && handleModeChange(value)}
             size="small"
           >
             <ToggleButton value="screenshot" sx={{ color: 'white' }}>
@@ -236,9 +245,9 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           </ToggleButtonGroup>
         </Box>
 
-        <MoonlightStreamViewer
+        <DesktopStreamViewer
           sessionId={sessionId}
-          wolfLobbyId={wolfLobbyId}
+          sandboxId={sandboxId}
           onError={onError}
           width={width}
           height={height}
@@ -276,7 +285,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           <ToggleButtonGroup
             value={streamingMode}
             exclusive
-            onChange={(_, value) => value && setStreamingMode(value)}
+            onChange={(_, value) => value && handleModeChange(value)}
             size="small"
           >
             <ToggleButton value="screenshot" sx={{ color: 'white' }}>
@@ -341,19 +350,20 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         </Typography>
       )}
 
-      {/* Error Display */}
+      {/* Error Display - positioned below controls, pointer-events:none so it doesn't block toggle */}
       {error && (
         <Box
           sx={{
             position: 'absolute',
-            top: '50%',
+            top: '60%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
             zIndex: 999,
             textAlign: 'center',
+            pointerEvents: 'none', // Don't block clicks on controls above
           }}
         >
-          <Alert severity="error" sx={{ maxWidth: 400 }}>
+          <Alert severity="error" sx={{ maxWidth: 400, pointerEvents: 'auto' }}>
             {error}
           </Alert>
         </Box>
@@ -399,11 +409,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       {isLoading && !hasFirstImage && (
         <Box
           sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '100%',
             color: 'white',
+            pointerEvents: 'none', // Don't block clicks on mode toggle
           }}
         >
           <Typography variant="body1">Loading desktop...</Typography>

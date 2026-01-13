@@ -76,8 +76,8 @@ steps:
       - apk add --no-cache bash git
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
-      - chmod +x ./wolf/sway-config/test-helix-specs-creation.sh
-      - ./wolf/sway-config/test-helix-specs-creation.sh
+      - chmod +x ./desktop/sway-config/test-helix-specs-creation.sh
+      - ./desktop/sway-config/test-helix-specs-creation.sh
     when:
       event:
         - push
@@ -120,11 +120,27 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: []
+
+  - name: unit-test-nocgo
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
+      - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/desktop-bridge/...
+    when:
+      event:
+        - push
+    depends_on: []
 
   - name: api-integration-test
     image: golang:1.24-alpine3.21
@@ -170,8 +186,11 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server
-      - go install ./api/..
+      # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
+      - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
+      # Debug: verify binary was built and test server startup
+      - which helix && helix version
+      - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
@@ -831,7 +850,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -846,6 +865,7 @@ steps:
       dockerfile: Dockerfile
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/controlplane
       username: admin
@@ -862,7 +882,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -875,7 +895,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -891,6 +911,7 @@ steps:
       dockerfile: haystack_service/Dockerfile
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/haystack
       username: admin
@@ -907,7 +928,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -920,7 +941,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -935,6 +956,7 @@ steps:
       dockerfile: Dockerfile.runner
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -955,7 +977,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -968,7 +990,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -985,6 +1007,7 @@ steps:
         - "${DRONE_TAG:-main}-small" # Default to branch
         - "latest-small"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1005,7 +1028,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1015,6 +1038,7 @@ steps:
       tags:
         - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1045,7 +1069,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1062,6 +1086,7 @@ steps:
         - "${DRONE_TAG:-main}-large"
         - "latest-large"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1082,7 +1107,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1092,6 +1117,7 @@ steps:
       tags:
         - "${DRONE_COMMIT_SHA:-main}-large"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1122,7 +1148,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1137,6 +1163,7 @@ steps:
       dockerfile: Dockerfile.typesense
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/typesense
       username: admin
@@ -1151,7 +1178,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -1164,7 +1191,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1179,6 +1206,7 @@ steps:
       dockerfile: Dockerfile.demos
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/demos
       username: admin
@@ -1193,7 +1221,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 # See integration-test/smoke/README.md
@@ -1256,3 +1284,479 @@ services:
     volumes:
       - name: integration-test
         path: /integration-test
+
+# ---
+# Spectask/Sandbox Integration Tests
+# These tests can run with software rendering (no GPU required).
+# Run locally with: go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectask
+#
+# Software Rendering Configuration (for CI without GPU):
+#   GPU_VENDOR=none
+#   WOLF_RENDER_NODE=software
+#   LIBGL_ALWAYS_SOFTWARE=1
+#   MESA_GL_VERSION_OVERRIDE=4.5
+#   WOLF_USE_ZERO_COPY=FALSE
+#
+# Required environment variables:
+#   HELIX_API_KEY          - API key with hl- prefix
+#   HELIX_URL              - Helix API URL (default: http://localhost:8080)
+#   HELIX_PROJECT          - Project ID for creating test tasks
+#   HELIX_UBUNTU_AGENT     - Ubuntu/Sway agent app ID (PipeWire mode)
+#   HELIX_KDE_AGENT        - KDE agent app ID (optional, for KDE tests)
+#   HELIX_SESSION_ID       - Optional: existing session ID (skips session creation)
+#
+# Available test suites:
+#   TestSpectaskStreamSuite      - Default stream tests
+#   TestSpectaskSwayStreamSuite  - Sway/Ubuntu desktop tests (PipeWire mode)
+#   TestSpectaskKDEStreamSuite   - KDE desktop tests
+#   TestSpectaskMCPSuite         - MCP desktop tools with video recording
+#
+# Example:
+#   source .env.usercreds
+#   go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#
+# kind: pipeline
+# type: docker
+# name: spectask-test
+#
+# workspace:
+#   base: /go
+#   path: src/github.com/helix-ml/helix
+#
+# trigger:
+#   event:
+#     - cron
+#   cron:
+#     - spectask-test-daily
+#
+# steps:
+#   - name: spectask-sway-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#     depends_on: []
+#
+#   - name: spectask-kde-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskKDEStreamSuite
+#     depends_on: []
+#
+#   - name: slack-notification
+#     image: plugins/slack
+#     settings:
+#       webhook:
+#         from_secret: JANITOR_SLACK_WEBHOOK_URL
+#       channel: helix-janitor
+#       message: "❌ Spectask test failed. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+#     when:
+#       status:
+#         - failure
+#
+# volumes:
+#   - name: spectask-test-results
+#     temp: {}
+
+---
+# ====================================================================
+# Sandbox Build Pipeline
+# ====================================================================
+# Builds the complete sandbox stack:
+#   1. Zed binary (Rust, from helixml/zed)
+#   2. qwen-code (Node.js, from helixml/qwen-code)
+#   3. Desktop images (helix-sway, helix-ubuntu)
+#   4. Sandbox image (embeds desktop tarballs)
+#
+# Versioning:
+#   - Tags: use git tag (e.g., v1.2.3)
+#   - Branches: use commit hash (e.g., abc123f)
+#
+# Concurrency:
+#   Steps use shared host volumes for caching. To prevent race conditions
+#   when multiple builds run concurrently, we use flock for file-based locking.
+#   flock auto-releases on process death (no stale locks).
+#
+# No GPU required - builds work on standard runners.
+# ====================================================================
+kind: pipeline
+type: docker
+name: build-sandbox
+
+trigger:
+  event:
+    - tag
+    - push
+  branch:
+    - main
+    - fix/ci-sandbox-build-concurrency
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: sandbox-build-cache
+    host:
+      path: /var/cache/drone/sandbox-build
+  - name: cargo-cache
+    host:
+      path: /var/cache/drone/cargo
+  - name: npm-cache
+    host:
+      path: /var/cache/drone/npm
+
+steps:
+  # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
+  # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
+  # Optional: CI warns if pinned version is behind upstream HEAD
+  #
+  # CONCURRENCY: Uses flock to prevent race conditions when multiple builds
+  # access shared cache. flock auto-releases on process death (no stale locks).
+  - name: clone-dependencies
+    image: alpine/git:latest
+    commands:
+      - apk add --no-cache flock
+      - mkdir -p /drone/src/external /drone/src/cache
+      # Read pinned versions
+      - |
+        . /drone/src/sandbox-versions.txt
+        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
+        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
+        echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
+      # Warn if pinned versions are stale (informational only, doesn't fail)
+      - |
+        . /drone/src/sandbox-versions.txt
+        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
+        QWEN_HEAD=$$(git ls-remote https://github.com/helixml/qwen-code.git HEAD | cut -f1)
+        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
+          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
+        fi
+        if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
+          echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
+        fi
+      # Clone Zed only if not cached (flock prevents concurrent clone race)
+      - |
+        . /drone/src/sandbox-versions.txt
+        ZED_SHORT=$${ZED_COMMIT:0:12}
+        flock /drone/src/cache/zed-source.lock -c "
+          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
+            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
+          else
+            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
+            rm -rf /drone/src/cache/zed-source
+            mkdir -p /drone/src/cache/zed-source
+            cd /drone/src/cache/zed-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
+      # Clone qwen-code only if not cached (flock prevents concurrent clone race)
+      - |
+        . /drone/src/sandbox-versions.txt
+        QWEN_SHORT=$${QWEN_COMMIT:0:12}
+        flock /drone/src/cache/qwen-source.lock -c "
+          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/index.js' ]; then
+            echo '✓ qwen-code cached for $${QWEN_SHORT}'
+          else
+            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
+            rm -rf /drone/src/cache/qwen-source
+            mkdir -p /drone/src/cache/qwen-source
+            cd /drone/src/cache/qwen-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
+      - echo "=== Dependency versions ==="
+      - echo "Zed:" && cat /drone/src/zed-commit.txt
+      - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+
+  # Step 2: Build qwen-code (with caching)
+  # Uses flock to prevent concurrent builds from racing on shared cache
+  - name: build-qwen-code
+    image: node:20-slim
+    commands:
+      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
+      - |
+        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
+        # Use flock for entire build to prevent races on qwen-source and cache
+        flock /drone/src/cache/qwen-build.lock -c "
+          # Double-check cache after acquiring lock (another build may have finished)
+          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js' ]; then
+            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
+            mkdir -p /drone/src/qwen-code-build
+            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
+            exit 0
+          fi
+
+          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
+          mkdir -p /drone/src/qwen-code-build
+          cd /drone/src/cache/qwen-source
+          npm ci --ignore-scripts
+          npm run bundle
+
+          # Copy everything needed for runtime (matching ./stack build-qwen-code)
+          # node_modules is required because tiktoken has native bindings that can't be bundled
+          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
+          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
+          cp -r node_modules/ /drone/src/qwen-code-build/
+          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
+          echo 'qwen-code build complete'
+          ls -la /drone/src/qwen-code-build/
+
+          # Cache the build
+          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
+          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
+        "
+      # Copy from workspace (flock wrote here)
+      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+      - name: npm-cache
+        path: /root/.npm
+    depends_on:
+      - clone-dependencies
+
+  # Step 3: Build Zed binary
+  # Uses flock to prevent concurrent builds from racing on shared cache
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - apk add --no-cache flock
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        CACHE_KEY="zed-$${ZED_COMMIT}"
+        # Use flock for entire build to prevent races on cache
+        flock /drone/src/cache/zed-build.lock -c "
+          # Double-check cache after acquiring lock (another build may have finished)
+          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
+            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
+            mkdir -p zed-build
+            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+            chmod +x zed-build/zed
+            exit 0
+          fi
+
+          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+
+          # Build the Zed builder image
+          docker build --pull -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+
+          # Run Zed build in container, output directly to cache directory
+          # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
+          #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
+          #       Docker-in-Docker mounts use HOST paths, not container paths.
+          mkdir -p /drone/src/cache/$${CACHE_KEY}
+          docker run --rm \\
+            -v '/var/cache/drone/sandbox-build/zed-source:/zed:ro' \\
+            -v '/var/cache/drone/cargo/registry:/root/.cargo/registry' \\
+            -v '/var/cache/drone/cargo/git:/root/.cargo/git' \\
+            -v '/var/cache/drone/cargo/zed-target:/zed-target' \\
+            -v \"/var/cache/drone/sandbox-build/$${CACHE_KEY}:/output\" \\
+            -w /zed \\
+            zed-builder:ubuntu25 \\
+            bash -c '
+              export CARGO_TARGET_DIR=/zed-target
+              RUSTFLAGS=\"-C link-arg=-s\" cargo build --release --features external_websocket_sync
+              cp /zed-target/release/zed /output/zed
+              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
+            '
+
+          ls -la /drone/src/cache/$${CACHE_KEY}/
+
+          # Copy from cache to workspace
+          mkdir -p zed-build
+          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+          chmod +x zed-build/zed
+        "
+      - chmod +x zed-build/zed
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+      - name: cargo-cache
+        path: /drone/src/cargo-registry
+    depends_on:
+      - clone-dependencies
+
+  # Step 4: Build and push desktop images to registry
+  - name: build-desktops
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
+        echo "Building desktop images with version: $${VERSION}"
+        echo "QWEN_HASH=$${QWEN_HASH} GO_HASH=$${GO_HASH}"
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      # Build and push helix-sway
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
+        echo "Building helix-sway..."
+        docker build --pull --provenance=false \
+          -f Dockerfile.sway-helix \
+          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
+          --build-arg GO_CODE_HASH=$${GO_HASH} \
+          -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-sway:latest \
+          .
+        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}
+        echo "helix-sway:$${VERSION} pushed to registry"
+      # Build and push helix-ubuntu
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
+        echo "Building helix-ubuntu..."
+        docker build --pull --provenance=false \
+          -f Dockerfile.ubuntu-helix \
+          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
+          --build-arg GO_CODE_HASH=$${GO_HASH} \
+          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-ubuntu:latest \
+          .
+        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}
+        echo "helix-ubuntu:$${VERSION} pushed to registry"
+      # Write version refs for sandbox
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        mkdir -p sandbox-images
+        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}" > sandbox-images/helix-sway.ref
+        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}" > sandbox-images/helix-ubuntu.ref
+        echo "$${VERSION}" > sandbox-images/helix-sway.version
+        echo "$${VERSION}" > sandbox-images/helix-ubuntu.version
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-qwen-code
+      - build-zed
+
+  # Step 5: Build sandbox image
+  - name: build-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
+        docker build --pull -f Dockerfile.sandbox \
+          -t helix-sandbox:latest \
+          -t helix-sandbox:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT} \
+          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION} \
+          .
+        echo "Sandbox image built successfully"
+        docker images helix-sandbox
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-desktops
+
+  # Step 6: Push to registry (only on tag or main branch)
+  - name: push-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+          IS_RELEASE="true"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+          IS_RELEASE="false"
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Logging in to registry..."
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        echo "Pushing helix-sandbox:$${COMMIT}..."
+        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}
+        if [ "$${IS_RELEASE}" = "true" ]; then
+          echo "Pushing release tag: $${VERSION}..."
+          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}
+          echo "Tagging and pushing latest..."
+          docker tag helix-sandbox:$${VERSION} registry.helixml.tech/helix/helix-sandbox:latest
+          docker push registry.helixml.tech/helix/helix-sandbox:latest
+        fi
+        echo "Push complete!"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
+        - fix/ci-sandbox-build-concurrency
+    depends_on:
+      - build-sandbox

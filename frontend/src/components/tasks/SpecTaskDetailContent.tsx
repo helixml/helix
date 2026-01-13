@@ -198,7 +198,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
   const sessionData = sessionResponse?.data
-  const wolfLobbyId = sessionData?.config?.wolf_lobby_id
 
   // Initialize prompt history for the session
   const promptHistory = usePromptHistory({
@@ -559,7 +558,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <>
             <ExternalAgentDesktopViewer
               sessionId={activeSessionId}
-              wolfLobbyId={wolfLobbyId}
+              sandboxId={activeSessionId}
               mode="stream"
               onClientIdCalculated={setClientUniqueId}
               displayWidth={displaySettings.width}

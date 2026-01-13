@@ -207,6 +207,7 @@ type Store interface {
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
+	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
@@ -218,6 +219,7 @@ type Store interface {
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 
 	// slots
@@ -571,21 +573,6 @@ type Store interface {
 	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
 	DeleteSampleProject(ctx context.Context, id string) error
 
-	// Personal Dev Environment methods (DEPRECATED - these are stubs for backward compatibility)
-	// TODO: Remove these after cleaning up wolf_executor.go
-	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
-	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
-	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
-	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
-	DeletePersonalDevEnvironment(ctx context.Context, id string) error
-
-	// SSH Key methods
-	CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types.SSHKey, error)
-	GetSSHKey(ctx context.Context, id string) (*types.SSHKey, error)
-	ListSSHKeys(ctx context.Context, userID string) ([]*types.SSHKey, error)
-	UpdateSSHKeyLastUsed(ctx context.Context, id string) error
-	DeleteSSHKey(ctx context.Context, id string) error
-
 	// Zed Settings Override methods
 	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
 	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)
@@ -609,21 +596,22 @@ type Store interface {
 	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
 	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 
-	// Wolf instance methods
-	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
-	UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error
-	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
-	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
-	DeregisterWolfInstance(ctx context.Context, id string) error
-	UpdateWolfStatus(ctx context.Context, id string, status string) error
-	IncrementWolfSandboxCount(ctx context.Context, id string) error
-	DecrementWolfSandboxCount(ctx context.Context, id string) error
-	ResetWolfInstanceOnReconnect(ctx context.Context, id string) error
-	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
+	// Sandbox instance methods
+	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
+	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
+	GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error)
+	ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error)
+	DeregisterSandbox(ctx context.Context, id string) error
+	UpdateSandboxStatus(ctx context.Context, id string, status string) error
+	IncrementSandboxContainerCount(ctx context.Context, id string) error
+	DecrementSandboxContainerCount(ctx context.Context, id string) error
+	ResetSandboxOnReconnect(ctx context.Context, id string) error
+	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
+	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
-	GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error)
+	GetDiskUsageHistory(ctx context.Context, sandboxID string, since time.Time) ([]*types.DiskUsageHistory, error)
 	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
 
 	// Prompt history methods (for cross-device sync)

@@ -1,0 +1,59 @@
+[package]
+name = "wayland-display-core"
+authors = ["Victoria Brekenfeld <git@drakulix.de>", "Alessandro Beltramo <github.com/ABeltramo>"]
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Wayland Compositor producing GStreamer buffers (vendored for Helix)"
+rust-version = "1.85"
+
+[lib]
+name = "waylanddisplaycore"
+crate-type = ["cdylib", "staticlib", "rlib"]
+path = "src/lib.rs"
+
+[features]
+default = []
+cuda = ["dep:libloading"]
+
+[dependencies]
+# GStreamer bindings (matching gst-pipewire-zerocopy versions)
+gst = { version = "0.23.2", package = "gstreamer", features = ["v1_24"] }
+gst-video = { version = "0.23.2", package = "gstreamer-video", features = ["v1_24"] }
+gstreamer-allocators = { version = "0.23.2", package = "gstreamer-allocators", features = ["v1_24", "v1_16"] }
+
+# Wayland
+wayland-backend = "0.3.10"
+wayland-scanner = "0.31.6"
+
+# Utilities
+tracing = "0.1"
+once_cell = "1.17"
+libloading = { version = "0.8.9", optional = true }
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+tracing-subscriber = "0.3.18"
+wayland-client = "0.31.10"
+wayland-protocols = { version = "0.32.8", features = ["client"] }
+calloop = { version = "0.14.2", features = ["executor", "futures-io", "signals"] }
+tempfile = "3.20.0"
+test-log = { version = "0.2.18", features = ["trace"] }
+
+[dependencies.smithay]
+git = "https://github.com/games-on-whales/smithay"
+rev = "a166cf4c94b5aedc332a65aa1dd753e8148829c3"
+default-features = false
+features = [
+    "backend_drm",
+    "backend_egl",
+    "backend_gbm",
+    "backend_libinput",
+    "backend_udev",
+    "renderer_gl",
+    "use_system_lib",
+    "desktop",
+    "wayland_frontend"
+]

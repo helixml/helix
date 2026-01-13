@@ -1,9 +1,17 @@
+# syntax=docker/dockerfile:1.4
+# ====================================================================
+# Helix Sway Desktop - Ubuntu 25.10 base with minimal GOW
+# ====================================================================
+# Using Ubuntu 25.10 directly (like KDE) for package version consistency.
+# Developers can switch between Sway and KDE without version differences.
+# See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+
 # ====================================================================
 # Build grim from source with JPEG support
 # ====================================================================
 # Ubuntu's grim package is compiled without libjpeg, so we build from source
 # to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
-FROM ubuntu:25.04 AS grim-build
+FROM ubuntu:25.10 AS grim-build
 RUN apt-get update && apt-get install -y \
     meson ninja-build pkg-config git \
     libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
@@ -16,9 +24,22 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
     cp build/grim /grim-bin
 
 # ====================================================================
-# Go build stage for screenshot-server and settings-sync-daemon
+# Go build stage for Helix binaries
 # ====================================================================
+# Uses Debian-based golang image for GStreamer development libraries.
+# desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
+ARG GO_CODE_HASH=unknown
+
+# Install GStreamer development libraries for go-gst bindings
+# These are required for CGO compilation of desktop-bridge
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -26,130 +47,466 @@ COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    echo "Go code hash: ${GO_CODE_HASH}" && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
-# Patched wlroots build stage (Debian package rebuild)
+# Rust build stage for GStreamer zero-copy plugin
 # ====================================================================
-# Rebuild libwlroots12 with our keyboard layout fix patch.
-# This fixes a bug where pressing modifier keys (Shift/Ctrl/Alt) would
-# reset the keyboard layout to US when running Sway as a nested compositor.
+# This plugin enables GPU-accelerated video streaming:
+# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
+# - AMD/Intel: DMA-BUF -> VA-API
+# Enable with HELIX_VIDEO_MODE=zerocopy
 #
-# We use Debian's packaging system (dpkg-buildpackage + quilt patches)
-# which is the cleanest way to maintain custom library patches.
-#
-# The patch adds WLR_IGNORE_PARENT_KEYBOARD_LAYOUT environment variable
-# that, when set to "1", preserves Sway's own keyboard layout instead of
-# syncing to the parent compositor's layout.
-#
-# Version suffix: -helix1 indicates our custom patch
-# ====================================================================
-FROM ubuntu:25.04 AS wlroots-build
-
-# Enable source repositories and install build dependencies
-RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update && \
-    apt-get install -y dpkg-dev devscripts quilt && \
-    apt-get build-dep -y libwlroots12t64 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Get the source package
+# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
+FROM ubuntu:25.10 AS rust-build-env
 WORKDIR /build
-RUN apt-get update && apt-get source libwlroots12t64
 
-# Copy our patch into the Debian patches directory
-COPY wolf/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
-RUN cd /build/wlroots-* && \
-    mkdir -p debian/patches && \
-    cp /build/0001-wayland-backend-ignore-parent-layout-group.patch debian/patches/ && \
-    echo "0001-wayland-backend-ignore-parent-layout-group.patch" >> debian/patches/series
+# Install Rust and GStreamer dev packages
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-plugins-base \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libegl1-mesa-dev \
+    libdrm-dev \
+    libclang-dev \
+    pkg-config \
+    libinput-dev \
+    libxkbcommon-dev \
+    libwayland-dev \
+    libudev-dev \
+    libgbm-dev \
+    libgstreamer-plugins-bad1.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
 
-# Update the version to indicate our custom build
-RUN cd /build/wlroots-* && \
-    dch --local helix "Add WLR_IGNORE_PARENT_KEYBOARD_LAYOUT to fix nested compositor layout reset"
+# Install Rust 1.85 via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Build the package
-RUN cd /build/wlroots-* && \
-    dpkg-buildpackage -us -uc -b
+# Copy plugin source and vendored dependency
+COPY desktop/wayland-display-core ./wayland-display-core/
+COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
+
+# Build the plugin (creates libgstpipewirezerocopy.so)
+# Note: Not caching target directory to ensure fresh rebuild when dependencies change
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cd gst-pipewire-zerocopy && \
+    cargo build --release && \
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # ====================================================================
-# Sway Personal Dev Environment
+# wlroots 0.19.0 build stage (from source)
 # ====================================================================
-FROM ghcr.io/games-on-whales/base-app:edge
-
-# ====================================================================
-# Install patched wlroots library
-# ====================================================================
-# Replace the stock wlroots with our patched version that fixes the
-# keyboard layout reset bug when running Sway as a nested compositor.
-# The patched library adds WLR_IGNORE_PARENT_KEYBOARD_LAYOUT support.
+# Build wlroots 0.19.0 from source with:
+# 1. Staging protocols enabled (-Dstaging-protocols=enabled) for ext-image-copy-capture
+#    This provides damage tracking for efficient screen capture.
+# 2. Our keyboard layout fix patch (WLR_IGNORE_PARENT_KEYBOARD_LAYOUT)
+#    This fixes modifier key resetting layout when running as nested compositor.
 #
-# We copy the .deb package from our build stage and install it, which
-# properly replaces the stock libwlroots12t64 package.
-COPY --from=wlroots-build /build/*.deb /tmp/wlroots/
-RUN dpkg -i /tmp/wlroots/libwlroots12*.deb && rm -rf /tmp/wlroots
+# Required for ext-image-copy-capture-v1 protocol (Sway 1.11 needs wlroots 0.19)
+FROM ubuntu:25.10 AS wlroots-build
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /build
+
+# Install wlroots 0.19 build dependencies
+# Based on: https://github.com/swaywm/wlroots/blob/master/meson.build
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libwayland-egl1 \
+    libdrm-dev libgbm-dev \
+    libxkbcommon-dev \
+    libudev-dev \
+    libpixman-1-dev \
+    libseat-dev \
+    libinput-dev \
+    libvulkan-dev glslang-tools \
+    libdisplay-info-dev \
+    libliftoff-dev \
+    libxcb1-dev libxcb-composite0-dev libxcb-icccm4-dev libxcb-image0-dev \
+    libxcb-render0-dev libxcb-render-util0-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+    libxcb-xinput-dev libxcb-ewmh-dev \
+    libxcb-dri3-dev libxcb-res0-dev \
+    libegl1-mesa-dev libgles2-mesa-dev \
+    xwayland \
+    hwdata \
+    wayland-protocols \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone wlroots 0.19.0 (stable release tag)
+RUN git clone --depth 1 --branch 0.19.0 https://gitlab.freedesktop.org/wlroots/wlroots.git
+
+# Apply our keyboard layout fix patch
+COPY desktop/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
+RUN cd wlroots && \
+    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch || \
+    echo "Patch may not apply cleanly to 0.19.0, continuing anyway"
+
+# Build wlroots 0.19 (includes ext-image-copy-capture-v1 by default)
+RUN cd wlroots && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        -Dexamples=false \
+        -Dxwayland=enabled && \
+    ninja -C build && \
+    DESTDIR=/wlroots-install ninja -C build install
+
+# ====================================================================
+# Sway 1.11 build stage (from source)
+# ====================================================================
+# Build Sway 1.11 from source against wlroots 0.19.0
+# Required for ext-image-copy-capture-v1 protocol support
+FROM ubuntu:25.10 AS sway-build
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /build
+
+# Install Sway build dependencies
+# Note: libxcb-dri3-dev, libxcb-res0-dev, libegl-dev, libgles-dev are needed for
+# wlroots-0.19.pc Requires.private validation by pkg-config
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libwayland-egl1 \
+    libdrm-dev libgbm-dev \
+    libxkbcommon-dev \
+    libudev-dev \
+    libpixman-1-dev \
+    libseat-dev \
+    libinput-dev \
+    libvulkan-dev glslang-tools \
+    libdisplay-info-dev \
+    libliftoff-dev \
+    libxcb1-dev libxcb-composite0-dev libxcb-icccm4-dev libxcb-image0-dev \
+    libxcb-render0-dev libxcb-render-util0-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+    libxcb-xinput-dev libxcb-ewmh-dev \
+    libxcb-dri3-dev libxcb-res0-dev \
+    libegl-dev libgles-dev \
+    xwayland \
+    hwdata \
+    wayland-protocols \
+    libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+    libjson-c-dev libpcre2-dev \
+    libevdev-dev libdbus-1-dev \
+    libsystemd-dev libpam0g-dev libcap-dev \
+    scdoc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy wlroots from previous build stage
+COPY --from=wlroots-build /wlroots-install /
+
+# Update library cache for wlroots
+RUN ldconfig && \
+    echo "=== Verifying wlroots installation ===" && \
+    ls -la /usr/lib/x86_64-linux-gnu/libwlroots*.so* && \
+    ls -la /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots*.pc && \
+    cat /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots-0.19.pc
+
+# Clone Sway 1.11 (stable release tag)
+RUN git clone --depth 1 --branch 1.11 https://github.com/swaywm/sway.git
+
+# Build Sway with explicit PKG_CONFIG_PATH
+# ENV doesn't expand correctly, so we set it inline
+RUN export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-} && \
+    echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" && \
+    echo "=== Debug pkg-config ===" && \
+    pkg-config --variable pc_path pkg-config || true && \
+    pkg-config --print-errors --cflags wlroots-0.19 || true && \
+    pkg-config --validate wlroots-0.19 || true && \
+    cd sway && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        -Dsd-bus-provider=libsystemd \
+        -Dtray=disabled && \
+    ninja -C build && \
+    DESTDIR=/sway-install ninja -C build install
+
+# ====================================================================
+# Sway Desktop - Ubuntu 25.10 base with minimal GOW
+# ====================================================================
+FROM ubuntu:25.10
+
+# Configure default user and set env (from GOW base-app)
+ENV \
+    PUID=1000 \
+    PGID=1000 \
+    UMASK=000 \
+    UNAME="retro" \
+    HOME="/home/retro" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
+
+ARG TARGETARCH TARGETVARIANT
+
+# Install GOW base requirements + Sway packages
+ARG GOSU_VERSION=1.14
+
+ARG CORE_PACKAGES=" \
+    wget \
+    curl \
+    jq \
+    fuse \
+    libnss3 \
+    ca-certificates \
+    dbus \
+    flatpak \
+    locales \
+    software-properties-common \
+    gpg-agent \
+    sudo \
+    bc \
+    "
+
+# NOTE: sway is built from source (1.11 with wlroots 0.19) - not from apt
+# This provides ext-image-copy-capture-v1 support for damage tracking
+ARG DE_PACKAGES=" \
+    waybar \
+    foot \
+    fuzzel \
+    mako-notifier \
+    swaybg \
+    swayidle \
+    wl-clipboard \
+    ydotool \
+    wtype \
+    pipewire \
+    pipewire-audio \
+    xdg-desktop-portal \
+    xdg-desktop-portal-wlr \
+    "
+
+# Copy wlroots 0.19.0 and Sway 1.11 from build stages
+COPY --from=wlroots-build /wlroots-install /
+COPY --from=sway-build /sway-install /
+
+# Install base packages, PPAs, and Sway dependencies
+RUN <<_INSTALL_BASE
+  set -e
+
+  echo "**** Update apt database ****"
+  apt-get update
+
+  echo "**** Install base packages ****"
+  apt-get install -y --no-install-recommends $CORE_PACKAGES
+
+  echo "**** Install gosu (from GOW) ****"
+  GOSU_ARCH="${TARGETARCH:-amd64}"
+  wget --progress=dot:giga \
+      -O /usr/bin/gosu \
+      "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"
+  chmod +x /usr/bin/gosu
+  gosu nobody true && echo "gosu working!"
+
+  echo "**** Setup Firefox PPA ****"
+  add-apt-repository -y ppa:mozillateam/ppa
+
+  echo "**** Configure APT pins ****"
+  cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+PINEOF
+
+  # Prevent apt from installing packaged sway/wlroots (we built from source)
+  cat > /etc/apt/preferences.d/sway-hold << 'PINEOF'
+Package: sway libwlroots*
+Pin: release *
+Pin-Priority: -1
+PINEOF
+
+  apt-get update
+
+  echo "**** Install Sway dependencies and related packages ****"
+  # Install runtime dependencies that sway/wlroots need
+  apt-get install -y \
+    libwayland-client0 libwayland-server0 libwayland-cursor0 libwayland-egl1 \
+    libdrm2 libgbm1 \
+    libxkbcommon0 \
+    libudev1 \
+    libpixman-1-0 \
+    libseat1 \
+    libinput10 \
+    libvulkan1 \
+    libdisplay-info2 \
+    libliftoff0 \
+    libxcb1 libxcb-composite0 libxcb-icccm4 libxcb-image0 \
+    libxcb-render0 libxcb-render-util0 libxcb-shm0 libxcb-xfixes0 \
+    libxcb-xinput0 libxcb-ewmh2 \
+    libxcb-res0 libxcb-dri3-0 \
+    xwayland \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
+    libjson-c5 libpcre2-8-0 \
+    libevdev2 libdbus-1-3 \
+    libsystemd0 libpam0g libcap2
+
+  echo "**** Install Sway companion packages ****"
+  apt-get install -y $DE_PACKAGES firefox libavcodec-extra
+
+  echo "**** Update library cache for custom wlroots/sway ****"
+  ldconfig
+
+  echo "=== Installed Sway Versions ==="
+  sway --version || echo "sway binary not in PATH"
+  ls -la /usr/bin/sway || echo "sway not at /usr/bin/sway"
+  ldd /usr/bin/sway 2>/dev/null | head -5 || true
+
+  echo "**** Cleanup ****"
+  apt autoremove -y
+  apt clean
+  rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+_INSTALL_BASE
 
 # Enable the keyboard layout fix - this tells wlroots to preserve Sway's
 # own keyboard layout instead of syncing to the parent compositor's layout.
 ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
 
-# RADV debug options for AMD MxGPU crash prevention
-# hang: Enables syncshaders internally, which serializes GPU commands
-# This prevents race conditions that cause GPU crashes on AMD Radeon Pro V710 MxGPU (Azure NVv5)
-# See: design/2025-12-17-zed-gpu-crash-amd-vm-version-mismatch.md
-ENV RADV_DEBUG=hang
+# Create retro user (from GOW base-app)
+# Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
+RUN <<_CREATE_USER
+  set -e
+  # Remove existing user with UID 1000 if present
+  EXISTING_USER=$(getent passwd 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_USER" ]; then
+    userdel -r "$EXISTING_USER" 2>/dev/null || userdel "$EXISTING_USER" || true
+  fi
+  # Remove existing group with GID 1000 if present
+  EXISTING_GROUP=$(getent group 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_GROUP" ]; then
+    groupdel "$EXISTING_GROUP" 2>/dev/null || true
+  fi
+  # Create retro user/group
+  groupadd -g 1000 retro
+  useradd -m -u 1000 -g 1000 -s /bin/bash retro
+  mkdir -p /home/retro
+  chown -R retro:retro /home/retro
+_CREATE_USER
 
-# RadeonSI (OpenGL) debug options for GL apps (Firefox, GNOME apps)
-# sync_compile: Always compile shaders synchronously (prevents race conditions)
-# check_vm: Check VM faults and dump debug info
-ENV AMD_DEBUG=sync_compile,check_vm
+# GOW utilities and entrypoint (minimal version)
+RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d /cfg/sway /cfg/waybar
 
-# Add passwordless sudo and basic tools
-RUN apt-get update && \
-    apt-get install -y sudo wget curl ca-certificates gnupg software-properties-common && \
-    # Add passwordless sudo for all users in group 1000 (retro/user will be in this group)
-    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+# GOW utils.sh (minimal implementation)
+COPY <<'_GOW_UTILS' /opt/gow/bash-lib/utils.sh
+#!/bin/bash
+gow_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+export -f gow_log
+_GOW_UTILS
+
+# GOW launch-comp.sh stub (startup-app.sh sources this but defines its own launcher)
+COPY <<'_LAUNCH_COMP' /opt/gow/launch-comp.sh
+#!/bin/bash
+# Stub for GOW launch-comp.sh - custom_launcher is defined in startup-app.sh
+_LAUNCH_COMP
+
+# GOW user setup init script
+COPY <<'_USER_INIT' /etc/cont-init.d/10-setup_user.sh
+#!/bin/bash
+echo "**** Configure default user ****"
+echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
+echo "Setting umask to ${UMASK}"
+umask "${UMASK}"
+echo "Ensure ${UNAME} home directory is writable"
+chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+echo "Ensure XDG_RUNTIME_DIR is writable"
+mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
+chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+_USER_INIT
+
+# GOW entrypoint
+COPY <<'_ENTRYPOINT' /entrypoint.sh
+#!/usr/bin/env bash
+set -e
+source /opt/gow/bash-lib/utils.sh
+if [ "$(id -u)" = "0" ]; then
+    for init_script in /etc/cont-init.d/*.sh ; do
+        gow_log
+        gow_log "[ ${init_script}: executing... ]"
+        source "${init_script}"
+    done
+fi
+if [ -n "${@:-}" ]; then
+    /bin/bash -c "$@"
+    exit $?
+fi
+gow_log "Launching the container's startup script as user '${UNAME}'"
+chmod +x /opt/gow/startup-app.sh 2>/dev/null || true
+exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup-app.sh}
+_ENTRYPOINT
+RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh /opt/gow/launch-comp.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# GOW fixes (locale setup)
+RUN <<_FIXES
+  set -e
+  locale-gen en_US.UTF-8
+_FIXES
+
+# Sway/Wayland environment variables
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    XDG_SESSION_TYPE=wayland \
+    XDG_CURRENT_DESKTOP=sway \
+    QT_QPA_PLATFORM=wayland \
+    GDK_BACKEND=wayland \
+    CLUTTER_BACKEND=wayland \
+    SDL_VIDEODRIVER=wayland \
+    RUN_SWAY=1
+
+# GOW dbus init script
+COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+#!/bin/bash
+service dbus start 2>/dev/null || true
+_DBUS_INIT
+RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
+
+# ====================================================================
+# Helix additions (same pattern as KDE)
+# ====================================================================
+
+# RADV/AMD debug options - REMOVED RADV_DEBUG=hang which adds significant overhead
+# See: https://docs.mesa3d.org/envvars.html
+# ENV RADV_DEBUG=hang  # DO NOT USE - adds costly GPU sync after every draw call
+# ENV AMD_DEBUG=sync_compile,check_vm  # sync_compile also adds overhead
+
+# Video streaming mode is set per-stream via URL param (?videoMode=native|zerocopy|shm)
+# Default is 'zerocopy' (custom pipewirezerocopysrc plugin) - see ws_stream.go getVideoMode()
+# - zerocopy: pipewirezerocopysrc → cudaupload → nvh264enc (GPU encoding)
+# - shm: wf-recorder fallback (legacy)
+# - native: stock pipewiresrc (GNOME only)
+
+# Passwordless sudo
+RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    # Clean up apt cache
-    rm -rf /var/lib/apt/lists/*
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Install Firefox from Mozilla Team PPA (following GOW pattern)
-COPY <<_APT_PIN /etc/apt/preferences.d/mozilla-firefox
-Package: *
-Pin: release o=LP-PPA-mozillateam
-Pin-Priority: 1001
-_APT_PIN
-
+# Docker CLI
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
-    && add-apt-repository ppa:mozillateam/ppa \
-    && apt-get install -y --no-install-recommends firefox libavcodec-extra \
-    && apt-get remove -y software-properties-common gpg-agent \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Docker CLI only (daemon on host via socket mount)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
-    # Note: docker group is created at runtime by 16-add-docker-group.sh
-    # with the correct GID matching the mounted socket from sandbox
 
-# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
-# These wrappers intercept docker/compose commands and resolve symlinks in volume
-# paths before passing to the real binaries, enabling bind mounts to work
-# correctly when using Hydra (nested dockerd per session).
-COPY wolf/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+# Docker wrappers for Hydra compatibility
+COPY desktop/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -157,42 +514,49 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Install grim, lsof, git, bash, Ghostty, and emoji fonts
+# Utilities (Sway-specific + common)
 RUN apt-get update && apt-get install -y \
-    # Debugging utilities (grim is built from source with JPEG support)
-    # libjpeg-turbo8 is runtime dependency for our custom grim
-    # bc is required by GOW startup-app.sh for calculations
-    lsof libjpeg-turbo8 bc \
-    # Clipboard tools for Wayland clipboard sync
-    wl-clipboard \
-    # Input device testing tools for keyboard state observability
+    lsof libjpeg-turbo8 \
     evtest evemu-tools \
-    # Shell and Git for repository access
     bash git openssh-client \
-    # Emoji and icon fonts for waybar
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
-    # GTK and GUI dependencies for Ghostty
-    && apt-get install -y libgtk-4-dev libgtk-4-1 libadwaita-1-0 \
-    libgraphene-1.0-0 libcairo2 libcairo-gobject2 \
-    libgdk-pixbuf-2.0-0 libpango-1.0-0 libpangocairo-1.0-0 \
-    libfontconfig1 libfreetype6 libharfbuzz0b \
-    libglib2.0-0 libgobject-2.0-0 libgio-2.0-0 \
-    # Additional runtime dependencies
-    libegl1 libgl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
-    libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 \
-    && wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" \
-    && dpkg -i /tmp/ghostty.deb && rm /tmp/ghostty.deb \
-    && rm -rf /var/lib/apt/lists/*
+    imagemagick \
+    kitty \
+    scrot xclip \
+    vulkan-tools \
+    # GStreamer for video streaming (pipewiresrc → h264 encoding → RTP)
+    gstreamer1.0-tools \
+    gstreamer1.0-pipewire \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-vaapi \
+    gstreamer1.0-gl \
+    mesa-va-drivers \
+    # NVIDIA VAAPI driver provides VA-API frontend to NVDEC for Firefox/Chrome video decoding
+    nvidia-vaapi-driver \
+    # NVIDIA NVENC support - libnvcuvid provides nvh264enc/nvh265enc elements
+    # The actual NVENC library (libnvidia-encode.so) is mounted by nvidia-container-toolkit
+    # but we need the gstreamer-cuda library for proper plugin initialization
+    libgstreamer-plugins-bad1.0-0 \
+    # wf-recorder for wlroots-native screen capture (uses wlr-screencopy directly)
+    # pipewiresrc has compatibility issues with xdg-desktop-portal-wlr
+    wf-recorder \
+    && rm -rf /var/lib/apt/lists/* \
+    # Create symlink for libgstcuda - required for nvcodec plugin to find CUDA runtime
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true
 
-# Download and set Helix logo as background
+# Install Ghostty terminal
+RUN wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" \
+    && dpkg -i /tmp/ghostty.deb || apt-get install -f -y \
+    && rm /tmp/ghostty.deb
+
+# Helix background
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# ====================================================================
-# Install Node.js 20 (required for AI coding agents)
-# ====================================================================
-# CACHE OPTIMIZATION: Node.js and Qwen Code rarely change, so install early
-# to avoid re-building on every sway config or script change.
+# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -203,75 +567,127 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Build Qwen Code from AUDITED source (NOT from npm)
+# Chrome + DevTools MCP Server (stable dependency - installed early)
 # ====================================================================
-# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
-# with audited commits and critical bug fixes.
-#
-# BUILD APPROACH: Copy pre-built qwen-code from local directory
-# This is faster during development and ensures we're using our fixes.
-# The qwen-code-build directory must be prepared by ./stack build-sway
-#
-# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
-# ensuring Docker rebuilds this layer with the latest code.
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control.
+# Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+RUN apt-get update && apt-get install -y \
+    fonts-liberation \
+    libasound2t64 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
+    && rm /tmp/google-chrome.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    && mkdir -p /etc/opt/chrome/policies/managed \
+    && echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
+    # Create wrapper script with VA-API for hardware video decoding
+    && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
+    && chmod +x /usr/bin/google-chrome-stable
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
+
+# Install chrome-devtools-mcp globally and pre-build fontconfig cache
+RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
+
+# Qwen Code
 ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-# Create global qwen command by symlinking pre-built dist/cli.js
-# We don't use 'npm install -g .' because it tries to run prepare scripts
 RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    echo "Fixes: [object Object] error display + shell security disabled" && \
     chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
-# ====================================================================
-# Frequently-changing files below (cache invalidation expected)
-# ====================================================================
-
-# Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
-RUN mkdir -p /cfg/sway
-ADD wolf/sway-config/config /cfg/sway/custom-cfg
-ADD wolf/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
+# Sway configuration (GOW pattern)
+ADD desktop/sway-config/config /cfg/sway/config
+ADD desktop/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
 RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
 
-# Copy and setup Zed startup script and helper scripts
-ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
+# Waybar default config (will be customized by startup-app.sh)
+RUN mkdir -p /cfg/waybar && touch /cfg/waybar/.keep
 
-# Copy GOW startup script
-ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
+# Helix startup script
+ADD desktop/sway-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
-# Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
-# CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
-ADD wolf/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+# Helix helper scripts
+ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+
+# Docker group init script
+ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
-# Copy welcome README template for workspace initialization
+# Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+# Helix Go binaries
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
-# grim built from source with JPEG support (Ubuntu's package lacks it)
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
-# Copy Zed binary (built with ./stack build-zed before Docker build)
-# CRITICAL: Must be built with --features external_websocket_sync
+# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+
+# Zed binary
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
-# Install Zed desktop file and icon for desktop integration
-# Even Sway can benefit from this for app launchers like wofi/rofi
-# The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
-# IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
-RUN apt-get update && apt-get install -y imagemagick && rm -rf /var/lib/apt/lists/*
-COPY wolf/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+# Zed desktop file and icon
+COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \
@@ -281,91 +697,32 @@ RUN for size in 16 24 32 48 64 128 256; do \
             /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
     done
 
-# Create Qwen Code configuration directory for retro user
-# IMPORTANT: This configuration DISABLES all telemetry and auto-updates
+# AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
-    cat > /home/retro/.qwen/settings.json <<'QWEN_CONFIG'
-{
-  "privacy": {
-    "usageStatisticsEnabled": false
-  },
-  "general": {
-    "disableAutoUpdate": true,
-    "disableUpdateNag": true
-  }
-}
-QWEN_CONFIG
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
 
-# ====================================================================
-# Configure Gemini CLI (if installed) - Same privacy settings as Qwen Code
-# ====================================================================
-# Gemini CLI uses identical telemetry settings (Qwen Code is a fork)
 RUN mkdir -p /home/retro/.gemini && \
-    cat > /home/retro/.gemini/settings.json <<'GEMINI_CONFIG'
-{
-  "privacy": {
-    "usageStatisticsEnabled": false
-  },
-  "general": {
-    "disableAutoUpdate": true,
-    "disableUpdateNag": true
-  }
-}
-GEMINI_CONFIG
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-# ====================================================================
-# Configure Claude Code CLI Privacy Settings
-# ====================================================================
 RUN mkdir -p /home/retro/.claude && \
-    cat > /home/retro/.claude/settings.json <<'CLAUDE_CONFIG'
-{
-  "env": {
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "DISABLE_TELEMETRY": "1",
-    "DISABLE_ERROR_REPORTING": "1",
-    "DISABLE_AUTOUPDATER": "1"
-  }
-}
-CLAUDE_CONFIG
+    echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
 
-# ====================================================================
-# Configure Zed Editor Privacy Settings
-# ====================================================================
-# agent_servers and default_agent are dynamically generated by settings-sync-daemon
-# based on QWEN_BASE_URL, QWEN_MODEL (installer-configurable) and USER_API_TOKEN (per-session)
 RUN mkdir -p /home/retro/.config/zed && \
-    cat > /home/retro/.config/zed/settings.json <<'ZED_CONFIG'
-{
-  "telemetry": {
-    "diagnostics": false,
-    "metrics": false
-  }
-}
-ZED_CONFIG
+    echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
 
-# ====================================================================
-# Set environment variables for AI agent privacy (defense-in-depth)
-# ====================================================================
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1 \
     DISABLE_AUTOUPDATER=1 \
-    # Skip TLS certificate verification for Node.js (Qwen Code, Claude Code)
-    # Required for enterprise deployments with internal CAs
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
-    # Skip TLS certificate verification for Zed HTTP clients (Anthropic, OpenAI APIs)
-    # Required for enterprise deployments with internal CAs
     ZED_HTTP_INSECURE_TLS=1
 
-# ====================================================================
-# Configure Git - Disable TLS verification (self-signed certs in dev)
-# ====================================================================
 RUN git config --system http.sslVerify false
 
 # Configure Kitty terminal (system-wide, since /home/retro is bind-mounted)
-RUN mkdir -p /etc/xdg/kitty && \
-    cat > /etc/xdg/kitty/kitty.conf <<'KITTY_CONFIG'
+RUN mkdir -p /etc/xdg/kitty
+COPY <<'KITTY_CONFIG' /etc/xdg/kitty/kitty.conf
 # Close window when shell exits (don't leave orphan windows)
 close_on_child_death yes
 
@@ -374,66 +731,17 @@ background #1e1e2e
 foreground #cdd6f4
 KITTY_CONFIG
 
-# Fix ownership - all configs must be owned by retro user (UID/GID 1000)
 RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
                         /home/retro/.config/zed
 
-# ====================================================================
-# AI Agent Privacy Configuration Summary
-# ====================================================================
-# NOTE: OS-level telemetry firewall (iptables) is configured in the
-# sandbox container (Wolf host), not inside agent containers. This allows:
-#   - Centralized monitoring across all agents
-#   - Per-agent telemetry tracking (by container IP/name)
-#   - No iptables dependency in agent containers
-#
-# ====================================================================
-# The above configuration ensures ALL AI coding agents are privacy-compliant:
-#
-# QWEN CODE (built from audited source, NOT npm):
-#   - Source: Built from https://github.com/QwenLM/qwen-code (audited commit)
-#   - Config: /home/retro/.qwen/settings.json
-#   - Telemetry: DISABLED (Alibaba Cloud + Google blocked)
-#   - Auto-update: DISABLED
-#   - Env: GEMINI_TELEMETRY_ENABLED=false
-#   - Firewall: gb4w8c3ygj-default-sea.rum.aliyuncs.com, play.googleapis.com
-#
-# GEMINI CLI (if installed):
-#   - Config: /home/retro/.gemini/settings.json
-#   - Telemetry: DISABLED (same system as Qwen Code)
-#   - Auto-update: DISABLED
-#   - Firewall: Covered by Qwen Code rules
-#
-# CLAUDE CODE (if installed):
-#   - Config: /home/retro/.claude/settings.json
-#   - Telemetry: DISABLED (Statsig blocked)
-#   - Error reporting: DISABLED
-#   - Auto-update: DISABLED
-#   - Env: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-#   - Firewall: statsig, telemetry.anthropic.com
-#
-# ZED EDITOR:
-#   - Config: /home/retro/.config/zed/settings.json
-#   - Diagnostics: DISABLED (crash reports blocked)
-#   - Metrics: DISABLED (usage stats blocked)
-#   - Firewall: telemetry.zed.dev, zed.dev/api
-#
-# DEFENSE-IN-DEPTH LAYERS:
-#   1. Application config files (per-agent settings.json)
-#   2. Environment variables (global ENV in Dockerfile)
-#   3. OS-level iptables firewall (blocks even if configs bypassed)
-#   4. iptables counters (detect and log all phone-home attempts)
-#   5. Dashboard monitoring (real-time visibility in Helix UI)
-#
-# Monitoring:
-#   - Blocked attempts logged to: /var/log/telemetry-blocks.log
-#   - Counter metrics in: /var/run/telemetry-counters.json
-#   - Dashboard API: GET /api/v1/security/telemetry-status
-#
-# QWEN CODE CONFIGURATION:
-#   - QWEN_BASE_URL: OpenAI-compatible API endpoint (default: $HELIX_API_URL/v1)
-#   - QWEN_MODEL: Model name (default: qwen-oss:120b)
-#   - USER_API_TOKEN: Per-session, set automatically by Helix
-# ====================================================================
+# Hardware video decoding configuration for Firefox/Chrome
+# NVD_BACKEND=direct: nvidia-vaapi-driver uses NVIDIA EGL interop (ignored on AMD/Intel)
+# MOZ_DISABLE_RDD_SANDBOX=1: allows Firefox VA-API in containerized environments
+# Note: LIBVA_DRIVER_NAME is NOT set - libva auto-detects the correct driver:
+#   - NVIDIA: nvidia (via nvidia-vaapi-driver)
+#   - AMD: radeonsi
+#   - Intel: iHD or i965
+ENV NVD_BACKEND=direct \
+    MOZ_DISABLE_RDD_SANDBOX=1

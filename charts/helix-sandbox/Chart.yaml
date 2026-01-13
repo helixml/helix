@@ -1,6 +1,6 @@
 apiVersion: v2
 name: helix-sandbox
-description: Helix Sandbox chart - Wolf + Moonlight Web for remote desktop streaming (supports NVIDIA, AMD, Intel GPUs and software rendering)
+description: Helix Sandbox chart - direct WebSocket desktop streaming (supports NVIDIA, AMD, Intel GPUs and software rendering)
 
 # A chart can be either an 'application' or a 'library' chart.
 #
@@ -26,8 +26,6 @@ appVersion: "1.0.0"
 keywords:
   - helix
   - sandbox
-  - wolf
-  - moonlight
   - streaming
   - gpu
 

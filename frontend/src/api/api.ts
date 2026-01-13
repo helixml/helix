@@ -46,8 +46,23 @@ export interface FilestoreItem {
   url?: string;
 }
 
+export interface GithubComHelixmlHelixApiPkgTypesCommit {
+  author?: string;
+  email?: string;
+  message?: string;
+  sha?: string;
+  timestamp?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
+}
+
+export enum GithubComHelixmlHelixApiPkgTypesRuntime {
+  RuntimeOllama = "ollama",
+  RuntimeDiffusers = "diffusers",
+  RuntimeAxolotl = "axolotl",
+  RuntimeVLLM = "vllm",
 }
 
 export interface GormDeletedAt {
@@ -497,20 +512,8 @@ export interface OpenaiViolence {
 }
 
 export interface ServerAgentSandboxesDebugResponse {
-  /** Apps mode */
-  apps?: ServerWolfAppInfo[];
-  /** GPU encoder stats from Wolf (via nvidia-smi or rocm-smi) */
-  gpu_stats?: ServerGPUStats;
-  /** Actual pipeline count from Wolf */
-  gstreamer_pipelines?: ServerGStreamerPipelineStats;
-  /** Lobbies mode */
-  lobbies?: ServerWolfLobbyInfo[];
-  memory?: ServerWolfSystemMemory;
-  /** moonlight-web client connections */
-  moonlight_clients?: ServerMoonlightClientInfo[];
-  sessions?: ServerWolfSessionInfo[];
-  /** Current Wolf mode ("apps" or "lobbies") */
-  wolf_mode?: string;
+  message?: string;
+  sandboxes?: ServerSandboxInstanceInfo[];
 }
 
 export interface ServerAppCreateResponse {
@@ -534,6 +537,10 @@ export interface ServerCloneCommandResponse {
   clone_url?: string;
   repository_id?: string;
   target_dir?: string;
+}
+
+export interface ServerConfigurePendingSessionRequest {
+  client_unique_id?: string;
 }
 
 export interface ServerCreateSpecTaskFromDemoRequest {
@@ -579,33 +586,6 @@ export interface ServerForkSampleProjectResponse {
   project_id?: string;
 }
 
-export interface ServerGPUStats {
-  /** false if nvidia-smi failed */
-  available?: boolean;
-  encoder_average_fps?: number;
-  encoder_average_latency_us?: number;
-  encoder_session_count?: number;
-  encoder_utilization_percent?: number;
-  error?: string;
-  gpu_name?: string;
-  gpu_utilization_percent?: number;
-  memory_total_mb?: number;
-  memory_used_mb?: number;
-  memory_utilization_percent?: number;
-  /** How long nvidia-smi took in Wolf */
-  query_duration_ms?: number;
-  temperature_celsius?: number;
-}
-
-export interface ServerGStreamerPipelineStats {
-  /** Video + audio consumers (2 per session) */
-  consumer_pipelines?: number;
-  /** Video + audio producers (2 per lobby) */
-  producer_pipelines?: number;
-  /** Sum of producers + consumers */
-  total_pipelines?: number;
-}
-
 export interface ServerInitializeSampleRepositoriesRequest {
   organization_id?: string;
   owner_id?: string;
@@ -618,6 +598,19 @@ export interface ServerInitializeSampleRepositoriesResponse {
   created_repositories?: TypesGitRepository[];
   errors?: string[];
   success?: boolean;
+}
+
+export interface ServerInteractionBrief {
+  id?: string;
+  summary?: string;
+  turn?: number;
+}
+
+export interface ServerInteractionWithContext {
+  interaction?: TypesInteraction;
+  next?: ServerInteractionBrief;
+  previous?: ServerInteractionBrief;
+  turn?: number;
 }
 
 export interface ServerLicenseKeyRequest {
@@ -640,16 +633,6 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
-}
-
-export interface ServerMoonlightClientInfo {
-  /** Unique Moonlight client ID (null for browser clients) */
-  client_unique_id?: string;
-  /** Is a WebRTC client currently connected? */
-  has_websocket?: boolean;
-  /** "create", "keepalive", "join" */
-  mode?: string;
-  session_id?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -739,15 +722,42 @@ export interface ServerSampleTypesResponse {
   sample_types?: ServerSampleType[];
 }
 
-export interface ServerSessionWolfAppStateResponse {
-  /** Unique Moonlight client ID for this agent */
-  client_unique_id?: string;
-  /** Is a browser client currently connected? */
-  has_websocket?: boolean;
+export interface ServerSandboxInstanceInfo {
+  container_id?: string;
+  id?: string;
   session_id?: string;
-  /** "absent", "running", "resumable" */
+  status?: string;
+}
+
+export interface ServerSessionSandboxStateResponse {
+  container_id?: string;
+  session_id?: string;
+  /** "absent", "running", "starting" */
   state?: string;
-  wolf_app_id?: string;
+}
+
+export interface ServerSessionTOCEntry {
+  /** When this turn happened */
+  created?: string;
+  /** Whether there's a user prompt */
+  has_prompt?: boolean;
+  /** Whether there's an assistant response */
+  has_response?: boolean;
+  /** Interaction ID */
+  id?: string;
+  /** One-line summary */
+  summary?: string;
+  /** 1-indexed turn number */
+  turn?: number;
+}
+
+export interface ServerSessionTOCResponse {
+  entries?: ServerSessionTOCEntry[];
+  /** Formatted is a pre-formatted numbered list for easy consumption */
+  formatted?: string;
+  session_id?: string;
+  session_name?: string;
+  total_turns?: number;
 }
 
 export interface ServerSharePointSiteResolveRequest {
@@ -783,6 +793,7 @@ export interface ServerSlotLogSummary {
 }
 
 export interface ServerSpecTaskExternalAgentStatusResponse {
+  container_app_id?: string;
   exists?: boolean;
   external_agent_id?: string;
   helix_session_ids?: string[];
@@ -791,7 +802,6 @@ export interface ServerSpecTaskExternalAgentStatusResponse {
   status?: string;
   warning_threshold?: boolean;
   will_terminate_in?: number;
-  wolf_app_id?: string;
   workspace_dir?: string;
 }
 
@@ -816,85 +826,6 @@ export interface ServerTaskSpecsResponse {
   status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
-}
-
-export interface ServerWolfAppInfo {
-  id?: string;
-  title?: string;
-}
-
-export interface ServerWolfAppMemory {
-  app_id?: string;
-  app_name?: string;
-  client_count?: number;
-  memory_bytes?: number;
-  resolution?: string;
-}
-
-export interface ServerWolfClientConnection {
-  /** apps mode: connected app */
-  app_id?: string;
-  client_ip?: string;
-  /** lobbies mode: connected lobby */
-  lobby_id?: string;
-  memory_bytes?: number;
-  resolution?: string;
-  /** Wolf returns this as string (Moonlight protocol requirement) */
-  session_id?: string;
-}
-
-export interface ServerWolfLobbyInfo {
-  id?: string;
-  multi_user?: boolean;
-  name?: string;
-  pin?: number[];
-  started_by_profile_id?: string;
-  stop_when_everyone_leaves?: boolean;
-}
-
-export interface ServerWolfLobbyMemory {
-  client_count?: number;
-  lobby_id?: string;
-  lobby_name?: string;
-  memory_bytes?: number;
-  resolution?: string;
-}
-
-export interface ServerWolfSessionInfo {
-  /** Wolf UI app ID in lobbies mode */
-  app_id?: string;
-  client_ip?: string;
-  /** Helix client ID (helix-agent-{session_id}-{instance_id}) */
-  client_unique_id?: string;
-  display_mode?: {
-    av1_supported?: boolean;
-    height?: number;
-    hevc_supported?: boolean;
-    refresh_rate?: number;
-    width?: number;
-  };
-  /** Seconds since last ENET packet (for timeout monitoring) */
-  idle_seconds?: number;
-  /** Which lobby this session is connected to (lobbies mode) */
-  lobby_id?: string;
-  /** Exposed as session_id for frontend (Wolf's client_id) */
-  session_id?: string;
-}
-
-export interface ServerWolfSystemMemory {
-  /** Apps mode */
-  apps?: ServerWolfAppMemory[];
-  clients?: ServerWolfClientConnection[];
-  /** From Wolf's GPU monitoring query (nvidia-smi or rocm-smi) */
-  gpu_stats?: ServerGPUStats;
-  gstreamer_buffer_bytes?: number;
-  /** From Wolf's state */
-  gstreamer_pipelines?: ServerGStreamerPipelineStats;
-  /** Lobbies mode */
-  lobbies?: ServerWolfLobbyMemory[];
-  process_rss_bytes?: number;
-  success?: boolean;
-  total_memory_bytes?: number;
 }
 
 export interface ServicesKoditEnrichmentAttributes {
@@ -1085,7 +1016,7 @@ export interface TypesAllocationPlanView {
   runner_id?: string;
   /** GPU index -> allocated memory */
   runner_memory_state?: Record<string, number>;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   tensor_parallel_size?: number;
   total_memory_required?: number;
   validation_error?: string;
@@ -1638,28 +1569,12 @@ export interface TypesCommentQueueStatusResponse {
   queued_comment_ids?: string[];
 }
 
-export interface TypesCommit {
-  author?: string;
-  email?: string;
-  message?: string;
-  sha?: string;
-  timestamp?: string;
-}
-
 export interface TypesContainerDiskUsage {
-  /** Docker container ID */
   container_id?: string;
-  /** Container name (e.g., "wolf-app-abc123") */
   container_name?: string;
-  /** Size of read-write layer only */
+  /** Writable layer size */
   rw_size_bytes?: number;
-  /** Total size of container's writable layer */
   size_bytes?: number;
-}
-
-export interface TypesContainerDiskUsageSummary {
-  container_name?: string;
-  latest_size_mb?: number;
 }
 
 export interface TypesContextMenuAction {
@@ -1808,35 +1723,24 @@ export interface TypesDiscordTrigger {
   server_name?: string;
 }
 
-export interface TypesDiskUsageDataPoint {
+export interface TypesDiskUsageHistory {
   alert_level?: string;
-  avail_mb?: number;
+  avail_bytes?: number;
+  id?: string;
   mount_point?: string;
-  timestamp?: string;
-  total_mb?: number;
-  used_mb?: number;
-  used_percent?: number;
-}
-
-export interface TypesDiskUsageHistoryResponse {
-  containers?: TypesContainerDiskUsageSummary[];
-  history?: TypesDiskUsageDataPoint[];
-  wolf_instance_id?: string;
-  wolf_name?: string;
+  recorded?: string;
+  sandbox_id?: string;
+  total_bytes?: number;
+  used_bytes?: number;
 }
 
 export interface TypesDiskUsageMetric {
   /** "ok", "warning", "critical" */
   alert_level?: string;
-  /** available disk space */
   avail_bytes?: number;
-  /** e.g., "/var" */
   mount_point?: string;
-  /** total disk space */
   total_bytes?: number;
-  /** used disk space */
   used_bytes?: number;
-  /** percentage used (0-100) */
   used_percent?: number;
 }
 
@@ -1876,6 +1780,8 @@ export interface TypesExternalAgentConfig {
   display_width?: number;
   /** Display resolution - either use Resolution preset or explicit dimensions */
   resolution?: string;
+  /** Video capture/encoding mode */
+  video_mode?: string;
   /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
   zoom_level?: number;
 }
@@ -2237,7 +2143,7 @@ export interface TypesGlobalAllocationDecision {
   /** Timing information */
   planning_time_ms?: number;
   reason?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   selected_plan?: TypesAllocationPlanView;
   session_id?: string;
   /** Decision outcome */
@@ -2320,6 +2226,12 @@ export interface TypesInteraction {
   session_id?: string;
   state?: TypesInteractionState;
   status?: string;
+  /**
+   * Summary is a one-line description of this interaction for search/indexing.
+   * Generated lazily on first access or via background job.
+   */
+  summary?: string;
+  summary_updated_at?: string;
   /** System prompt for the interaction (copy of the session's system prompt that was used to create this interaction) */
   system_prompt?: string;
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
@@ -2535,7 +2447,7 @@ export enum TypesLLMCallStep {
 }
 
 export interface TypesListCommitsResponse {
-  commits?: TypesCommit[];
+  commits?: GithubComHelixmlHelixApiPkgTypesCommit[];
   external_status?: TypesExternalStatus;
   page?: number;
   per_page?: number;
@@ -2628,7 +2540,7 @@ export interface TypesModel {
   name?: string;
   /** Whether to prewarm this model to fill free GPU memory on runners */
   prewarm?: boolean;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   /** Runtime-specific arguments (e.g., VLLM command line args) */
   runtime_args?: Record<string, any>;
   /** Order for sorting models in UI (lower numbers appear first) */
@@ -3351,7 +3263,7 @@ export interface TypesRunnerModelStatus {
   /** Memory requirement in bytes */
   memory?: number;
   model_id?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
 }
 
 export interface TypesRunnerSlot {
@@ -3370,7 +3282,7 @@ export interface TypesRunnerSlot {
   model_memory_requirement?: number;
   ready?: boolean;
   runner_id?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   runtime_args?: Record<string, any>;
   status?: string;
   tensor_parallel_size?: number;
@@ -3389,41 +3301,6 @@ export interface TypesRunnerStateView {
   warm_slots?: number;
 }
 
-export enum TypesRuntime {
-  RuntimeOllama = "ollama",
-  RuntimeDiffusers = "diffusers",
-  RuntimeAxolotl = "axolotl",
-  RuntimeVLLM = "vllm",
-}
-
-export interface TypesSSHKeyCreateRequest {
-  key_name: string;
-  private_key: string;
-  public_key: string;
-}
-
-export interface TypesSSHKeyGenerateRequest {
-  key_name: string;
-  /** "ed25519" or "rsa", defaults to ed25519 */
-  key_type?: string;
-}
-
-export interface TypesSSHKeyGenerateResponse {
-  id?: string;
-  key_name?: string;
-  /** Only returned once during generation */
-  private_key?: string;
-  public_key?: string;
-}
-
-export interface TypesSSHKeyResponse {
-  created?: string;
-  id?: string;
-  key_name?: string;
-  last_used?: string;
-  public_key?: string;
-}
-
 export interface TypesSandboxFileUploadResponse {
   /** Original filename */
   filename?: string;
@@ -3431,6 +3308,53 @@ export interface TypesSandboxFileUploadResponse {
   path?: string;
   /** File size in bytes */
   size?: number;
+}
+
+export interface TypesSandboxHeartbeatRequest {
+  /** Container disk usage (per-container storage) */
+  container_usage?: TypesContainerDiskUsage[];
+  /**
+   * Desktop image versions (content-addressable Docker image hashes)
+   * Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+   * Value: image hash (e.g., "a1b2c3d4e5f6...")
+   */
+  desktop_versions?: Record<string, string>;
+  /** Disk usage metrics for monitored mount points */
+  disk_usage?: TypesDiskUsageMetric[];
+  /** GPU configuration */
+  gpu_vendor?: string;
+  /** Privileged mode (host Docker access for development) */
+  privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
+}
+
+export interface TypesSandboxInstance {
+  /** Sandbox capacity */
+  active_sandboxes?: number;
+  created?: string;
+  /**
+   * Desktop image versions available on this sandbox
+   * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
+   */
+  desktop_versions?: number[];
+  /** GPU configuration */
+  gpu_vendor?: string;
+  /** Hostname for DNS resolution */
+  hostname?: string;
+  id?: string;
+  /** IP address of the sandbox */
+  ip_address?: string;
+  /** Last heartbeat time */
+  last_seen?: string;
+  /** Maximum allowed containers */
+  max_sandboxes?: number;
+  privileged_mode?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
+  /** "online", "offline", "degraded" */
+  status?: string;
+  updated?: string;
 }
 
 export interface TypesSchedulingDecision {
@@ -3501,8 +3425,6 @@ export interface TypesServerConfigForFrontend {
   google_analytics_frontend?: string;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
-  /** "single" or "multi" - determines streaming architecture */
-  moonlight_web_mode?: string;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
@@ -3517,8 +3439,6 @@ export interface TypesServerConfigForFrontend {
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
-  /** Requested video streaming bitrate in Mbps (default: 40) */
-  streaming_bitrate_mbps?: number;
   /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
@@ -3636,12 +3556,12 @@ export interface TypesSession {
   question_set_execution_id?: string;
   /** The question set this session belongs to, if any */
   question_set_id?: string;
+  /** SandboxID tracks which sandbox instance is running this session's dev container (if any) */
+  sandbox_id?: string;
   trigger?: string;
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;
-  /** WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any) */
-  wolf_instance_id?: string;
 }
 
 export interface TypesSessionChatRequest {
@@ -3704,8 +3624,16 @@ export interface TypesSessionMetadata {
   avatar?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
+  /** Docker container ID */
+  container_id?: string;
+  /** Container IP on bridge network */
+  container_ip?: string;
+  /** Container fields (Hydra executor) */
+  container_name?: string;
   /** "running" = should be running, "stopped" = can terminate */
   desired_state?: string;
+  /** Dev container ID for streaming */
+  dev_container_id?: string;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -3720,6 +3648,8 @@ export interface TypesSessionMetadata {
   eval_run_id?: string;
   eval_user_reason?: string;
   eval_user_score?: string;
+  /** Executor mode (deprecated - always "hydra") */
+  executor_mode?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
   /** NEW: External agent ID for this session */
@@ -3759,14 +3689,17 @@ export interface TypesSessionMetadata {
   /** helix-sway image version (commit hash) running in this session */
   sway_version?: string;
   system_prompt?: string;
+  /** True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops */
+  system_session?: boolean;
   /** without any user input, this will default to true */
   text_finetune_enabled?: boolean;
+  /**
+   * Title history - tracks evolution of session topics (newest first)
+   * Shown on hover in the SpecTask tab view to see what topics were covered
+   */
+  title_history?: TypesTitleHistoryEntry[];
   /** when we do fine tuning or RAG, we need to know which data entity we used */
   uploaded_data_entity_id?: string;
-  /** Wolf lobby ID for streaming */
-  wolf_lobby_id?: string;
-  /** PIN for Wolf lobby access (Phase 3: Multi-tenancy) */
-  wolf_lobby_pin?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
   /** Associated Zed instance ID */
@@ -3800,6 +3733,8 @@ export interface TypesSessionSummary {
   app_id?: string;
   /** these are all values of the last interaction */
   created?: string;
+  /** Metadata includes container information for external agent sessions */
+  metadata?: TypesSessionMetadata;
   /** InteractionID string      `json:"interaction_id"` */
   model_name?: string;
   name?: string;
@@ -4341,6 +4276,17 @@ export enum TypesTextSplitterType {
   TextSplitterTypeText = "text",
 }
 
+export interface TypesTitleHistoryEntry {
+  /** When the title was changed */
+  changed_at?: string;
+  /** Interaction ID for navigation - click to jump here */
+  interaction_id?: string;
+  /** The title that was set */
+  title?: string;
+  /** Turn number that triggered the change (1-indexed) */
+  turn?: number;
+}
+
 export enum TypesTokenType {
   TokenTypeNone = "",
   TokenTypeRunner = "runner",
@@ -4753,56 +4699,6 @@ export interface TypesWebsiteCrawler {
   user_agent?: string;
 }
 
-export interface TypesWolfHeartbeatRequest {
-  /** per-container disk usage breakdown */
-  container_usage?: TypesContainerDiskUsage[];
-  /**
-   * Desktop image versions (content-addressable Docker image hashes)
-   * Key: desktop name (e.g., "sway", "zorin", "ubuntu")
-   * Value: image hash (e.g., "a1b2c3d4e5f6...")
-   */
-  desktop_versions?: Record<string, string>;
-  /** disk usage metrics for monitored partitions */
-  disk_usage?: TypesDiskUsageMetric[];
-  /** nvidia, amd, intel, none (from sandbox env) */
-  gpu_vendor?: string;
-  /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
-  privileged_mode_enabled?: boolean;
-  /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
-  render_node?: string;
-}
-
-export interface TypesWolfInstanceRequest {
-  address?: string;
-  gpu_type?: string;
-  max_sandboxes?: number;
-  name?: string;
-}
-
-export interface TypesWolfInstanceResponse {
-  address?: string;
-  connected_sandboxes?: number;
-  created_at?: string;
-  /** map of desktop name -> image hash */
-  desktop_versions?: Record<string, string>;
-  disk_alert_level?: string;
-  disk_usage?: TypesDiskUsageMetric[];
-  gpu_type?: string;
-  /** nvidia, amd, intel, none (from sandbox heartbeat) */
-  gpu_vendor?: string;
-  id?: string;
-  last_heartbeat?: string;
-  max_sandboxes?: number;
-  name?: string;
-  privileged_mode_enabled?: boolean;
-  /** /dev/dri/renderD128 or SOFTWARE */
-  render_node?: string;
-  status?: string;
-  /** legacy, use DesktopVersions */
-  sway_version?: string;
-  updated_at?: string;
-}
-
 export interface TypesWorkloadSummary {
   created?: string;
   id?: string;
@@ -4844,78 +4740,6 @@ export interface TypesZedInstanceStatus {
   status?: string;
   thread_count?: number;
   zed_instance_id?: string;
-}
-
-export interface WolfKeyboardLayerState {
-  modifier_state?: WolfKeyboardModifierState;
-  /** Human-readable names */
-  pressed_key_names?: string[];
-  /** Key codes (VK for wolf/inputtino, KEY_* for evdev) */
-  pressed_keys?: number[];
-}
-
-export interface WolfKeyboardModifierState {
-  alt?: boolean;
-  ctrl?: boolean;
-  meta?: boolean;
-  shift?: boolean;
-}
-
-export interface WolfKeyboardResetResponse {
-  message?: string;
-  released_keys?: string[];
-  success?: boolean;
-}
-
-export interface WolfKeyboardStateResponse {
-  sessions?: WolfSessionKeyboardState[];
-  success?: boolean;
-}
-
-export interface WolfSessionKeyboardState {
-  device_name?: string;
-  /** e.g., /dev/input/event15 */
-  device_node?: string;
-  /** Kernel's evdev state */
-  evdev_state?: WolfKeyboardLayerState;
-  /** Mismatch detection */
-  has_mismatch?: boolean;
-  /** Inputtino's internal cur_press_keys */
-  inputtino_state?: WolfKeyboardLayerState;
-  mismatch_description?: string;
-  modifier_state?: WolfKeyboardModifierState;
-  pressed_key_names?: string[];
-  /** Legacy fields for backwards compatibility */
-  pressed_keys?: number[];
-  session_id?: string;
-  timestamp_ms?: number;
-  /** Three layers of keyboard state for debugging: */
-  wolf_state?: WolfKeyboardLayerState;
-}
-
-export interface WolfSystemHealthResponse {
-  /** Tests if GStreamer type lock is available */
-  can_create_new_pipelines?: boolean;
-  overall_status?: string;
-  process_uptime_seconds?: number;
-  stuck_thread_count?: number;
-  success?: boolean;
-  threads?: WolfThreadHealthInfo[];
-  total_thread_count?: number;
-}
-
-export interface WolfThreadHealthInfo {
-  current_request_path?: string;
-  details?: string;
-  has_active_request?: boolean;
-  heartbeat_count?: number;
-  is_stuck?: boolean;
-  name?: string;
-  request_duration_seconds?: number;
-  seconds_alive?: number;
-  seconds_since_heartbeat?: number;
-  stack_trace?: string;
-  tid?: number;
 }
 
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
@@ -5063,18 +4887,18 @@ export class HttpClient<SecurityDataType = unknown> {
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
-     * @description Retrieves combined debug data from Wolf (memory, lobbies, sessions) for the Agent Sandboxes dashboard
+     * @description Retrieves debug data for agent sandboxes (Hydra-based)
      *
      * @tags Admin
      * @name V1AdminAgentSandboxesDebugList
-     * @summary Get Wolf debugging data
+     * @summary Get sandbox debugging data
      * @request GET:/api/v1/admin/agent-sandboxes/debug
      * @secure
      */
     v1AdminAgentSandboxesDebugList: (
-      query: {
-        /** Wolf instance ID to query */
-        wolf_instance_id: string;
+      query?: {
+        /** Sandbox instance ID to query */
+        sandbox_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -5089,11 +4913,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Proxies Server-Sent Events from Wolf for real-time monitoring
+     * @description Streams Server-Sent Events for real-time sandbox monitoring
      *
      * @tags Admin
      * @name V1AdminAgentSandboxesEventsList
-     * @summary Get Wolf real-time events (SSE)
+     * @summary Get sandbox real-time events (SSE)
      * @request GET:/api/v1/admin/agent-sandboxes/events
      * @secure
      */
@@ -5141,56 +4965,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Stop a Wolf lobby (terminates container and releases GPU resources)
-     *
-     * @tags Admin
-     * @name V1AdminWolfLobbiesDelete
-     * @summary Stop Wolf lobby
-     * @request DELETE:/api/v1/admin/wolf/lobbies/{lobbyId}
-     * @secure
-     */
-    v1AdminWolfLobbiesDelete: (
-      lobbyId: string,
-      query: {
-        /** Wolf instance ID to operate on */
-        wolf_instance_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/admin/wolf/lobbies/${lobbyId}`,
-        method: "DELETE",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Stop a Wolf-UI streaming session (releases GPU memory)
-     *
-     * @tags Admin
-     * @name V1AdminWolfSessionsDelete
-     * @summary Stop Wolf streaming session
-     * @request DELETE:/api/v1/admin/wolf/sessions/{sessionId}
-     * @secure
-     */
-    v1AdminWolfSessionsDelete: (
-      sessionId: string,
-      query: {
-        /** Wolf instance ID to operate on */
-        wolf_instance_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/admin/wolf/sessions/${sessionId}`,
-        method: "DELETE",
-        query: query,
-        secure: true,
         ...params,
       }),
 
@@ -6012,25 +5786,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsAutoJoinLobbyCreate
-     * @summary Auto-join Wolf lobby after connection
-     * @request POST:/api/v1/external-agents/{sessionID}/auto-join-lobby
-     * @secure
-     */
-    v1ExternalAgentsAutoJoinLobbyCreate: (sessionId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/auto-join-lobby`,
-        method: "POST",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
      *
      * @tags ExternalAgents
@@ -6093,6 +5848,70 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description This endpoint was used for session configuration but is now a no-op.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsConfigurePendingSessionCreate
+     * @summary Configure pending session (deprecated - no-op)
+     * @request POST:/api/v1/external-agents/{sessionID}/configure-pending-session
+     * @secure
+     */
+    v1ExternalAgentsConfigurePendingSessionCreate: (
+      sessionId: string,
+      request: ServerConfigurePendingSessionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/external-agents/${sessionId}/configure-pending-session`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsExecCreate
+     * @summary Execute command in sandbox
+     * @request POST:/api/v1/external-agents/{sessionID}/exec
+     * @secure
+     */
+    v1ExternalAgentsExecCreate: (sessionId: string, body: object, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/exec`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsInputCreate
+     * @summary Send input events to sandbox
+     * @request POST:/api/v1/external-agents/{sessionID}/input
+     * @secure
+     */
+    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/input`,
+        method: "POST",
+        body: input,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
      *
      * @tags ExternalAgents
@@ -6116,6 +5935,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.FormData,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Provides a WebSocket connection for sending input events directly to the screenshot-server
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWsInputDetail
+     * @summary Direct WebSocket input for PipeWire/GNOME sessions
+     * @request GET:/api/v1/external-agents/{sessionID}/ws/input
+     * @secure
+     */
+    v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<any, void | SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/ws/input`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Provides a WebSocket connection for receiving H.264 video frames directly from the
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWsStreamDetail
+     * @summary Direct WebSocket video streaming for PipeWire/GNOME sessions
+     * @request GET:/api/v1/external-agents/{sessionID}/ws/stream
+     * @secure
+     */
+    v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<any, void | SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/ws/stream`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -7443,30 +7296,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
-     *
-     * @tags Moonlight
-     * @name V1MoonlightStatusList
-     * @summary Get moonlight-web internal state
-     * @request GET:/api/v1/moonlight/status
-     * @secure
-     */
-    v1MoonlightStatusList: (
-      query: {
-        /** Wolf instance ID to query */
-        wolf_instance_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/moonlight/status`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List OAuth connections for the user.
      *
      * @tags oauth
@@ -8125,7 +7954,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
+     * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
      *
      * @tags Projects
      * @name V1ProjectsExploratorySessionDelete
@@ -8987,6 +8816,97 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get all registered sandboxes
+     *
+     * @tags sandbox
+     * @name V1SandboxesList
+     * @summary List sandbox instances
+     * @request GET:/api/v1/sandboxes
+     */
+    v1SandboxesList: (params: RequestParams = {}) =>
+      this.request<TypesSandboxInstance[], any>({
+        path: `/api/v1/sandboxes`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a sandbox from the registry
+     *
+     * @tags sandbox
+     * @name V1SandboxesDelete
+     * @summary Deregister a sandbox instance
+     * @request DELETE:/api/v1/sandboxes/{id}
+     */
+    v1SandboxesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/sandboxes/${id}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * @description Get disk usage history for trending and alerts
+     *
+     * @tags sandbox
+     * @name V1SandboxesDiskHistoryDetail
+     * @summary Get disk usage history
+     * @request GET:/api/v1/sandboxes/{id}/disk-history
+     */
+    v1SandboxesDiskHistoryDetail: (
+      id: string,
+      query?: {
+        /** Since timestamp (RFC3339) */
+        since?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesDiskUsageHistory[], any>({
+        path: `/api/v1/sandboxes/${id}/disk-history`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update sandbox status and metrics
+     *
+     * @tags sandbox
+     * @name V1SandboxesHeartbeatCreate
+     * @summary Update sandbox heartbeat
+     * @request POST:/api/v1/sandboxes/{id}/heartbeat
+     */
+    v1SandboxesHeartbeatCreate: (id: string, heartbeat: TypesSandboxHeartbeatRequest, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/sandboxes/${id}/heartbeat`,
+        method: "POST",
+        body: heartbeat,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Register a new sandbox or update an existing one
+     *
+     * @tags sandbox
+     * @name V1SandboxesRegisterCreate
+     * @summary Register a sandbox instance
+     * @request POST:/api/v1/sandboxes/register
+     */
+    v1SandboxesRegisterCreate: (sandbox: TypesSandboxInstance, params: RequestParams = {}) =>
+      this.request<TypesSandboxInstance, any>({
+        path: `/api/v1/sandboxes/register`,
+        method: "POST",
+        body: sandbox,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the health status of all scheduler goroutines
      *
      * @tags dashboard
@@ -9410,11 +9330,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get Wolf streaming connection details for accessing a session (replaces RDP)
+     * @description Get streaming connection details for accessing a session
      *
      * @tags sessions
      * @name V1SessionsRdpConnectionDetail
-     * @summary Get Wolf connection info for a session
+     * @summary Get streaming connection info for a session
      * @request GET:/api/v1/sessions/{id}/rdp-connection
      * @secure
      */
@@ -9440,6 +9360,54 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/resume`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the current sandbox state for an external agent session (absent/running/starting)
+     *
+     * @tags Sessions
+     * @name V1SessionsSandboxStateDetail
+     * @summary Get sandbox state for a session
+     * @request GET:/api/v1/sessions/{id}/sandbox-state
+     * @secure
+     */
+    v1SessionsSandboxStateDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerSessionSandboxStateResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/sandbox-state`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search for interactions within a session by content
+     *
+     * @tags Sessions
+     * @name V1SessionsSearchDetail
+     * @summary Search session interactions
+     * @request GET:/api/v1/sessions/{id}/search
+     * @secure
+     */
+    v1SessionsSearchDetail: (
+      id: string,
+      query: {
+        /** Search query */
+        q: string;
+        /** Max results (default 10) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -9477,17 +9445,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the current Wolf app state for an external agent session (absent/running/resumable)
+     * @description Returns a numbered list of interaction summaries for a session
      *
      * @tags Sessions
-     * @name V1SessionsWolfAppStateDetail
-     * @summary Get Wolf app state for a session
-     * @request GET:/api/v1/sessions/{id}/wolf-app-state
+     * @name V1SessionsTocDetail
+     * @summary Get session table of contents
+     * @request GET:/api/v1/sessions/{id}/toc
      * @secure
      */
-    v1SessionsWolfAppStateDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerSessionWolfAppStateResponse, SystemHTTPError>({
-        path: `/api/v1/sessions/${id}/wolf-app-state`,
+    v1SessionsTocDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/toc`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a specific interaction with surrounding context
+     *
+     * @tags Sessions
+     * @name V1SessionsTurnsDetail
+     * @summary Get interaction by turn number
+     * @request GET:/api/v1/sessions/{id}/turns/{turn}
+     * @secure
+     */
+    v1SessionsTurnsDetail: (id: string, turn: number, params: RequestParams = {}) =>
+      this.request<ServerInteractionWithContext, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/turns/${turn}`,
         method: "GET",
         secure: true,
         type: ContentType.Json,
@@ -10343,84 +10330,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get all SSH keys for the current user
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysList
-     * @summary List SSH keys
-     * @request GET:/api/v1/ssh-keys
-     * @secure
-     */
-    v1SshKeysList: (params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse[], SystemHTTPError>({
-        path: `/api/v1/ssh-keys`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new SSH key for git operations
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysCreate
-     * @summary Create SSH key
-     * @request POST:/api/v1/ssh-keys
-     * @secure
-     */
-    v1SshKeysCreate: (request: TypesSSHKeyCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an SSH key
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysDelete
-     * @summary Delete SSH key
-     * @request DELETE:/api/v1/ssh-keys/{id}
-     * @secure
-     */
-    v1SshKeysDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys/${id}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Generate a new SSH key pair
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysGenerateCreate
-     * @summary Generate SSH key
-     * @request POST:/api/v1/ssh-keys/generate
-     * @secure
-     */
-    v1SshKeysGenerateCreate: (request: TypesSSHKeyGenerateRequest, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyGenerateResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys/generate`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Manage a subscription
      *
      * @tags wallets
@@ -10898,204 +10807,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get all registered Wolf streaming instances
-     *
-     * @tags wolf
-     * @name V1WolfInstancesList
-     * @summary List all Wolf instances
-     * @request GET:/api/v1/wolf-instances
-     * @secure
-     */
-    v1WolfInstancesList: (params: RequestParams = {}) =>
-      this.request<TypesWolfInstanceResponse[], string>({
-        path: `/api/v1/wolf-instances`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Remove a Wolf instance from the registry
-     *
-     * @tags wolf
-     * @name V1WolfInstancesDelete
-     * @summary Deregister a Wolf instance
-     * @request DELETE:/api/v1/wolf-instances/{id}
-     * @secure
-     */
-    v1WolfInstancesDelete: (id: string, params: RequestParams = {}) =>
-      this.request<string, string>({
-        path: `/api/v1/wolf-instances/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get time-series disk usage data for visualization (last 7 days)
-     *
-     * @tags wolf
-     * @name V1WolfInstancesDiskHistoryDetail
-     * @summary Get disk usage history for a Wolf instance
-     * @request GET:/api/v1/wolf-instances/{id}/disk-history
-     * @secure
-     */
-    v1WolfInstancesDiskHistoryDetail: (
-      id: string,
-      query?: {
-        /** Hours of history to return (default 24, max 168) */
-        hours?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesDiskUsageHistoryResponse, string>({
-        path: `/api/v1/wolf-instances/${id}/disk-history`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the last heartbeat timestamp and optional metadata for a Wolf instance
-     *
-     * @tags wolf
-     * @name V1WolfInstancesHeartbeatCreate
-     * @summary Send heartbeat for a Wolf instance
-     * @request POST:/api/v1/wolf-instances/{id}/heartbeat
-     * @secure
-     */
-    v1WolfInstancesHeartbeatCreate: (id: string, request: TypesWolfHeartbeatRequest, params: RequestParams = {}) =>
-      this.request<string, string>({
-        path: `/api/v1/wolf-instances/${id}/heartbeat`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Register a new Wolf streaming instance with the control plane
-     *
-     * @tags wolf
-     * @name V1WolfInstancesRegisterCreate
-     * @summary Register a new Wolf instance
-     * @request POST:/api/v1/wolf-instances/register
-     * @secure
-     */
-    v1WolfInstancesRegisterCreate: (request: TypesWolfInstanceRequest, params: RequestParams = {}) =>
-      this.request<TypesWolfInstanceResponse, string>({
-        path: `/api/v1/wolf-instances/register`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get Wolf system health status including thread heartbeat monitoring and deadlock detection
-     *
-     * @tags Wolf
-     * @name V1WolfHealthList
-     * @summary Get Wolf system health
-     * @request GET:/api/v1/wolf/health
-     * @secure
-     */
-    v1WolfHealthList: (
-      query: {
-        /** Wolf instance ID to query */
-        wolf_instance_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<WolfSystemHealthResponse, string>({
-        path: `/api/v1/wolf/health`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get current keyboard state for all streaming sessions, useful for debugging stuck keys
-     *
-     * @tags Wolf
-     * @name V1WolfKeyboardStateList
-     * @summary Get Wolf keyboard state
-     * @request GET:/api/v1/wolf/keyboard-state
-     * @secure
-     */
-    v1WolfKeyboardStateList: (
-      query: {
-        /** Wolf instance ID to query */
-        wolf_instance_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<WolfKeyboardStateResponse, string>({
-        path: `/api/v1/wolf/keyboard-state`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Reset keyboard state for a session, releasing all stuck keys
-     *
-     * @tags Wolf
-     * @name V1WolfKeyboardStateResetCreate
-     * @summary Reset Wolf keyboard state
-     * @request POST:/api/v1/wolf/keyboard-state/reset
-     * @secure
-     */
-    v1WolfKeyboardStateResetCreate: (
-      query: {
-        /** Wolf instance ID to query */
-        wolf_instance_id: string;
-        /** Session ID to reset keyboard for */
-        session_id: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<WolfKeyboardResetResponse, string>({
-        path: `/api/v1/wolf/keyboard-state/reset`,
-        method: "POST",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get the Wolf UI app ID for lobbies mode streaming
-     *
-     * @tags Wolf
-     * @name V1WolfUiAppIdList
-     * @summary Get Wolf UI app ID
-     * @request GET:/api/v1/wolf/ui-app-id
-     */
-    v1WolfUiAppIdList: (
-      query?: {
-        /** Session ID to look up Wolf instance */
-        session_id?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/wolf/ui-app-id`,
-        method: "GET",
-        query: query,
-        format: "json",
         ...params,
       }),
 

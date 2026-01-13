@@ -5,7 +5,6 @@ interface FloatingModalConfig {
   type: 'logs' | 'rdp' | 'exploratory_session'
   runner?: TypesDashboardRunner
   sessionId?: string
-  wolfLobbyId?: string
   // Display settings for streaming (from app's ExternalAgentConfig)
   displayWidth?: number
   displayHeight?: number

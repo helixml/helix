@@ -1,0 +1,394 @@
+# syntax=docker/dockerfile:1.4
+# ====================================================================
+# Helix Hyprland Desktop - Ubuntu 25.10 base with pipewiresrc capture
+# ====================================================================
+# EXPERIMENTAL: Hyprland desktop using pipewiresrc for video capture.
+# Unlike Sway (nested Wayland), Hyprland uses ScreenCast via xdg-desktop-portal.
+# This is the same approach as GNOME 49, proving compositor-agnostic pipewiresrc works.
+#
+# Architecture:
+# - Hyprland runs as the compositor (NOT nested in Wolf's Wayland)
+# - xdg-desktop-portal-hyprland provides ScreenCast D-Bus interface
+# - Container creates ScreenCast session, gets PipeWire node ID
+# - Container reports node ID to Wolf API
+# - Wolf uses pipewiresrc to capture video from PipeWire
+# - Input via inputtino (kernel evdev devices, not Wayland)
+#
+# See: design/2025-12-29-pipewire-wolf-bridge.md
+
+# ====================================================================
+# Build grim from source with JPEG support
+# ====================================================================
+FROM ubuntu:25.10 AS grim-build
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
+    wayland-protocols scdoc \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://git.sr.ht/~emersion/grim /grim && \
+    cd /grim && \
+    meson setup build -Djpeg=enabled -Dman-pages=enabled && \
+    ninja -C build && \
+    cp build/grim /grim-bin
+
+# ====================================================================
+# Go build stage for desktop-bridge and settings-sync-daemon
+# ====================================================================
+FROM golang:1.24 AS go-build-env
+ARG GO_CODE_HASH=unknown
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+WORKDIR /app/api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    echo "Go code hash: ${GO_CODE_HASH}" && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+
+# ====================================================================
+# Hyprland Desktop - Ubuntu 25.10 base with pipewiresrc
+# ====================================================================
+FROM ubuntu:25.10
+
+# Configure default user and set env (from GOW base-app)
+ENV \
+    PUID=1000 \
+    PGID=1000 \
+    UMASK=000 \
+    UNAME="retro" \
+    HOME="/home/retro" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
+
+ARG TARGETARCH TARGETVARIANT
+
+# Install GOW base requirements + Hyprland packages
+ARG GOSU_VERSION=1.14
+
+ARG CORE_PACKAGES=" \
+    wget \
+    curl \
+    jq \
+    fuse \
+    libnss3 \
+    ca-certificates \
+    dbus \
+    flatpak \
+    locales \
+    software-properties-common \
+    gpg-agent \
+    sudo \
+    bc \
+    "
+
+ARG DE_PACKAGES=" \
+    hyprland \
+    hyprpaper \
+    waybar \
+    foot \
+    fuzzel \
+    mako-notifier \
+    wl-clipboard \
+    pipewire \
+    pipewire-audio \
+    wireplumber \
+    xdg-desktop-portal-hyprland \
+    gstreamer1.0-pipewire \
+    "
+
+# Install base packages, PPAs, and Hyprland
+RUN <<_INSTALL_BASE
+  set -e
+
+  echo "**** Update apt database ****"
+  apt-get update
+
+  echo "**** Install base packages ****"
+  apt-get install -y --no-install-recommends $CORE_PACKAGES
+
+  echo "**** Install gosu (from GOW) ****"
+  GOSU_ARCH="${TARGETARCH:-amd64}"
+  wget --progress=dot:giga \
+      -O /usr/bin/gosu \
+      "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"
+  chmod +x /usr/bin/gosu
+  gosu nobody true && echo "gosu working!"
+
+  echo "**** Setup Firefox PPA ****"
+  add-apt-repository -y ppa:mozillateam/ppa
+
+  echo "**** Configure APT pins ****"
+  cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+PINEOF
+
+  apt-get update
+
+  echo "**** Install Hyprland and related packages ****"
+  apt-get install -y $DE_PACKAGES firefox libavcodec-extra
+
+  echo "=== Installed Hyprland Versions ==="
+  dpkg -l | grep -E "hyprland" || true
+  Hyprland --version || echo "Hyprland not found yet"
+
+  echo "**** Cleanup ****"
+  apt autoremove -y
+  apt clean
+  rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+_INSTALL_BASE
+
+# Create retro user (from GOW base-app)
+# Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
+RUN <<_CREATE_USER
+  set -e
+  # Remove existing user with UID 1000 if present
+  EXISTING_USER=$(getent passwd 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_USER" ]; then
+    userdel -r "$EXISTING_USER" 2>/dev/null || userdel "$EXISTING_USER" || true
+  fi
+  # Remove existing group with GID 1000 if present
+  EXISTING_GROUP=$(getent group 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_GROUP" ]; then
+    groupdel "$EXISTING_GROUP" 2>/dev/null || true
+  fi
+  # Create retro user/group
+  groupadd -g 1000 retro
+  useradd -m -u 1000 -g 1000 -s /bin/bash retro
+  mkdir -p /home/retro
+  chown -R retro:retro /home/retro
+_CREATE_USER
+
+# GOW utilities and entrypoint (minimal version)
+RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d /cfg/hyprland /cfg/waybar
+
+# GOW utils.sh (minimal implementation)
+COPY <<'_GOW_UTILS' /opt/gow/bash-lib/utils.sh
+#!/bin/bash
+gow_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+export -f gow_log
+_GOW_UTILS
+
+# GOW user setup init script
+COPY <<'_USER_INIT' /etc/cont-init.d/10-setup_user.sh
+#!/bin/bash
+echo "**** Configure default user ****"
+echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
+echo "Setting umask to ${UMASK}"
+umask "${UMASK}"
+echo "Ensure ${UNAME} home directory is writable"
+chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+echo "Ensure XDG_RUNTIME_DIR is writable"
+mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
+chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+_USER_INIT
+
+# GOW entrypoint
+COPY <<'_ENTRYPOINT' /entrypoint.sh
+#!/usr/bin/env bash
+set -e
+source /opt/gow/bash-lib/utils.sh
+if [ "$(id -u)" = "0" ]; then
+    for init_script in /etc/cont-init.d/*.sh ; do
+        gow_log
+        gow_log "[ ${init_script}: executing... ]"
+        source "${init_script}"
+    done
+fi
+if [ -n "${@:-}" ]; then
+    /bin/bash -c "$@"
+    exit $?
+fi
+gow_log "Launching the container's startup script as user '${UNAME}'"
+chmod +x /opt/gow/startup-app.sh 2>/dev/null || true
+exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup-app.sh}
+_ENTRYPOINT
+RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# GOW fixes (locale setup)
+RUN <<_FIXES
+  set -e
+  locale-gen en_US.UTF-8
+_FIXES
+
+# Hyprland/Wayland environment variables
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    XDG_SESSION_TYPE=wayland \
+    XDG_CURRENT_DESKTOP=Hyprland \
+    QT_QPA_PLATFORM=wayland \
+    GDK_BACKEND=wayland \
+    CLUTTER_BACKEND=wayland \
+    SDL_VIDEODRIVER=wayland
+
+# GOW dbus init script
+COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+#!/bin/bash
+service dbus start 2>/dev/null || true
+_DBUS_INIT
+RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
+
+# ====================================================================
+# Helix additions
+# ====================================================================
+
+# RADV/AMD debug options for GPU crash prevention
+ENV RADV_DEBUG=hang
+ENV AMD_DEBUG=sync_compile,check_vm
+
+# Passwordless sudo
+RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Docker CLI
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker wrappers for Hydra compatibility (copy from sway-config)
+COPY desktop/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+RUN mv /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
+    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
+    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+
+# Utilities
+RUN apt-get update && apt-get install -y \
+    lsof libjpeg-turbo8 \
+    evtest evemu-tools \
+    bash git openssh-client \
+    fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
+    imagemagick \
+    kitty \
+    scrot xclip \
+    slurp \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ghostty terminal
+RUN wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" \
+    && dpkg -i /tmp/ghostty.deb || apt-get install -f -y \
+    && rm /tmp/ghostty.deb
+
+# Helix background
+RUN mkdir -p /usr/share/backgrounds && \
+    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
+
+# Node.js 20 (for Qwen Code)
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg git && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Qwen Code
+ARG QWEN_CODE_HASH=unknown
+WORKDIR /opt/qwen-code
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    chmod +x dist/cli.js && \
+    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+# Helix startup script
+ADD desktop/hyprland-config/startup-app.sh /opt/gow/startup-app.sh
+RUN chmod +x /opt/gow/startup-app.sh
+
+# PipeWire ScreenCast script (reports node ID to Wolf)
+ADD desktop/hyprland-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
+RUN chmod +x /opt/gow/start-pipewire-screencast.sh
+
+# Helix helper scripts
+ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
+
+# Docker group init script
+ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Workspace README
+RUN mkdir -p /opt/helix
+ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
+
+# Helix Go binaries
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=grim-build /grim-bin /usr/bin/grim
+
+# Zed binary
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Zed desktop file and icon
+COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
+RUN for size in 16 24 32 48 64 128 256; do \
+        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
+        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
+            -resize ${size}x${size} \
+            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
+    done
+
+# AI agent privacy configs
+RUN mkdir -p /home/retro/.qwen && \
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
+
+RUN mkdir -p /home/retro/.gemini && \
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
+
+RUN mkdir -p /home/retro/.claude && \
+    echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
+
+RUN mkdir -p /home/retro/.config/zed && \
+    echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+
+ENV GEMINI_TELEMETRY_ENABLED=false \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_ERROR_REPORTING=1 \
+    DISABLE_AUTOUPDATER=1 \
+    NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    ZED_HTTP_INSECURE_TLS=1
+
+RUN git config --system http.sslVerify false
+
+# Configure Kitty terminal (system-wide)
+RUN mkdir -p /etc/xdg/kitty
+COPY <<'KITTY_CONFIG' /etc/xdg/kitty/kitty.conf
+# Close window when shell exits (don't leave orphan windows)
+close_on_child_death yes
+
+# Dark theme
+background #1e1e2e
+foreground #cdd6f4
+KITTY_CONFIG
+
+RUN chown -R 1000:1000 /home/retro/.qwen \
+                        /home/retro/.gemini \
+                        /home/retro/.claude \
+                        /home/retro/.config/zed

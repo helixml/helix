@@ -83,21 +83,6 @@ func (mr *MockExecutorMockRecorder) FindContainerBySessionID(ctx, helixSessionID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindContainerBySessionID", reflect.TypeOf((*MockExecutor)(nil).FindContainerBySessionID), ctx, helixSessionID)
 }
 
-// FindExistingLobbyForSession mocks base method.
-func (m *MockExecutor) FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindExistingLobbyForSession", ctx, sessionID)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FindExistingLobbyForSession indicates an expected call of FindExistingLobbyForSession.
-func (mr *MockExecutorMockRecorder) FindExistingLobbyForSession(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindExistingLobbyForSession", reflect.TypeOf((*MockExecutor)(nil).FindExistingLobbyForSession), ctx, sessionID)
-}
-
 // GetInstanceStatus mocks base method.
 func (m *MockExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error) {
 	m.ctrl.T.Helper()
@@ -128,18 +113,18 @@ func (mr *MockExecutorMockRecorder) GetSession(sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockExecutor)(nil).GetSession), sessionID)
 }
 
-// GetWolfClientForSession mocks base method.
-func (m *MockExecutor) GetWolfClientForSession(wolfInstanceID string) WolfClientInterface {
+// HasRunningContainer mocks base method.
+func (m *MockExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetWolfClientForSession", wolfInstanceID)
-	ret0, _ := ret[0].(WolfClientInterface)
+	ret := m.ctrl.Call(m, "HasRunningContainer", ctx, sessionID)
+	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
-// GetWolfClientForSession indicates an expected call of GetWolfClientForSession.
-func (mr *MockExecutorMockRecorder) GetWolfClientForSession(wolfInstanceID any) *gomock.Call {
+// HasRunningContainer indicates an expected call of HasRunningContainer.
+func (mr *MockExecutorMockRecorder) HasRunningContainer(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWolfClientForSession", reflect.TypeOf((*MockExecutor)(nil).GetWolfClientForSession), wolfInstanceID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasRunningContainer", reflect.TypeOf((*MockExecutor)(nil).HasRunningContainer), ctx, sessionID)
 }
 
 // ListInstanceThreads mocks base method.
@@ -172,10 +157,10 @@ func (mr *MockExecutorMockRecorder) ListSessions() *gomock.Call {
 }
 
 // StartDesktop mocks base method.
-func (m *MockExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+func (m *MockExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StartDesktop", ctx, agent)
-	ret0, _ := ret[0].(*types.ZedAgentResponse)
+	ret0, _ := ret[0].(*types.DesktopAgentResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -187,10 +172,10 @@ func (mr *MockExecutorMockRecorder) StartDesktop(ctx, agent any) *gomock.Call {
 }
 
 // StartZedInstance mocks base method.
-func (m *MockExecutor) StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+func (m *MockExecutor) StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StartZedInstance", ctx, agent)
-	ret0, _ := ret[0].(*types.ZedAgentResponse)
+	ret0, _ := ret[0].(*types.DesktopAgentResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

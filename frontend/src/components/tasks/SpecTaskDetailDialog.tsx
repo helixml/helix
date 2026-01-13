@@ -107,12 +107,12 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
     if (!task?.helix_app_id || !apps.apps) {
-      return { width: 1920, height: 1080, fps: 60 } // Default values
+      return { width: 1920, height: 1080, fps: 60, desktopType: 'ubuntu' } // Default values
     }
     const taskApp = apps.apps.find(a => a.id === task.helix_app_id)
     const config = taskApp?.config?.helix?.external_agent_config
     if (!config) {
-      return { width: 1920, height: 1080, fps: 60 }
+      return { width: 1920, height: 1080, fps: 60, desktopType: 'ubuntu' }
     }
 
     // Get dimensions from resolution preset or explicit values
@@ -133,6 +133,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
       width,
       height,
       fps: config.display_refresh_rate || 60,
+      desktopType: config.desktop_type || 'ubuntu',
     }
   }, [task?.helix_app_id, apps.apps])
 
@@ -239,7 +240,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const swayVersion = sessionData?.config?.sway_version
   const gpuVendor = sessionData?.config?.gpu_vendor
   const renderNode = sessionData?.config?.render_node
-  const wolfLobbyId = sessionData?.config?.wolf_lobby_id
 
   // Initialize prompt history for the session
   const promptHistory = usePromptHistory({
@@ -450,8 +450,8 @@ I'll give you feedback and we can iterate on any changes needed.`
       snackbar.info('Starting new agent session...')
       await api.getApiClient().v1SessionsResumeCreate(activeSessionId)
 
-      // Step 3: Invalidate session query to refetch wolf_lobby_id
-      // This triggers MoonlightStreamViewer to detect the lobby change and reconnect
+      // Step 3: Invalidate session query to refetch container status
+      // This triggers DesktopStreamViewer to detect the state change and reconnect
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(activeSessionId) })
 
       snackbar.success('Session restarted successfully')
@@ -956,7 +956,7 @@ I'll give you feedback and we can iterate on any changes needed.`
               {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
               <ExternalAgentDesktopViewer
                 sessionId={activeSessionId}
-                wolfLobbyId={wolfLobbyId}
+                sandboxId={activeSessionId}
                 mode="stream"
                 onClientIdCalculated={setClientUniqueId}
                 displayWidth={displaySettings.width}
@@ -1281,17 +1281,12 @@ I'll give you feedback and we can iterate on any changes needed.`
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Active Session ID: {activeSessionId}
                     </Typography>
-                    {displayTask.planning_session_id && (
-                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', display: 'block', fontStyle: 'italic' }}>
-                        (using planning_session_id)
-                      </Typography>
-                    )}
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                      Moonlight Client ID: {clientUniqueId || 'calculating...'}
+                      Desktop Type: {displaySettings.desktopType === 'sway' ? 'Sway' : 'Ubuntu (GNOME)'}
                     </Typography>
                     {swayVersion && (
                       <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                        Sway Version:{' '}
+                        Desktop Version:{' '}
                         <a
                           href={`https://github.com/helixml/helix/commit/${swayVersion}`}
                           target="_blank"

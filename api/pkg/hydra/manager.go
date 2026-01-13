@@ -466,7 +466,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Uses 10.200.X.0/24 where X is the bridgeIndex (1-254)
 	// This avoids conflicts with:
 	// - docker0: 172.17.0.0/16
-	// - helix_default: 172.19.0.0/16 or 172.20.0.0/16
+	// - bridge: Docker's default bridge network
 	//
 	// We create a custom bridge (hydra1, hydra2, etc) and configure dockerd to use it.
 	// This allows multiple dockerd instances to run in the same network namespace
@@ -873,7 +873,7 @@ func (m *Manager) instanceToResponse(inst *DockerInstance) *DockerInstanceRespon
 	}
 }
 
-// BridgeDesktop creates a veth pair to connect a desktop container (on Wolf's dockerd)
+// BridgeDesktop creates a veth pair to connect a desktop container (on the sandbox dockerd)
 // to the Hydra network (on Hydra's dockerd) for the specified session.
 // This enables the desktop's Firefox/Zed to access dev containers started via docker compose.
 //
@@ -917,8 +917,8 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 	desktopIP := fmt.Sprintf("10.200.%d.254", bridgeIndex) // .254 for desktop
 	subnet := fmt.Sprintf("10.200.%d.0/24", bridgeIndex)
 
-	// Get desktop container's PID from Wolf's dockerd with retry
-	// Wolf starts containers asynchronously, so we may need to wait
+	// Get desktop container's PID from the sandbox dockerd with retry
+	// Containers start asynchronously, so we may need to wait
 	var containerPID int
 	var err error
 	for attempt := 0; attempt < 10; attempt++ {
@@ -1073,7 +1073,7 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 // BridgeDesktopPrivileged bridges a desktop container to the host Docker network
 // This is used in privileged mode where dev containers run on the host's Docker
 func (m *Manager) BridgeDesktopPrivileged(ctx context.Context, req *BridgeDesktopRequest) (*BridgeDesktopResponse, error) {
-	// Get desktop container's PID from Wolf's dockerd with retry
+	// Get desktop container's PID from the sandbox dockerd with retry
 	var containerPID int
 	var err error
 	for attempt := 0; attempt < 10; attempt++ {
@@ -1222,8 +1222,8 @@ func (m *Manager) getHostDockerGateway() string {
 	return ""
 }
 
-// getContainerPID gets the PID of a container from Wolf's dockerd
-// Wolf adds a UUID suffix to container names (e.g., "zed-external-xxx_uuid"),
+// getContainerPID gets the PID of a container from the sandbox dockerd
+// Host Docker may add a UUID suffix to container names,
 // so we first try exact match, then fall back to prefix-based lookup.
 func (m *Manager) getContainerPID(containerID string) (int, error) {
 	// First try exact match
@@ -1232,7 +1232,7 @@ func (m *Manager) getContainerPID(containerID string) (int, error) {
 	output, err := cmd.Output()
 	if err != nil {
 		// Exact match failed - try finding container by name prefix
-		// Wolf names containers as "{hostname}_{uuid}", so filter by prefix
+		// Container names may include a UUID suffix, so filter by prefix
 		filterCmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
 			"ps", "--filter", fmt.Sprintf("name=%s", containerID), "--format", "{{.Names}}")
 		filterOutput, filterErr := filterCmd.Output()

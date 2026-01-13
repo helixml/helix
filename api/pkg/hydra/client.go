@@ -253,6 +253,120 @@ func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	return &result, nil
 }
 
+// CreateDevContainer creates a dev container via Unix socket
+func (c *Client) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/dev-containers", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result DevContainerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// DeleteDevContainer stops and removes a dev container via Unix socket
+func (c *Client) DeleteDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/dev-containers/%s", c.baseURL, sessionID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result DevContainerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetDevContainer gets the status of a dev container via Unix socket
+func (c *Client) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/dev-containers/%s", c.baseURL, sessionID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result DevContainerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ListDevContainers lists all dev containers via Unix socket
+func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersResponse, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/dev-containers", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result ListDevContainersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // BridgeDesktop bridges a desktop container to a Hydra network for the given session
 func (c *Client) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) (*BridgeDesktopResponse, error) {
 	body, err := json.Marshal(req)
@@ -352,6 +466,75 @@ func (c *RevDialClient) BridgeDesktop(ctx context.Context, req *BridgeDesktopReq
 	}
 
 	var result BridgeDesktopResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// CreateDevContainer creates a dev container via RevDial
+func (c *RevDialClient) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	respBody, err := c.doRequest(ctx, "POST", "/api/v1/dev-containers", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DevContainerResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// DeleteDevContainer stops and removes a dev container via RevDial
+func (c *RevDialClient) DeleteDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s", sessionID)
+
+	respBody, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DevContainerResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetDevContainer gets the status of a dev container via RevDial
+func (c *RevDialClient) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s", sessionID)
+
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DevContainerResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ListDevContainers lists all dev containers via RevDial
+func (c *RevDialClient) ListDevContainers(ctx context.Context) (*ListDevContainersResponse, error) {
+	respBody, err := c.doRequest(ctx, "GET", "/api/v1/dev-containers", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ListDevContainersResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}

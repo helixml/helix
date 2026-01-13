@@ -478,8 +478,35 @@ const GitRepos: FC = () => {
                 No repositories yet
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Create your first git repository to start collaborating with AI agents and your team.
+                Connect your existing repositories or create new ones to start collaborating with AI agents.
               </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="large"
+                  startIcon={<FolderSearch size={18} />}
+                  onClick={() => setBrowseProvidersOpen(true)}
+                >
+                  Connect & Browse
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<Link size={18} />}
+                  onClick={() => setLinkRepoDialogOpen(true)}
+                >
+                  Link manually
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<Plus size={18} />}
+                  onClick={() => setCreateDialogOpen(true)}
+                >
+                  New empty
+                </Button>
+              </Box>
             </CardContent>
           </Card>
         )}

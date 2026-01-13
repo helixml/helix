@@ -17,7 +17,7 @@ export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
 PRODUCTION_DESKTOPS=(sway ubuntu)
-AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce kde)
 # EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
 # Configure host networking for Docker-in-Docker support
@@ -342,32 +342,33 @@ function build-zed() {
     sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
   fi
 
-  echo "🐳 Building Zed inside Ubuntu 22.04 container..."
+  echo "🐳 Building Zed inside Ubuntu 25.10 container..."
   echo "   Source: $ZED_SOURCE_DIR"
   echo "   Output: $ZED_OUTPUT_DIR"
   echo "   Mode: $BUILD_TYPE"
 
   # Build the builder image if needed
-  if ! docker image inspect zed-builder:ubuntu22 &> /dev/null; then
-    echo "📦 Building zed-builder:ubuntu22 image (first time only, ~2-3 min)..."
-    docker build -t zed-builder:ubuntu22 -f Dockerfile.zed-build .
+  if ! docker image inspect zed-builder:ubuntu25 &> /dev/null; then
+    echo "📦 Building zed-builder:ubuntu25 image (first time only, ~2-3 min)..."
+    docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
     if [ $? -ne 0 ]; then
-      echo "❌ Failed to build zed-builder:ubuntu22 image"
+      echo "❌ Failed to build zed-builder:ubuntu25 image"
       return 1
     fi
   fi
 
-  # Setup cargo cache for faster rebuilds
+  # Setup cargo + rustup cache for faster rebuilds
   # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
+  # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
   local CARGO_CACHE="$HOME/.cargo-docker-cache"
-  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git"
+  local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
 
   # Build command based on type
-  # Use a separate target directory to avoid conflicts with host-compiled build scripts
-  # (host build scripts link against glibc 2.39+ which doesn't exist in Ubuntu 22.04)
+  # Use a separate target directory to avoid conflicts with host builds
   local BUILD_CMD
   local BINARY_PATH
-  local TARGET_DIR="target-ubuntu22"
+  local TARGET_DIR="target-ubuntu25"
   if [ "$BUILD_TYPE" = "release" ]; then
     echo "🔨 Building in release mode (optimized, stripped, slower build)..."
     BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
@@ -393,15 +394,17 @@ function build-zed() {
   #   - Zed source at /zed
   #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
   #   - Cargo git cache at /root/.cargo/git (git dependencies)
+  #   - Rustup cache at /root/.rustup (toolchain 1.91.1 + wasm32-wasip2 target)
   #   - Output directory at /output
   # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
   docker run --rm \
     -v "$ZED_ABS_PATH:/zed" \
     -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
     -v "$CARGO_CACHE/git:/root/.cargo/git" \
+    -v "$RUSTUP_CACHE:/root/.rustup" \
     -v "$OUTPUT_ABS_PATH:/output" \
     -w /zed \
-    zed-builder:ubuntu22 \
+    zed-builder:ubuntu25 \
     bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
 
   if [ $? -ne 0 ]; then
@@ -504,23 +507,6 @@ function start() {
     }
   fi
 
-  # Check if Wolf container exists, build if needed
-  if ! docker image inspect wolf:helix-fixed &> /dev/null; then
-    echo "🐺 Wolf container not found, building automatically..."
-    build-wolf || {
-      echo "❌ Failed to build Wolf. Please check the error messages above."
-      exit 1
-    }
-  fi
-
-  # Check if Moonlight Web container exists, build if needed
-  if ! docker image inspect helix-moonlight-web:helix-fixed &> /dev/null; then
-    echo "🌙 Moonlight Web container not found, building automatically..."
-    build-moonlight-web || {
-      echo "❌ Failed to build Moonlight Web. Please check the error messages above."
-      exit 1
-    }
-  fi
 
   export MANUALRUN=1
   export LOG_LEVEL=debug
@@ -536,16 +522,8 @@ function start() {
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
 
-  # Clean Wolf and Moonlight Web pairing state for fresh startup
-  echo "🧹 Cleaning Wolf and Moonlight Web pairing state..."
-
-  # Stop sandbox if running (Wolf + Moonlight Web are unified in sandbox now)
+  # Stop sandbox if running to ensure fresh start
   docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-
-  # Remove state files to force fresh pairing on startup
-  # These are bind-mounted into the sandbox container
-  rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
-  echo "✅ Pairing state cleaned (will auto-pair on startup)"
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -627,7 +605,7 @@ function start() {
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
     # WITH_RUNNER mode: Sandbox logs in pane 3
-    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    tmux select-pane -t 3 -T "Sandbox Logs"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
@@ -643,8 +621,8 @@ function start() {
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
     tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
   else
-    # WITHOUT_RUNNER mode: Unified sandbox logs (Wolf + Moonlight Web in one container)
-    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    # WITHOUT_RUNNER mode: Sandbox logs
+    tmux select-pane -t 3 -T "Sandbox Logs"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
@@ -689,22 +667,6 @@ function start() {
 
 function stop() {
   echo "🛑 Stopping docker containers and tmux session..."
-
-  # Clean up Wolf config and certificates to ensure fresh start next time
-  if [ -f "wolf/config.toml" ]; then
-    echo "🗑️  Removing Wolf config.toml (will be regenerated from template on next start)"
-    rm -f wolf/config.toml
-  fi
-  if [ -f "wolf/cert.pem" ] || [ -f "wolf/key.pem" ]; then
-    echo "🗑️  Removing Wolf SSL certificates (will be regenerated on next start)"
-    rm -f wolf/cert.pem wolf/key.pem
-  fi
-
-  # Clean up Moonlight Web pairing data to ensure fresh pairing with Wolf's new certs
-  if [ -f "moonlight-web-config/data.json" ]; then
-    echo "🗑️  Removing Moonlight Web pairing data (will re-pair with Wolf on next start)"
-    rm -f moonlight-web-config/data.json
-  fi
 
   # Build exclude pattern for services that should not be stopped
   local exclude_services=()
@@ -788,14 +750,6 @@ function stop() {
 }
 
 function up() {
-  # Check if Wolf source code exists, if not clone it
-  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
-    echo "🐺 Wolf source code not found at $PROJECTS_ROOT/wolf/"
-    echo "📥 Cloning Wolf repository..."
-    git clone https://github.com/games-on-whales/wolf.git "$PROJECTS_ROOT/wolf"
-    echo "✅ Wolf repository cloned successfully"
-  fi
-
   # Setup sandbox profile based on GPU detection (if not already in .env)
   setup_sandbox_profile
 
@@ -912,57 +866,6 @@ function push_image_tags() {
   return 0
 }
 
-function build-wolf() {
-  echo "🐺 Building Wolf container with latest source code..."
-
-  # Check if Wolf source directory exists
-  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
-    echo "❌ ERROR: Wolf source code not found at $PROJECTS_ROOT/wolf/"
-    echo ""
-    echo "The Wolf integration requires the Wolf source code to be checked out alongside Helix."
-    echo ""
-    echo "Please run:"
-    echo "  cd $PROJECTS_ROOT"
-    echo "  git clone https://github.com/games-on-whales/wolf.git"
-    echo "  cd helix"
-    echo "  ./stack build-wolf"
-    exit 1
-  fi
-
-  # Build Wolf container with image tags
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-
-  echo "🔨 Building Wolf container from source..."
-  cd "$PROJECTS_ROOT/wolf"
-
-  if [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build -f docker/wolf.Dockerfile \
-      -t wolf:helix-fixed \
-      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/wolf:${GIT_TAG}" \
-      .
-  else
-    docker build -f docker/wolf.Dockerfile \
-      -t wolf:helix-fixed \
-      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
-      .
-  fi
-
-  if [ $? -eq 0 ]; then
-    echo "✅ Wolf container built successfully"
-  else
-    echo "❌ Failed to build Wolf container"
-    cd - > /dev/null
-    return 1
-  fi
-  cd - > /dev/null
-
-  # Note: Wolf image is an intermediate build artifact, embedded in helix-sandbox
-  # It's not pushed to registry separately - only the sandbox container is pushed
-  # Wolf runs inside the sandbox container now, not as a standalone service
-}
 
 function build-qwen-code() {
   # ====================================================================
@@ -1110,7 +1013,7 @@ function build-desktop() {
 
   if [ -z "$DESKTOP_NAME" ]; then
     echo "Usage: ./stack build-desktop <name>"
-    echo "Available: sway, zorin, ubuntu, xfce"
+    echo "Available: sway, zorin, ubuntu, xfce, kde, hyprland"
     exit 1
   fi
 
@@ -1154,6 +1057,11 @@ function build-desktop() {
   local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
+  # Get Go code hash for Docker cache busting (api/ directory)
+  # This ensures Go rebuild when desktop.go or other Go files change
+  local GO_CODE_HASH=$(find api -name '*.go' -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -c1-12)
+  echo "📌 Go code hash: ${GO_CODE_HASH}"
+
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
   local COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -1170,6 +1078,7 @@ function build-desktop() {
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -1178,6 +1087,7 @@ function build-desktop() {
   elif [ "$DESKTOP_NAME" = "sway" ]; then
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -1186,6 +1096,7 @@ function build-desktop() {
     # Non-sway desktops: just latest and commit hash tags (also with qwen-code)
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       .
@@ -1233,12 +1144,16 @@ function build-desktop() {
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
   mkdir -p sandbox-images
 
-  # Tag with IMAGE_TAG before saving (Wolf uses helix-${desktop}:${tag} to run containers)
+  # Tag with IMAGE_TAG before saving (Hydra uses helix-${desktop}:${tag} to run containers)
   echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG}..."
   docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Save tarball with BOTH tags - this ensures docker ps shows the named image
-  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"
+  if ! docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"; then
+    echo "❌ Failed to save ${DESKTOP_NAME} tarball (disk space issue?)"
+    rm -f "sandbox-images/${IMAGE_NAME}.tar"  # Remove partial/corrupted tarball
+    exit 1
+  fi
   echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
 
   local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
@@ -1285,11 +1200,19 @@ function transfer-desktop-to-sandbox() {
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
   local COMMIT_HASH=$(git rev-parse --short HEAD)
 
-  # CRITICAL: Create image tag on host - Wolf executor requests images by tag
-  # The heartbeat reports the tag from the version file, and Wolf uses
+  # Check if sandbox already has this exact image by version tag (skip transfer if so)
+  # Use the version tag, not :latest, since we don't use :latest in production
+  local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
+  if [ -n "$SANDBOX_HAS_TAG" ]; then
+    echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
+    return 0
+  fi
+
+  # CRITICAL: Create image tag on host - Hydra requests images by tag
+  # The heartbeat reports the tag from the version file, and Hydra uses
   # helix-${desktop}:${tag} when creating containers. Without this tag, the
   # sandbox won't find the image and the container will fail to start.
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG} (for Wolf executor)..."
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG} (for Hydra)..."
   docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Check if versioned tag exists locally
@@ -1299,10 +1222,10 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Transfer image(s) to sandbox's dockerd
-  # Always include the IMAGE_TAG since Wolf uses it to run containers
+  # Always include the IMAGE_TAG since Hydra uses it to run containers
   local TRANSFER_SUCCESS=""
   if [ -n "$HAS_VERSIONED_TAG" ]; then
-    # Transfer all tags: latest, commit hash, and image tag (Wolf uses helix-${desktop}:${tag})
+    # Transfer all tags: latest, commit hash, and image tag (Hydra uses helix-${desktop}:${tag})
     echo "📦 Transferring ${IMAGE_NAME}:latest, ${IMAGE_NAME}:${COMMIT_HASH}, and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
     if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
       TRANSFER_SUCCESS="true"
@@ -1369,66 +1292,22 @@ function transfer-xfce-to-sandbox() {
   transfer-desktop-to-sandbox xfce
 }
 
-function build-moonlight-web() {
-  echo "🌙 Building Moonlight Web container..."
-
-  # Check if moonlight-web source directory exists
-  if [ ! -d "$PROJECTS_ROOT/moonlight-web-stream" ]; then
-    echo "❌ ERROR: Moonlight Web source code not found at $PROJECTS_ROOT/moonlight-web-stream/"
-    echo ""
-    echo "The Moonlight Web integration requires the source code to be checked out alongside Helix."
-    echo ""
-    echo "Please run:"
-    echo "  cd $PROJECTS_ROOT"
-    echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
-    echo "  cd helix"
-    echo "  ./stack build-moonlight-web"
-    exit 1
-  fi
-
-  # Build Moonlight Web container with image tags (like Wolf)
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-
-  # Determine build mode: always use release (fast, optimized)
-  # Set BUILD_MODE=debug to override for debugging purposes
-  local BUILD_MODE="${BUILD_MODE:-release}"
-  if [ "$BUILD_MODE" = "release" ]; then
-    echo "🔨 Building Moonlight Web container from source (RELEASE MODE)..."
-  else
-    echo "🔨 Building Moonlight Web container from source (DEBUG MODE)..."
-  fi
-  cd "$PROJECTS_ROOT/moonlight-web-stream"
-
-  if [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build -f Dockerfile \
-      --build-arg BUILD_MODE=$BUILD_MODE \
-      -t helix-moonlight-web:helix-fixed \
-      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/moonlight-web:${GIT_TAG}" \
-      .
-  else
-    docker build -f Dockerfile \
-      --build-arg BUILD_MODE=$BUILD_MODE \
-      -t helix-moonlight-web:helix-fixed \
-      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
-      .
-  fi
-
-  if [ $? -eq 0 ]; then
-    echo "✅ Moonlight Web container built successfully"
-  else
-    echo "❌ Failed to build Moonlight Web container"
-    cd - > /dev/null
-    return 1
-  fi
-  cd - > /dev/null
-
-  # Note: Moonlight Web image is an intermediate build artifact, embedded in helix-sandbox
-  # It's not pushed to registry separately - only the sandbox container is pushed
-  # Moonlight Web runs inside the sandbox container now, not as a standalone service
+function build-kde() {
+  build-desktop kde
 }
+
+function transfer-kde-to-sandbox() {
+  transfer-desktop-to-sandbox kde
+}
+
+function build-hyprland() {
+  build-desktop hyprland
+}
+
+function transfer-hyprland-to-sandbox() {
+  transfer-desktop-to-sandbox hyprland
+}
+
 
 # Helper function to verify tarball exists after desktop build
 function verify_tarball() {
@@ -1442,15 +1321,14 @@ function verify_tarball() {
 }
 
 function build-sandbox() {
-  echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
+  echo "📦 Building Helix Sandbox container (DinD + Hydra + RevDial)..."
   echo ""
-  echo "This builds a unified container with:"
-  echo "  • Wolf streaming platform (from ~/pm/wolf)"
-  echo "  • Moonlight Web (from ~/pm/moonlight-web-stream)"
+  echo "This builds a container with:"
+  echo "  • Docker-in-Docker with NVIDIA/AMD runtime"
+  echo "  • Hydra multi-container isolation daemon"
   echo "  • RevDial client (built from source)"
-  echo "  • Docker-in-Docker with NVIDIA runtime"
-  echo "  • Desktop images (pre-loaded into Wolf's dockerd)"
-  echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
+  echo "  • Desktop images (pre-loaded into nested dockerd)"
+  echo "  • GOW-style init system (cont-init.d + entrypoint.sh)"
   echo ""
   # Convert EXPERIMENTAL_DESKTOPS from space-separated string to array
   # This allows: EXPERIMENTAL_DESKTOPS="zorin xfce" ./stack build-sandbox
@@ -1472,26 +1350,6 @@ function build-sandbox() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   # Use exported GIT_TAG if available (from build-and-push-helix-code), otherwise detect from git
   local GIT_TAG="${GIT_TAG:-$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")}"
-
-  # Step 0: Build Wolf and Moonlight Web (fast if unchanged due to Docker cache)
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [0/6] Building Wolf and Moonlight Web dependencies..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build Wolf (skip container restart - we'll restart sandbox instead)
-  echo "🐺 Building Wolf..."
-  if ! SKIP_DEV_RESTART=1 build-wolf; then
-    echo "❌ Failed to build Wolf"
-    return 1
-  fi
-
-  # Build Moonlight Web (skip container restart - we'll restart sandbox instead)
-  echo "🌙 Building Moonlight Web..."
-  if ! SKIP_DEV_RESTART=1 build-moonlight-web; then
-    echo "❌ Failed to build Moonlight Web"
-    return 1
-  fi
-  echo ""
 
   # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1545,32 +1403,21 @@ function build-sandbox() {
     echo ""
   fi
 
-  # Build unified sandbox container with embedded tarballs
+  # Build sandbox container with embedded desktop tarballs
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Get image IDs to bust Docker cache when upstream images change
-  # Without this, BuildKit caches the FROM layers even when wolf/moonlight-web are rebuilt
-  local WOLF_IMAGE_ID=$(docker images wolf:helix-fixed -q)
-  local MOONLIGHT_IMAGE_ID=$(docker images helix-moonlight-web:helix-fixed -q)
-  echo "📦 Wolf image ID: ${WOLF_IMAGE_ID:-not found}"
-  echo "📦 Moonlight Web image ID: ${MOONLIGHT_IMAGE_ID:-not found}"
 
   # Build sandbox with tarball embedded
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
-      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
-      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sandbox \
-      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
-      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       .
@@ -1598,7 +1445,7 @@ function build-sandbox() {
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing sandbox image to registry..."
 
-    # Push helix-sandbox (contains Wolf + Moonlight Web + desktop tarballs)
+    # Push helix-sandbox (contains Hydra + desktop tarballs)
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1625,13 +1472,13 @@ function build-sandbox() {
   fi
 
   echo ""
-  echo "📦 Unified sandbox ready: helix-sandbox:latest"
+  echo "📦 Sandbox ready: helix-sandbox:latest"
   echo ""
   echo "Components included:"
-  echo "  • Wolf (streaming platform)"
-  echo "  • Moonlight Web (WebRTC browser streaming)"
+  echo "  • Docker-in-Docker with NVIDIA/AMD runtime"
+  echo "  • Hydra multi-container isolation daemon"
   echo "  • RevDial client (control plane connection)"
-  echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
+  echo "  • Sandbox heartbeat (disk monitoring)"
   echo "  • Desktop images:"
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
@@ -1648,22 +1495,19 @@ function build-sandbox() {
     done
   fi
   echo ""
-  echo "Services managed by GOW's init system:"
-  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads desktop images"
-  echo "  • 05-init-wolf-config.sh - initializes Wolf config"
-  echo "  • 06-init-moonlight-config.sh - initializes Moonlight Web"
-  echo "  • 07-start-moonlight-web.sh - starts Moonlight Web daemon"
-  echo "  • 08-start-revdial-client.sh - starts RevDial daemon (if configured)"
-  echo "  • startup-app.sh - starts Wolf as main process"
+  echo "Services managed by GOW-style init system:"
+  echo "  • 40-start-dockerd.sh - starts nested dockerd + loads desktop images"
+  echo "  • 50-start-revdial-clients.sh - starts RevDial daemons"
+  echo "  • 55-start-sandbox-heartbeat.sh - starts disk monitoring"
+  echo "  • 60-setup-telemetry-firewall.sh - blocks agent telemetry"
+  echo "  • 70-start-hydra.sh - starts Hydra daemon"
+  echo "  • startup-app.sh - keeps container running"
   echo ""
   echo "🎉 Sandbox build completed successfully!"
 }
 
-# NOTE: This function requires specific branches to be checked out in dependency repositories:
-# - wolf: wolf-ui-working (adds client_unique_id for secure auto-join)
-# - moonlight-web-stream: feature/kickoff (threads Wolf client_id through stack)
-# - zed: feature/external-thread-sync (external agent WebSocket sync support)
-# Verify branches before running: cd $PROJECTS_ROOT/wolf && git branch --show-current
+# NOTE: This function builds and pushes Helix Code components for production deployment.
+# Requires: zed repo with feature/external-thread-sync branch for external agent support.
 function build-and-push-helix-code() {
   # Optional: pass a tag override as first argument to force tagging even if commit doesn't match
   local TAG_OVERRIDE="${1:-}"
@@ -1671,7 +1515,7 @@ function build-and-push-helix-code() {
   echo "🚀 Building and pushing Helix Code components for production deployment"
   echo "========================================================================"
   echo ""
-  echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, Moonlight Web, and Sandbox"
+  echo "Note: API and Frontend are built by CI - this builds Zed Agent and Sandbox"
   echo ""
 
   # Enable image pushing to registry for production builds
@@ -1702,39 +1546,13 @@ function build-and-push-helix-code() {
 
   # Track build status
   # Note: helix-sway (Zed agent) is built as part of build-sandbox, not separately
-  local TOTAL_BUILDS=3
+  local TOTAL_BUILDS=1
   local COMPLETED_BUILDS=0
 
-  # 1. Build Wolf
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if build-wolf; then
-    echo "✅ Wolf built and pushed successfully"
-    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
-  else
-    echo "❌ Failed to build Wolf"
-    FAILED_BUILDS+=("wolf")
-  fi
-  echo ""
-
-  # 2. Build Moonlight Web
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [2/$TOTAL_BUILDS] Building Moonlight Web..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if build-moonlight-web; then
-    echo "✅ Moonlight Web built and pushed successfully"
-    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
-  else
-    echo "❌ Failed to build Moonlight Web"
-    FAILED_BUILDS+=("moonlight-web")
-  fi
-  echo ""
-
-  # 3. Build unified Sandbox (Wolf + Moonlight Web + Sway/Zed + RevDial + DinD)
+  # 1. Build Sandbox (DinD + Hydra + desktop images)
   # Note: This also builds helix-sway (Zed agent) and embeds it as a tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [3/$TOTAL_BUILDS] Building unified Sandbox container (includes Sway/Zed)..."
+  echo "📦 [1/$TOTAL_BUILDS] Building Sandbox container (includes Sway/Zed)..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if build-sandbox; then
     echo "✅ Sandbox built and pushed successfully"
@@ -1766,7 +1584,7 @@ function build-and-push-helix-code() {
     echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
     echo "   • registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}"
     echo ""
-    echo "📝 Note: helix-sandbox contains Wolf + Moonlight Web + helix-sway (all embedded)"
+    echo "📝 Note: helix-sandbox contains Hydra + desktop images (helix-sway, helix-ubuntu)"
     if [ -n "$GIT_TAG" ]; then
       echo ""
       echo "📦 Also tagged with git tag (${GIT_TAG}):"
@@ -2159,14 +1977,14 @@ function help() {
   echo ""
   echo "Production build commands:"
   echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
-  echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
-  echo "  build-wolf         - Build Wolf container with latest source code"
-  echo "  build-desktop <name> - Build desktop container (sway, zorin, ubuntu, xfce)"
+  echo "  build-sandbox      - Build sandbox container (DinD + Hydra + RevDial)"
+  echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
+  echo "  build-hyprland     - Build Hyprland+Zed container (alias for build-desktop hyprland)"
+  echo "  build-kde          - Build KDE Plasma+Zed container (alias for build-desktop kde)"
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
-  echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"

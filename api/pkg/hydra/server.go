@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,11 +27,12 @@ const (
 
 // Server is the Hydra HTTP server
 type Server struct {
-	manager    *Manager
-	socketPath string
-	listener   net.Listener
-	server     *http.Server
-	dnsServer  *DNSServer // DNS server for container name resolution
+	manager             *Manager
+	devContainerManager *DevContainerManager // Dev container management (desktop container lifecycle)
+	socketPath          string
+	listener            net.Listener
+	server              *http.Server
+	dnsServer           *DNSServer // DNS server for container name resolution
 
 	// Privileged mode settings
 	privilegedModeEnabled bool // Controlled by HYDRA_PRIVILEGED_MODE_ENABLED env var
@@ -65,8 +68,12 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	dnsServer := NewDNSServer(manager, upstreamDNS)
 	manager.SetDNSServer(dnsServer)
 
+	// Create dev container manager for desktop container lifecycle functionality
+	devContainerManager := NewDevContainerManager(manager)
+
 	return &Server{
 		manager:               manager,
+		devContainerManager:   devContainerManager,
 		socketPath:            socketPath,
 		dnsServer:             dnsServer,
 		privilegedModeEnabled: privilegedModeEnabled,
@@ -187,6 +194,15 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// Bridge desktop container to Hydra network (for desktop-to-dev-container communication)
 	api.HandleFunc("/bridge-desktop", s.handleBridgeDesktop).Methods("POST")
+
+	// Dev container management (desktop container lifecycle - container lifecycle)
+	api.HandleFunc("/dev-containers", s.handleCreateDevContainer).Methods("POST")
+	api.HandleFunc("/dev-containers", s.handleListDevContainers).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
+
+	// System stats (GPU info, active sessions)
+	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 }
 
 // handleHealth returns server health status
@@ -368,7 +384,7 @@ func (s *Server) handlePrivilegedModeStatus(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleBridgeDesktop bridges a desktop container (on Wolf's dockerd) to a Hydra network
+// handleBridgeDesktop bridges a desktop container (on sandbox dockerd) to a Hydra network
 // This enables the desktop to access dev containers started via docker compose
 func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 	var req BridgeDesktopRequest
@@ -404,19 +420,287 @@ func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleCreateDevContainer creates a new dev container (desktop container lifecycle)
+func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request) {
+	var req CreateDevContainerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.SessionID == "" {
+		http.Error(w, "session_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.Image == "" {
+		http.Error(w, "image is required", http.StatusBadRequest)
+		return
+	}
+	if req.ContainerName == "" {
+		http.Error(w, "container_name is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.CreateDevContainer(ctx, &req)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", req.SessionID).
+			Str("container_name", req.ContainerName).
+			Msg("Failed to create dev container")
+		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleListDevContainers lists all active dev containers
+func (s *Server) handleListDevContainers(w http.ResponseWriter, r *http.Request) {
+	resp := s.devContainerManager.ListDevContainers()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleGetDevContainer returns status of a specific dev container
+func (s *Server) handleGetDevContainer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDeleteDevContainer stops and removes a dev container
+func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.DeleteDevContainer(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to delete dev container")
+		http.Error(w, fmt.Sprintf("failed to delete dev container: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleSystemStats returns GPU stats and session counts
+func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
+	gpus := getGPUInfo()
+	containers := s.devContainerManager.ListDevContainers()
+
+	resp := &SystemStatsResponse{
+		GPUs:             gpus,
+		ActiveContainers: len(containers.Containers),
+		ActiveSessions:   len(containers.Containers),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// getGPUInfo detects and queries GPU information
+func getGPUInfo() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Try NVIDIA first (nvidia-smi)
+	gpus = append(gpus, getNvidiaGPUs()...)
+
+	// Try AMD (rocm-smi) if no NVIDIA GPUs found
+	if len(gpus) == 0 {
+		gpus = append(gpus, getAMDGPUs()...)
+	}
+
+	return gpus
+}
+
+// getNvidiaGPUs queries NVIDIA GPUs using nvidia-smi
+func getNvidiaGPUs() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Check if nvidia-smi exists
+	if _, err := os.Stat("/usr/bin/nvidia-smi"); err != nil {
+		return gpus
+	}
+
+	// Query GPU info in CSV format
+	// nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits
+	cmd := fmt.Sprintf("nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null")
+
+	// Execute via /bin/sh
+	out, err := execCommand("sh", "-c", cmd)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to query NVIDIA GPUs")
+		return gpus
+	}
+
+	// Parse output (one line per GPU)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, ", ")
+		if len(fields) < 7 {
+			continue
+		}
+
+		var index, memTotal, memUsed, memFree, util, temp int64
+		fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
+		fmt.Sscanf(strings.TrimSpace(fields[2]), "%d", &memTotal)
+		fmt.Sscanf(strings.TrimSpace(fields[3]), "%d", &memUsed)
+		fmt.Sscanf(strings.TrimSpace(fields[4]), "%d", &memFree)
+		fmt.Sscanf(strings.TrimSpace(fields[5]), "%d", &util)
+		fmt.Sscanf(strings.TrimSpace(fields[6]), "%d", &temp)
+
+		gpus = append(gpus, GPUInfo{
+			Index:       int(index),
+			Name:        strings.TrimSpace(fields[1]),
+			Vendor:      "nvidia",
+			MemoryTotal: memTotal * 1024 * 1024, // MiB to bytes
+			MemoryUsed:  memUsed * 1024 * 1024,
+			MemoryFree:  memFree * 1024 * 1024,
+			Utilization: int(util),
+			Temperature: int(temp),
+		})
+	}
+
+	return gpus
+}
+
+// getAMDGPUs queries AMD GPUs using rocm-smi or fallback detection
+func getAMDGPUs() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Check if rocm-smi exists
+	hasRocmSmi := false
+	if _, err := os.Stat("/usr/local/bin/rocm-smi"); err == nil {
+		hasRocmSmi = true
+	} else if _, err := os.Stat("/opt/rocm/bin/rocm-smi"); err == nil {
+		hasRocmSmi = true
+	}
+
+	if hasRocmSmi {
+		// Query GPU info via rocm-smi
+		cmd := "rocm-smi --showid --showtemp --showuse --showmeminfo vram --csv 2>/dev/null"
+		out, err := execCommand("sh", "-c", cmd)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to query AMD GPUs via rocm-smi")
+		} else {
+			// Parse rocm-smi CSV output
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			for i, line := range lines {
+				if i == 0 || line == "" { // Skip header
+					continue
+				}
+				fields := strings.Split(line, ",")
+				if len(fields) < 4 {
+					continue
+				}
+
+				var index int
+				fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
+
+				gpus = append(gpus, GPUInfo{
+					Index:  index,
+					Name:   "AMD GPU",
+					Vendor: "amd",
+				})
+			}
+			if len(gpus) > 0 {
+				return gpus
+			}
+		}
+	}
+
+	// Fallback: detect AMD GPU via /dev/kfd (AMD's kernel fusion driver)
+	// This works even without rocm-smi installed (e.g., on Azure AMD VMs)
+	if _, err := os.Stat("/dev/kfd"); err == nil {
+		// /dev/kfd exists, which indicates AMD GPU with ROCm/compute support
+		// Count renderD* devices to estimate GPU count
+		matches, _ := filepath.Glob("/dev/dri/renderD*")
+		gpuCount := len(matches)
+		if gpuCount == 0 {
+			gpuCount = 1 // At least one GPU if /dev/kfd exists
+		}
+
+		for i := 0; i < gpuCount; i++ {
+			gpus = append(gpus, GPUInfo{
+				Index:  i,
+				Name:   "AMD GPU (detected via /dev/kfd)",
+				Vendor: "amd",
+			})
+		}
+		log.Info().Int("count", gpuCount).Msg("Detected AMD GPU(s) via /dev/kfd fallback")
+	}
+
+	return gpus
+}
+
+// execCommand runs a command and returns its output
+func execCommand(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := &exec.Cmd{
+		Path: name,
+		Args: append([]string{name}, args...),
+	}
+	if filepath.Base(name) == name {
+		if lp, err := exec.LookPath(name); err == nil {
+			cmd.Path = lp
+		}
+	}
+
+	out, err := cmd.Output()
+	_ = ctx // Context used for timeout documentation
+	return string(out), err
+}
+
 // getUpstreamDNS reads /etc/resolv.conf and returns the nameservers configured there.
 // This ensures DNS works in both Docker and Kubernetes environments:
 // - Docker: returns 127.0.0.11 (Docker's internal DNS) or host DNS
 // - Kubernetes: returns CoreDNS IP (e.g., 10.96.0.10)
+//
+// In enterprise environments, the sandbox container's resolv.conf should contain
+// the enterprise DNS servers (configured via Docker's --dns flag or daemon.json).
+// If only systemd-resolved stub (127.0.0.53) is found, we fall back to Docker's
+// internal DNS (127.0.0.11) which forwards to the host's DNS server.
 func getUpstreamDNS() []string {
 	file, err := os.Open("/etc/resolv.conf")
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to read /etc/resolv.conf, falling back to 8.8.8.8")
-		return []string{"8.8.8.8:53"}
+		// Fallback to Docker's internal DNS, which forwards to host DNS
+		// This preserves enterprise DNS configuration
+		log.Warn().Err(err).Msg("Failed to read /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		return []string{"127.0.0.11:53"}
 	}
 	defer file.Close()
 
 	var nameservers []string
+	var skippedLoopback []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -429,9 +713,12 @@ func getUpstreamDNS() []string {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
 				ip := fields[1]
-				// Skip loopback for systemd-resolved stub (127.0.0.53)
-				// It doesn't work from inside containers
-				if ip == "127.0.0.53" {
+				// Skip loopback addresses that don't work from inside containers:
+				// - 127.0.0.53: systemd-resolved stub (doesn't work in containers)
+				// - 127.0.0.1: generic loopback (doesn't work in containers)
+				// Note: 127.0.0.11 is Docker's internal DNS and DOES work in containers
+				if ip == "127.0.0.53" || ip == "127.0.0.1" {
+					skippedLoopback = append(skippedLoopback, ip)
 					continue
 				}
 				// Add port if not present
@@ -444,8 +731,19 @@ func getUpstreamDNS() []string {
 	}
 
 	if len(nameservers) == 0 {
-		log.Warn().Msg("No nameservers found in /etc/resolv.conf, falling back to 8.8.8.8")
-		return []string{"8.8.8.8:53"}
+		// Fallback to Docker's internal DNS (127.0.0.11) which forwards to host DNS
+		// This is critical for enterprise environments where:
+		// 1. The host uses systemd-resolved (127.0.0.53) which doesn't work in containers
+		// 2. Docker's internal DNS properly resolves to the host's configured DNS
+		// 3. Enterprise internal DNS servers are configured on the host
+		if len(skippedLoopback) > 0 {
+			log.Info().
+				Strs("skipped", skippedLoopback).
+				Msg("Only loopback nameservers found in /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		} else {
+			log.Warn().Msg("No nameservers found in /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		}
+		return []string{"127.0.0.11:53"}
 	}
 
 	return nameservers

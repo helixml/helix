@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -891,38 +890,15 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 	return map[string]string{"message": "repository detached successfully"}, nil
 }
 
-// checkWolfLobbyExists checks if a Wolf lobby exists by querying the Wolf API
-func (s *HelixAPIServer) checkWolfLobbyExists(ctx context.Context, lobbyID string, wolfInstanceID string) (bool, error) {
-	if wolfInstanceID == "" {
-		return false, fmt.Errorf("wolfInstanceID is required to check lobby existence")
+// checkSandboxContainerExists checks if a sandbox container exists
+func (s *HelixAPIServer) checkSandboxContainerExists(ctx context.Context, sessionID string, sandboxID string) (bool, error) {
+	// Check if the container exists via the executor
+	if s.externalAgentExecutor == nil {
+		return false, nil
 	}
 
-	// Get Wolf client from executor via RevDial
-	type WolfClientForSessionProvider interface {
-		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
-	}
-	provider, ok := s.externalAgentExecutor.(WolfClientForSessionProvider)
-	if !ok {
-		return false, fmt.Errorf("executor does not provide Wolf client")
-	}
-	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
-	if wolfClient == nil {
-		return false, fmt.Errorf("Wolf client is nil")
-	}
-
-	// List all lobbies and check if ours exists
-	lobbies, err := wolfClient.ListLobbies(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to list lobbies: %w", err)
-	}
-
-	for _, lobby := range lobbies {
-		if lobby.ID == lobbyID {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	// Use HasRunningContainer to check if the sandbox is running
+	return s.externalAgentExecutor.HasRunningContainer(ctx, sessionID), nil
 }
 
 // getProjectExploratorySession godoc
@@ -973,7 +949,7 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 		return nil, nil
 	}
 
-	// Check if the external agent (Wolf lobby) is actually running
+	// Check if the external agent (sandbox container) is actually running
 	// If not running, update status to "stopped"
 	if s.externalAgentExecutor != nil {
 		_, err := s.externalAgentExecutor.GetSession(session.ID)
@@ -983,7 +959,7 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 			log.Trace().
 				Str("session_id", session.ID).
 				Str("project_id", projectID).
-				Msg("Exploratory session exists in database but Wolf lobby is stopped")
+				Msg("Exploratory session exists in database but sandbox container is stopped")
 		} else {
 			// External agent is running
 			session.Metadata.ExternalAgentStatus = "running"
@@ -1035,24 +1011,24 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	// Check if an active exploratory session already exists for this project
 	existingSession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
 	if err == nil && existingSession != nil {
-		// Session exists - check if lobby is still running
-		// If lobby stopped, restart it with fresh startup script
-		lobbyID := existingSession.Metadata.WolfLobbyID
-		wolfInstanceID := existingSession.WolfInstanceID
-		if lobbyID != "" && wolfInstanceID != "" {
-			// Check if lobby exists in Wolf
-			lobbyExists, checkErr := s.checkWolfLobbyExists(r.Context(), lobbyID, wolfInstanceID)
+		// Session exists - check if sandbox container is still running
+		// If container stopped, restart it with fresh startup script
+		containerID := existingSession.Metadata.DevContainerID
+		sandboxID := existingSession.SandboxID
+		if containerID != "" && sandboxID != "" {
+			// Check if container exists
+			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), containerID, sandboxID)
 			if checkErr != nil {
-				log.Warn().Err(checkErr).Str("lobby_id", lobbyID).Msg("Failed to check lobby status")
+				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status")
 			}
 
-			if !lobbyExists {
-				// Lobby stopped - restart it
+			if !containerExists {
+				// Container stopped - restart it
 				log.Info().
 					Str("session_id", existingSession.ID).
 					Str("project_id", projectID).
-					Str("lobby_id", lobbyID).
-					Msg("Exploratory session exists but lobby stopped - restarting with fresh startup script")
+					Str("container_id", containerID).
+					Msg("Exploratory session exists but container stopped - restarting with fresh startup script")
 
 				// Get project repositories for restarting
 				projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
@@ -1110,8 +1086,14 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					}
 				}
 
+				// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+				// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+				if desktopType == "" {
+					desktopType = "ubuntu"
+				}
+
 				// Restart Zed agent with existing session
-				zedAgent := &types.ZedAgent{
+				zedAgent := &types.DesktopAgent{
 					SessionID:           existingSession.ID,
 					UserID:              user.ID,
 					Input:               fmt.Sprintf("Explore the %s project", project.Name),
@@ -1145,7 +1127,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 				log.Info().
 					Str("session_id", existingSession.ID).
-					Str("lobby_id", agentResp.WolfLobbyID).
+					Str("lobby_id", agentResp.DevContainerID).
 					Msg("Exploratory session lobby restarted successfully")
 
 				// Reload session from database to get updated lobby ID/PIN
@@ -1259,8 +1241,14 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		}
 	}
 
+	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+	if desktopType == "" {
+		desktopType = "ubuntu"
+	}
+
 	// Create ZedAgent for exploratory session
-	zedAgent := &types.ZedAgent{
+	zedAgent := &types.DesktopAgent{
 		SessionID:           createdSession.ID,
 		UserID:              user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),
@@ -1283,7 +1271,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
 	}
 
-	// Start the Zed agent via Wolf executor
+	// Start the desktop agent
 	agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
 	if err != nil {
 		log.Error().
@@ -1294,13 +1282,12 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to start exploratory agent: %v", err))
 	}
 
-	// Activity tracking now happens in StartDesktop (wolf_executor.go)
-	// for all external agent types (exploratory, spectask, regular agents)
+	// Activity tracking now happens in StartDesktop for all desktop agent types
 
 	log.Info().
 		Str("session_id", createdSession.ID).
 		Str("project_id", projectID).
-		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("dev_container_id", agentResp.DevContainerID).
 		Msg("Exploratory session created successfully")
 
 	return createdSession, nil
@@ -1308,7 +1295,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 // stopExploratorySession godoc
 // @Summary Stop project exploratory session
-// @Description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
+// @Description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
 // @Tags Projects
 // @Produce json
 // @Param id path string true "Project ID"
@@ -1352,7 +1339,7 @@ func (s *HelixAPIServer) stopExploratorySession(_ http.ResponseWriter, r *http.R
 		return nil, system.NewHTTPError404("no exploratory session found")
 	}
 
-	// Stop the Zed agent (Wolf container)
+	// Stop the desktop agent container
 	err = s.externalAgentExecutor.StopDesktop(r.Context(), session.ID)
 	if err != nil {
 		log.Error().

@@ -451,15 +451,31 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 	return nil
 }
 
-func (c *Controller) UpdateSessionName(_ context.Context, _ string, sessionID, name string) error {
+func (c *Controller) UpdateSessionName(ctx context.Context, ownerID string, sessionID, name string) error {
 	log.Trace().
 		Msgf("🔵 update session name: %s %+v", sessionID, name)
 
-	err := c.Options.Store.UpdateSessionName(context.Background(), sessionID, name)
+	err := c.Options.Store.UpdateSessionName(ctx, sessionID, name)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
+
+	// Publish WebSocket event so clients see the title update
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to get session for WebSocket notification")
+		return nil // Name already updated, just skip notification
+	}
+
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: sessionID,
+		Owner:     session.Owner,
+		Session:   session,
+	}
+
+	_ = c.publishEvent(ctx, event)
 
 	return nil
 }

@@ -410,8 +410,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         return
       }
 
-      // Skip if inside MoonlightStreamViewer or any video container
-      if (target.closest('[data-video-container]') || target.closest('.moonlight-stream-viewer')) {
+      // Skip if inside DesktopStreamViewer or any video container
+      if (target.closest('[data-video-container]') || target.closest('.desktop-stream-viewer')) {
         return
       }
 

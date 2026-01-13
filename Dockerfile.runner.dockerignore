@@ -10,7 +10,6 @@ vendor
 
 # Large directories - runner doesn't need these
 .git
-wolf-debug-dumps
 *.tar.gz
 *.tar
 frontend/node_modules

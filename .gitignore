@@ -67,5 +67,26 @@ wolf/key.pem
 sandbox-heartbeat
 sandbox-images
 
-hydra
+# Hydra binary (not the api/pkg/hydra directory)
+/hydra
 qwen-code-build/
+
+# Screenshots from spectask testing
+screenshot-*.png
+
+# Build artifacts
+api/screenshot-server
+helix-cli
+
+# Moonlight config backups
+moonlight-web-config/data.json.bak
+
+# Build artifacts
+api/api
+
+# Screenshots
+screenshot-*.jpg
+
+# Rust build artifacts
+desktop/gst-pipewire-zerocopy/target/
+desktop/gst-pipewire-zerocopy/Cargo.lock
