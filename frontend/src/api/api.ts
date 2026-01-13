@@ -2948,6 +2948,7 @@ export interface TypesProject {
   next_task_number?: number;
   organization_id?: string;
   project_manager_helix_app_id?: string;
+  pull_request_reviewer_helix_app_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
@@ -3009,6 +3010,8 @@ export interface TypesProjectUpdateRequest {
   name?: string;
   /** Project manager agent */
   project_manager_helix_app_id?: string;
+  /** Pull request reviewer agent */
+  pull_request_reviewer_helix_app_id?: string;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -3944,6 +3947,7 @@ export interface TypesSpecTask {
    * The same external agent/session is reused throughout the entire SpecTask lifecycle
    */
   planning_session_id?: string;
+  planning_started_at?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
@@ -3960,6 +3964,7 @@ export interface TypesSpecTask {
    * UserShortTitle takes precedence if set (user override)
    */
   short_title?: string;
+  spec_approval?: TypesSpecApprovalResponse;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;

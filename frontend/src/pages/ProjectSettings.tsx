@@ -185,6 +185,7 @@ const ProjectSettings: FC = () => {
   // Default agent state
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] = useState<string>('')
+  const [selectedPullRequestReviewerAgentId, setSelectedPullRequestReviewerAgentId] = useState<string>('')
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
   const [selectedProvider, setSelectedProvider] = useState('')
@@ -212,6 +213,13 @@ const ProjectSettings: FC = () => {
     return [...zedExternalApps, ...otherApps]
   }, [apps])
 
+  // Check if the primary repository is an external repository (has external_url set)
+  const primaryRepoIsExternal = useMemo(() => {
+    if (!project?.default_repo_id || repositories.length === 0) return false
+    const primaryRepo = repositories.find(repo => repo.id === project.default_repo_id)
+    return primaryRepo?.external_url ? true : false
+  }, [project?.default_repo_id, repositories])
+
   // Load apps when component mounts
   useEffect(() => {
     loadApps()
@@ -235,6 +243,7 @@ const ProjectSettings: FC = () => {
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
       setSelectedAgentId(project.default_helix_app_id || '')
       setSelectedProjectManagerAgentId(project.project_manager_helix_app_id || '')
+      setSelectedPullRequestReviewerAgentId(project.pull_request_reviewer_helix_app_id || '')
 
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
@@ -660,7 +669,7 @@ const ProjectSettings: FC = () => {
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Select the default agent for spec tasks in this project. You can configure MCP servers in the agent settings.
+              Set agents for this project. Agents are used for working on spec tasks, managing the project and reviewing pull requests.
             </Typography>
             <Divider sx={{ mb: 3 }} />
 
@@ -687,6 +696,19 @@ const ProjectSettings: FC = () => {
                   }}
                   agents={sortedApps}
                   label="Project Manager Agent"
+                />
+                <AgentDropdown
+                  value={selectedPullRequestReviewerAgentId}
+                  onChange={(newAgentId) => {
+                    setSelectedPullRequestReviewerAgentId(newAgentId)
+                    updateProjectMutation.mutate({
+                      pull_request_reviewer_helix_app_id: newAgentId || undefined,
+                    })
+                  }}
+                  agents={sortedApps}
+                  label="Pull Request Reviewer Agent"
+                  disabled={!primaryRepoIsExternal}
+                  helperText={!primaryRepoIsExternal ? 'Requires an external repository (GitHub, GitLab, etc.) as the primary repository' : undefined}
                 />
                 <Button
                   size="small"
