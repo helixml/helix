@@ -1654,15 +1654,14 @@ steps:
         fi
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
-      - |
         docker build -f Dockerfile.sandbox \
           -t helix-sandbox:latest \
           -t helix-sandbox:$${VERSION} \
           -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT} \
           -t registry.helixml.tech/helix/helix-sandbox:$${VERSION} \
           .
-      - echo "Sandbox image built successfully"
-      - docker images helix-sandbox
+        echo "Sandbox image built successfully"
+        docker images helix-sandbox
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1687,11 +1686,10 @@ steps:
           IS_RELEASE="false"
         fi
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-      - echo "Logging in to registry..."
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - echo "Pushing helix-sandbox:$${COMMIT}..."
-      - docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}
-      - |
+        echo "Logging in to registry..."
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        echo "Pushing helix-sandbox:$${COMMIT}..."
+        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}..."
           docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}
@@ -1699,7 +1697,7 @@ steps:
           docker tag helix-sandbox:$${VERSION} registry.helixml.tech/helix/helix-sandbox:latest
           docker push registry.helixml.tech/helix/helix-sandbox:latest
         fi
-      - echo "Push complete!"
+        echo "Push complete!"
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
