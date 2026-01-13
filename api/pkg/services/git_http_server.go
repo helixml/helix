@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -46,6 +47,7 @@ type GitHTTPServer struct {
 	testMode               bool
 	authorizeFn            AuthorizationFunc     // Callback to server's RBAC system
 	sendMessageToAgentFunc SpecTaskMessageSender // Callback to send messages via WebSocket
+	triggerManager         *trigger.Manager
 	wg                     sync.WaitGroup
 }
 
@@ -76,6 +78,7 @@ func NewGitHTTPServer(
 	gitRepoService *GitRepositoryService,
 	config *GitHTTPServerConfig,
 	authorizeFn AuthorizationFunc,
+	triggerManager *trigger.Manager,
 ) *GitHTTPServer {
 	// Set defaults
 	if config.GitExecutablePath == "" {
@@ -103,6 +106,7 @@ func NewGitHTTPServer(
 		requestTimeout:    config.RequestTimeout,
 		testMode:          false,
 		authorizeFn:       authorizeFn,
+		triggerManager:    triggerManager,
 	}
 }
 
@@ -915,7 +919,23 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 				err := s.ensurePullRequest(context.Background(), repo, task, task.BranchName)
 				if err != nil {
 					log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to ensure pull request")
+					return
 				}
+
+				// Process code review
+				s.wg.Add(1)
+				go func() {
+					defer s.wg.Done()
+
+					start := time.Now()
+					err := s.triggerManager.ProcessGitPushEvent(context.Background(), task, repo, latestCommitHash)
+					if err != nil {
+						log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to process code review")
+						return
+					}
+					log.Info().Str("spec_task_id", task.ID).Dur("duration", time.Since(start)).Msg("Code review processed successfully")
+				}()
+
 			}()
 
 		default:
