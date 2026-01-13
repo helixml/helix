@@ -1563,9 +1563,8 @@ steps:
           zed-builder:ubuntu25 \
           bash -c '
             export CARGO_TARGET_DIR=/tmp/zed-target
-            cargo build --release --package zed --package cli
+            RUSTFLAGS="-C link-arg=-s" cargo build --release --features external_websocket_sync
             cp /tmp/zed-target/release/zed /output/zed
-            strip /output/zed
             cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
           '
       - ls -la /drone/src/cache/zed-build-output/
