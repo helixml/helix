@@ -684,15 +684,23 @@ func execCommand(name string, args ...string) (string, error) {
 // This ensures DNS works in both Docker and Kubernetes environments:
 // - Docker: returns 127.0.0.11 (Docker's internal DNS) or host DNS
 // - Kubernetes: returns CoreDNS IP (e.g., 10.96.0.10)
+//
+// In enterprise environments, the sandbox container's resolv.conf should contain
+// the enterprise DNS servers (configured via Docker's --dns flag or daemon.json).
+// If only systemd-resolved stub (127.0.0.53) is found, we fall back to Docker's
+// internal DNS (127.0.0.11) which forwards to the host's DNS server.
 func getUpstreamDNS() []string {
 	file, err := os.Open("/etc/resolv.conf")
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to read /etc/resolv.conf, falling back to 8.8.8.8")
-		return []string{"8.8.8.8:53"}
+		// Fallback to Docker's internal DNS, which forwards to host DNS
+		// This preserves enterprise DNS configuration
+		log.Warn().Err(err).Msg("Failed to read /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		return []string{"127.0.0.11:53"}
 	}
 	defer file.Close()
 
 	var nameservers []string
+	var skippedLoopback []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -705,9 +713,12 @@ func getUpstreamDNS() []string {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
 				ip := fields[1]
-				// Skip loopback for systemd-resolved stub (127.0.0.53)
-				// It doesn't work from inside containers
-				if ip == "127.0.0.53" {
+				// Skip loopback addresses that don't work from inside containers:
+				// - 127.0.0.53: systemd-resolved stub (doesn't work in containers)
+				// - 127.0.0.1: generic loopback (doesn't work in containers)
+				// Note: 127.0.0.11 is Docker's internal DNS and DOES work in containers
+				if ip == "127.0.0.53" || ip == "127.0.0.1" {
+					skippedLoopback = append(skippedLoopback, ip)
 					continue
 				}
 				// Add port if not present
@@ -720,8 +731,19 @@ func getUpstreamDNS() []string {
 	}
 
 	if len(nameservers) == 0 {
-		log.Warn().Msg("No nameservers found in /etc/resolv.conf, falling back to 8.8.8.8")
-		return []string{"8.8.8.8:53"}
+		// Fallback to Docker's internal DNS (127.0.0.11) which forwards to host DNS
+		// This is critical for enterprise environments where:
+		// 1. The host uses systemd-resolved (127.0.0.53) which doesn't work in containers
+		// 2. Docker's internal DNS properly resolves to the host's configured DNS
+		// 3. Enterprise internal DNS servers are configured on the host
+		if len(skippedLoopback) > 0 {
+			log.Info().
+				Strs("skipped", skippedLoopback).
+				Msg("Only loopback nameservers found in /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		} else {
+			log.Warn().Msg("No nameservers found in /etc/resolv.conf, using Docker internal DNS (127.0.0.11)")
+		}
+		return []string{"127.0.0.11:53"}
 	}
 
 	return nameservers

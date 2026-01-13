@@ -26,7 +26,11 @@ type DNSServer struct {
 // NewDNSServer creates a new DNS server for Hydra container resolution
 func NewDNSServer(manager *Manager, upstreamDNS []string) *DNSServer {
 	if len(upstreamDNS) == 0 {
-		upstreamDNS = []string{"8.8.8.8:53", "8.8.4.4:53"}
+		// Fall back to Docker's internal DNS (127.0.0.11) which forwards to host DNS
+		// This is critical for enterprise environments - never use 8.8.8.8 as it
+		// breaks internal DNS resolution for enterprise domains
+		upstreamDNS = []string{"127.0.0.11:53"}
+		log.Warn().Msg("No upstream DNS provided, using Docker internal DNS (127.0.0.11)")
 	}
 
 	return &DNSServer{
