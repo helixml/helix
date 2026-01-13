@@ -1415,7 +1415,6 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
     - fix/ci-sandbox-build-concurrency
 
 volumes:
@@ -1754,7 +1753,6 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
         - fix/ci-sandbox-build-concurrency
     depends_on:
       - build-sandbox
