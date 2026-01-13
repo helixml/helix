@@ -117,11 +117,30 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Get Hydra client via RevDial
 	// Hydra runner ID follows pattern: hydra-{SANDBOX_INSTANCE_ID}
-	// Hydra defaults SANDBOX_INSTANCE_ID to "local" (see api/cmd/hydra/main.go:112)
+	// Determine container type first (needed for sandbox selection)
+	containerType := h.parseContainerType(agent.DesktopType)
+
+	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
-		// Use "local" to match Hydra's default SANDBOX_INSTANCE_ID
-		sandboxID = "local"
+		// Find an available sandbox with the required desktop image
+		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
+		}
+		if sandbox != nil {
+			sandboxID = sandbox.ID
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Str("container_type", containerType).
+				Msg("Auto-selected available sandbox")
+		} else {
+			// Fallback to "local" if no sandbox found (for backwards compatibility)
+			sandboxID = "local"
+			log.Warn().
+				Str("container_type", containerType).
+				Msg("No available sandbox found, falling back to 'local'")
+		}
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
@@ -129,9 +148,6 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// NOTE: GPU vendor is NOT passed from API - Hydra reads it from its own
 	// GPU_VENDOR env var (set by install.sh). This avoids the complexity of
 	// the API needing to know the sandbox's GPU type.
-
-	// Determine container type from desktop type
-	containerType := h.parseContainerType(agent.DesktopType)
 
 	// Determine workspace directory
 	workspaceDir := agent.WorkDir

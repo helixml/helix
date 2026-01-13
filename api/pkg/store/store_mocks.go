@@ -1704,6 +1704,21 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureUserMeta", reflect.TypeOf((*MockStore)(nil).EnsureUserMeta), ctx, UserMeta)
 }
 
+// FindAvailableSandbox mocks base method.
+func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType)
+	ret0, _ := ret[0].(*types.SandboxInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAvailableSandbox indicates an expected call of FindAvailableSandbox.
+func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType)
+}
+
 // GenerateRandomState mocks base method.
 func (m *MockStore) GenerateRandomState(ctx context.Context) (string, error) {
 	m.ctrl.T.Helper()

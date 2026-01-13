@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -106,6 +107,36 @@ func (s *PostgresStore) GetSandboxesOlderThanHeartbeat(ctx context.Context, olde
 		return nil, fmt.Errorf("error getting stale sandboxes: %w", err)
 	}
 	return instances, nil
+}
+
+// FindAvailableSandbox finds a sandbox that is online, has recent heartbeat, and has the required desktop version.
+// Returns nil if no suitable sandbox is found.
+func (s *PostgresStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+	// Get sandboxes that are online and have sent heartbeat in the last 2 minutes
+	staleThreshold := time.Now().Add(-2 * time.Minute)
+	var instances []*types.SandboxInstance
+	err := s.gdb.WithContext(ctx).
+		Where("status = ? AND last_seen > ?", "online", staleThreshold).
+		Order("active_sandboxes ASC"). // Prefer less loaded sandboxes
+		Find(&instances).Error
+	if err != nil {
+		return nil, fmt.Errorf("error finding available sandboxes: %w", err)
+	}
+
+	// Find one with the required desktop version
+	for _, instance := range instances {
+		if len(instance.DesktopVersions) > 0 {
+			var versions map[string]string
+			if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
+				continue // Skip sandboxes with invalid version JSON
+			}
+			if version, ok := versions[desktopType]; ok && version != "" {
+				return instance, nil
+			}
+		}
+	}
+
+	return nil, nil // No suitable sandbox found
 }
 
 // Disk usage history methods

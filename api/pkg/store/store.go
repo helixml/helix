@@ -607,6 +607,7 @@ type Store interface {
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
+	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
