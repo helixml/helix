@@ -478,8 +478,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		//
 		// POTENTIAL OPTIMIZATION: Could use video/x-raw(memory:VAMemory),format=NV12
 		// to keep data in GPU memory after vapostproc, avoiding a second copy.
-		// Wolf uses system memory caps for a reason (compatibility?), so we match
-		// their proven working config for now.
+		// See design/2026-01-13-vaapi-vamemory-optimization.md for details.
 		parts = append(parts,
 			"vapostproc",
 			"video/x-raw,format=NV12",

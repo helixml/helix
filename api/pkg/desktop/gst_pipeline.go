@@ -42,6 +42,11 @@ type GstPipeline struct {
 	running    atomic.Bool
 	stopOnce   sync.Once
 	pipelineID string // For logging
+
+	// PTS tracking for synthesizing missing timestamps
+	lastValidPTS   uint64 // Last valid PTS we received (microseconds)
+	frameInterval  uint64 // Expected frame interval (microseconds), e.g., 16667 for 60fps
+	invalidPTSCount uint64 // Count of frames with invalid PTS (for debugging)
 }
 
 // NewGstPipeline creates a new GStreamer pipeline from a pipeline string.
@@ -141,11 +146,32 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	copy(data, mapInfo.Bytes())
 
 	// Get presentation timestamp (ClockTime is nanoseconds, convert to microseconds)
-	// ClockTime.AsDuration() returns *time.Duration (nil if invalid)
+	// ClockTime.AsDuration() returns *time.Duration (nil if invalid/GST_CLOCK_TIME_NONE)
 	ptsDur := buffer.PresentationTimestamp().AsDuration()
 	var pts uint64
-	if ptsDur != nil {
+	ptsValid := ptsDur != nil && ptsDur.Microseconds() > 0
+	if ptsValid {
 		pts = uint64(ptsDur.Microseconds())
+		// Log first few frames and then every 1000th to see PTS pattern
+		if g.lastValidPTS == 0 || g.invalidPTSCount < 5 {
+			fmt.Printf("[GstPipeline] PTS: %d us (delta: %d us)\n", pts, pts-g.lastValidPTS)
+		}
+		g.lastValidPTS = pts
+	} else {
+		// Invalid PTS - synthesize based on last valid PTS + frame interval
+		// This prevents bogus frame drift calculations on the frontend
+		g.invalidPTSCount++
+		if g.lastValidPTS > 0 && g.frameInterval > 0 {
+			pts = g.lastValidPTS + g.frameInterval
+			g.lastValidPTS = pts
+		}
+		// Log every invalid PTS to understand what's happening
+		var ptsRaw int64
+		if ptsDur != nil {
+			ptsRaw = ptsDur.Microseconds()
+		}
+		fmt.Printf("[GstPipeline] WARNING: Invalid PTS (raw=%d, nil=%v), count=%d, synthesized=%d\n",
+			ptsRaw, ptsDur == nil, g.invalidPTSCount, pts)
 	}
 
 	// Check if this is a keyframe
