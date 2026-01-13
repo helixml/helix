@@ -30,12 +30,10 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
 ARG GO_CODE_HASH=unknown
-# Cache bust for apt - change this value to force fresh apt-get when runner cache is stale
-ARG APT_CACHE_BUST=2026-01-13
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
-RUN echo "Cache bust: ${APT_CACHE_BUST}" && apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
     libgstreamer-plugins-bad1.0-dev \

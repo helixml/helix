@@ -1641,7 +1641,7 @@ steps:
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
         GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-sway..."
-        docker build --provenance=false \
+        docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
           --build-arg GO_CODE_HASH=$${GO_HASH} \
@@ -1656,7 +1656,7 @@ steps:
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
         GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-ubuntu..."
-        docker build --provenance=false \
+        docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
           --build-arg GO_CODE_HASH=$${GO_HASH} \
