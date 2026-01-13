@@ -101,9 +101,8 @@ type SpecTask struct {
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
-	PullRequestID     string             `json:"pull_request_id"`
-	PullRequestURL    string             `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
-	PullRequestReview *PullRequestReview `json:"pull_request_review,omitempty" gorm:"type:jsonb;serializer:json"`
+	PullRequestID  string `json:"pull_request_id"`
+	PullRequestURL string `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
 
 	// Agent activity tracking (computed from session/activity data, not stored)
 	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
@@ -162,12 +161,6 @@ type SpecTask struct {
 	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
-}
-
-type PullRequestReview struct {
-	CommitHash string    `json:"commit_hash"`
-	ReviewedAt time.Time `json:"reviewed_at"`
-	// TODO: comments here too?
 }
 
 // SampleSpecProject - simplified sample projects with proper spec-driven tasks
@@ -295,7 +288,7 @@ type SpecApprovalResponse struct {
 type SpecTaskExternalAgent struct {
 	ID              string    `json:"id" gorm:"primaryKey;size:255"`                       // zed-spectask-{spectask_id}
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`         // Parent SpecTask
-	ContainerAppID       string    `json:"container_app_id" gorm:"size:255"`                         // Container app ID (deprecated)
+	ContainerAppID  string    `json:"container_app_id" gorm:"size:255"`                    // Container app ID (deprecated)
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                       // /workspaces/spectasks/{id}/work/
 	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"type:jsonb;serializer:json"` // All sessions using this agent
 	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"type:jsonb;serializer:json"`    // Zed threads (1:1 with sessions)
@@ -320,10 +313,10 @@ type ExternalAgentActivity struct {
 	ExternalAgentID string    `json:"external_agent_id" gorm:"primaryKey;size:255"` // e.g., "zed-spectask-abc123"
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`  // Parent SpecTask
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
-	AgentType       string    `json:"agent_type" gorm:"size:50"`          // "spectask", "pde", "adhoc"
-	ContainerAppID  string    `json:"container_app_id" gorm:"size:255"`   // Container app ID for termination
-	DevContainerID  string    `json:"dev_container_id" gorm:"size:255"`   // Container ID for cleanup even after session deleted
-	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`      // Persistent workspace path
+	AgentType       string    `json:"agent_type" gorm:"size:50"`        // "spectask", "pde", "adhoc"
+	ContainerAppID  string    `json:"container_app_id" gorm:"size:255"` // Container app ID for termination
+	DevContainerID  string    `json:"dev_container_id" gorm:"size:255"` // Container ID for cleanup even after session deleted
+	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`    // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 
 	// Work state tracking for reconciliation
