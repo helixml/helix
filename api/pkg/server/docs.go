@@ -20239,17 +20239,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.PullRequestReview": {
-            "type": "object",
-            "properties": {
-                "commit_hash": {
-                    "type": "string"
-                },
-                "reviewed_at": {
-                    "type": "string"
-                }
-            }
-        },
         "types.PullResponse": {
             "type": "object",
             "properties": {
@@ -22178,9 +22167,6 @@ const docTemplate = `{
                 },
                 "pull_request_id": {
                     "type": "string"
-                },
-                "pull_request_review": {
-                    "$ref": "#/definitions/types.PullRequestReview"
                 },
                 "pull_request_url": {
                     "description": "Computed field, not stored",
