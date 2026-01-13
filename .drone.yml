@@ -1429,21 +1429,34 @@ volumes:
 
 steps:
   # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
+  # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
+  # Optional: CI warns if pinned version is behind upstream HEAD
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
       - mkdir -p /drone/src/external /drone/src/cache
-      # Read pinned versions (use absolute path since later commands cd elsewhere)
+      # Read pinned versions
       - |
         . /drone/src/sandbox-versions.txt
         echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
         echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
         echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
-      # Clone Zed only if not cached (clone into cache volume so nested docker can access)
+      # Warn if pinned versions are stale (informational only, doesn't fail)
       - |
         . /drone/src/sandbox-versions.txt
-        if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ]; then
-          echo "Zed binary cached for $${ZED_COMMIT:0:12}, skipping clone"
+        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
+        QWEN_HEAD=$$(git ls-remote https://github.com/helixml/qwen-code.git HEAD | cut -f1)
+        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
+          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
+        fi
+        if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
+          echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
+        fi
+      # Clone Zed only if not cached
+      - |
+        . /drone/src/sandbox-versions.txt
+        if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ] && [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/app-icon.png" ]; then
+          echo "✓ Zed binary+icon cached for $${ZED_COMMIT:0:12}"
         else
           echo "Cloning Zed at commit $${ZED_COMMIT}..."
           rm -rf /drone/src/cache/zed-source
@@ -1453,11 +1466,11 @@ steps:
           git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
           git checkout FETCH_HEAD
         fi
-      # Clone qwen-code only if not cached (clone into cache volume so nested docker can access)
+      # Clone qwen-code only if not cached
       - |
         . /drone/src/sandbox-versions.txt
         if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT:0:12}/dist/index.js" ]; then
-          echo "qwen-code cached for $${QWEN_COMMIT:0:12}, skipping clone"
+          echo "✓ qwen-code cached for $${QWEN_COMMIT:0:12}"
         else
           echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
           rm -rf /drone/src/cache/qwen-source
@@ -1467,8 +1480,9 @@ steps:
           git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
           git checkout FETCH_HEAD
         fi
-      - echo "Zed commit:" && cat /drone/src/zed-commit.txt
-      - echo "qwen-code commit:" && cat /drone/src/qwen-code-commit.txt
+      - echo "=== Dependency versions ==="
+      - echo "Zed:" && cat /drone/src/zed-commit.txt
+      - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
