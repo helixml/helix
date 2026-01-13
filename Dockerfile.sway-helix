@@ -533,6 +533,8 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-vaapi \
     gstreamer1.0-gl \
     mesa-va-drivers \
+    # NVIDIA VAAPI driver provides VA-API frontend to NVDEC for Firefox/Chrome video decoding
+    nvidia-vaapi-driver \
     # NVIDIA NVENC support - libnvcuvid provides nvh264enc/nvh265enc elements
     # The actual NVENC library (libnvidia-encode.so) is mounted by nvidia-container-toolkit
     # but we need the gstreamer-cuda library for proper plugin initialization
@@ -715,7 +717,7 @@ RUN apt-get update && apt-get install -y \
     && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
     # Create wrapper script so --password-store=basic is always used (even from command line)
     && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
-    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
     && chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
@@ -732,3 +734,13 @@ RUN npm install -g chrome-devtools-mcp@latest
 # Chrome MCP server configuration for headless mode
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
+
+# Hardware video decoding configuration for Firefox/Chrome
+# NVD_BACKEND=direct: nvidia-vaapi-driver uses NVIDIA EGL interop (ignored on AMD/Intel)
+# MOZ_DISABLE_RDD_SANDBOX=1: allows Firefox VA-API in containerized environments
+# Note: LIBVA_DRIVER_NAME is NOT set - libva auto-detects the correct driver:
+#   - NVIDIA: nvidia (via nvidia-vaapi-driver)
+#   - AMD: radeonsi
+#   - Intel: iHD or i965
+ENV NVD_BACKEND=direct \
+    MOZ_DISABLE_RDD_SANDBOX=1
