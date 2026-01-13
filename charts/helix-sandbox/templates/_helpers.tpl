@@ -76,19 +76,6 @@ Determine if software rendering is enabled (no GPU)
 {{- end }}
 
 {{/*
-Get the Wolf render node based on GPU vendor
-*/}}
-{{- define "helix-sandbox.wolfRenderNode" -}}
-{{- if .Values.gpu.renderNode -}}
-{{- .Values.gpu.renderNode -}}
-{{- else if eq (include "helix-sandbox.gpuVendor" .) "none" -}}
-SOFTWARE
-{{- else -}}
-/dev/dri/renderD128
-{{- end -}}
-{{- end }}
-
-{{/*
 Determine runtime class name based on GPU vendor
 */}}
 {{- define "helix-sandbox.runtimeClassName" -}}

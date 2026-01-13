@@ -18,7 +18,6 @@ import Create from './pages/Create'
 import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
-import SSHKeys from './pages/SSHKeys'
 // NewAgent wizard removed - now creating blank agent and going directly to App settings
 // import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
@@ -336,16 +335,6 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Secrets />
-  ),
-}, {
-  name: 'ssh-keys',
-  path: '/ssh-keys',
-  meta: {
-    drawer: true,
-    title: 'SSH Keys',
-  },
-  render: () => (
-    <SSHKeys />
   ),
 }, {
   name: 'oauth-connections',

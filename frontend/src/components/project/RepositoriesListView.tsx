@@ -22,7 +22,7 @@ import {
 import WarningIcon from '@mui/icons-material/Warning'
 import SearchIcon from '@mui/icons-material/Search'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { GitBranch, Link as LinkIcon, Brain, RefreshCw, Trash, Plus } from 'lucide-react'
+import { GitBranch, Link as LinkIcon, Brain, RefreshCw, Trash, Plus, FolderSearch } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -49,6 +49,7 @@ interface RepositoriesListViewProps {
   // Optional callbacks for creating repos from within this view
   onCreateRepo?: () => void
   onLinkExternalRepo?: () => void
+  onBrowseProviders?: () => void
 }
 
 const RepositoriesListView: FC<RepositoriesListViewProps> = ({
@@ -64,6 +65,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   onViewRepository,
   onCreateRepo,
   onLinkExternalRepo,
+  onBrowseProviders,
 }) => {
   const theme = useTheme()
   const queryClient = useQueryClient()
@@ -270,15 +272,25 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
               Connect your existing repositories or create new ones to start collaborating with AI agents.
             </Typography>
             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-              {onLinkExternalRepo && (
+              {onBrowseProviders && (
                 <Button
                   variant="contained"
                   color="secondary"
                   size="large"
+                  startIcon={<FolderSearch size={18} />}
+                  onClick={onBrowseProviders}
+                >
+                  Connect & Browse
+                </Button>
+              )}
+              {onLinkExternalRepo && (
+                <Button
+                  variant="outlined"
+                  size="large"
                   startIcon={<LinkIcon size={18} />}
                   onClick={onLinkExternalRepo}
                 >
-                  Link External Repository
+                  Link manually
                 </Button>
               )}
               {onCreateRepo && (
@@ -288,7 +300,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
                   startIcon={<Plus size={18} />}
                   onClick={onCreateRepo}
                 >
-                  New Repository
+                  New empty
                 </Button>
               )}
             </Box>

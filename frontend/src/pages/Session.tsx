@@ -54,30 +54,28 @@ import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
-import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
-import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
-import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 import StopIcon from '@mui/icons-material/Stop'
 import IconButton from '@mui/material/IconButton'
 
-// Hook to track Wolf app state for external agent sessions
-const useWolfAppState = (sessionId: string) => {
+// Hook to track sandbox/desktop state for external agent sessions
+const useSandboxState = (sessionId: string) => {
   const api = useApi();
-  const [wolfState, setWolfState] = React.useState<string>('loading');
+  const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
   React.useEffect(() => {
     const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
+        // API endpoint still named WolfAppState for backwards compatibility
         const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
         if (response.data) {
-          setWolfState(response.data.state || 'absent');
+          setSandboxState(response.data.state || 'absent');
         }
       } catch (err) {
-        console.error('Failed to fetch Wolf state:', err);
+        console.error('Failed to fetch sandbox state:', err);
       }
     };
 
@@ -86,12 +84,12 @@ const useWolfAppState = (sessionId: string) => {
     return () => clearInterval(interval);
   }, [sessionId]); // Removed 'api' - getApiClient() is stable
 
-  const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isStarting = wolfState === 'starting' || wolfState === 'loading';
+  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
+  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
   // Only show paused state when truly absent (not loading or starting)
-  const isPaused = wolfState === 'absent';
+  const isPaused = sandboxState === 'absent';
 
-  return { wolfState, isRunning, isPaused, isStarting };
+  return { sandboxState, isRunning, isPaused, isStarting };
 };
 
 // Desktop controls component - only shows Stop button when running
@@ -100,7 +98,7 @@ const DesktopControls: React.FC<{
   onStop: () => void,
   isStopping: boolean
 }> = ({ sessionId, onStop, isStopping }) => {
-  const { isRunning } = useWolfAppState(sessionId);
+  const { isRunning } = useSandboxState(sessionId);
 
   // Only show Stop button when desktop is running
   if (isRunning) {
@@ -124,12 +122,12 @@ const DesktopControls: React.FC<{
 // Desktop viewer for external agent sessions - shows live screenshot or paused state
 const ExternalAgentDesktopViewer: React.FC<{
   sessionId: string;
-  wolfLobbyId?: string;
+  sandboxId?: string;
   height: number;
-}> = ({ sessionId, wolfLobbyId, height }) => {
+}> = ({ sessionId, sandboxId, height }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const { isRunning, isPaused, isStarting } = useWolfAppState(sessionId);
+  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = React.useState(false);
 
   const handleResume = async () => {
@@ -216,7 +214,7 @@ const ExternalAgentDesktopViewer: React.FC<{
       <ScreenshotViewer
         sessionId={sessionId}
         isRunner={false}
-        wolfLobbyId={wolfLobbyId}
+        sandboxId={sandboxId}
         enableStreaming={true}
         onError={(error) => {
           console.error('Screenshot viewer error:', error);
@@ -396,8 +394,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
   })
 
-  // Get Wolf app state to check if desktop is running
-  const { isRunning: isDesktopRunning } = useWolfAppState(sessionID || '')
+  // Get sandbox state to check if desktop is running
+  const { isRunning: isDesktopRunning } = useSandboxState(sessionID || '')
 
   const handleStopExternalAgent = () => {
     setShowStopConfirm(true)
@@ -415,7 +413,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
 
   // Check if this is an external agent session and show Zed editor by default
   useEffect(() => {
@@ -1558,7 +1555,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
-                onOpenPairingDialog={() => setPairingDialogOpen(true)}
                 showRDPViewer={showRDPViewer}
                 onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
                 isExternalAgent={isExternalAgent}
@@ -1573,7 +1569,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       Desktop:
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <WolfAppStateIndicator sessionId={sessionID} />
                       <DesktopControls
                         sessionId={sessionID}
                         onStop={handleStopExternalAgent}
@@ -1605,16 +1600,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             <Box sx={{ px: 2, pb: 2 }}>
               <ExternalAgentDesktopViewer
                 sessionId={sessionID}
-                wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
+                sandboxId={sessionID}
                 height={rdpViewerHeight}
               />
             </Box>
           )}
 
-          {/* Zed Settings Viewer - show for external agent sessions */}
-          {isExternalAgent && (
-            <ZedSettingsViewer sessionId={sessionID} />
-          )}
 
         </Box>
 
@@ -1939,16 +1930,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           </Box>
         </Window>
       )}
-
-      {/* Moonlight Pairing Dialog */}
-      <MoonlightPairingOverlay
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onPairingComplete={() => {
-          setPairingDialogOpen(false)
-          snackbar.success('Moonlight client paired successfully!')
-        }}
-      />
 
       {/* Stop Confirmation Dialog */}
       {showStopConfirm && (

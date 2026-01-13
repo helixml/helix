@@ -484,9 +484,16 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
+	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+	if desktopType == "" {
+		desktopType = "ubuntu"
+		log.Debug().Str("task_id", task.ID).Msg("Using default desktop type: ubuntu")
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
-	zedAgent := &types.ZedAgent{
+	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
 		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
@@ -530,7 +537,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
 		Str("planning_session_id", task.PlanningSessionID).
-		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
 
@@ -876,7 +883,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
-	zedAgent := &types.ZedAgent{
+	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
 		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
@@ -911,7 +918,7 @@ Follow these guidelines when making changes:
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
 		Str("branch_name", branchName).
-		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Just Do It mode: Zed agent launched with branch instructions")
 
@@ -1470,7 +1477,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	}
 
 	// Build the ZedAgent for restart
-	zedAgent := &types.ZedAgent{
+	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
 		HelixSessionID:      session.ID,
 		UserID:              task.CreatedBy,
@@ -1503,7 +1510,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	log.Info().
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
-		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Successfully resumed session with new container")
 

@@ -76,8 +76,8 @@ steps:
       - apk add --no-cache bash git
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
-      - chmod +x ./wolf/sway-config/test-helix-specs-creation.sh
-      - ./wolf/sway-config/test-helix-specs-creation.sh
+      - chmod +x ./desktop/sway-config/test-helix-specs-creation.sh
+      - ./desktop/sway-config/test-helix-specs-creation.sh
     when:
       event:
         - push
@@ -120,11 +120,27 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: []
+
+  - name: unit-test-nocgo
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
+      - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/desktop-bridge/...
+    when:
+      event:
+        - push
+    depends_on: []
 
   - name: api-integration-test
     image: golang:1.24-alpine3.21
@@ -170,8 +186,8 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server
-      - go install ./api/..
+      # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
+      - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
@@ -831,7 +847,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -862,7 +878,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -875,7 +891,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -907,7 +923,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -920,7 +936,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -955,7 +971,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -968,7 +984,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1005,7 +1021,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1045,7 +1061,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1082,7 +1098,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1122,7 +1138,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1151,7 +1167,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 kind: pipeline
@@ -1164,7 +1180,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/fri-dec-19-2025
+    - feature/sway-ubuntu-25.10
 
 volumes:
   - name: dockersocket
@@ -1193,7 +1209,7 @@ steps:
         - push
       branch:
         - main
-        - feature/fri-dec-19-2025
+        - feature/sway-ubuntu-25.10
 
 ---
 # See integration-test/smoke/README.md
@@ -1256,3 +1272,111 @@ services:
     volumes:
       - name: integration-test
         path: /integration-test
+
+# ---
+# Spectask/Sandbox Integration Tests
+# These tests can run with software rendering (no GPU required).
+# Run locally with: go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectask
+#
+# Software Rendering Configuration (for CI without GPU):
+#   GPU_VENDOR=none
+#   WOLF_RENDER_NODE=software
+#   LIBGL_ALWAYS_SOFTWARE=1
+#   MESA_GL_VERSION_OVERRIDE=4.5
+#   WOLF_USE_ZERO_COPY=FALSE
+#
+# Required environment variables:
+#   HELIX_API_KEY          - API key with hl- prefix
+#   HELIX_URL              - Helix API URL (default: http://localhost:8080)
+#   HELIX_PROJECT          - Project ID for creating test tasks
+#   HELIX_UBUNTU_AGENT     - Ubuntu/Sway agent app ID (PipeWire mode)
+#   HELIX_KDE_AGENT        - KDE agent app ID (optional, for KDE tests)
+#   HELIX_SESSION_ID       - Optional: existing session ID (skips session creation)
+#
+# Available test suites:
+#   TestSpectaskStreamSuite      - Default stream tests
+#   TestSpectaskSwayStreamSuite  - Sway/Ubuntu desktop tests (PipeWire mode)
+#   TestSpectaskKDEStreamSuite   - KDE desktop tests
+#   TestSpectaskMCPSuite         - MCP desktop tools with video recording
+#
+# Example:
+#   source .env.usercreds
+#   go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#
+# kind: pipeline
+# type: docker
+# name: spectask-test
+#
+# workspace:
+#   base: /go
+#   path: src/github.com/helix-ml/helix
+#
+# trigger:
+#   event:
+#     - cron
+#   cron:
+#     - spectask-test-daily
+#
+# steps:
+#   - name: spectask-sway-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#     depends_on: []
+#
+#   - name: spectask-kde-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskKDEStreamSuite
+#     depends_on: []
+#
+#   - name: slack-notification
+#     image: plugins/slack
+#     settings:
+#       webhook:
+#         from_secret: JANITOR_SLACK_WEBHOOK_URL
+#       channel: helix-janitor
+#       message: "❌ Spectask test failed. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+#     when:
+#       status:
+#         - failure
+#
+# volumes:
+#   - name: spectask-test-results
+#     temp: {}

@@ -68,7 +68,7 @@ const RECOMMENDED_MODELS = [
 ]
 import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
 import AgentDropdown from '../components/agent/AgentDropdown'
-import MoonlightStreamViewer from '../components/external-agent/MoonlightStreamViewer'
+import DesktopStreamViewer from '../components/external-agent/DesktopStreamViewer'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -990,9 +990,9 @@ const ProjectSettings: FC = () => {
                   overflow: 'hidden',
                 }}
               >
-                <MoonlightStreamViewer
+                <DesktopStreamViewer
                   sessionId={exploratorySessionData.id}
-                  wolfLobbyId={exploratorySessionData.config?.wolf_lobby_id || ''}
+                  sandboxId={exploratorySessionData.config?.sandbox_id || ''}
                   showLoadingOverlay={testingStartupScript}
                   isRestart={isSessionRestart}
                 />

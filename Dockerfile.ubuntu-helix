@@ -1,7 +1,29 @@
+# syntax=docker/dockerfile:1.4
 # ====================================================================
-# Go build stage for settings-sync-daemon, screenshot-server, revdial-client
+# Helix Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
+# Ubuntu 25.10 with GNOME/Mutter running on native Wayland (not Xwayland).
+# Same minimal GOW pattern as KDE and Sway for package version consistency.
+# Developers can switch between desktops without version differences.
+# See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+
+# ====================================================================
+# Go build stage for Helix binaries
+# ====================================================================
+# Uses Debian-based golang image for GStreamer development libraries.
+# desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
+ARG GO_CODE_HASH=unknown
+
+# Install GStreamer development libraries for go-gst bindings
+# These are required for CGO compilation of desktop-bridge
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -9,344 +31,363 @@ COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    echo "Go code hash: ${GO_CODE_HASH}" && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
-# Pure Ubuntu 22.04 GNOME Personal Dev Environment
+# Rust build stage for GStreamer zero-copy plugin (optional)
 # ====================================================================
-# GNOME 42 on Ubuntu 22.04 LTS - proven stable with Xwayland/Gamescope
-# No MIT-SHM crashes (those were GNOME 48 specific)
-# Enterprise-grade LTS with 5-10 year support
-FROM ubuntu:22.04
+# This plugin enables GPU-accelerated video streaming:
+# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
+# - AMD/Intel: DMA-BUF -> VA-API
+# Enable with HELIX_VIDEO_MODE=zerocopy
+#
+# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
+FROM ubuntu:25.10 AS rust-build-env
+WORKDIR /build
 
-# GOW environment variables
+# Install Rust and GStreamer dev packages
 ENV DEBIAN_FRONTEND=noninteractive
-ENV UNAME=retro
-ENV UGROUP=retro
-ENV HOME=/home/retro
-ENV UID=1000
-ENV GID=1000
-ENV PUID=1000
-ENV PGID=1000
-ENV UMASK=000
-ENV XDG_RUNTIME_DIR=/run/user/1000
-ENV DISPLAY=:9
-
-# ====================================================================
-# Install base system dependencies
-# ====================================================================
 RUN apt-get update && apt-get install -y \
-    # GOW infrastructure
-    gosu sudo dbus dbus-x11 \
-    # Xwayland and X11 utilities
-    xwayland x11-xserver-utils xdotool x11-utils \
-    # PulseAudio for sound
-    pulseaudio libpulse0 \
-    # Basic utilities
-    curl wget ca-certificates gnupg locales \
-    # ImageMagick for icon resizing
-    imagemagick \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    build-essential \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-plugins-base \
+    libgstreamer-plugins-bad1.0-0 \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libegl1-mesa-dev \
+    libdrm-dev \
+    libclang-dev \
+    pkg-config \
+    libinput-dev \
+    libxkbcommon-dev \
+    libwayland-dev \
+    libudev-dev \
+    libgbm-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
 
-# Set up locales
-RUN locale-gen en_US.UTF-8
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
+# Install Rust 1.85 via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy plugin source and vendored dependency
+COPY desktop/wayland-display-core ./wayland-display-core/
+COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
+
+# Build the plugin (creates libgstpipewirezerocopy.so)
+# Cache registry only - target needs clean rebuild when linking changes
+# FORCE CLEAN: cargo clean required because adding libgstcuda link in build.rs
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cd gst-pipewire-zerocopy && \
+    cargo clean && \
+    cargo build --release && \
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # ====================================================================
-# Build libdrm + Mesa from source for AMD RDNA 3 (gfx1101) support
+# Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
-# Ubuntu 22.04's default Mesa 23.2 + libdrm 2.4.113 causes GPU crashes on
-# AMD Radeon Pro V710 MxGPU (gfx1101/RDNA 3) with ROCm 6.16+ kernel driver.
-# The Mesa PPAs have dropped 22.04 support, so we build from source.
+# Ubuntu 25.10 uses GNOME 47+ which has excellent Wayland support.
+# Supports two modes:
+# 1. Nested mode: gnome-shell --wayland --wayland-display=wayland-1 (default)
+# 2. Headless mode: gnome-shell --headless + GStreamer bridge (experimental)
 #
-# Mesa 25.0.7 gives better error messages ("Illegal opcode in command stream")
-# than older versions which just showed NULL pointer page faults.
-#
-# DEBUG: Set RADV_DEBUG=hang to get command stream decode on crash.
-# DEBUG: UMR is installed for GPU wave/register inspection.
-#
-# This adds ~10-15 min to build time but ensures proper crash debugging.
-ARG LIBDRM_VERSION=2.4.124
-ARG MESA_VERSION=25.0.7
-ARG SPIRV_LLVM_TRANSLATOR_VERSION=18.1.3
-ARG SPIRV_TOOLS_VERSION=vulkan-sdk-1.4.304.0
+# The headless bridge uses GStreamer's pipewiresrc + waylandsink for
+# zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
+FROM ubuntu:25.10
 
-# Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x requires 18)
-RUN apt-get update && apt-get install -y wget gnupg software-properties-common && \
-    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
-    echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" > /etc/apt/sources.list.d/llvm-18.list && \
-    apt-get update && rm -rf /var/lib/apt/lists/*
+# Configure default user and set env (from GOW base-app)
+ENV \
+    PUID=1000 \
+    PGID=1000 \
+    UMASK=000 \
+    UNAME="retro" \
+    HOME="/home/retro" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
 
-# Install build dependencies (LLVM 18 for Mesa 25.x)
-RUN apt-get update && apt-get install -y \
-    # Build tools (meson from apt is too old, will install via pip)
-    ninja-build cmake pkg-config python3 python3-pip python3-setuptools \
-    python3-mako flex bison git \
-    # libdrm build dependencies
-    libpciaccess-dev \
-    # Mesa dependencies
-    libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
-    libxcb-sync-dev libxcb-xfixes0-dev libxcb-shm0-dev libxcb-randr0-dev \
-    libxcb-glx0-dev libxshmfence-dev libx11-xcb-dev libx11-dev libxext-dev \
-    libxfixes-dev libxxf86vm-dev libxrandr-dev \
-    libwayland-dev libwayland-egl-backend-dev wayland-protocols \
-    libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
-    # LLVM 18 from apt.llvm.org
-    llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
-    libvulkan-dev glslang-dev glslang-tools \
-    libva-dev libvdpau-dev libglvnd-dev \
-    # Runtime dependencies
-    libvulkan1 vulkan-tools mesa-utils \
-    # UMR dependencies for GPU debugging
-    libncurses-dev libpciaccess0 libsdl2-dev \
-    && rm -rf /var/lib/apt/lists/*
+ARG TARGETARCH TARGETVARIANT
 
-# Install newer meson via pip (Mesa 25.x requires meson >= 1.1.0, Ubuntu 22.04 has 0.61)
-# Also install ply for Intel Vulkan GRL kernels
-RUN pip3 install "meson>=1.3.0" ply
+# Install GOW base requirements + GNOME packages
+ARG GOSU_VERSION=1.14
 
-# Build and install UMR (AMD GPU debugger) for crash analysis
-# UMR can decode command streams, inspect waves, and read registers
-RUN cd /tmp && \
-    git clone https://gitlab.freedesktop.org/tomstdenis/umr.git && \
-    cd umr && \
-    mkdir build && cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr -DUMR_NO_GUI=ON -DUMR_NO_LLVM=ON .. && \
-    make -j$(nproc) && \
-    make install && \
-    cd / && rm -rf /tmp/umr
+ARG CORE_PACKAGES=" \
+    wget \
+    curl \
+    jq \
+    fuse \
+    libnss3 \
+    ca-certificates \
+    dbus \
+    flatpak \
+    locales \
+    software-properties-common \
+    gpg-agent \
+    sudo \
+    bc \
+    "
 
-# Build SPIRV-LLVM-Translator v18.1.3 from source (required for Intel Vulkan)
-# Ubuntu's spirv-llvm-translator packages only go up to LLVM 15
-# This provides LLVMSPIRVLib which Mesa's Intel ANV driver needs
-# NO FALLBACKS - Intel support is required, fail if this doesn't build
-RUN cd /tmp && \
-    curl -L https://github.com/KhronosGroup/SPIRV-LLVM-Translator/archive/v${SPIRV_LLVM_TRANSLATOR_VERSION}.tar.gz -o spirv-llvm-translator.tar.gz && \
-    tar xf spirv-llvm-translator.tar.gz && \
-    cd SPIRV-LLVM-Translator-${SPIRV_LLVM_TRANSLATOR_VERSION} && \
-    mkdir build && cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBUILD_SHARED_LIBS=ON \
-          -DCMAKE_SKIP_INSTALL_RPATH=ON \
-          -DLLVM_DIR=/usr/lib/llvm-18/cmake \
-          -G Ninja .. && \
-    ninja -j$(nproc) && \
-    ninja install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/SPIRV-LLVM-Translator* /tmp/spirv-llvm-translator.tar.gz
-
-# Build SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
-# This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
-# NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
-# Note: vulkan-sdk-1.4.304.0 requires specific SPIRV-Headers revision 3f17b2a
-# Must install to x86_64-linux-gnu libdir for pkg-config to find it
-RUN cd /tmp && \
-    git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
-    cd SPIRV-Tools && \
-    git clone https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
-    cd external/spirv-headers && git checkout 3f17b2af6784bfa2c5aa5dbb8e0e74a607dd8b3b && cd ../.. && \
-    mkdir build && cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr \
-          -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DSPIRV_SKIP_TESTS=ON \
-          -G Ninja .. && \
-    ninja -j$(nproc) && \
-    ninja install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/SPIRV-Tools
-
-# Build libdrm 2.4.124 (required for Mesa 25.x with RDNA 3)
-# Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
-RUN cd /tmp && \
-    curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
-    tar xf libdrm.tar.xz && \
-    cd libdrm-${LIBDRM_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Damdgpu=enabled \
-        -Dradeon=enabled \
-        -Dintel=enabled \
-        -Dnouveau=disabled \
-        -Dvmwgfx=disabled && \
-    ninja -C build -j$(nproc) && \
-    ninja -C build install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/libdrm*
-
-# Build Mesa 25.0.7 with drivers for AMD, Intel, and software rendering
-# - AMD: radeonsi (OpenGL), amd/RADV (Vulkan)
-# - Intel: iris (OpenGL Gen8+), crocus (OpenGL Gen4-7), intel/ANV (Vulkan), intel_hasvk (Vulkan Haswell)
-# - Software: llvmpipe, softpipe (fallback)
-# - Zink: OpenGL-on-Vulkan layer
-# NVIDIA uses proprietary drivers mounted at runtime, not Mesa
-RUN cd /tmp && \
-    curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
-    tar xf mesa.tar.xz && \
-    cd mesa-${MESA_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Dplatforms=x11,wayland \
-        -Dgallium-drivers=radeonsi,iris,crocus,llvmpipe,softpipe,zink \
-        -Dvulkan-drivers=amd,intel,intel_hasvk \
-        -Dglx=dri \
-        -Degl=enabled \
-        -Dgbm=enabled \
-        -Dglvnd=enabled \
-        -Dgles1=disabled \
-        -Dgles2=enabled \
-        -Dvalgrind=disabled \
-        -Dlibunwind=disabled \
-        -Dllvm=enabled \
-        -Dshared-llvm=enabled \
-        -Dgallium-opencl=disabled \
-        -Dgallium-rusticl=false && \
-    ninja -C build -j$(nproc) && \
-    ninja -C build install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/mesa*
-
-# Set RADV debug options for crash analysis
-# hang: Dump command stream and shaders on GPU hang/timeout
-# This is CRITICAL for debugging the illegal opcode crashes
-# Enables syncshaders (GPU command serialization) and hang detection.
-# This may mask race conditions but provides crash dumps if issues occur.
-# TODO: Test if Zed's restored wait_for_gpu() alone fixes crashes (see design doc)
-ENV RADV_DEBUG=hang
-
-# RadeonSI (OpenGL) debug options for GL apps
-# sync_compile: Always compile shaders synchronously (prevents race conditions)
-# check_vm: Check VM faults and dump debug info
-# Note: RadeonSI doesn't have a syncshaders equivalent like RADV
-ENV AMD_DEBUG=sync_compile,check_vm
-
-# ====================================================================
-# Install GNOME 42 Desktop (Ubuntu minimal)
-# ====================================================================
-RUN apt-get update && apt-get install -y \
-    # Core GNOME components
+ARG DE_PACKAGES=" \
     ubuntu-desktop-minimal \
     gnome-shell \
     gnome-session \
     mutter \
     gnome-settings-daemon \
-    # File manager and terminal
     nautilus \
     gnome-terminal \
-    # System utilities
     gnome-control-center \
     gnome-tweaks \
-    # Keyring for browser password storage (auto-unlock with empty password)
-    gnome-keyring libsecret-tools \
-    # Ubuntu theming
+    gnome-keyring \
+    libsecret-tools \
     yaru-theme-gtk \
     yaru-theme-icon \
-    yaru-theme-sound \
     ubuntu-wallpapers \
     fonts-ubuntu \
-    # GNOME extensions for Ubuntu experience
     gnome-shell-extension-ubuntu-dock \
-    gnome-shell-extension-appindicator \
-    gnome-shell-extensions \
-    # dconf for settings management
-    dconf-cli dconf-editor \
-    # XDG utilities
+    dconf-cli \
     xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+    pipewire \
+    pipewire-audio \
+    wireplumber \
+    libpipewire-0.3-0 \
+    gnome-remote-desktop \
+    gstreamer1.0-pipewire \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-gl \
+    gstreamer1.0-vaapi \
+    mesa-va-drivers \
+    wl-clipboard \
+    mutter-dev-bin \
+    "
 
-# Disable Ubuntu upgrade notifications (we're pinned to 22.04 LTS)
-RUN sed -i 's/Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades || true
+# Install base packages, PPAs, and GNOME
+# Cache bust: added gstreamer1.0-plugins-bad for shmsink/shmsrc
+RUN <<_INSTALL_BASE
+  set -e
 
-# ====================================================================
-# Create GOW user and directory structure
-# ====================================================================
-RUN groupadd -g ${GID} ${UGROUP} && \
-    useradd -m -d ${HOME} -u ${UID} -g ${GID} -s /bin/bash ${UNAME} && \
-    echo "${UNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+  echo "**** Update apt database (v2: added gst-plugins-bad) ****"
+  apt-get update
 
-# Setup XDG runtime directory
-RUN mkdir -p /run/user/1000 && \
-    chmod 700 /run/user/1000 && \
-    chown ${UID}:${GID} /run/user/1000
+  echo "**** Install base packages ****"
+  apt-get install -y --no-install-recommends $CORE_PACKAGES
 
-# ====================================================================
-# CRITICAL: Disable systemd-logind (not available in containers)
-# ====================================================================
+  echo "**** Install gosu (from GOW) ****"
+  GOSU_ARCH="${TARGETARCH:-amd64}"
+  wget --progress=dot:giga \
+      -O /usr/bin/gosu \
+      "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"
+  chmod +x /usr/bin/gosu
+  gosu nobody true && echo "gosu working!"
+
+  echo "**** Setup Firefox PPA ****"
+  add-apt-repository -y ppa:mozillateam/ppa
+
+  echo "**** Configure APT pins ****"
+  cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+PINEOF
+
+  apt-get update
+
+  echo "**** Install GNOME Desktop (Wayland session) ****"
+  apt-get install -y $DE_PACKAGES firefox libavcodec-extra
+
+  echo "=== Installed GNOME Versions ==="
+  dpkg -l | grep -E "gnome-shell|mutter" || true
+  gnome-shell --version || echo "gnome-shell not found yet"
+
+  echo "**** Cleanup ****"
+  apt autoremove -y
+  apt clean
+  rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+_INSTALL_BASE
+
+# WirePlumber configuration to disable stream suspension
+# PipeWire/WirePlumber suspends streams after 5 seconds of "inactivity" by default.
+# This causes ScreenCast video streams to stop producing frames, breaking Wolf video capture.
+# See: https://bbs.archlinux.org/viewtopic.php?id=309630
+#
+# Solution: Change the default timeout in suspend-node.lua from 5 seconds to 1 day (86400 seconds)
+# We can't remove or disable the component because policy.node depends on hooks.node.suspend
+RUN <<_WIREPLUMBER_CONFIG
+echo "=== Fixing WirePlumber suspension timeout ==="
+
+# Modify suspend-node.lua to use 1 day timeout instead of 5 seconds
+# Find the line that sets the default timeout (5) and change it to 86400
+if [ -f /usr/share/wireplumber/scripts/node/suspend-node.lua ]; then
+    # The script has: tonumber(node.properties["session.suspend-timeout-seconds"]) or 5
+    # Change the default from 5 to 86400 (1 day)
+    # Use simple pattern matching the end of line to avoid escaping issues
+    sed -i 's/) or 5$/) or 86400/' /usr/share/wireplumber/scripts/node/suspend-node.lua
+
+    # Verify the change
+    echo "Modified suspend-node.lua - checking for 86400:"
+    grep -n "86400" /usr/share/wireplumber/scripts/node/suspend-node.lua || echo "WARNING: 86400 not found!"
+fi
+
+echo "=== WirePlumber suspension fix applied (86400s timeout) ==="
+_WIREPLUMBER_CONFIG
+
+# PipeWire configuration to set video rate to 60fps (default is 25fps)
+# This affects ScreenCast frame delivery rate
+RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
+    echo '# Helix: Set video rate to 60fps for smoother streaming' > /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo 'context.properties = {' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '    default.video.rate.num = 60' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '    default.video.rate.denom = 1' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '}' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf
+
+# Create retro user (from GOW base-app)
+# Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
+RUN <<_CREATE_USER
+  set -e
+  # Remove existing user with UID 1000 if present
+  EXISTING_USER=$(getent passwd 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_USER" ]; then
+    userdel -r "$EXISTING_USER" 2>/dev/null || userdel "$EXISTING_USER" || true
+  fi
+  # Remove existing group with GID 1000 if present
+  EXISTING_GROUP=$(getent group 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_GROUP" ]; then
+    groupdel "$EXISTING_GROUP" 2>/dev/null || true
+  fi
+  # Create retro user/group
+  groupadd -g 1000 retro
+  useradd -m -u 1000 -g 1000 -s /bin/bash retro
+  mkdir -p /home/retro
+  chown -R retro:retro /home/retro
+_CREATE_USER
+
+# GOW utilities and entrypoint (minimal version)
+RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d
+
+# GOW utils.sh (minimal implementation)
+COPY <<'_GOW_UTILS' /opt/gow/bash-lib/utils.sh
+#!/bin/bash
+gow_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+export -f gow_log
+_GOW_UTILS
+
+# GOW user setup init script
+COPY <<'_USER_INIT' /etc/cont-init.d/10-setup_user.sh
+#!/bin/bash
+echo "**** Configure default user ****"
+echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
+echo "Setting umask to ${UMASK}"
+umask "${UMASK}"
+echo "Ensure ${UNAME} home directory is writable"
+chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+echo "Ensure XDG_RUNTIME_DIR is writable"
+mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
+chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+_USER_INIT
+
+# GOW entrypoint
+COPY <<'_ENTRYPOINT' /entrypoint.sh
+#!/usr/bin/env bash
+set -e
+source /opt/gow/bash-lib/utils.sh
+if [ "$(id -u)" = "0" ]; then
+    for init_script in /etc/cont-init.d/*.sh ; do
+        gow_log
+        gow_log "[ ${init_script}: executing... ]"
+        source "${init_script}"
+    done
+fi
+if [ -n "${@:-}" ]; then
+    /bin/bash -c "$@"
+    exit $?
+fi
+gow_log "Launching the container's startup script as user '${UNAME}'"
+chmod +x /opt/gow/startup.sh 2>/dev/null || true
+exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup.sh}
+_ENTRYPOINT
+RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# GOW fixes (locale + bwrap)
+RUN <<_FIXES
+  set -e
+  locale-gen en_US.UTF-8
+  chmod u+s /usr/bin/bwrap 2>/dev/null || true
+_FIXES
+
+# GNOME/Wayland environment variables
+# MUTTER_DEBUG_KMS_THREAD_TYPE=user: Workaround for Mutter frame rate drops (60→40fps)
+# See: https://gitlab.gnome.org/GNOME/mutter/-/issues/3788
+# This switches KMS thread from real-time to user priority, fixing frame scheduling issues
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    XDG_SESSION_TYPE=wayland \
+    XDG_CURRENT_DESKTOP=GNOME \
+    QT_QPA_PLATFORM=wayland \
+    GDK_BACKEND=wayland \
+    CLUTTER_BACKEND=wayland \
+    SDL_VIDEODRIVER=wayland \
+    MUTTER_ALLOW_NESTED=1 \
+    MUTTER_DEBUG_KMS_THREAD_TYPE=user \
+    MUTTER_DEBUG=screen-cast \
+    CLUTTER_DEBUG=frame-clock,frame-timings \
+    CLUTTER_PAINT=disable-dynamic-max-render-time \
+    CLUTTER_DEFAULT_FPS=60
+
+# GOW dbus init script
+COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+#!/bin/bash
+service dbus start 2>/dev/null || true
+_DBUS_INIT
+RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
+
+# Disable systemd-logind (not available in containers)
 # GNOME session manager tries to connect to systemd-logind for session management
 RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
     mv -v "$file" "$file.back" 2>/dev/null || true; \
     done
 
-# Enable bubblewrap (bwrap) for application sandboxing - needed by GNOME
-RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
+# ====================================================================
+# Helix additions (same pattern as KDE/Sway)
+# ====================================================================
 
-# ====================================================================
-# Install Firefox from Mozilla APT repo (Chrome has GPU issues on AMD MxGPU)
-# Ubuntu 22.04's default firefox package is a snap transitional package
-# which doesn't work in Docker containers. Use Mozilla's official repo.
-# ====================================================================
-RUN apt-get update && \
-    apt-get install -y wget gnupg && \
-    # Add Mozilla APT repository
-    mkdir -p /etc/apt/keyrings && \
-    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
-    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
-    # Prefer Mozilla's Firefox over Ubuntu's snap transitional package
-    echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
-    apt-get update && \
-    apt-get install -y --allow-downgrades firefox && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Configure Firefox policies to suppress first-run dialogs and sidebar
-    mkdir -p /usr/lib/firefox/distribution && \
-    echo '{ \
-      "policies": { \
-        "DisableFirstRunPage": true, \
-        "DisableTelemetry": true, \
-        "DontCheckDefaultBrowser": true, \
-        "NoDefaultBookmarks": true, \
-        "OfferToSaveLogins": true, \
-        "PasswordManagerEnabled": true, \
-        "Preferences": { \
-          "sidebar.revamp": { \
-            "Value": false, \
-            "Status": "locked" \
-          }, \
-          "sidebar.verticalTabs": { \
-            "Value": false, \
-            "Status": "locked" \
-          }, \
-          "browser.tabs.tabmanager.enabled": { \
-            "Value": false, \
-            "Status": "locked" \
-          } \
-        } \
-      } \
-    }' > /usr/lib/firefox/distribution/policies.json
+# RADV/AMD debug options for GPU crash prevention
+ENV RADV_DEBUG=hang
+ENV AMD_DEBUG=sync_compile,check_vm
 
-# ====================================================================
-# Install Docker CLI (daemon on host via socket mount)
-# ====================================================================
+# Video streaming mode is set per-stream via URL param (?videoMode=native|zerocopy|shm)
+# Default is 'native' (stock GStreamer pipewiresrc) - see ws_stream.go getVideoMode()
+
+# Passwordless sudo
+RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Docker CLI
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
-COPY wolf/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY wolf/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+# Docker wrappers for Hydra compatibility
+COPY desktop/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY desktop/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
     && chmod 755 /usr/bin/docker /usr/bin/docker.real \
@@ -354,98 +395,422 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# ====================================================================
-# Install development tools
-# ====================================================================
+# Utilities
 RUN apt-get update && apt-get install -y \
-    # Screenshot tools
-    scrot \
-    # Clipboard tools for X11
-    xclip xsel \
-    # Git for repository cloning
-    git openssh-client \
-    # Window management tools
-    wmctrl devilspie2 \
+    lsof libjpeg-turbo8 \
+    evtest evemu-tools \
+    bash git openssh-client \
+    fonts-noto-color-emoji fonts-dejavu-core \
+    imagemagick \
+    kitty \
+    scrot xclip x11-utils \
+    grim slurp \
+    gnome-screenshot \
+    vulkan-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# ====================================================================
-# Install Node.js for qwen-code
-# ====================================================================
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+# Helix background
+RUN mkdir -p /usr/share/backgrounds && \
+    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
+
+# Node.js 20 (for Qwen Code and chrome-devtools-mcp)
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg git && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Install qwen-code (Helix's Qwen Code agent CLI)
+# Chrome + DevTools MCP Server (stable dependency - installed early)
 # ====================================================================
-# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
-# with audited commits and critical bug fixes.
-#
-# BUILD APPROACH: Copy pre-built qwen-code from local directory
-# This is faster during development and ensures we're using our fixes.
-# The qwen-code-build directory must be prepared by ./stack build-ubuntu
-#
-# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
-# ensuring Docker rebuilds this layer with the latest code.
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control.
+# Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+RUN apt-get update && \
+    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
+    rm /tmp/google-chrome.deb && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json && \
+    # Create master preferences to skip first run and welcome page
+    mkdir -p /opt/google/chrome && \
+    echo '{ \
+      "distribution": { \
+        "skip_first_run_ui": true, \
+        "suppress_first_run_default_browser_prompt": true, \
+        "do_not_create_desktop_shortcut": true, \
+        "do_not_create_quick_launch_shortcut": true, \
+        "do_not_create_taskbar_shortcut": true, \
+        "do_not_launch_chrome": true, \
+        "do_not_register_for_update_launch": true, \
+        "make_chrome_default": false, \
+        "make_chrome_default_for_user": false, \
+        "suppress_first_run_bubble": true, \
+        "import_bookmarks": false, \
+        "import_history": false, \
+        "import_home_page": false, \
+        "import_search_engine": false \
+      }, \
+      "browser": { \
+        "check_default_browser": false, \
+        "show_home_button": false \
+      }, \
+      "sync_promo": { \
+        "show_on_first_run_allowed": false \
+      }, \
+      "first_run_tabs": ["about:blank"] \
+    }' > /opt/google/chrome/master_preferences && \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
+    # Create wrapper script so --password-store=basic is always used (even from command line)
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable && \
+    chmod +x /usr/bin/google-chrome-stable
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
+
+# Install chrome-devtools-mcp globally and pre-build fontconfig cache
+RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
+
+# Qwen Code
 ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-# Create global qwen command by symlinking pre-built dist/cli.js
-# We don't use 'npm install -g .' because it tries to run prepare scripts
 RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    echo "Fixes: [object Object] error display + shell security disabled" && \
     chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 WORKDIR /
 
-# ====================================================================
-# Copy GOW infrastructure scripts
-# ====================================================================
-# Utils library
-COPY wolf/ubuntu-config/gow/bash-lib/utils.sh /opt/gow/bash-lib/utils.sh
+# Helix startup script (GNOME Wayland session)
+# Cache-bust: 2026-01-08 Ubuntu theming
+COPY <<'_STARTUP' /opt/gow/startup.sh
+#!/bin/bash -e
+# GOW startup script for Helix Desktop (Ubuntu GNOME Wayland)
+source /opt/gow/bash-lib/utils.sh
 
-# Main scripts
-COPY wolf/ubuntu-config/gow/xorg.sh /opt/gow/xorg.sh
-COPY wolf/ubuntu-config/gow/dbus.sh /opt/gow/dbus.sh
-COPY wolf/ubuntu-config/gow/desktop.sh /opt/gow/desktop.sh
-COPY wolf/ubuntu-config/gow/ensure-groups /opt/gow/ensure-groups
+gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
 
-# Entrypoint
-COPY wolf/ubuntu-config/entrypoint.sh /entrypoint.sh
+# Create symlink to Zed binary if not exists
+if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
+    sudo ln -sf /zed-build/zed /usr/local/bin/zed
+    gow_log "[start] Created symlink: /usr/local/bin/zed -> /zed-build/zed"
+fi
 
-# Init scripts
-COPY wolf/ubuntu-config/cont-init.d/10-setup_user.sh /etc/cont-init.d/10-setup_user.sh
-COPY wolf/ubuntu-config/cont-init.d/15-setup_devices.sh /etc/cont-init.d/15-setup_devices.sh
-COPY wolf/ubuntu-config/cont-init.d/30-nvidia.sh /etc/cont-init.d/30-nvidia.sh
+# Workspace setup (same pattern as KDE/Sway)
+if [ -z "$WORKSPACE_DIR" ]; then
+    gow_log "[start] FATAL: WORKSPACE_DIR environment variable not set"
+    exit 1
+fi
+if [ ! -d "$WORKSPACE_DIR" ]; then
+    gow_log "[start] FATAL: WORKSPACE_DIR does not exist: $WORKSPACE_DIR"
+    exit 1
+fi
+if [ ! -d /home/retro/work ]; then
+    gow_log "[start] FATAL: /home/retro/work bind mount not present"
+    exit 1
+fi
+sudo chown retro:retro "$WORKSPACE_DIR"
+sudo chown retro:retro /home/retro/work
+gow_log "[start] Workspace mounted at both $WORKSPACE_DIR and /home/retro/work"
 
-# Set permissions
-RUN chmod +x /entrypoint.sh \
-    /opt/gow/xorg.sh \
-    /opt/gow/dbus.sh \
-    /opt/gow/desktop.sh \
-    /opt/gow/ensure-groups \
-    /opt/gow/bash-lib/utils.sh \
-    /etc/cont-init.d/*.sh
+# Create Zed config symlinks
+WORK_DIR=/home/retro/work
+ZED_STATE_DIR=$WORK_DIR/.zed-state
+cd /home/retro/work
 
-# ====================================================================
-# Copy Helix-specific binaries and scripts
-# ====================================================================
-# Copy Go binaries from build stage
+mkdir -p $ZED_STATE_DIR/config $ZED_STATE_DIR/local-share $ZED_STATE_DIR/cache
+
+rm -rf ~/.config/zed && mkdir -p ~/.config && ln -sf $ZED_STATE_DIR/config ~/.config/zed
+rm -rf ~/.local/share/zed && mkdir -p ~/.local/share && ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
+rm -rf ~/.cache/zed && mkdir -p ~/.cache && ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
+
+gow_log "[start] Zed state symlinks created"
+
+# Configure fontconfig for grayscale antialiasing
+mkdir -p ~/.config/fontconfig
+cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <match target="font">
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+  </match>
+</fontconfig>
+FONTCONFIG_EOF
+
+# Configure Qwen Code session persistence
+export QWEN_DATA_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_DATA_DIR
+rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
+gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
+
+# Note: RevDial client is now integrated into desktop-bridge
+
+# Disable IBus Input Method Framework
+# IBus can interfere with keyboard input in remote streaming environments
+# This fixes Shift key and other modifier keys not working properly
+export GTK_IM_MODULE=gtk-im-context-simple
+export QT_IM_MODULE=gtk-im-context-simple
+export XMODIFIERS=@im=none
+gow_log "[start] IBus disabled (using simple input context)"
+
+# GNOME Wayland session setup
+export GAMESCOPE_WIDTH=${GAMESCOPE_WIDTH:-1920}
+export GAMESCOPE_HEIGHT=${GAMESCOPE_HEIGHT:-1080}
+export GAMESCOPE_REFRESH=${GAMESCOPE_REFRESH:-60}
+
+# Display scaling support
+# HELIX_DISPLAY_SCALE (e.g., "1.5" or "2") sets the scale factor for GTK/Qt apps
+# GNOME Shell's --virtual-monitor sets the compositor resolution
+if [ -n "$HELIX_DISPLAY_SCALE" ] && [ "$HELIX_DISPLAY_SCALE" != "1" ]; then
+    export GDK_SCALE=$HELIX_DISPLAY_SCALE
+    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
+    export QT_SCALE_FACTOR=$HELIX_DISPLAY_SCALE
+    gow_log "[start] Display scaling enabled: ${HELIX_DISPLAY_SCALE}x"
+else
+    gow_log "[start] Display scaling: 1x (default)"
+fi
+
+# Enable nested mode for Mutter (running inside Wolf's compositor)
+export MUTTER_ALLOW_NESTED=1
+
+# Save Wolf's Wayland display (wayland-1) before we change it for client apps
+WOLF_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
+
+# Create GNOME start script
+# Note: Using non-quoted heredoc so $WOLF_WAYLAND_DISPLAY is captured at script creation
+cat <<GNOME_EOF > $XDG_RUNTIME_DIR/start_gnome
+#!/bin/bash
+source /opt/gow/bash-lib/utils.sh
+
+# Set GNOME environment
+export XDG_CURRENT_DESKTOP=GNOME
+export XDG_SESSION_DESKTOP=gnome
+export XDG_SESSION_TYPE=wayland
+export DESKTOP_SESSION=gnome
+
+# Ensure IBus is disabled (fixes keyboard input issues with modifier keys)
+export GTK_IM_MODULE=gtk-im-context-simple
+export QT_IM_MODULE=gtk-im-context-simple
+export XMODIFIERS=@im=none
+
+# Display scaling
+# HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by hydra_executor
+# Convert to scale factor: 100→1, 150→1.5, 200→2
+#
+# Scaling works at TWO levels:
+# 1. Compositor level: org.gnome.desktop.interface scaling-factor (GSettings)
+#    - This makes GNOME Shell/Mutter use a global scale factor for all monitors
+#    - Required for proper DPI scaling of the entire desktop
+#    - Note: MUTTER_DEBUG_DUMMY_MONITOR_SCALES only works for dummy/test backend, not headless
+# 2. Client app level: GDK_SCALE/QT_SCALE_FACTOR for GTK/Qt applications
+#    - These tell individual apps to render at the correct scale
+#
+# Reference: mutter src/backends/meta-settings.c meta_settings_get_global_scaling_factor()
+ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
+if [ "\$ZOOM_LEVEL" -gt 100 ]; then
+    # Calculate integer scale factor from zoom percentage (e.g., 200% → 2)
+    # Note: scaling-factor is an integer, so 150% becomes 1 (rounded down) or we use 2
+    HELIX_SCALE_FACTOR=\$((\$ZOOM_LEVEL / 100))
+
+    # Client app scaling (GTK and Qt applications)
+    export GDK_SCALE=\$HELIX_SCALE_FACTOR
+    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
+    export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
+
+    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (GDK_SCALE=\$HELIX_SCALE_FACTOR)"
+else
+    HELIX_SCALE_FACTOR=""
+    gow_log "[start] Display scaling: 1x (default)"
+fi
+
+# GNOME 49 Mutter SDK (--devkit) Architecture:
+# =============================================
+# PipeWire mode: gnome-shell --headless + pipewiresrc capture
+# - gnome-shell --headless creates a virtual display
+# - Container creates ScreenCast session via D-Bus
+# - Wolf/Moonlight captures via pipewiresrc
+
+# Don't inherit any parent Wayland display
+unset WAYLAND_DISPLAY
+gow_log "[start] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
+
+gow_log "[start] Starting PipeWire + WirePlumber"
+pipewire &
+sleep 0.5
+wireplumber &
+sleep 0.5
+
+# Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
+if [ -f /opt/gow/dconf-settings.ini ]; then
+    gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
+    dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
+fi
+
+# Enable Just Perfection extension and hide screen recording indicator
+# This MUST be done before gnome-shell starts so the extension is loaded
+# The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
+# Also keep Ubuntu Dock enabled for the Ubuntu experience
+gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
+gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection']"
+gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
+gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
+gow_log "[start] Just Perfection extension configured"
+
+# Set global scaling factor before gnome-shell starts
+# This tells Mutter to use this scale for ALL monitors (including virtual ones)
+# The scaling-factor gsetting is read by meta_settings_get_global_scaling_factor()
+# which overrides the calculated per-monitor scale
+if [ -n "\$HELIX_SCALE_FACTOR" ] && [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
+    gow_log "[start] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
+    gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
+    # Also enable fractional scaling feature (needed for the UI to show scale options)
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+fi
+
+# Start Helix services via shared init scripts
+# These scripts handle D-Bus/Wayland waiting and log prefixing consistently
+# across both Sway and Ubuntu desktops
+gow_log "[start] Starting Helix services via shared init scripts..."
+/usr/local/bin/start-desktop-bridge.sh &
+/usr/local/bin/start-settings-sync-daemon.sh &
+
+# Verify display scale after GNOME Shell is ready (if scaling is enabled)
+# Global scaling-factor from GSettings is applied at Mutter startup
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+  (
+    gow_log "[start] Waiting to verify display scale..."
+    for i in \$(seq 1 30); do
+      if pgrep -x gnome-shell > /dev/null 2>&1; then
+        sleep 2
+        break
+      fi
+      sleep 1
+    done
+
+    # Log the current display configuration for debugging
+    STATE=\$(gdbus call --session \\
+        --dest org.gnome.Mutter.DisplayConfig \\
+        --object-path /org/gnome/Mutter/DisplayConfig \\
+        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1 || echo "D-Bus call failed")
+
+    gow_log "[start] Display config (scaling-factor=\$HELIX_SCALE_FACTOR): \${STATE:0:400}"
+  ) &
+fi
+
+# Launch Zed after GNOME Shell is ready - it needs wayland-0
+if [ -x /zed-build/zed ]; then
+  (
+    gow_log "[start] Waiting for GNOME Shell to start before launching Zed..."
+    for i in \$(seq 1 60); do
+      if pgrep -x gnome-shell > /dev/null 2>&1; then
+        gow_log "[start] gnome-shell detected, waiting 2 more seconds for initialization..."
+        sleep 2
+        break
+      fi
+      sleep 1
+    done
+    gow_log "[start] Launching Zed (WAYLAND_DISPLAY=wayland-0)..."
+    WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
+  ) &
+fi
+
+gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
+
+# Enable experimental features for better frame pacing:
+# - variable-refresh-rate: VRR support (may help with frame sync)
+# - triple-buffering: Additional buffer for smoother frame delivery
+# These are set unconditionally to help diagnose frame rate issues
+gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
+gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
+
+# Start GNOME Shell in headless mode with virtual monitor
+# --headless: No display output - captured via pipewiresrc from ScreenCast
+# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
+# --virtual-monitor WxH@R: Creates virtual display at specified resolution
+gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
+gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+GNOME_EOF
+
+chmod +x $XDG_RUNTIME_DIR/start_gnome
+
+dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
+_STARTUP
+RUN chmod +x /opt/gow/startup.sh
+
+# Helix helper scripts
+ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+
+# Ubuntu desktop theming - Yaru dark theme with Helix background
+ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
+# Docker group init script
+ADD desktop/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Workspace README
+RUN mkdir -p /opt/helix
+ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
+
+# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
+# Install to system GStreamer plugins directory
+# NOTE: Rust code changes less frequently than Go, so it's placed before Go binaries
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+
+# Helix Go binaries (v2: socket wait fix)
+# NOTE: Go code changes most frequently, so it's placed last before Zed
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 
-# Copy Zed binary (built with ./stack build-zed before Docker build)
+# Zed binary
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
-# Install Zed desktop file and icon for GNOME integration
-# The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
-# Generate all standard icon sizes to match GNOME expectations
-# IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
-COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+# Zed desktop file and icon
+COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \
@@ -454,39 +819,70 @@ RUN for size in 16 24 32 48 64 128 256; do \
             -resize ${size}x${size} \
             /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
     done && \
-    gtk-update-icon-cache -f /usr/share/icons/hicolor && \
-    update-desktop-database /usr/share/applications
+    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true && \
+    update-desktop-database /usr/share/applications 2>/dev/null || true
 
-# Copy Zed startup script and helper scripts
-ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
+# AI agent privacy configs
+RUN mkdir -p /home/retro/.qwen && \
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
 
-# Copy GOW startup script (creates autostart entries and state symlinks)
-ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh
-RUN chmod +x /opt/gow/startup.sh
+RUN mkdir -p /home/retro/.gemini && \
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-# Copy GNOME dconf settings for Ubuntu appearance (Yaru theme, wallpaper, etc.)
-COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+RUN mkdir -p /home/retro/.claude && \
+    echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
 
-# Add Docker group init script (must run AFTER 15-setup_devices.sh which replaces groups)
-ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
-RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+RUN mkdir -p /home/retro/.config/zed && \
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
 
-# Copy devilspie2 window positioning config
-RUN mkdir -p /etc/skel/.config/devilspie2
-COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua
-RUN chmod 644 /etc/skel/.config/devilspie2/helix-tiling.lua
+ENV GEMINI_TELEMETRY_ENABLED=false \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_ERROR_REPORTING=1 \
+    DISABLE_AUTOUPDATER=1 \
+    NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    ZED_HTTP_INSECURE_TLS=1
 
-# Pre-build fontconfig cache (major speedup for first browser launch)
-RUN fc-cache -f -v
+RUN git config --system http.sslVerify false
+
+# Just Perfection extension - hide screen recording indicator in GNOME 49
+# When PipeWire ScreenCast is active, GNOME shows a recording indicator with a "stop" button.
+# Clicking this button terminates the ScreenCast session and crashes the stream for everyone.
+# This extension hides the indicator to prevent accidental session termination.
+RUN mkdir -p /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection
+COPY desktop/ubuntu-config/gnome-extensions/just-perfection-desktop@just-perfection.zip /tmp/
+RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
+    rm /tmp/just-perfection-desktop@just-perfection.zip && \
+    # Fix permissions (metadata.json in zip has 600, needs to be readable by retro user)
+    chmod -R a+rX /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
+    # Compile schemas in BOTH locations:
+    # 1. Extension's own directory (required by the extension at runtime)
+    glib-compile-schemas /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/ && \
+    # 2. System-wide schemas (for gsettings CLI access)
+    cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
+    glib-compile-schemas /usr/share/glib-2.0/schemas/
 
 # ====================================================================
-# Final setup
+# System-wide dconf defaults (Ubuntu branding)
 # ====================================================================
-# Create required directories
-RUN mkdir -p /home/retro/work && \
-    chown -R ${UID}:${GID} /home/retro
+# GNOME uses dconf for settings. To set system-wide defaults that apply
+# before any user session starts, we must use dconf profiles and keyfiles.
+# Runtime `dconf load` doesn't work reliably because GNOME Shell may
+# reset settings on first launch.
+#
+# Structure:
+# - /etc/dconf/profile/user: defines database priority (user > local)
+# - /etc/dconf/db/local.d/00-helix: our default settings
+# - dconf update: compiles keyfiles into binary database
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Create dconf profile (user settings override local defaults)
+RUN mkdir -p /etc/dconf/profile && \
+    printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+
+# Copy our settings as system defaults
+RUN mkdir -p /etc/dconf/db/local.d
+ADD desktop/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
+
+# Compile the dconf database
+RUN dconf update
+

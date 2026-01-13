@@ -1,0 +1,371 @@
+package desktop
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+// InputEvent represents an input event from the streaming frontend.
+type InputEvent struct {
+	Type    string  `json:"type"`
+	X       float64 `json:"x,omitempty"`
+	Y       float64 `json:"y,omitempty"`
+	DX      float64 `json:"dx,omitempty"`
+	DY      float64 `json:"dy,omitempty"`
+	Button  int32   `json:"button,omitempty"`
+	State   bool    `json:"state,omitempty"`
+	Keycode uint32  `json:"keycode,omitempty"`
+	Slot    uint32  `json:"slot,omitempty"`
+	Stream  string  `json:"stream,omitempty"`
+}
+
+// createInputSocket creates the Unix socket for input events.
+func (s *Server) createInputSocket() error {
+	s.logger.Info("creating input socket", "path", s.inputSocketPath)
+
+	// Remove existing socket
+	os.Remove(s.inputSocketPath)
+
+	var err error
+	s.inputListener, err = net.Listen("unix", s.inputSocketPath)
+	if err != nil {
+		return err
+	}
+
+	// Make socket world-accessible
+	if err := os.Chmod(s.inputSocketPath, 0777); err != nil {
+		s.logger.Warn("failed to chmod socket", "err", err)
+	}
+
+	s.logger.Info("input socket created")
+	return nil
+}
+
+// runInputBridge accepts connections and handles input events.
+func (s *Server) runInputBridge(ctx context.Context) {
+	s.logger.Info("starting input bridge",
+		"socket_path", s.inputSocketPath,
+		"rd_session", s.rdSessionPath,
+		"dbus_connected", s.conn != nil)
+
+	for s.isRunning() {
+		// Set accept deadline so we can check context
+		if ul, ok := s.inputListener.(*net.UnixListener); ok {
+			ul.SetDeadline(time.Now().Add(time.Second))
+		}
+
+		conn, err := s.inputListener.Accept()
+		if err != nil {
+			if s.isRunning() {
+				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+					continue
+				}
+				s.logger.Error("accept error", "err", err)
+			}
+			continue
+		}
+
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleInputClient(ctx, conn)
+		}()
+	}
+}
+
+// handleInputClient handles a single input client connection.
+func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
+	defer conn.Close()
+	s.logger.Info("input client connected")
+
+	reader := bufio.NewReader(conn)
+
+	eventCount := 0
+	timeoutCount := 0
+	for s.isRunning() {
+		conn.SetReadDeadline(time.Now().Add(time.Second))
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			// Check for timeout - use errors.Is for proper unwrapping
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				timeoutCount++
+				if timeoutCount <= 3 || timeoutCount%100 == 0 {
+					s.logger.Debug("input socket read timeout", "count", timeoutCount)
+				}
+				continue
+			}
+			// Check for EOF (client disconnected)
+			if err.Error() == "EOF" {
+				s.logger.Info("input client disconnected (EOF)")
+				break
+			}
+			s.logger.Error("input socket read error", "err", err, "err_type", fmt.Sprintf("%T", err))
+			break
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var event InputEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			s.logger.Warn("failed to parse input event JSON", "err", err, "line", line[:min(100, len(line))])
+			continue
+		}
+
+		eventCount++
+		if eventCount <= 5 || eventCount%100 == 0 {
+			s.logger.Info("received input event", "type", event.Type, "count", eventCount)
+		}
+
+		s.injectInput(&event)
+	}
+
+	s.logger.Info("input client disconnected", "total_events", eventCount)
+}
+
+// injectInput sends an input event to GNOME via D-Bus.
+func (s *Server) injectInput(event *InputEvent) {
+	if s.conn == nil {
+		s.logger.Warn("input event dropped: D-Bus connection is nil", "type", event.Type)
+		return
+	}
+	if s.rdSessionPath == "" {
+		s.logger.Warn("input event dropped: RemoteDesktop session path is empty", "type", event.Type)
+		return
+	}
+
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+
+	// Measure D-Bus call latency (sample every 100 calls)
+	start := time.Now()
+	defer func() {
+		s.inputCallCount++
+		if s.inputCallCount%100 == 0 {
+			latency := time.Since(start)
+			s.logger.Info("dbus input latency (sampled)",
+				"type", event.Type,
+				"latency_us", latency.Microseconds(),
+				"call_count", s.inputCallCount)
+		}
+	}()
+
+	var err error
+	switch event.Type {
+	case "mouse_move_abs":
+		stream := event.Stream
+		if stream == "" {
+			stream = string(s.scStreamPath)
+		}
+		s.moveCount++
+		if s.moveCount == 1 || s.moveCount%100 == 0 {
+			s.logger.Debug("mouse_move_abs", "count", s.moveCount, "x", event.X, "y", event.Y, "stream", stream)
+		}
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0, stream, event.X, event.Y).Err
+
+	case "mouse_move_rel":
+		s.logger.Debug("mouse_move_rel", "dx", event.DX, "dy", event.DY)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionRelative", 0, event.DX, event.DY).Err
+
+	case "button":
+		s.logger.Debug("button", "button", event.Button, "state", event.State)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerButton", 0, event.Button, event.State).Err
+
+	case "scroll":
+		s.logger.Debug("scroll", "dx", event.DX, "dy", event.DY)
+		if event.DY != 0 {
+			err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(0), int32(event.DY)).Err
+		}
+		if event.DX != 0 && err == nil {
+			err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(1), int32(event.DX)).Err
+		}
+
+	case "scroll_smooth":
+		// High-resolution smooth scrolling via Mutter's NotifyPointerAxis.
+		//
+		// Input: Frontend sends browser pixel values:
+		//   - Mouse wheel: ~100-120 pixels per notch
+		//   - Trackpad: ~1-10 pixels per event (high frequency)
+		//
+		// Flags (ClutterScrollFinishFlags):
+		// - 0: Continuous scrolling (no finish)
+		// - 1: CLUTTER_SCROLL_FINISHED_HORIZONTAL
+		// - 2: CLUTTER_SCROLL_FINISHED_VERTICAL
+		// - 3: Both axes finished
+		//
+		// We send flags=0 during scrolling, then flags=3 after 150ms of no events
+		// to signal scroll gesture ended. This enables kinetic scrolling in apps.
+		mutterDX := -event.DX
+		mutterDY := -event.DY
+		s.logger.Debug("scroll_smooth", "raw_dx", event.DX, "raw_dy", event.DY, "mutter_dx", mutterDX, "mutter_dy", mutterDY)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, mutterDX, mutterDY, uint32(0)).Err
+
+		// Schedule scroll finish after 150ms of no scroll events
+		s.scrollFinishMu.Lock()
+		if s.scrollFinishTimer != nil {
+			s.scrollFinishTimer.Stop()
+		}
+		s.scrollFinishTimer = time.AfterFunc(150*time.Millisecond, func() {
+			if s.conn == nil || s.rdSessionPath == "" {
+				return
+			}
+			rdSess := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+			// Send zero-delta scroll with finish flags (3 = both axes finished)
+			if err := rdSess.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, 0.0, 0.0, uint32(3)).Err; err != nil {
+				s.logger.Debug("scroll finish failed", "err", err)
+			} else {
+				s.logger.Debug("scroll finish sent")
+			}
+		})
+		s.scrollFinishMu.Unlock()
+
+	case "key":
+		s.logger.Info("key event", "keycode", event.Keycode, "state", event.State)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, event.Keycode, event.State).Err
+
+	case "touch_down":
+		stream := event.Stream
+		if stream == "" {
+			stream = string(s.scStreamPath)
+		}
+		s.logger.Debug("touch_down", "slot", event.Slot, "x", event.X, "y", event.Y)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, event.Slot, event.X, event.Y).Err
+
+	case "touch_motion":
+		stream := event.Stream
+		if stream == "" {
+			stream = string(s.scStreamPath)
+		}
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, event.Slot, event.X, event.Y).Err
+
+	case "touch_up":
+		s.logger.Debug("touch_up", "slot", event.Slot)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, event.Slot).Err
+
+	default:
+		s.logger.Warn("unknown input event type", "type", event.Type)
+		return
+	}
+
+	if err != nil {
+		s.logger.Error("D-Bus input call failed", "type", event.Type, "err", err)
+	}
+}
+
+// InputRequest represents a batch of input events from HTTP.
+type InputRequest struct {
+	Events []InputEvent `json:"events"`
+}
+
+// InputResponse is returned from the input endpoint.
+type InputResponse struct {
+	Success   bool   `json:"success"`
+	Processed int    `json:"processed"`
+	Message   string `json:"message,omitempty"`
+}
+
+// handleInput handles POST /input for injecting keyboard/mouse events.
+func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if D-Bus session is available
+	if s.conn == nil {
+		s.logger.Warn("HTTP input: D-Bus connection is nil")
+		http.Error(w, "D-Bus connection not available", http.StatusServiceUnavailable)
+		return
+	}
+	if s.rdSessionPath == "" {
+		s.logger.Warn("HTTP input: RemoteDesktop session path is empty")
+		http.Error(w, "RemoteDesktop session not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	s.logger.Debug("HTTP input received", "body_length", len(body))
+
+	var req InputRequest
+	if err := json.Unmarshal(body, &req); err != nil || len(req.Events) == 0 {
+		// Try single event format for convenience (also handles case where
+		// unmarshal succeeded but events array was empty/missing)
+		var event InputEvent
+		if err := json.Unmarshal(body, &event); err != nil {
+			s.logger.Warn("HTTP input: invalid JSON", "err", err)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		// Only use single event if it has a type (valid event)
+		if event.Type != "" {
+			req.Events = []InputEvent{event}
+		}
+	}
+
+	// Process all events
+	processed := 0
+	for _, event := range req.Events {
+		s.injectInput(&event)
+		processed++
+	}
+
+	s.logger.Info("HTTP input events processed", "count", processed)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(InputResponse{
+		Success:   true,
+		Processed: processed,
+	})
+}
+
+// primeKeyboardInput sends a dummy Escape key press+release to initialize GNOME's
+// keyboard input handling. Without this, the very first keyboard event from the user
+// is silently dropped by GNOME's RemoteDesktop D-Bus API.
+//
+// Escape is chosen because:
+// - It's harmless in most contexts (closes menus, cancels dialogs)
+// - It doesn't produce visible text output
+// - It's a single keycode with no modifiers needed
+func (s *Server) primeKeyboardInput() {
+	if s.conn == nil || s.rdSessionPath == "" {
+		s.logger.Warn("cannot prime keyboard: D-Bus session not ready")
+		return
+	}
+
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+
+	// KEY_ESC = 1 in evdev
+	const keyEscape = uint32(1)
+
+	s.logger.Info("priming keyboard input with Escape key...")
+
+	// Press Escape
+	if err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, keyEscape, true).Err; err != nil {
+		s.logger.Warn("keyboard prime press failed", "err", err)
+	}
+
+	// Small delay between press and release
+	time.Sleep(10 * time.Millisecond)
+
+	// Release Escape
+	if err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, keyEscape, false).Err; err != nil {
+		s.logger.Warn("keyboard prime release failed", "err", err)
+	}
+
+	s.logger.Info("keyboard input primed")
+}

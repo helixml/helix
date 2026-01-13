@@ -545,11 +545,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	// Start Wolf health monitor for multi-Wolf distributed deployment
-	wolfScheduler := store.NewWolfScheduler(postgresStore)
-	wolfHealthMonitor := store.NewWolfHealthMonitor(postgresStore, wolfScheduler)
-	go wolfHealthMonitor.Start(ctx)
-	log.Info().Msg("Wolf health monitor started")
+	// Sandbox health monitoring is handled by the Hydra executor
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 

@@ -166,7 +166,7 @@ func (c *WolfClientRevDial) AddApp(ctx context.Context, app *wolf.App) error {
 # Inside Wolf container startup script
 /usr/local/bin/revdial-client \
   --server-url "http://api:8080/revdial" \
-  --runner-id "wolf-${WOLF_INSTANCE_ID}" \
+  --runner-id "wolf-${SANDBOX_INSTANCE_ID}" \
   --runner-token "${USER_API_TOKEN}" \
   --local-addr "unix:///var/run/wolf/wolf.sock" &
 ```
@@ -204,7 +204,7 @@ func (api *APIServer) handleWebRTCSignaling(w http.ResponseWriter, r *http.Reque
 # Inside Moonlight Web container startup script
 /usr/local/bin/revdial-client \
   --server-url "http://api:8080/revdial" \
-  --runner-id "moonlight-${WOLF_INSTANCE_ID}" \
+  --runner-id "moonlight-${SANDBOX_INSTANCE_ID}" \
   --runner-token "${USER_API_TOKEN}" \
   --local-addr "127.0.0.1:8080" &
 ```
@@ -497,7 +497,7 @@ Moonlight Web (behind NAT, public STUN server helped establish connection)
 
 ## Open Questions
 
-1. **Wolf instance ID**: How is `WOLF_INSTANCE_ID` set? From environment variable? Database lookup?
+1. **Wolf instance ID**: How is `SANDBOX_INSTANCE_ID` set? From environment variable? Database lookup?
 2. **Moonlight Web bundling**: Is Moonlight Web a separate container or bundled with Wolf?
 3. **WebSocket timeout root cause**: Why does Go WebSocket client timeout from sandbox but Rust WebSocket (Zed) works?
 4. **RevDial adapter for Unix socket**: Can we use `revdial-client` to forward Unix socket to TCP, or need custom adapter?

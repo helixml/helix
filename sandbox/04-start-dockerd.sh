@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🐳 Starting Wolf's isolated dockerd..."
+echo "🐳 Starting sandbox's isolated dockerd..."
 
 # Clean up stale PID files (common issue with Docker restarts)
 if [ -f /var/run/docker.pid ]; then
@@ -34,7 +34,7 @@ cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 }
 DAEMON_JSON
 
-echo "Configured Wolf's dockerd with nvidia runtime support"
+echo "Configured sandbox dockerd with nvidia runtime support"
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
@@ -55,7 +55,7 @@ echo "Configured Wolf's dockerd with nvidia runtime support"
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
-# Wait for dockerd to be ready
+# Wait for dockerd to be ready (initial startup)
 TIMEOUT=30
 ELAPSED=0
 until docker info >/dev/null 2>&1; do
@@ -69,21 +69,16 @@ until docker info >/dev/null 2>&1; do
     ELAPSED=$((ELAPSED + 1))
 done
 
-echo "✅ Wolf's dockerd is ready!"
+echo "✅ Sandbox dockerd is ready!"
 docker info 2>&1 | head -5
+
+# Create /tmp/sockets for runc console sockets (required for docker exec -ti)
+mkdir -p /tmp/sockets
+echo "✅ Created /tmp/sockets for docker exec -ti support"
 
 # Enable forwarding for nested containers
 iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"
-
-# Create helix_default network
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network (subnet 172.20.0.0/16)..."
-    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1
-    echo "✅ helix_default network created"
-else
-    echo "helix_default network already exists"
-fi
 
 # Function to load a desktop image into sandbox's dockerd
 # Usage: load_desktop_image <name> <required>
@@ -151,10 +146,148 @@ load_desktop_image() {
         fi
     fi
 
-    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Wolf executor"
+    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Hydra executor"
 }
 
 # Load desktop images (sway is required, others are optional)
 load_desktop_image "sway" "true"
 load_desktop_image "zorin" "false"
 load_desktop_image "ubuntu" "false"
+load_desktop_image "kde" "false"
+
+# ================================================================================
+# Clean up old desktop images to free disk space
+# This removes old versions of helix-sway, helix-ubuntu, etc. that are no longer
+# needed after upgrading to new versions.
+#
+# How versioning works:
+# - Each desktop image is tagged with the first 6 chars of its Docker image ID
+#   (content-addressable hash), e.g., helix-sway:5874ee
+# - The .version file contains this same hash (e.g., "5874ee")
+# - When a new sandbox image is deployed, it contains new tarballs with new hashes
+# - Old images (e.g., helix-sway:abc123) remain in nested Docker and waste space
+#
+# Cleanup logic:
+# - Read the expected hash from each .version file
+# - Keep images matching that hash OR tagged as :latest
+# - Remove all other versions (old image hashes)
+# ================================================================================
+echo ""
+echo "🧹 Cleaning up old desktop images in nested Docker..."
+
+# First, remove ALL stopped containers to allow image removal
+# This is safe because Hydra creates fresh containers for each session
+# Stopped containers are just leftovers from previous sessions
+STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
+if [ "$STOPPED_COUNT" -gt 0 ]; then
+    echo "   Removing $STOPPED_COUNT stopped container(s)..."
+    docker container prune -f >/dev/null 2>&1 || true
+fi
+
+# Next, build a list of expected versions from the embedded .version files
+# These are the versions we just loaded (or already had loaded)
+# This also tells us which desktop types exist (no hardcoded list needed)
+declare -A EXPECTED_VERSIONS
+DESKTOP_NAMES=""
+for version_file in /opt/images/helix-*.version; do
+    if [ -f "$version_file" ]; then
+        # Extract image name from filename (e.g., helix-sway from helix-sway.version)
+        IMAGE_NAME=$(basename "$version_file" .version)
+        EXPECTED_VERSIONS[$IMAGE_NAME]=$(cat "$version_file")
+        echo "   Expected version for $IMAGE_NAME: ${EXPECTED_VERSIONS[$IMAGE_NAME]}"
+        # Build list of desktop names for grep pattern
+        DESKTOP_NAME="${IMAGE_NAME#helix-}"  # Remove "helix-" prefix
+        if [ -z "$DESKTOP_NAMES" ]; then
+            DESKTOP_NAMES="$DESKTOP_NAME"
+        else
+            DESKTOP_NAMES="$DESKTOP_NAMES|$DESKTOP_NAME"
+        fi
+    fi
+done
+
+# Skip cleanup if no version files found (nothing to clean)
+if [ -z "$DESKTOP_NAMES" ]; then
+    echo "   No desktop version files found - skipping cleanup"
+else
+    # Get all helix-* desktop images matching known desktop types
+    # Pattern is built dynamically from .version files (e.g., "sway|ubuntu|kde")
+    ALL_DESKTOP_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E "^helix-($DESKTOP_NAMES):" | sort -u)
+
+    REMOVED_COUNT=0
+    KEPT_COUNT=0
+
+    for image in $ALL_DESKTOP_IMAGES; do
+        # Skip images with <none> tags
+        if [[ "$image" == *":<none>"* ]]; then
+            continue
+        fi
+
+        # Parse image name and tag
+        IMAGE_NAME=$(echo "$image" | cut -d: -f1)
+        IMAGE_TAG=$(echo "$image" | cut -d: -f2)
+
+        # Get expected version for this desktop type
+        EXPECTED_VERSION="${EXPECTED_VERSIONS[$IMAGE_NAME]:-}"
+
+        # Safety: skip if we don't know the expected version for this desktop
+        if [ -z "$EXPECTED_VERSION" ]; then
+            KEPT_COUNT=$((KEPT_COUNT + 1))
+            continue
+        fi
+
+        # Keep images matching the expected version from .version file OR tagged as :latest
+        # Remove everything else (old versions)
+        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ] || [ "$IMAGE_TAG" = "latest" ]; then
+            KEPT_COUNT=$((KEPT_COUNT + 1))
+        else
+            echo "   Removing old image: $image (expected version: $EXPECTED_VERSION)"
+            if docker rmi "$image" 2>/dev/null; then
+                REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            else
+                echo "   ⚠️  Failed to remove $image (may still be in use)"
+            fi
+        fi
+    done
+
+    if [ "$REMOVED_COUNT" -gt 0 ]; then
+        echo "✅ Cleaned up $REMOVED_COUNT old desktop image(s), kept $KEPT_COUNT current image(s)"
+    else
+        if [ "$KEPT_COUNT" -gt 0 ]; then
+            echo "   No old desktop images to clean up (all $KEPT_COUNT images are current)"
+        else
+            echo "   No desktop images found to clean up"
+        fi
+    fi
+fi
+
+echo "✅ Desktop image cleanup complete"
+
+# ================================================================================
+# Clean up dangling images and build cache
+# This removes:
+# - Dangling images (untagged <none> images from failed builds)
+# - Build cache (accumulated from docker build operations)
+# - Unused networks (orphaned from stopped containers)
+# NOTE: We do NOT prune volumes - those contain user data
+# ================================================================================
+echo ""
+echo "🧹 Pruning dangling images and build cache..."
+
+# Remove dangling images first (faster, targeted cleanup)
+DANGLING_COUNT=$(docker images -f "dangling=true" -q 2>/dev/null | wc -l)
+if [ "$DANGLING_COUNT" -gt 0 ]; then
+    echo "   Removing $DANGLING_COUNT dangling image(s)..."
+    docker image prune -f >/dev/null 2>&1 || true
+fi
+
+# Run system prune to clean build cache and unused networks
+# This does NOT remove volumes (no --volumes flag)
+PRUNE_OUTPUT=$(docker system prune -f 2>&1) || true
+if echo "$PRUNE_OUTPUT" | grep -q "reclaimed"; then
+    RECLAIMED=$(echo "$PRUNE_OUTPUT" | grep "reclaimed" | tail -1)
+    echo "   $RECLAIMED"
+else
+    echo "   No additional space to reclaim"
+fi
+
+echo "✅ Docker cleanup complete"

@@ -11,23 +11,20 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/wolf"
 )
 
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
 	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
 		UserID:     userID,
 		ProjectID:  agent.ProjectID,
@@ -71,7 +68,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	var agent types.ZedAgent
+	var agent types.DesktopAgent
 	err := json.NewDecoder(req.Body).Decode(&agent)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
@@ -83,8 +80,11 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		agent.SessionID = system.GenerateRequestID()
 	}
 
-	// WorkDir will be set by wolf_executor to use filestore path
-	// Don't override it here - let executor handle workspace management
+	// CRITICAL: Set UserID from authenticated user for git commit email lookup
+	// executor uses agent.UserID to look up user email for git config
+	agent.UserID = user.ID
+
+	// WorkDir is handled by the executor - don't override here
 
 	// Validate required fields
 	if agent.Input == "" {
@@ -212,7 +212,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	// Set the Helix session ID on the agent so Wolf knows which session this serves
+	// Set the Helix session ID on the agent so container knows which session this serves
 	agent.HelixSessionID = createdSession.ID
 
 	// Add user's API token for git operations
@@ -232,34 +232,35 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Str("status", response.Status).
-		Str("lobby_id", response.WolfLobbyID).
+		Str("lobby_id", response.DevContainerID).
 		Msg("External agent started successfully")
 
-	// Store the lobby ID and PIN in the Helix session metadata (Phase 3: Multi-tenancy)
-	if response.WolfLobbyID != "" {
-		createdSession.Metadata.WolfLobbyID = response.WolfLobbyID
+	// Store the container ID and sandbox ID in the Helix session
+	if response.DevContainerID != "" {
+		createdSession.Metadata.DevContainerID = response.DevContainerID
 	}
-	if response.WolfLobbyPIN != "" {
-		createdSession.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	// CRITICAL: Store SandboxID on session record - required for streaming proxy
+	if response.SandboxID != "" {
+		createdSession.SandboxID = response.SandboxID
 	}
 
-	// Update session with Wolf lobby info
-	if response.WolfLobbyID != "" || response.WolfLobbyPIN != "" {
+	// Update session with container info
+	if response.DevContainerID != "" || response.SandboxID != "" {
 		_, err = apiServer.Controller.Options.Store.UpdateSession(req.Context(), *createdSession)
 		if err != nil {
-			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store Wolf lobby info in session")
-			// Continue anyway - lobby info just won't be in database
+			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store container info in session")
+			// Continue anyway - container info just won't be in database
 		} else {
 			log.Info().
 				Str("helix_session_id", createdSession.ID).
-				Str("lobby_id", response.WolfLobbyID).
-				Str("lobby_pin", response.WolfLobbyPIN).
-				Msg("✅ Stored Wolf lobby ID and PIN in Helix session metadata")
+				Str("container_id", response.DevContainerID).
+				Str("sandbox_id", response.SandboxID).
+				Msg("✅ Stored container ID and sandbox ID in Helix session")
 		}
 	}
 
-	// Note: Auto-join happens AFTER user connects via moonlight-web
-	// See autoJoinExternalAgentLobby endpoint - called by frontend post-connection
+	// Note: Container attachment happens via pending session config
+	// Pre-configured by ConfigurePendingSession API call after container creation
 
 	// Add WebSocket connection info to response
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
@@ -301,7 +302,7 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 		return
 	}
 
-	response := types.ZedAgentResponse{
+	response := types.DesktopAgentResponse{
 		SessionID: session.SessionID,
 		Status:    "running",
 	}
@@ -320,15 +321,15 @@ func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req
 
 	if apiServer.externalAgentExecutor == nil {
 		res.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(res).Encode([]types.ZedAgentResponse{})
+		json.NewEncoder(res).Encode([]types.DesktopAgentResponse{})
 		return
 	}
 
 	sessions := apiServer.externalAgentExecutor.ListSessions()
-	responses := make([]types.ZedAgentResponse, len(sessions))
+	responses := make([]types.DesktopAgentResponse, len(sessions))
 
 	for i, session := range sessions {
-		responses[i] = types.ZedAgentResponse{
+		responses[i] = types.DesktopAgentResponse{
 			SessionID: session.SessionID,
 			Status:    session.Status,
 		}
@@ -427,13 +428,13 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 	log.Info().
 		Str("session_id", sessionID).
 		Str("status", session.Status).
-		Msg("Found external agent session (RDP replaced with Wolf)")
+		Msg("Found external agent session")
 
-	// Return Wolf-based connection details with WebSocket info
+	// Return streaming connection details with WebSocket info
 	connectionInfo := types.ExternalAgentConnectionInfo{
 		SessionID:          session.SessionID,
 		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:          "moonlight://localhost:47989",
+		StreamURL:          fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
 		Status:             session.Status,
 		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
 		WebsocketConnected: apiServer.isExternalAgentConnected(session.SessionID),
@@ -443,7 +444,7 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		Str("session_id", session.SessionID).
 		Str("status", session.Status).
 		Bool("websocket_connected", connectionInfo.WebsocketConnected).
-		Msg("Returning Wolf connection info")
+		Msg("Returning streaming connection info")
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(connectionInfo)
@@ -487,12 +488,12 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 	// In a full implementation, you might want to support updating other session properties
 	session, _ = apiServer.externalAgentExecutor.GetSession(sessionID)
 
-	response := types.ZedAgentResponse{
+	response := types.DesktopAgentResponse{
 		SessionID:     session.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:     "moonlight://localhost:47989",
+		StreamURL:     fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
 		Status:        session.Status,
-		WolfAppID:     session.WolfAppID,
+		ContainerAppID:     session.ContainerAppID,
 		ContainerName: session.ContainerName,
 	}
 
@@ -535,65 +536,11 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 		Uptime:       session.LastAccess.Sub(session.StartTime).Seconds(),
 		WorkspaceDir: session.ProjectPath,
 		DisplayNum:   1,
-		RDPPort:      8080,
 		Status:       "running",
 	}
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(stats)
-}
-
-// getExternalAgentLogs handles GET /api/v1/external-agents/{sessionID}/logs
-func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Get optional query parameters
-	lines := 100 // default
-	if linesStr := req.URL.Query().Get("lines"); linesStr != "" {
-		if parsedLines, err := strconv.Atoi(linesStr); err == nil && parsedLines > 0 {
-			lines = parsedLines
-		}
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	_, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
-		return
-	}
-
-	// For now, return a placeholder response
-	// In a full implementation, you would read actual logs from the Zed process
-	logs := types.ExternalAgentLogs{
-		SessionID: sessionID,
-		Lines:     lines,
-		Logs: []string{
-			"[INFO] Zed editor started",
-			"[INFO] X server initialized",
-			"[INFO] XRDP server listening on port 3389",
-			"[DEBUG] Session active and responding",
-		},
-		Timestamp: time.Now(),
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(logs)
 }
 
 // isExternalAgentConnected checks if external agent is connected via WebSocket
@@ -709,21 +656,10 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 	}
 
-	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
-		http.Error(res, "External agent container not found", http.StatusNotFound)
-		return
-	}
-
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	// RevDial is the primary communication mechanism for desktop container access
+	// Note: "desktop-" prefix is for per-session containers, "sandbox-" is for the outer sandbox
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -762,9 +698,12 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 
 	// Check screenshot server response status
 	if screenshotResp.StatusCode != http.StatusOK {
+		// Read response body for debugging
+		errorBody, _ := io.ReadAll(screenshotResp.Body)
 		log.Error().
 			Int("status", screenshotResp.StatusCode).
-			Str("container_name", containerName).
+			Str("session_id", sessionID).
+			Str("error_body", string(errorBody)).
 			Msg("Screenshot server returned error")
 		http.Error(res, "Failed to retrieve screenshot from container", screenshotResp.StatusCode)
 		return
@@ -782,6 +721,112 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
+}
+
+// @Summary Execute command in sandbox
+// @Description Executes a command inside the sandbox container for benchmarking and debugging.
+// @Description Only specific safe commands are allowed (vkcube, glxgears, pkill).
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param body body object true "Command to execute" Example({"command": ["vkcube"], "background": true})
+// @Success 200 {object} object "Execution result"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/exec [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *http.Request) {
+	log.Info().Str("path", req.URL.Path).Str("method", req.Method).Msg("🔧 execInSandbox handler called")
+	user := getRequestUser(req)
+	if user == nil {
+		log.Info().Msg("🔧 execInSandbox: no user found")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	log.Info().Str("user_id", user.ID).Msg("🔧 execInSandbox: user authenticated")
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+	log.Info().Str("session_id", sessionID).Msg("🔧 execInSandbox: extracted sessionID")
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("🔧 execInSandbox: Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("🔧 execInSandbox: User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+	log.Info().Msg("🔧 execInSandbox: ownership verified")
+
+	// Read request body
+	log.Info().Msg("🔧 execInSandbox: reading request body")
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: failed to read body")
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	log.Info().Int("body_len", len(bodyBytes)).Msg("🔧 execInSandbox: body read successfully")
+
+	// Connect to desktop container via RevDial
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("🔧 execInSandbox: Failed to connect to desktop container via RevDial for exec")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+	log.Info().Msg("🔧 execInSandbox: RevDial connected")
+
+	// Send POST request to /exec over RevDial tunnel
+	log.Info().Msg("🔧 execInSandbox: creating HTTP request")
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to create exec request")
+		http.Error(res, "Failed to create exec request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Write request to RevDial connection
+	log.Info().Msg("🔧 execInSandbox: writing request to RevDial")
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to write exec request to RevDial connection")
+		http.Error(res, "Failed to send exec request", http.StatusInternalServerError)
+		return
+	}
+	log.Info().Msg("🔧 execInSandbox: request written, reading response")
+
+	// Read response from RevDial connection
+	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to read exec response from RevDial")
+		http.Error(res, "Failed to read exec response", http.StatusInternalServerError)
+		return
+	}
+	defer execResp.Body.Close()
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: got response from sandbox")
+
+	// Forward response to client
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(execResp.StatusCode)
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
+	io.Copy(res, execResp.Body)
 }
 
 // @Summary Bandwidth probe for adaptive bitrate
@@ -926,9 +971,9 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -939,8 +984,8 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1037,9 +1082,9 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1064,8 +1109,8 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Int("clipboard_size", len(clipboardContent)).
 		Msg("Setting clipboard in sandbox via RevDial")
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1118,21 +1163,22 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Msg("Successfully set clipboard in external agent container")
 }
 
-// @Summary Auto-join Wolf lobby after connection
-// @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
+// @Summary Send input events to sandbox
+// @Description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
 // @Tags ExternalAgents
 // @Accept json
 // @Produce json
-// @Param sessionID path string true "Helix Session ID"
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} system.HTTPError
+// @Param sessionID path string true "Session ID"
+// @Param input body object true "Input event(s). Single event: {type, keycode, state} or batch: {events: [...]}"
+// @Success 200 {object} object "success response with processed count"
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/external-agents/{sessionID}/auto-join-lobby [post]
-func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWriter, req *http.Request) {
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/input [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req *http.Request) {
+	log.Info().Str("path", req.URL.Path).Str("method", req.Method).Msg("🔧 sendInputToSandbox handler called")
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
@@ -1142,336 +1188,97 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("user_id", user.ID).
-		Msg("[AUTO-JOIN] Auto-join lobby request received")
-
-	// Get Helix session
-	session, err := apiServer.Controller.Options.Store.GetSession(req.Context(), sessionID)
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("[AUTO-JOIN] Session not found")
-		http.Error(res, "session not found", http.StatusNotFound)
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for input")
+		http.Error(res, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	// Authorize user
-	if session.Owner != user.ID && !user.Admin {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("user_id", user.ID).
-			Str("owner_id", session.Owner).
-			Msg("[AUTO-JOIN] User not authorized to access session")
-		http.Error(res, "forbidden", http.StatusForbidden)
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input")
+		http.Error(res, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	// Get lobby ID and PIN from session metadata
-	lobbyID := session.Metadata.WolfLobbyID
-	lobbyPIN := session.Metadata.WolfLobbyPIN
-
-	if lobbyID == "" {
-		log.Warn().Str("session_id", sessionID).Msg("[AUTO-JOIN] No lobby associated with this session")
-		http.Error(res, "no lobby associated with this session", http.StatusBadRequest)
+	// Get container name using executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Bool("has_pin", lobbyPIN != "").
-		Msg("[AUTO-JOIN] Found lobby credentials, attempting auto-join")
+	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for input")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
 
-	// Call the auto-join function (backend derives client_id securely)
-	err = apiServer.autoJoinWolfLobby(req.Context(), sessionID, lobbyID, lobbyPIN)
+	// Read input content from request body
+	inputContent, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input request body")
+		http.Error(res, "Failed to read input content", http.StatusBadRequest)
+		return
+	}
+
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
 			Err(err).
+			Str("runner_id", runnerID).
 			Str("session_id", sessionID).
-			Str("lobby_id", lobbyID).
-			Msg("[AUTO-JOIN] Failed to auto-join lobby")
-		http.Error(res, fmt.Sprintf("failed to join lobby: %v", err), http.StatusInternalServerError)
+			Msg("Failed to connect to sandbox via RevDial for input")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP POST request over RevDial tunnel
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/input", bytes.NewReader(inputContent))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create input request")
+		http.Error(res, "Failed to create input request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write input request to RevDial")
+		http.Error(res, "Failed to send input request", http.StatusInternalServerError)
 		return
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Msg("[AUTO-JOIN] ✅ Successfully auto-joined lobby")
+	inputResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input response from RevDial")
+		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
+		return
+	}
+	defer inputResp.Body.Close()
 
+	// Read and forward response
+	respBody, err := io.ReadAll(inputResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input response body")
+		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
+		return
+	}
+
+	// Forward status and body
 	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(map[string]interface{}{
-		"success":  true,
-		"lobby_id": lobbyID,
-		"message":  "Successfully auto-joined lobby",
-	})
-}
+	res.WriteHeader(inputResp.StatusCode)
+	res.Write(respBody)
 
-// autoJoinWolfLobby performs the actual auto-join operation by finding the Wolf UI session and joining the lobby
-// This is a helper function called by autoJoinExternalAgentLobby after the user has connected
-// SECURITY: Backend derives wolf_client_id from Wolf API by matching client_unique_id pattern
-//
-//	This prevents frontend manipulation of which Wolf client gets joined to the lobby
-func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSessionID string, lobbyID string, lobbyPIN string) error {
-	// Look up session to get Wolf instance ID
-	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get session for Wolf instance lookup: %w", err)
-	}
-
-	wolfInstanceID := session.WolfInstanceID
-	if wolfInstanceID == "" {
-		return fmt.Errorf("session %s has no Wolf instance ID - session may be corrupted", helixSessionID)
-	}
-
-	// Get Wolf client for this session's Wolf instance
-	type WolfClientForSessionProvider interface {
-		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
-	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
-	if !ok {
-		return fmt.Errorf("Wolf executor does not provide Wolf client")
-	}
-	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
-
-	// Get Wolf apps using the existing ListApps method
-	apps, err := wolfClient.ListApps(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list Wolf apps: %w", err)
-	}
-
-	// Find placeholder app - prefer "Select Agent" (Wolf-UI with real Wayland compositor)
-	// The "Blank" test pattern causes NVENC buffer registration failures on second session
-	// because shared lobby buffers have stale registrations from previous encoder sessions.
-	// See design/2025-12-04-websocket-mode-session-leak.md for details.
-	var placeholderAppID string
-	for _, app := range apps {
-		if app.Title == "Select Agent" {
-			placeholderAppID = app.ID
-			break
-		}
-		if app.Title == "Blank" && placeholderAppID == "" {
-			placeholderAppID = app.ID
-		}
-	}
-	if placeholderAppID == "" {
-		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("placeholder_app_id", placeholderAppID).
-		Msg("[AUTO-JOIN] Found placeholder app, querying sessions to find client")
-
-	// Query Wolf sessions to find the Wolf UI client via interface
-	sessions, err := wolfClient.ListSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to query Wolf sessions: %w", err)
-	}
-
-	// SECURITY: Derive client_id by matching client_unique_id pattern
-	// Expected pattern: "helix-agent-{helixSessionID}"
-	// This prevents frontend manipulation - backend controls which Wolf client is used
-	expectedUniqueID := fmt.Sprintf("helix-agent-%s", helixSessionID)
-
-	log.Info().
-		Str("expected_unique_id", expectedUniqueID).
-		Str("helix_session_id", helixSessionID).
-		Msg("[AUTO-JOIN] Backend deriving Wolf client_id from client_unique_id pattern (secure)")
-
-	// Find the Wolf UI session with matching client_unique_id
-	// Prefer: Most recent session (last in list) since old sessions should be cleaned up
-	var moonlightSessionID string
-	var matchedCount int
-	var wolfUISessions []string
-
-	for _, session := range sessions {
-		if session.AppID == placeholderAppID {
-			sessionInfo := fmt.Sprintf("client_id=%s unique_id=%s ip=%s",
-				session.ClientID, session.ClientUniqueID, session.ClientIP)
-			wolfUISessions = append(wolfUISessions, sessionInfo)
-
-			// SECURITY: Match by client_unique_id prefix pattern (handles FRONTEND_INSTANCE_ID suffix)
-			// Expected: "helix-agent-{sessionID}" but actual may be "helix-agent-{sessionID}-{instanceID}"
-			// Wolf now properly exposes client_unique_id in /api/v1/sessions
-			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, expectedUniqueID) {
-				matchedCount++
-				// Use last match (most recent in iteration order)
-				// Old sessions should have been cleaned up by moonlight-web on disconnect
-				moonlightSessionID = session.ClientID
-				log.Info().
-					Str("matched_client_id", session.ClientID).
-					Str("matched_unique_id", session.ClientUniqueID).
-					Str("expected_prefix", expectedUniqueID).
-					Int("match_number", matchedCount).
-					Msg("[AUTO-JOIN] Found matching Wolf UI session by client_unique_id prefix")
-			}
-		}
-	}
-
-	// DEFENSIVE WARNING: Multiple matching sessions found
-	if matchedCount > 1 {
-		log.Warn().
-			Str("expected_unique_id", expectedUniqueID).
-			Int("match_count", matchedCount).
-			Strs("all_wolf_ui_sessions", wolfUISessions).
-			Str("selected_session", moonlightSessionID).
-			Msg("[AUTO-JOIN] ⚠️ Multiple matching sessions found - using last one (old sessions should have been cleaned up)")
-	} else if matchedCount == 1 {
-		log.Info().
-			Str("moonlight_session_id", moonlightSessionID).
-			Msg("[AUTO-JOIN] ✅ Found unique Wolf UI session match")
-	}
-
-	if moonlightSessionID == "" {
-		log.Warn().
-			Str("expected_unique_id", expectedUniqueID).
-			Strs("available_sessions", wolfUISessions).
-			Int("total_sessions", len(sessions)).
-			Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
-		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
-	}
-
-	// DEFENSIVE CHECK: Verify Wolf-UI session still exists (not stopped/orphaned)
-	// Re-query Wolf sessions to ensure session wasn't stopped since we last checked
-	freshSessions, err := wolfClient.ListSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to re-query Wolf sessions: %w", err)
-	}
-
-	// Verify the Wolf session we're trying to use still exists
-	sessionExists := false
-	for _, session := range freshSessions {
-		if session.ClientID == moonlightSessionID {
-			sessionExists = true
-			break
-		}
-	}
-
-	if !sessionExists {
-		log.Warn().
-			Str("moonlight_session_id", moonlightSessionID).
-			Str("expected_unique_id", expectedUniqueID).
-			Msg("[AUTO-JOIN] Wolf-UI session no longer exists - may have been stopped")
-		return fmt.Errorf("Wolf-UI session %s no longer exists", moonlightSessionID)
-	}
-
-	log.Info().
-		Str("moonlight_session_id", moonlightSessionID).
-		Msg("[AUTO-JOIN] ✅ Wolf-UI session exists")
-
-	// DEFENSIVE CHECK 2: Verify lobby exists before attempting join
-	lobbies, err := wolfClient.ListLobbies(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list lobbies: %w", err)
-	}
-
-	lobbyExists := false
-	for _, lobby := range lobbies {
-		if lobby.ID == lobbyID {
-			lobbyExists = true
-			break
-		}
-	}
-
-	if !lobbyExists {
-		log.Warn().
-			Str("lobby_id", lobbyID).
-			Msg("[AUTO-JOIN] Lobby does not exist - may have been stopped")
-		return fmt.Errorf("lobby %s does not exist", lobbyID)
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Msg("[AUTO-JOIN] ✅ Lobby exists, proceeding with join")
-
-	// Convert PIN string to array of int16 for Wolf API
-	var pinDigits []int16
-	if lobbyPIN != "" {
-		for _, char := range lobbyPIN {
-			digit := int16(char - '0')
-			if digit < 0 || digit > 9 {
-				return fmt.Errorf("invalid PIN format: %s", lobbyPIN)
-			}
-			pinDigits = append(pinDigits, digit)
-		}
-	}
-
-	// Call Wolf API to join the lobby using the existing JoinLobby method
-	joinRequest := &wolf.JoinLobbyRequest{
-		LobbyID:            lobbyID,
-		MoonlightSessionID: moonlightSessionID,
-		PIN:                pinDigits,
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("moonlight_session_id", moonlightSessionID).
-		Int("pin_length", len(pinDigits)).
-		Msg("[AUTO-JOIN] Calling Wolf API to join lobby")
-
-	err = wolfClient.JoinLobby(ctx, joinRequest)
-	if err != nil {
-		return fmt.Errorf("failed to join lobby: %w", err)
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("moonlight_session_id", moonlightSessionID).
-		Msg("[AUTO-JOIN] JoinLobby API called, waiting for pipeline to stabilize...")
-
-	// RACE CONDITION FIX: Wait for GStreamer interpipe switch to complete
-	// The JoinLobby triggers an interpipe producer switch, but the consumer pipeline
-	// needs time for the switch to propagate and new frames to start flowing.
-	// On low-latency connections (localhost), the frontend can receive the success response
-	// and expect frames before the pipeline switch is complete.
-	//
-	// Poll Wolf sessions to verify the session has switched to the lobby's producer
-	// by checking that the session's app_id has changed from the test pattern app
-	// to the lobby's app.
-	maxWait := 2 * time.Second
-	pollInterval := 100 * time.Millisecond
-	deadline := time.Now().Add(maxWait)
-
-	for time.Now().Before(deadline) {
-		// Query Wolf sessions to check if the switch has completed
-		sessions, err := wolfClient.ListSessions(ctx)
-		if err != nil {
-			log.Warn().Err(err).Msg("[AUTO-JOIN] Failed to poll sessions, continuing anyway")
-			break
-		}
-
-		// Find our session and check if it's now connected to the lobby
-		for _, session := range sessions {
-			if session.ClientID == moonlightSessionID {
-				// Check if the session is no longer on the test pattern app (Wolf UI / Blank)
-				if session.AppID != placeholderAppID {
-					log.Info().
-						Str("moonlight_session_id", moonlightSessionID).
-						Str("new_app_id", session.AppID).
-						Str("old_app_id", placeholderAppID).
-						Msg("[AUTO-JOIN] ✅ Session switched to lobby producer, pipeline ready")
-					return nil
-				}
-			}
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	// If we get here, the switch might not have completed, but continue anyway
-	log.Warn().
-		Str("moonlight_session_id", moonlightSessionID).
-		Str("lobby_id", lobbyID).
-		Dur("waited", maxWait).
-		Msg("[AUTO-JOIN] ⚠️ Timed out waiting for producer switch, continuing anyway")
-
-	return nil
+	log.Trace().
+		Str("session_id", sessionID).
+		Int("input_size", len(inputContent)).
+		Int("status", inputResp.StatusCode).
+		Msg("Input event(s) sent to sandbox")
 }
 
 // @Summary Upload file to sandbox
@@ -1514,9 +1321,9 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1541,8 +1348,8 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("content_type", req.Header.Get("Content-Type")).
 		Msg("Uploading file to sandbox via RevDial")
 
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
-	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -1607,4 +1414,364 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("session_id", sessionID).
 		Str("response", string(respBody)).
 		Msg("Successfully uploaded file to sandbox")
+}
+
+// ConfigurePendingSessionRequest is the request body for configuring a pending session
+type ConfigurePendingSessionRequest struct {
+	ClientUniqueID string `json:"client_unique_id"`
+}
+
+// configurePendingSession handles POST /api/v1/external-agents/{sessionID}/configure-pending-session
+// @Summary Configure pending session (deprecated - no-op)
+// @Description This endpoint was used for session configuration but is now a no-op.
+// Kept for API compatibility.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "External agent session ID"
+// @Param request body ConfigurePendingSessionRequest true "Configuration request"
+// @Success 200 {object} map[string]string "success response"
+// @Failure 401 {string} string "Unauthorized"
+// @Router /api/v1/external-agents/{sessionID}/configure-pending-session [post]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Parse request body (for compatibility)
+	var configReq ConfigurePendingSessionRequest
+	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
+		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// No-op: Session configuration is no longer needed
+	// Just return success for API compatibility
+	response := map[string]string{
+		"status":           "configured",
+		"session_id":       sessionID,
+		"client_unique_id": configReq.ClientUniqueID,
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
+}
+
+// proxyInputWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/input
+// This provides direct input from browser to screenshot-server.
+// @Summary Direct WebSocket input for PipeWire/GNOME sessions
+// @Description Provides a WebSocket connection for sending input events directly to the screenshot-server
+// in the sandbox. This provides direct control over input events.
+// Only available for PipeWire/GNOME desktop sessions.
+// @Tags ExternalAgents
+// @Param sessionID path string true "Session ID"
+// @Success 101 "Switching Protocols"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/ws/input [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for input WebSocket")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input WebSocket")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
+	// For Sway sessions, return an error - Sway has different input handling
+	var desktopType string
+	if session.Metadata.ExternalAgentConfig != nil {
+		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
+	} else {
+		desktopType = "ubuntu" // Default to ubuntu if no config
+	}
+	if desktopType != "ubuntu" {
+		log.Warn().Str("session_id", sessionID).Str("desktop_type", desktopType).Msg("Direct input WebSocket not supported for non-Ubuntu sessions")
+		http.Error(res, "Direct input WebSocket only supported for Ubuntu/GNOME sessions", http.StatusNotImplemented)
+		return
+	}
+
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Msg("Proxying input WebSocket to screenshot-server via RevDial")
+
+	// Hijack the HTTP connection to get the underlying net.Conn
+	hijacker, ok := res.(http.Hijacker)
+	if !ok {
+		log.Error().Msg("ResponseWriter doesn't support Hijacker interface")
+		http.Error(res, "Server doesn't support connection hijacking", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to hijack connection")
+		http.Error(res, "Failed to hijack connection", http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Get RevDial connection to the screenshot-server
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	defer cancel()
+
+	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for input WebSocket")
+		// Write HTTP error response since we've already hijacked
+		clientConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nSandbox not connected"))
+		return
+	}
+	defer serverConn.Close()
+
+	// Construct WebSocket upgrade request to forward to screenshot-server
+	upgradeReq := fmt.Sprintf("GET /ws/input HTTP/1.1\r\n"+
+		"Host: localhost:9876\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: %s\r\n"+
+		"Sec-WebSocket-Version: 13\r\n"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+
+	// Forward the WebSocket upgrade request
+	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade to screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nFailed to connect to screenshot-server"))
+		return
+	}
+
+	// Read the upgrade response from screenshot-server
+	serverReader := bufio.NewReader(serverConn)
+	upgradeResp, err := http.ReadResponse(serverReader, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read WebSocket upgrade response from screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nScreenshot-server connection failed"))
+		return
+	}
+	defer upgradeResp.Body.Close()
+
+	// Check if upgrade was successful
+	if upgradeResp.StatusCode != http.StatusSwitchingProtocols {
+		log.Error().Int("status", upgradeResp.StatusCode).Msg("Screenshot-server didn't accept WebSocket upgrade")
+		clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", upgradeResp.StatusCode, upgradeResp.Status)))
+		return
+	}
+
+	// Forward the 101 Switching Protocols response to the client
+	upgradeRespBytes := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Accept: %s\r\n"+
+		"\r\n", upgradeResp.Header.Get("Sec-WebSocket-Accept"))
+
+	if _, err := clientConn.Write([]byte(upgradeRespBytes)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade response to client")
+		return
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection established, starting bidirectional proxy")
+
+	// Bidirectional copy between client and server
+	done := make(chan struct{})
+
+	// Client -> Server
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(serverConn, clientConn)
+	}()
+
+	// Server -> Client
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(clientConn, serverConn)
+	}()
+
+	// Wait for either direction to complete
+	<-done
+
+	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection closed")
+}
+
+// proxyStreamWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/stream
+// This provides direct video streaming from screenshot-server to browser.
+// @Summary Direct WebSocket video streaming for PipeWire/GNOME sessions
+// @Description Provides a WebSocket connection for receiving H.264 video frames directly from the
+// screenshot-server in the sandbox.
+// Only available for PipeWire/GNOME desktop sessions.
+// @Tags ExternalAgents
+// @Param sessionID path string true "Session ID"
+// @Success 101 "Switching Protocols"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/ws/stream [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for stream WebSocket")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership (or streaming access grant)
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for stream WebSocket")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Msg("Proxying stream WebSocket to screenshot-server via RevDial")
+
+	// Hijack the HTTP connection to get the underlying net.Conn
+	hijacker, ok := res.(http.Hijacker)
+	if !ok {
+		log.Error().Msg("ResponseWriter doesn't support Hijacker interface")
+		http.Error(res, "Server doesn't support connection hijacking", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to hijack connection")
+		http.Error(res, "Failed to hijack connection", http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Get RevDial connection to the screenshot-server
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	defer cancel()
+
+	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for stream WebSocket")
+		// Write HTTP error response since we've already hijacked
+		clientConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nSandbox not connected"))
+		return
+	}
+	defer serverConn.Close()
+
+	// Construct WebSocket upgrade request to forward to screenshot-server
+	upgradeReq := fmt.Sprintf("GET /ws/stream HTTP/1.1\r\n"+
+		"Host: localhost:9876\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: %s\r\n"+
+		"Sec-WebSocket-Version: 13\r\n"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+
+	// Forward the WebSocket upgrade request
+	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade to screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nFailed to connect to screenshot-server"))
+		return
+	}
+
+	// Read the upgrade response from screenshot-server
+	serverReader := bufio.NewReader(serverConn)
+	upgradeResp, err := http.ReadResponse(serverReader, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read WebSocket upgrade response from screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nScreenshot-server connection failed"))
+		return
+	}
+	defer upgradeResp.Body.Close()
+
+	// Check if upgrade was successful
+	if upgradeResp.StatusCode != http.StatusSwitchingProtocols {
+		log.Error().Int("status", upgradeResp.StatusCode).Msg("Screenshot-server didn't accept WebSocket upgrade")
+		clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", upgradeResp.StatusCode, upgradeResp.Status)))
+		return
+	}
+
+	// Forward the 101 Switching Protocols response to the client
+	upgradeRespBytes := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Accept: %s\r\n"+
+		"\r\n", upgradeResp.Header.Get("Sec-WebSocket-Accept"))
+
+	if _, err := clientConn.Write([]byte(upgradeRespBytes)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade response to client")
+		return
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting bidirectional proxy")
+
+	// Bidirectional copy between client and server
+	// Video frames go server→client, init/ping messages go client→server
+	done := make(chan struct{})
+
+	// Client -> Server (init message, pongs)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(serverConn, clientConn)
+	}()
+
+	// Server -> Client (video frames, pings)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(clientConn, serverConn)
+	}()
+
+	// Wait for either direction to complete
+	<-done
+
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection closed")
 }

@@ -4,7 +4,7 @@ import PlayArrow from '@mui/icons-material/PlayArrow';
 import ChatIcon from '@mui/icons-material/Chat';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-import MoonlightStreamViewer from './MoonlightStreamViewer';
+import DesktopStreamViewer from './DesktopStreamViewer';
 import ScreenshotViewer from './ScreenshotViewer';
 import SandboxDropZone from './SandboxDropZone';
 import EmbeddedSessionView from '../session/EmbeddedSessionView';
@@ -15,22 +15,45 @@ import { useStreaming } from '../../contexts/streaming';
 import { SESSION_TYPE_TEXT } from '../../types';
 import { Api } from '../../api/api';
 
-// Hook to track Wolf app state for external agent sessions
-const useWolfAppState = (sessionId: string) => {
+// Hook to track sandbox container state for external agent sessions
+const useSandboxState = (sessionId: string) => {
   const api = useApi();
-  const [wolfState, setWolfState] = React.useState<string>('loading');
+  const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
   React.useEffect(() => {
     const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
-        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
+        // Get session details and check external agent status from metadata
+        const response = await apiClient.v1SessionsDetail(sessionId);
         if (response.data) {
-          const newState = response.data.state || 'absent';
-          setWolfState(newState);
+          // Check external agent status from session metadata
+          const status = response.data.config?.external_agent_status || '';
+          const desiredState = response.data.config?.desired_state || '';
+          const hasContainer = !!response.data.config?.container_name;
+
+          // Map session metadata to sandbox state
+          if (status === 'running' || (hasContainer && desiredState === 'running')) {
+            setSandboxState('running');
+          } else if (status === 'starting') {
+            setSandboxState('starting');
+          } else if (desiredState === 'stopped') {
+            // Explicitly stopped - show paused UI
+            setSandboxState('absent');
+          } else if (!hasContainer && desiredState === 'running') {
+            // Container not created yet but we want it running - show starting
+            // This happens immediately after "Start Planning" before container spins up
+            setSandboxState('starting');
+          } else if (!hasContainer) {
+            // No container and no desire to run - paused
+            setSandboxState('absent');
+          } else {
+            // Default to running if we have a container
+            setSandboxState(hasContainer ? 'running' : 'absent');
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch Wolf state:', err);
+        console.error('Failed to fetch sandbox state:', err);
       }
     };
 
@@ -40,20 +63,20 @@ const useWolfAppState = (sessionId: string) => {
     return () => {
       clearInterval(interval);
     };
-  }, [sessionId]); // Removed 'api' - getApiClient() is stable
+  }, [sessionId]);
 
-  // Backend now returns 'starting' state for recently-created lobbies
-  const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isStarting = wolfState === 'starting';
+  // Backend now returns 'starting' state for recently-created containers
+  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
+  const isStarting = sandboxState === 'starting';
   // Show "paused" only if container was previously running but is now absent
-  const isPaused = wolfState === 'absent';
+  const isPaused = sandboxState === 'absent';
 
-  return { wolfState, isRunning, isPaused, isStarting };
+  return { sandboxState, isRunning, isPaused, isStarting };
 };
 
 interface ExternalAgentDesktopViewerProps {
   sessionId: string;
-  wolfLobbyId?: string;
+  sandboxId?: string;
   height?: number; // Optional - required for screenshot mode, ignored for stream mode (uses flex)
   mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
   onClientIdCalculated?: (clientId: string) => void;
@@ -71,7 +94,7 @@ interface ExternalAgentDesktopViewerProps {
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   sessionId,
-  wolfLobbyId,
+  sandboxId,
   height,
   mode = 'stream', // Default to stream for floating window
   onClientIdCalculated,
@@ -87,12 +110,55 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const api = useApi();
   const snackbar = useSnackbar();
   const streaming = useStreaming();
-  const { isRunning, isPaused, isStarting } = useWolfAppState(sessionId);
+  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
   // Session panel state
   const [sessionPanelOpen, setSessionPanelOpen] = useState(defaultPanelOpen);
+  // Track uploaded file paths to append to prompt input (uses unique key to trigger append)
+  const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
+  const uploadCountRef = useRef(0);
+
+  // Handle file upload from drag/drop - append path to prompt input with a unique key
+  const handleFileUploaded = useCallback((filePath: string) => {
+    uploadCountRef.current += 1;
+    // Include counter to make each value unique and trigger the useEffect in RobustPromptInput
+    setUploadedFilePath(`${filePath}#${uploadCountRef.current}`);
+  }, []);
+
+  // Handle image paste in RobustPromptInput - uploads without opening file manager
+  const handleImagePaste = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        `/api/v1/external-agents/${sessionId}/upload?open_file_manager=false`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Image upload failed:', response.statusText);
+        snackbar.error('Failed to upload image');
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.path) {
+        snackbar.success(`${file.name} uploaded to ~/work/incoming`);
+        return data.path;
+      }
+      return null;
+    } catch (error) {
+      console.error('Image upload error:', error);
+      snackbar.error('Failed to upload image');
+      return null;
+    }
+  }, [sessionId, snackbar]);
 
   // Once running, remember it to prevent unmounting on transient state changes
   useEffect(() => {
@@ -367,14 +433,14 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     );
   }
 
-  // Once running (or has ever been running) - ALWAYS keep MoonlightStreamViewer mounted
+  // Once running (or has ever been running) - ALWAYS keep DesktopStreamViewer mounted
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
       {/* Main desktop viewer */}
-      <SandboxDropZone sessionId={sessionId} disabled={!isRunning}>
+      <SandboxDropZone sessionId={sessionId} disabled={!isRunning} onFileUploaded={handleFileUploaded}>
         <Box sx={{
           flex: 1,
           minHeight: 0,
@@ -382,9 +448,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           overflow: 'hidden',
           position: 'relative',
         }}>
-          <MoonlightStreamViewer
+          <DesktopStreamViewer
             sessionId={sessionId}
-            wolfLobbyId={wolfLobbyId}
+            sandboxId={sandboxId}
             width={displayWidth}
             height={displayHeight}
             fps={displayFps}
@@ -392,8 +458,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               console.error('Stream viewer error:', error);
             }}
             onClientIdCalculated={onClientIdCalculated}
-            // Suppress MoonlightStreamViewer's overlay when we're showing our own reconnecting overlay
-            // This prevents double spinners when Wolf container state changes
+            // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
+            // This prevents double spinners when container state changes
             suppressOverlay={showReconnectingOverlay}
           />
 
@@ -500,6 +566,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 apiClient={apiClient}
                 onSend={handleSendMessage}
                 placeholder="Send message to agent..."
+                appendText={uploadedFilePath}
+                onImagePaste={handleImagePaste}
               />
             </Box>
           </Box>

@@ -216,6 +216,20 @@ func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name s
 	return nil
 }
 
+// UpdateSessionMetadata updates only the session metadata (config column)
+func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+
+	// Use the column name "config" which is how Metadata is stored in the database
+	err := s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", metadata).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*types.Session, error) {
 	existing, err := s.GetSession(ctx, sessionID)
 	if err != nil {

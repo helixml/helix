@@ -283,12 +283,12 @@ type SpecApprovalResponse struct {
 	ApprovedAt time.Time `json:"approved_at"`
 }
 
-// SpecTaskExternalAgent represents the external agent (Wolf container) for a SpecTask
+// SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask
 // Single agent per SpecTask that spans multiple Helix sessions via Zed threads
 type SpecTaskExternalAgent struct {
 	ID              string    `json:"id" gorm:"primaryKey;size:255"`                       // zed-spectask-{spectask_id}
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`         // Parent SpecTask
-	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`                         // Wolf app managing this agent
+	ContainerAppID       string    `json:"container_app_id" gorm:"size:255"`                         // Container app ID (deprecated)
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                       // /workspaces/spectasks/{id}/work/
 	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"type:jsonb;serializer:json"` // All sessions using this agent
 	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"type:jsonb;serializer:json"`    // Zed threads (1:1 with sessions)
@@ -313,11 +313,10 @@ type ExternalAgentActivity struct {
 	ExternalAgentID string    `json:"external_agent_id" gorm:"primaryKey;size:255"` // e.g., "zed-spectask-abc123"
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`  // Parent SpecTask
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
-	AgentType       string    `json:"agent_type" gorm:"size:50"`     // "spectask", "pde", "adhoc"
-	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`   // Wolf app ID for termination
-	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"size:255"` // Wolf lobby ID for cleanup even after session deleted
-	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"`  // Wolf lobby PIN for cleanup
-	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
+	AgentType       string    `json:"agent_type" gorm:"size:50"`          // "spectask", "pde", "adhoc"
+	ContainerAppID  string    `json:"container_app_id" gorm:"size:255"`   // Container app ID for termination
+	DevContainerID  string    `json:"dev_container_id" gorm:"size:255"`   // Container ID for cleanup even after session deleted
+	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`      // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 
 	// Work state tracking for reconciliation
