@@ -197,6 +197,103 @@ impl FrameStream {
     }
 }
 
+/// Timing statistics for performance measurement (all paths)
+#[derive(Default)]
+struct TimingStats {
+    // Common stats
+    samples: u32,
+    total_total_us: u64,
+    total_max_us: u64,
+    last_log: Option<std::time::Instant>,
+    // Inter-frame timing to detect encoder backup
+    last_frame: Option<std::time::Instant>,
+    interval_total_us: u64,
+    interval_max_us: u64,
+    // CUDA path specific
+    egl_total_us: u64,
+    cuda_reg_total_us: u64,
+    copy_total_us: u64,
+    egl_max_us: u64,
+    cuda_reg_max_us: u64,
+    copy_max_us: u64,
+    // Path tracking
+    path_name: &'static str,
+}
+
+impl TimingStats {
+    fn record_frame(&mut self, total_us: u64) {
+        let now = std::time::Instant::now();
+        self.samples += 1;
+        self.total_total_us += total_us;
+        self.total_max_us = self.total_max_us.max(total_us);
+
+        // Track inter-frame interval
+        if let Some(last) = self.last_frame {
+            let interval_us = now.duration_since(last).as_micros() as u64;
+            self.interval_total_us += interval_us;
+            self.interval_max_us = self.interval_max_us.max(interval_us);
+        }
+        self.last_frame = Some(now);
+    }
+
+    fn record_cuda_frame(&mut self, egl_us: u64, cuda_reg_us: u64, copy_us: u64, total_us: u64) {
+        self.record_frame(total_us);
+        self.egl_total_us += egl_us;
+        self.cuda_reg_total_us += cuda_reg_us;
+        self.copy_total_us += copy_us;
+        self.egl_max_us = self.egl_max_us.max(egl_us);
+        self.cuda_reg_max_us = self.cuda_reg_max_us.max(cuda_reg_us);
+        self.copy_max_us = self.copy_max_us.max(copy_us);
+    }
+
+    fn should_log(&self) -> bool {
+        self.last_log.map(|l| l.elapsed().as_secs() >= 10).unwrap_or(true)
+    }
+
+    fn log_and_reset(&mut self, w: u32, h: u32) {
+        if self.samples == 0 {
+            return;
+        }
+        let n = self.samples as u64;
+        let interval_avg = if self.samples > 1 { self.interval_total_us / (n - 1) } else { 0 };
+        let fps = if interval_avg > 0 { 1_000_000 / interval_avg } else { 0 };
+
+        // Check if this is CUDA path (has cuda_reg stats)
+        if self.cuda_reg_total_us > 0 {
+            eprintln!(
+                "[TIMING] {} {}x{} {} frames: interval avg={}us max={}us ({}fps) | EGL avg={}us max={}us | CUDA_REG avg={}us max={}us | COPY avg={}us max={}us | TOTAL avg={}us max={}us",
+                self.path_name, w, h, self.samples,
+                interval_avg, self.interval_max_us, fps,
+                self.egl_total_us / n, self.egl_max_us,
+                self.cuda_reg_total_us / n, self.cuda_reg_max_us,
+                self.copy_total_us / n, self.copy_max_us,
+                self.total_total_us / n, self.total_max_us,
+            );
+        } else {
+            eprintln!(
+                "[TIMING] {} {}x{} {} frames: interval avg={}us max={}us ({}fps) | TOTAL avg={}us max={}us",
+                self.path_name, w, h, self.samples,
+                interval_avg, self.interval_max_us, fps,
+                self.total_total_us / n, self.total_max_us,
+            );
+        }
+
+        // Reset stats
+        self.samples = 0;
+        self.total_total_us = 0;
+        self.total_max_us = 0;
+        self.interval_total_us = 0;
+        self.interval_max_us = 0;
+        self.egl_total_us = 0;
+        self.cuda_reg_total_us = 0;
+        self.copy_total_us = 0;
+        self.egl_max_us = 0;
+        self.cuda_reg_max_us = 0;
+        self.copy_max_us = 0;
+        self.last_log = Some(std::time::Instant::now());
+    }
+}
+
 pub struct State {
     stream: Option<FrameStream>,
     video_info: Option<VideoInfo>,
@@ -208,6 +305,7 @@ pub struct State {
     buffer_pool_configured: bool,
     dmabuf_allocator: Option<DmaBufAllocator>,
     drm_format_string: Option<String>,
+    timing: TimingStats,
 }
 
 impl Default for State {
@@ -223,6 +321,7 @@ impl Default for State {
             buffer_pool_configured: false,
             dmabuf_allocator: None,
             drm_format_string: None,
+            timing: TimingStats::default(),
         }
     }
 }
@@ -716,6 +815,9 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         let (buffer, actual_format, width, height) = match frame {
             FrameData::DmaBuf(dmabuf) if state.output_mode == OutputMode::Cuda => {
                 // CUDA path: DmaBuf → EGL → CUDA
+                // === TIMING INSTRUMENTATION ===
+                let t_start = std::time::Instant::now();
+
                 let cuda_ctx_arc = cuda_context.as_ref().ok_or(gst::FlowError::Error)?;
                 let cuda_ctx = cuda_ctx_arc.lock().unwrap();
                 let egl_display = state.egl_display.as_ref().ok_or(gst::FlowError::Error)?;
@@ -724,10 +826,15 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
 
+                let t_egl_start = std::time::Instant::now();
                 let egl_image =
                     EGLImage::from(&dmabuf, &raw_display).map_err(|_| gst::FlowError::Error)?;
+                let t_egl_done = std::time::Instant::now();
+
+                let t_cuda_reg_start = std::time::Instant::now();
                 let cuda_image =
                     CUDAImage::from(egl_image, &cuda_ctx).map_err(|_| gst::FlowError::Error)?;
+                let t_cuda_reg_done = std::time::Instant::now();
 
                 let drm_format = dmabuf.format();
                 let video_format = drm_fourcc_to_video_format(drm_format.code);
@@ -759,9 +866,24 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     }
                 }
 
+                let t_copy_start = std::time::Instant::now();
                 let buf = cuda_image
                     .to_gst_buffer(dma_video_info, &cuda_ctx, state.buffer_pool.as_ref())
                     .map_err(|_| gst::FlowError::Error)?;
+                let t_copy_done = std::time::Instant::now();
+
+                // cuda_image drops here, which calls cuGraphicsUnregisterResource
+                // === AGGREGATE TIMING ===
+                let egl_us = t_egl_done.duration_since(t_egl_start).as_micros() as u64;
+                let cuda_reg_us = t_cuda_reg_done.duration_since(t_cuda_reg_start).as_micros() as u64;
+                let copy_us = t_copy_done.duration_since(t_copy_start).as_micros() as u64;
+                let total_us = t_start.elapsed().as_micros() as u64;
+
+                state.timing.path_name = "CUDA";
+                state.timing.record_cuda_frame(egl_us, cuda_reg_us, copy_us, total_us);
+                if state.timing.should_log() {
+                    state.timing.log_and_reset(w, h);
+                }
 
                 let actual_fmt = buf
                     .meta::<gst_video::VideoMeta>()
@@ -771,10 +893,19 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
             FrameData::DmaBuf(dmabuf) => {
                 // Should not happen with explicit buffer_type, but handle gracefully
+                let t_start = std::time::Instant::now();
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
                 let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
                 let buf = self.dmabuf_to_system(&dmabuf)?;
+
+                // Timing for DmaBuf→System fallback path
+                state.timing.path_name = "DmaBuf-SHM";
+                state.timing.record_frame(t_start.elapsed().as_micros() as u64);
+                if state.timing.should_log() {
+                    state.timing.log_and_reset(w, h);
+                }
+
                 (buf, video_format, w, h)
             }
             FrameData::Shm {
@@ -784,6 +915,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 stride,
                 format,
             } => {
+                let t_start = std::time::Instant::now();
                 let video_format = if format != 0 {
                     DrmFourcc::try_from(format)
                         .map(drm_fourcc_to_video_format)
@@ -792,6 +924,14 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     VideoFormat::Bgra
                 };
                 let buf = self.create_system_buffer(&data, width, height, stride, video_format)?;
+
+                // Timing for SHM path (GNOME+AMD, Sway+any)
+                state.timing.path_name = "SHM";
+                state.timing.record_frame(t_start.elapsed().as_micros() as u64);
+                if state.timing.should_log() {
+                    state.timing.log_and_reset(width, height);
+                }
+
                 (buf, video_format, width, height)
             }
         };
