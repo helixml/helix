@@ -248,10 +248,11 @@ services:
   # Unified Helix Sandbox - Docker-in-Docker with direct WebSocket video streaming
   # Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
   # Built with: ./stack build-sandbox
+  # Or use pre-built: SANDBOX_IMAGE=registry.helixml.tech/helix/helix-sandbox:latest ./stack up
   # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
   sandbox-nvidia:
     profiles: [code-nvidia] # NVIDIA GPU sandbox
-    image: helix-sandbox:latest
+    image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       default:
         ipv4_address: 172.19.0.50
@@ -356,7 +357,7 @@ services:
   # Uses device pass-through instead of nvidia runtime
   sandbox-amd-intel:
     profiles: [code-amd-intel]
-    image: helix-sandbox:latest
+    image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       default:
         ipv4_address: 172.19.0.50
@@ -455,7 +456,7 @@ services:
   # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
   sandbox-software:
     profiles: [code-software]
-    image: helix-sandbox:latest
+    image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       default:
         ipv4_address: 172.19.0.50
