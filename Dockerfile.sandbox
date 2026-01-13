@@ -144,13 +144,17 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Copy desktop image tarballs EARLY (rarely change, ~3GB each)
-# This maximizes cache hits - changes to scripts/binaries below won't
-# invalidate these large layers, making pushes much faster
+# Copy desktop image references (registry-based distribution)
+# Instead of embedding 3GB tarballs, we store registry refs (~100 bytes)
+# The sandbox pulls images from registry on startup (with layer caching)
+# See design/2026-01-12-sandbox-registry-based-images.md
 # ====================================================================
-RUN mkdir -p /opt/images
-COPY sandbox-images/helix-sway.tar sandbox-images/helix-sway.version /opt/images/
-COPY sandbox-images/helix-ubuntu.tar sandbox-images/helix-ubuntu.version /opt/images/
+# Copy entire sandbox-images directory - may contain:
+# - .ref: registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3")
+# - .version: just the tag (e.g., "v1.2.3")
+# - .tar: full image tarball (for local dev builds without registry)
+# At runtime, startup script checks for .ref first, falls back to .tar
+COPY sandbox-images/ /opt/images/
 
 # ====================================================================
 # Copy GOW-style overlay (init system)
@@ -210,7 +214,8 @@ ENV HELIX_API_URL="" \
     ZED_IMAGE="helix-sway:latest" \
     HYDRA_ENABLED="true" \
     HYDRA_PRIVILEGED_MODE_ENABLED="false" \
-    HELIX_KEEP_DEAD_CONTAINERS="false"
+    HELIX_KEEP_DEAD_CONTAINERS="false" \
+    HELIX_SANDBOX_REGISTRY=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/sandbox/

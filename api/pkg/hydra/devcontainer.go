@@ -70,12 +70,47 @@ func validateImageVersion(image string) error {
 	return nil
 }
 
+// resolveRegistryImage checks if a registry-based image ref exists for the given image.
+// When sandbox pulls images from registry, it writes .runtime-ref files containing
+// the full registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3").
+// This function returns the registry ref if available, otherwise returns the original image.
+func resolveRegistryImage(image string) string {
+	// Extract image name without tag (e.g., "helix-sway" from "helix-sway:abc123")
+	imageName := image
+	if idx := strings.LastIndex(image, ":"); idx != -1 {
+		imageName = image[:idx]
+	}
+
+	// Only check for helix images
+	if !strings.HasPrefix(imageName, "helix-") {
+		return image
+	}
+
+	// Check for registry ref file (written by sandbox startup when pulling from registry)
+	runtimeRefFile := fmt.Sprintf("/opt/images/%s.runtime-ref", imageName)
+	if runtimeRef, err := os.ReadFile(runtimeRefFile); err == nil {
+		ref := strings.TrimSpace(string(runtimeRef))
+		if ref != "" {
+			log.Info().Str("original", image).Str("resolved", ref).Msg("Resolved image from registry ref")
+			return ref
+		}
+	}
+
+	// No registry ref, use original image name (tarball mode)
+	return image
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
 	// Validate that image has a specific version tag - never accept :latest
 	if err := validateImageVersion(req.Image); err != nil {
 		return nil, err
 	}
+
+	// Resolve registry-based image ref if available
+	// This maps "helix-sway:abc123" to "registry.helixml.tech/helix/helix-sway:abc123"
+	// when the sandbox has pulled images from registry
+	resolvedImage := resolveRegistryImage(req.Image)
 
 	// Use local GPU_VENDOR env var as fallback if request doesn't specify GPU vendor.
 	// This handles the case where the API server doesn't know the sandbox's GPU
@@ -93,6 +128,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	log.Info().
 		Str("session_id", req.SessionID).
 		Str("image", req.Image).
+		Str("resolved_image", resolvedImage).
 		Str("container_name", req.ContainerName).
 		Str("container_type", string(req.ContainerType)).
 		Str("gpu_vendor", gpuVendor).
@@ -107,7 +143,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Build container configuration
 	containerConfig := &container.Config{
-		Image:    req.Image,
+		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
 	}
