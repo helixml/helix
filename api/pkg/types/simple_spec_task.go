@@ -101,8 +101,9 @@ type SpecTask struct {
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
-	PullRequestID  string `json:"pull_request_id"`
-	PullRequestURL string `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
+	PullRequestID     string             `json:"pull_request_id"`
+	PullRequestURL    string             `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
+	PullRequestReview *PullRequestReview `json:"pull_request_review,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Agent activity tracking (computed from session/activity data, not stored)
 	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
@@ -161,6 +162,12 @@ type SpecTask struct {
 	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
+}
+
+type PullRequestReview struct {
+	CommitHash string    `json:"commit_hash"`
+	ReviewedAt time.Time `json:"reviewed_at"`
+	// TODO: comments here too?
 }
 
 // SampleSpecProject - simplified sample projects with proper spec-driven tasks
