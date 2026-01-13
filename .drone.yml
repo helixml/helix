@@ -865,6 +865,7 @@ steps:
       dockerfile: Dockerfile
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/controlplane
       username: admin
@@ -910,6 +911,7 @@ steps:
       dockerfile: haystack_service/Dockerfile
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/haystack
       username: admin
@@ -954,6 +956,7 @@ steps:
       dockerfile: Dockerfile.runner
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1004,6 +1007,7 @@ steps:
         - "${DRONE_TAG:-main}-small" # Default to branch
         - "latest-small"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1034,6 +1038,7 @@ steps:
       tags:
         - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1081,6 +1086,7 @@ steps:
         - "${DRONE_TAG:-main}-large"
         - "latest-large"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1111,6 +1117,7 @@ steps:
       tags:
         - "${DRONE_COMMIT_SHA:-main}-large"
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/runner
       build_args:
@@ -1156,6 +1163,7 @@ steps:
       dockerfile: Dockerfile.typesense
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/typesense
       username: admin
@@ -1198,6 +1206,7 @@ steps:
       dockerfile: Dockerfile.demos
       auto_tag: true
       daemon_off: true
+      pull_image: true
       registry: registry.helixml.tech
       repo: registry.helixml.tech/helix/demos
       username: admin
