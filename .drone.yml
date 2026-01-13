@@ -1416,7 +1416,7 @@ trigger:
   branch:
     - main
     - feature/sway-ubuntu-25.10
-    - auotmate-builds
+    - fix/ci-sandbox-build-concurrency
 
 volumes:
   - name: dockersocket
@@ -1755,6 +1755,6 @@ steps:
       branch:
         - main
         - feature/sway-ubuntu-25.10
-        - auotmate-builds
+        - fix/ci-sandbox-build-concurrency
     depends_on:
       - build-sandbox
