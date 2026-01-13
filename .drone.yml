@@ -186,8 +186,8 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server (excluding GStreamer packages and test-only packages)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | grep -v '_test$' | xargs go install
+      # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
+      - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
       # Run tests
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
