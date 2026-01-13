@@ -1,19 +1,28 @@
 //! PipeWire stream handling - outputs smithay Dmabuf directly
 
-use pipewire::{context::Context, main_loop::MainLoop, properties::properties, stream::{Stream, StreamFlags}, spa};
-use pipewire::spa::pod::{Object, Property, PropertyFlags, Value, ChoiceValue};
-use pipewire::spa::utils::{Choice, ChoiceFlags, ChoiceEnum, Fraction, Id, SpaTypes};
+use parking_lot::Mutex;
+use pipewire::spa::param::format::{FormatProperties, MediaSubtype, MediaType};
 use pipewire::spa::param::ParamType;
-use pipewire::spa::param::format::{FormatProperties, MediaType, MediaSubtype};
 use pipewire::spa::pod::serialize::PodSerializer;
 use pipewire::spa::pod::Pod;
-use parking_lot::Mutex;
-use smithay::backend::allocator::{Fourcc, Modifier};
+use pipewire::spa::pod::{ChoiceValue, Object, Property, PropertyFlags, Value};
+use pipewire::spa::utils::{Choice, ChoiceEnum, ChoiceFlags, Fraction, Id, SpaTypes};
+use pipewire::{
+    context::Context,
+    main_loop::MainLoop,
+    properties::properties,
+    spa,
+    stream::{Stream, StreamFlags},
+};
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
+use smithay::backend::allocator::{Fourcc, Modifier};
 use std::io::Cursor;
 use std::os::fd::{BorrowedFd, FromRawFd};
-use std::sync::{atomic::{AtomicBool, Ordering}, mpsc};
 use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -22,7 +31,13 @@ pub enum FrameData {
     /// DMA-BUF frame (zero-copy) - directly usable with waylanddisplaycore
     DmaBuf(Dmabuf),
     /// SHM fallback
-    Shm { data: Vec<u8>, width: u32, height: u32, stride: u32, format: u32 },
+    Shm {
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+        stride: u32,
+        format: u32,
+    },
 }
 
 /// Error type for frame receive operations
@@ -88,7 +103,12 @@ impl PipeWireStream {
     ///                   If None, we only offer SHM formats (MemFd).
     /// * `target_fps` - Target frames per second. The max_framerate sent to Mutter will be
     ///                  target_fps * 2 to avoid the 16ms/17ms timing boundary issue.
-    pub fn connect(node_id: u32, pipewire_fd: Option<i32>, dmabuf_caps: Option<DmaBufCapabilities>, target_fps: u32) -> Result<Self, String> {
+    pub fn connect(
+        node_id: u32,
+        pipewire_fd: Option<i32>,
+        dmabuf_caps: Option<DmaBufCapabilities>,
+        target_fps: u32,
+    ) -> Result<Self, String> {
         // Use larger buffer to reduce backpressure from GStreamer consumer
         // This helps prevent frame drops when GNOME delivers frames faster than we consume them
         let (frame_tx, frame_rx) = mpsc::sync_channel(8);
@@ -108,12 +128,23 @@ impl PipeWireStream {
         // offer and negotiates its own value (60/1), causing ~50% of frames to be skipped
         // as "too early" due to 16ms/17ms timing boundary issues.
         let negotiated_max_fps = 0;
-        eprintln!("[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled)", target_fps, negotiated_max_fps);
+        eprintln!(
+            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled)",
+            target_fps, negotiated_max_fps
+        );
 
         let thread = thread::Builder::new()
             .name("pipewire-stream".to_string())
             .spawn(move || {
-                if let Err(e) = run_pipewire_loop(node_id, pipewire_fd, dmabuf_caps, negotiated_max_fps, frame_tx, shutdown_clone, video_info_clone) {
+                if let Err(e) = run_pipewire_loop(
+                    node_id,
+                    pipewire_fd,
+                    dmabuf_caps,
+                    negotiated_max_fps,
+                    frame_tx,
+                    shutdown_clone,
+                    video_info_clone,
+                ) {
                     tracing::error!("PipeWire loop error: {}", e);
                     *error_clone.lock() = Some(e);
                 }
@@ -127,7 +158,13 @@ impl PipeWireStream {
             return Err(err);
         }
 
-        Ok(PipeWireStream { thread: Some(thread), frame_rx, shutdown, video_info, error })
+        Ok(PipeWireStream {
+            thread: Some(thread),
+            frame_rx,
+            shutdown,
+            video_info,
+            error,
+        })
     }
 
     /// Receive a frame with the default timeout (30 seconds).
@@ -148,11 +185,10 @@ impl PipeWireStream {
         if let Some(err) = self.error.lock().take() {
             return Err(RecvError::Error(err));
         }
-        self.frame_rx.recv_timeout(timeout)
-            .map_err(|e| match e {
-                mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
-                mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
-            })
+        self.frame_rx.recv_timeout(timeout).map_err(|e| match e {
+            mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
+            mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
+        })
     }
 
     #[allow(dead_code)]
@@ -205,7 +241,10 @@ fn spa_video_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32
         spa::param::video::VideoFormat::RGB => 0x34324752, // RG24 = RGB888
         spa::param::video::VideoFormat::BGR => 0x34324742, // BG24 = BGR888
         _ => {
-            tracing::warn!("Unknown SPA video format {:?}, defaulting to ARGB8888", format);
+            tracing::warn!(
+                "Unknown SPA video format {:?}, defaulting to ARGB8888",
+                format
+            );
             0x34325241 // AR24 = ARGB8888
         }
     }
@@ -233,10 +272,14 @@ fn run_pipewire_loop(
         // Create an OwnedFd from the raw fd
         // The portal passed us ownership, so we can wrap it in OwnedFd
         let owned_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
-        context.connect_fd(owned_fd, None).map_err(|e| format!("Connect with FD {}: {}", fd, e))?
+        context
+            .connect_fd(owned_fd, None)
+            .map_err(|e| format!("Connect with FD {}: {}", fd, e))?
     } else {
         eprintln!("[PIPEWIRE_DEBUG] Connecting to default PipeWire daemon (no portal FD)");
-        context.connect(None).map_err(|e| format!("Connect: {}", e))?
+        context
+            .connect(None)
+            .map_err(|e| format!("Connect: {}", e))?
     };
 
     // Request high framerate in stream properties
@@ -248,8 +291,8 @@ fn run_pipewire_loop(
         *pipewire::keys::VIDEO_RATE => "60/1",
     };
 
-    let stream = Stream::new(&core, "helix-screencast", props)
-        .map_err(|e| format!("Stream: {}", e))?;
+    let stream =
+        Stream::new(&core, "helix-screencast", props).map_err(|e| format!("Stream: {}", e))?;
 
     // Note: SyncSender is thread-safe, no Mutex needed
     let video_info_param = video_info.clone();
@@ -273,7 +316,10 @@ fn run_pipewire_loop(
 
     // Flag to track if DmaBuf is available (from EGL caps)
     // When false, we request MemFd (SHM) instead of DmaBuf to avoid allocation failures
-    let dmabuf_available = dmabuf_caps.as_ref().map(|c| c.dmabuf_available).unwrap_or(false);
+    let dmabuf_available = dmabuf_caps
+        .as_ref()
+        .map(|c| c.dmabuf_available)
+        .unwrap_or(false);
     let dmabuf_available_clone = dmabuf_available;
 
     // Track if we've already called set_active in state_changed
@@ -590,7 +636,8 @@ fn run_pipewire_loop(
             eprintln!("[PIPEWIRE_DEBUG] DMA-BUF available with {} modifiers, offering DmaBuf ONLY (no SHM fallback)",
                 caps.modifiers.len());
             // Offer format WITH modifiers ONLY (DMA-BUF, no SHM fallback)
-            let format_with_mod = build_video_format_params_with_modifiers(&caps.modifiers, negotiated_max_fps);
+            let format_with_mod =
+                build_video_format_params_with_modifiers(&caps.modifiers, negotiated_max_fps);
             vec![format_with_mod]
         } else {
             eprintln!("[PIPEWIRE_DEBUG] DMA-BUF not available, offering SHM (two format pods for xdg-desktop-portal-wlr)");
@@ -612,7 +659,8 @@ fn run_pipewire_loop(
     };
 
     // Convert to Pod references
-    let pod_refs: Vec<&Pod> = format_pods.iter()
+    let pod_refs: Vec<&Pod> = format_pods
+        .iter()
         .filter_map(|bytes| Pod::from_bytes(bytes))
         .collect();
 
@@ -624,7 +672,10 @@ fn run_pipewire_loop(
     let mut params: Vec<&Pod> = pod_refs;
     eprintln!("[PIPEWIRE_DEBUG] Submitting {} format pod(s)", params.len());
 
-    tracing::info!("Connecting to PipeWire node {} with framerate range 0-360fps", node_id);
+    tracing::info!(
+        "Connecting to PipeWire node {} with framerate range 0-360fps",
+        node_id
+    );
 
     // Use AUTOCONNECT | MAP_BUFFERS like pipewiresrc does.
     //
@@ -634,12 +685,14 @@ fn run_pipewire_loop(
     // NOTE: Do NOT use RT_PROCESS! pipewiresrc doesn't use it for ScreenCast,
     // and it may cause GNOME ScreenCast to fail transitioning to Streaming state.
     // DONT_RECONNECT is not used by pipewiresrc for ScreenCast.
-    stream.connect(
-        pipewire::spa::utils::Direction::Input,
-        Some(node_id),
-        StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
-        &mut params,
-    ).map_err(|e| format!("Connect to node {}: {}", node_id, e))?;
+    stream
+        .connect(
+            pipewire::spa::utils::Direction::Input,
+            Some(node_id),
+            StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
+            &mut params,
+        )
+        .map_err(|e| format!("Connect to node {}: {}", node_id, e))?;
 
     tracing::info!("Connected to PipeWire node {}", node_id);
 
@@ -671,7 +724,13 @@ pub fn spa_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32 {
 /// # Arguments
 /// * `use_dmabuf` - If true, request DmaBuf buffer type (GPU-tiled modifiers).
 ///                  If false, request MemFd buffer type (LINEAR or SHM).
-fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier: u64, use_dmabuf: bool) -> Vec<Vec<u8>> {
+fn build_negotiation_params(
+    width: u32,
+    height: u32,
+    _spa_format: u32,
+    _modifier: u64,
+    use_dmabuf: bool,
+) -> Vec<Vec<u8>> {
     let mut params = Vec::new();
 
     // NOTE: Do NOT include Format param here!
@@ -688,20 +747,23 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
     const SPA_PARAM_META_SIZE: u32 = 2;
 
     // Meta types from spa/buffer/meta.h
-    const SPA_META_HEADER: u32 = 1;      // struct spa_meta_header (24 bytes)
-    const SPA_META_VIDEOCROP: u32 = 2;   // struct spa_meta_region (16 bytes)
-    const SPA_META_CURSOR: u32 = 5;      // struct spa_meta_cursor + bitmap
+    const SPA_META_HEADER: u32 = 1; // struct spa_meta_header (24 bytes)
+    const SPA_META_VIDEOCROP: u32 = 2; // struct spa_meta_region (16 bytes)
+    const SPA_META_CURSOR: u32 = 5; // struct spa_meta_cursor + bitmap
 
     // Sizes
-    const SPA_META_HEADER_SIZE: i32 = 24;    // sizeof(struct spa_meta_header)
-    const SPA_META_REGION_SIZE: i32 = 16;    // sizeof(struct spa_meta_region) = 4 ints
+    const SPA_META_HEADER_SIZE: i32 = 24; // sizeof(struct spa_meta_header)
+    const SPA_META_REGION_SIZE: i32 = 16; // sizeof(struct spa_meta_region) = 4 ints
 
-    eprintln!("[PIPEWIRE_DEBUG] build_negotiation_params: {}x{} use_dmabuf={}", width, height, use_dmabuf);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] build_negotiation_params: {}x{} use_dmabuf={}",
+        width, height, use_dmabuf
+    );
 
     // Cursor meta size: sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + pixels
     // OBS uses CURSOR_META_SIZE(64, 64) as default = 24 + 20 + 64*64*4 = 16428
     const CURSOR_META_SIZE_64: i32 = 16428;
-    const CURSOR_META_SIZE_1: i32 = 48;       // minimum
+    const CURSOR_META_SIZE_1: i32 = 48; // minimum
     const CURSOR_META_SIZE_1024: i32 = 4194348; // maximum
 
     // 1. VideoCrop meta (like OBS)
@@ -721,7 +783,9 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
             },
         ],
     };
-    if let Ok((cursor, _)) = PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(videocrop_obj)) {
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(videocrop_obj))
+    {
         params.push(cursor.into_inner());
     }
 
@@ -750,7 +814,9 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
             },
         ],
     };
-    if let Ok((cursor, _)) = PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_obj)) {
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_obj))
+    {
         params.push(cursor.into_inner());
     }
 
@@ -763,7 +829,7 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
     //
     // Our previous code included buffers, blocks, size, stride - this confused GNOME.
     // Simplify to match gnome-remote-desktop exactly.
-    const SPA_PARAM_BUFFERS_DATATYPE: u32 = 6;  // accepted data types
+    const SPA_PARAM_BUFFERS_DATATYPE: u32 = 6; // accepted data types
 
     // Buffer type bitmask (from spa/buffer/buffer.h):
     // SPA_DATA_MemFd = 2 (memory-mapped file descriptor - GNOME SHM)
@@ -777,9 +843,12 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
     // The use_dmabuf parameter now indicates our PREFERENCE:
     // - use_dmabuf=true: Prefer DmaBuf, fall back to MemFd
     // - use_dmabuf=false: Prefer MemFd, but still accept DmaBuf if Mutter requires it
-    let buffer_types: i32 = (1 << 2) | (1 << 3);  // MemFd | DmaBuf = 4 | 8 = 12
+    let buffer_types: i32 = (1 << 2) | (1 << 3); // MemFd | DmaBuf = 4 | 8 = 12
     let buffer_type_name = "MemFd+DmaBuf (let PipeWire negotiate)";
-    eprintln!("[PIPEWIRE_DEBUG] Buffer types: 0x{:x} ({}) - use_dmabuf={}", buffer_types, buffer_type_name, use_dmabuf);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] Buffer types: 0x{:x} ({}) - use_dmabuf={}",
+        buffer_types, buffer_type_name, use_dmabuf
+    );
 
     // Use FLAGS choice for dataType (like gnome-remote-desktop's SPA_POD_CHOICE_FLAGS_Int)
     // FLAGS choice tells PipeWire which buffer types we accept as a bitmask
@@ -793,15 +862,15 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
     let buffer_obj = Object {
         type_: SpaTypes::ObjectParamBuffers.as_raw(),
         id: ParamType::Buffers.as_raw(),
-        properties: vec![
-            Property {
-                key: SPA_PARAM_BUFFERS_DATATYPE,
-                flags: PropertyFlags::empty(),
-                value: Value::Choice(ChoiceValue::Int(buffer_types_choice)),
-            },
-        ],
+        properties: vec![Property {
+            key: SPA_PARAM_BUFFERS_DATATYPE,
+            flags: PropertyFlags::empty(),
+            value: Value::Choice(ChoiceValue::Int(buffer_types_choice)),
+        }],
     };
-    if let Ok((cursor, _)) = PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(buffer_obj)) {
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(buffer_obj))
+    {
         eprintln!("[PIPEWIRE_DEBUG] Buffers param serialized with FLAGS choice");
         params.push(cursor.into_inner());
     }
@@ -823,7 +892,9 @@ fn build_negotiation_params(width: u32, height: u32, _spa_format: u32, _modifier
             },
         ],
     };
-    if let Ok((cursor, _)) = PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(header_meta_obj)) {
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(header_meta_obj))
+    {
         params.push(cursor.into_inner());
     }
 
@@ -877,7 +948,10 @@ fn build_fixated_format_param(format: u32, width: u32, height: u32, modifier: u6
         flags: modifier_flags,
         value: Value::Long(modifier as i64),
     });
-    eprintln!("[PIPEWIRE_DEBUG] Fixated format modifier: 0x{:x} (flags: MANDATORY|DONT_FIXATE)", modifier);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] Fixated format modifier: 0x{:x} (flags: MANDATORY|DONT_FIXATE)",
+        modifier
+    );
 
     // Video size: The exact negotiated dimensions (fixed Rectangle)
     properties.push(Property {
@@ -919,7 +993,7 @@ fn build_fixated_format_param(format: u32, width: u32, height: u32, modifier: u6
     // EnumFormat is for offering multiple options, Format is for confirming a single choice
     let obj = Object {
         type_: SpaTypes::ObjectParamFormat.as_raw(),
-        id: ParamType::Format.as_raw(),  // Format for confirmation, not EnumFormat!
+        id: ParamType::Format.as_raw(), // Format for confirmation, not EnumFormat!
         properties,
     };
 
@@ -927,12 +1001,21 @@ fn build_fixated_format_param(format: u32, width: u32, height: u32, modifier: u6
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built fixated format: {}x{} format={} modifier=0x{:x} ({} bytes)",
-                width, height, format, modifier, bytes.len());
+            eprintln!(
+                "[PIPEWIRE_DEBUG] Built fixated format: {}x{} format={} modifier=0x{:x} ({} bytes)",
+                width,
+                height,
+                format,
+                modifier,
+                bytes.len()
+            );
             bytes
         }
         Err(e) => {
-            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize fixated format: {:?}", e);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] ERROR: Failed to serialize fixated format: {:?}",
+                e
+            );
             Vec::new()
         }
     }
@@ -1055,7 +1138,10 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fp
     let spa_bgrx = VideoFormat::BGRx.as_raw();
     let spa_rgbx = VideoFormat::RGBx.as_raw();
 
-    eprintln!("[PIPEWIRE_DEBUG] Building format pod with {} GPU modifiers", modifiers.len());
+    eprintln!(
+        "[PIPEWIRE_DEBUG] Building format pod with {} GPU modifiers",
+        modifiers.len()
+    );
     for (i, m) in modifiers.iter().enumerate().take(5) {
         eprintln!("[PIPEWIRE_DEBUG]   modifier[{}] = 0x{:x}", i, m);
     }
@@ -1084,12 +1170,7 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fp
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
             default: Id(spa_bgra),
-            alternatives: vec![
-                Id(spa_bgra),
-                Id(spa_rgba),
-                Id(spa_bgrx),
-                Id(spa_rgbx),
-            ],
+            alternatives: vec![Id(spa_bgra), Id(spa_rgba), Id(spa_bgrx), Id(spa_rgbx)],
         },
     );
     properties.push(Property {
@@ -1124,9 +1205,18 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fp
     let size_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Rectangle { width: 1920, height: 1080 },
-            min: Rectangle { width: 1, height: 1 },
-            max: Rectangle { width: 8192, height: 4320 },
+            default: Rectangle {
+                width: 1920,
+                height: 1080,
+            },
+            min: Rectangle {
+                width: 1,
+                height: 1,
+            },
+            max: Rectangle {
+                width: 8192,
+                height: 4320,
+            },
         },
     );
     properties.push(Property {
@@ -1156,8 +1246,11 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fp
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: negotiated_max_fps, denom: 1 },
-            min: Fraction { num: 0, denom: 1 },  // Allow 0 to disable limiter!
+            default: Fraction {
+                num: negotiated_max_fps,
+                denom: 1,
+            },
+            min: Fraction { num: 0, denom: 1 }, // Allow 0 to disable limiter!
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1178,11 +1271,19 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fp
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod with {} GPU modifiers, max_fps={} ({} bytes)", modifiers.len(), negotiated_max_fps, bytes.len());
+            eprintln!(
+                "[PIPEWIRE_DEBUG] Built format pod with {} GPU modifiers, max_fps={} ({} bytes)",
+                modifiers.len(),
+                negotiated_max_fps,
+                bytes.len()
+            );
             bytes
         }
         Err(e) => {
-            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize format pod with modifiers: {:?}", e);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] ERROR: Failed to serialize format pod with modifiers: {:?}",
+                e
+            );
             Vec::new()
         }
     }
@@ -1200,8 +1301,10 @@ fn build_video_format_params() -> Vec<u8> {
     let spa_bgrx = VideoFormat::BGRx.as_raw();
     let spa_rgbx = VideoFormat::RGBx.as_raw();
 
-    eprintln!("[PIPEWIRE_DEBUG] SPA format IDs: BGRA={}, RGBA={}, BGRx={}, RGBx={}",
-        spa_bgra, spa_rgba, spa_bgrx, spa_rgbx);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] SPA format IDs: BGRA={}, RGBA={}, BGRx={}, RGBx={}",
+        spa_bgra, spa_rgba, spa_bgrx, spa_rgbx
+    );
 
     let mut properties = Vec::new();
 
@@ -1226,12 +1329,7 @@ fn build_video_format_params() -> Vec<u8> {
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
             default: Id(spa_bgra),
-            alternatives: vec![
-                Id(spa_bgra),
-                Id(spa_rgba),
-                Id(spa_bgrx),
-                Id(spa_rgbx),
-            ],
+            alternatives: vec![Id(spa_bgra), Id(spa_rgba), Id(spa_bgrx), Id(spa_rgbx)],
         },
     );
     properties.push(Property {
@@ -1259,10 +1357,7 @@ fn build_video_format_params() -> Vec<u8> {
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
             default: DRM_FORMAT_MOD_LINEAR,
-            alternatives: vec![
-                DRM_FORMAT_MOD_LINEAR,
-                DRM_FORMAT_MOD_INVALID,
-            ],
+            alternatives: vec![DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_MOD_INVALID],
         },
     );
     properties.push(Property {
@@ -1270,7 +1365,10 @@ fn build_video_format_params() -> Vec<u8> {
         flags: modifier_flags,
         value: Value::Choice(ChoiceValue::Long(modifier_choice)),
     });
-    eprintln!("[PIPEWIRE_DEBUG] Added modifiers: LINEAR(0x0) + INVALID(0x{:x}) with DONT_FIXATE", DRM_FORMAT_MOD_INVALID);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] Added modifiers: LINEAR(0x0) + INVALID(0x{:x}) with DONT_FIXATE",
+        DRM_FORMAT_MOD_INVALID
+    );
 
     // Size: Range from 1x1 to 8192x4320 (like OBS does)
     // This is REQUIRED for format negotiation with GNOME ScreenCast
@@ -1278,9 +1376,18 @@ fn build_video_format_params() -> Vec<u8> {
     let size_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Rectangle { width: 1920, height: 1080 },
-            min: Rectangle { width: 1, height: 1 },
-            max: Rectangle { width: 8192, height: 4320 },
+            default: Rectangle {
+                width: 1920,
+                height: 1080,
+            },
+            min: Rectangle {
+                width: 1,
+                height: 1,
+            },
+            max: Rectangle {
+                width: 8192,
+                height: 4320,
+            },
         },
     );
     properties.push(Property {
@@ -1332,11 +1439,17 @@ fn build_video_format_params() -> Vec<u8> {
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod with LINEAR+INVALID modifiers ({} bytes)", bytes.len());
+            eprintln!(
+                "[PIPEWIRE_DEBUG] Built format pod with LINEAR+INVALID modifiers ({} bytes)",
+                bytes.len()
+            );
             bytes
         }
         Err(e) => {
-            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize format pod: {:?}", e);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] ERROR: Failed to serialize format pod: {:?}",
+                e
+            );
             Vec::new()
         }
     }
@@ -1378,12 +1491,7 @@ fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Ve
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
             default: Id(spa_bgrx),
-            alternatives: vec![
-                Id(spa_bgrx),
-                Id(spa_bgra),
-                Id(spa_rgbx),
-                Id(spa_rgba),
-            ],
+            alternatives: vec![Id(spa_bgrx), Id(spa_bgra), Id(spa_rgbx), Id(spa_rgba)],
         },
     );
     properties.push(Property {
@@ -1408,10 +1516,7 @@ fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Ve
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
             default: DRM_FORMAT_MOD_LINEAR,
-            alternatives: vec![
-                DRM_FORMAT_MOD_LINEAR,
-                DRM_FORMAT_MOD_INVALID,
-            ],
+            alternatives: vec![DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_MOD_INVALID],
         },
     );
     properties.push(Property {
@@ -1419,16 +1524,28 @@ fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Ve
         flags: modifier_flags,
         value: Value::Choice(ChoiceValue::Long(modifier_choice)),
     });
-    eprintln!("[PIPEWIRE_DEBUG] Modifier choice: LINEAR(0x0) + INVALID(0x{:x})", DRM_FORMAT_MOD_INVALID);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] Modifier choice: LINEAR(0x0) + INVALID(0x{:x})",
+        DRM_FORMAT_MOD_INVALID
+    );
 
     // Size: Range from 1x1 to 8192x4320
     use spa::utils::Rectangle;
     let size_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Rectangle { width: 1920, height: 1080 },
-            min: Rectangle { width: 1, height: 1 },
-            max: Rectangle { width: 8192, height: 4320 },
+            default: Rectangle {
+                width: 1920,
+                height: 1080,
+            },
+            min: Rectangle {
+                width: 1,
+                height: 1,
+            },
+            max: Rectangle {
+                width: 8192,
+                height: 4320,
+            },
         },
     );
     properties.push(Property {
@@ -1456,7 +1573,10 @@ fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Ve
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: negotiated_max_fps, denom: 1 },
+            default: Fraction {
+                num: negotiated_max_fps,
+                denom: 1,
+            },
             min: Fraction { num: 0, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
@@ -1478,11 +1598,17 @@ fn build_video_format_params_with_linear_modifier(negotiated_max_fps: u32) -> Ve
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITH LINEAR modifier (0x0) ({} bytes)", bytes.len());
+            eprintln!(
+                "[PIPEWIRE_DEBUG] Built format pod WITH LINEAR modifier (0x0) ({} bytes)",
+                bytes.len()
+            );
             bytes
         }
         Err(e) => {
-            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize LINEAR modifier format pod: {:?}", e);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] ERROR: Failed to serialize LINEAR modifier format pod: {:?}",
+                e
+            );
             Vec::new()
         }
     }
@@ -1506,8 +1632,10 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     let spa_bgrx = VideoFormat::BGRx.as_raw();
     let spa_rgbx = VideoFormat::RGBx.as_raw();
 
-    eprintln!("[PIPEWIRE_DEBUG] SPA format IDs: RGB={}, BGR={}, BGRA={}, RGBA={}, BGRx={}, RGBx={}",
-        spa_rgb, spa_bgr, spa_bgra, spa_rgba, spa_bgrx, spa_rgbx);
+    eprintln!(
+        "[PIPEWIRE_DEBUG] SPA format IDs: RGB={}, BGR={}, BGRA={}, RGBA={}, BGRx={}, RGBx={}",
+        spa_rgb, spa_bgr, spa_bgra, spa_rgba, spa_bgrx, spa_rgbx
+    );
 
     let mut properties = Vec::new();
 
@@ -1529,7 +1657,7 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     let format_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Enum {
-            default: Id(spa_rgb),  // Prefer RGB - matches portal's no-modifier offer
+            default: Id(spa_rgb), // Prefer RGB - matches portal's no-modifier offer
             alternatives: vec![
                 Id(spa_rgb),
                 Id(spa_bgr),
@@ -1555,9 +1683,18 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     let size_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Rectangle { width: 1920, height: 1080 },
-            min: Rectangle { width: 1, height: 1 },
-            max: Rectangle { width: 8192, height: 4320 },
+            default: Rectangle {
+                width: 1920,
+                height: 1080,
+            },
+            min: Rectangle {
+                width: 1,
+                height: 1,
+            },
+            max: Rectangle {
+                width: 8192,
+                height: 4320,
+            },
         },
     );
     properties.push(Property {
@@ -1585,7 +1722,10 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: negotiated_max_fps, denom: 1 },
+            default: Fraction {
+                num: negotiated_max_fps,
+                denom: 1,
+            },
             min: Fraction { num: 0, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
@@ -1611,13 +1751,19 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
             bytes
         }
         Err(e) => {
-            eprintln!("[PIPEWIRE_DEBUG] ERROR: Failed to serialize no-modifier format pod: {:?}", e);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] ERROR: Failed to serialize no-modifier format pod: {:?}",
+                e
+            );
             Vec::new()
         }
     }
 }
 
-fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams) -> Option<FrameData> {
+fn extract_frame(
+    datas: &mut [pipewire::spa::buffer::Data],
+    params: &VideoParams,
+) -> Option<FrameData> {
     // Get chunk info from first element before we need mutable access
     let (size, stride, data_type, fd, offset) = {
         let first = datas.first()?;
@@ -1630,15 +1776,29 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
             chunk.offset(),
         )
     };
-    if size == 0 { return None; }
+    if size == 0 {
+        return None;
+    }
 
     // DMA-BUF path - build smithay Dmabuf directly
     if data_type == pipewire::spa::buffer::DataType::DmaBuf {
-        if fd < 0 { return None; }
+        if fd < 0 {
+            return None;
+        }
 
         // Use params from format negotiation, fallback to calculated values only if not set
-        let width = if params.width > 0 { params.width } else { (stride / 4) as u32 };
-        let height = if params.height > 0 { params.height } else if stride > 0 { (size as u32) / (stride as u32) } else { 0 };
+        let width = if params.width > 0 {
+            params.width
+        } else {
+            (stride / 4) as u32
+        };
+        let height = if params.height > 0 {
+            params.height
+        } else if stride > 0 {
+            (size as u32) / (stride as u32)
+        } else {
+            0
+        };
 
         // Use WARN level to ensure visibility with RUST_LOG=WARN
         tracing::warn!(
@@ -1646,7 +1806,9 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
             params.width, params.height, params.format, params.modifier, size, stride, offset, fd
         );
 
-        if width == 0 || height == 0 { return None; }
+        if width == 0 || height == 0 {
+            return None;
+        }
 
         // Build smithay Dmabuf from PipeWire buffer info
         let fourcc = Fourcc::try_from(params.format).unwrap_or(Fourcc::Argb8888);
@@ -1656,14 +1818,22 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
         // - Other values = explicit tiled/compressed formats (GPU-specific)
         // We pass through whatever PipeWire negotiated; EGL/CUDA will reject incompatible formats
         let modifier = Modifier::from(params.modifier);
-        tracing::warn!("[PIPEWIRE_DEBUG] Using fourcc={:?} modifier={:?} (raw: 0x{:x})", fourcc, modifier, params.modifier);
+        tracing::warn!(
+            "[PIPEWIRE_DEBUG] Using fourcc={:?} modifier={:?} (raw: 0x{:x})",
+            fourcc,
+            modifier,
+            params.modifier
+        );
 
         // Clone the fd to create OwnedFd
-        let owned_fd = unsafe {
-            BorrowedFd::borrow_raw(fd).try_clone_to_owned().ok()?
-        };
+        let owned_fd = unsafe { BorrowedFd::borrow_raw(fd).try_clone_to_owned().ok()? };
 
-        let mut builder = Dmabuf::builder((width as i32, height as i32), fourcc, modifier, DmabufFlags::empty());
+        let mut builder = Dmabuf::builder(
+            (width as i32, height as i32),
+            fourcc,
+            modifier,
+            DmabufFlags::empty(),
+        );
         builder.add_plane(owned_fd, 0, offset, stride as u32);
 
         // Add additional planes if present
@@ -1673,9 +1843,16 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
                 let plane_fd_raw = raw.fd as i32;
                 if plane_fd_raw >= 0 {
                     let plane_fd = unsafe {
-                        BorrowedFd::borrow_raw(plane_fd_raw).try_clone_to_owned().ok()?
+                        BorrowedFd::borrow_raw(plane_fd_raw)
+                            .try_clone_to_owned()
+                            .ok()?
                     };
-                    builder.add_plane(plane_fd, idx as u32, data.chunk().offset(), data.chunk().stride() as u32);
+                    builder.add_plane(
+                        plane_fd,
+                        idx as u32,
+                        data.chunk().offset(),
+                        data.chunk().stride() as u32,
+                    );
                 }
             }
         }
@@ -1690,21 +1867,44 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
     // gnome-remote-desktop uses MemFd for SHM buffers, which PipeWire maps for us
     if let Some(first_mut) = datas.first_mut() {
         // Log SHM buffer details for debugging
-        eprintln!("[PIPEWIRE_DEBUG] extract_frame SHM: type={:?} fd={} size={} stride={} params={}x{}",
-            data_type, fd, size, stride, params.width, params.height);
+        eprintln!(
+            "[PIPEWIRE_DEBUG] extract_frame SHM: type={:?} fd={} size={} stride={} params={}x{}",
+            data_type, fd, size, stride, params.width, params.height
+        );
 
         if let Some(data_ptr) = first_mut.data() {
-            let width = if params.width > 0 { params.width } else if stride > 0 { (stride / 4) as u32 } else { 0 };
-            let height = if params.height > 0 { params.height } else if stride > 0 { (size / stride as usize) as u32 } else { 0 };
+            let width = if params.width > 0 {
+                params.width
+            } else if stride > 0 {
+                (stride / 4) as u32
+            } else {
+                0
+            };
+            let height = if params.height > 0 {
+                params.height
+            } else if stride > 0 {
+                (size / stride as usize) as u32
+            } else {
+                0
+            };
             if width == 0 || height == 0 {
                 eprintln!("[PIPEWIRE_DEBUG] extract_frame SHM: invalid dimensions {}x{} (stride={}, size={})", width, height, stride, size);
                 return None;
             }
 
-            eprintln!("[PIPEWIRE_DEBUG] SHM frame SUCCESS: {}x{} stride={} format=0x{:x}", width, height, stride, params.format);
+            eprintln!(
+                "[PIPEWIRE_DEBUG] SHM frame SUCCESS: {}x{} stride={} format=0x{:x}",
+                width, height, stride, params.format
+            );
 
             let data = unsafe { std::slice::from_raw_parts(data_ptr.as_ptr(), size) }.to_vec();
-            return Some(FrameData::Shm { data, width, height, stride: stride as u32, format: params.format });
+            return Some(FrameData::Shm {
+                data,
+                width,
+                height,
+                stride: stride as u32,
+                format: params.format,
+            });
         } else {
             // data() returned None - buffer not mapped!
             // This can happen if MAP_BUFFERS flag wasn't set or if it's a different buffer type
@@ -1715,7 +1915,9 @@ fn extract_frame(datas: &mut [pipewire::spa::buffer::Data], params: &VideoParams
 
     tracing::warn!(
         "[PIPEWIRE_DEBUG] extract_frame: no valid buffer data, type={:?} fd={} size={}",
-        data_type, fd, size
+        data_type,
+        fd,
+        size
     );
     None
 }
@@ -1745,7 +1947,10 @@ mod tests {
         // BGRx maps to ARGB8888 for CUDA compatibility
         // CUDA rejects XRGB8888 and BGRX8888 with tiled modifiers, but accepts ARGB8888
         let fourcc = spa_video_format_to_drm_fourcc(spa::param::video::VideoFormat::BGRx);
-        assert_eq!(fourcc, 0x34325241, "BGRx should map to ARGB8888 (AR24) for CUDA compatibility");
+        assert_eq!(
+            fourcc, 0x34325241,
+            "BGRx should map to ARGB8888 (AR24) for CUDA compatibility"
+        );
     }
 
     #[test]
@@ -1753,7 +1958,10 @@ mod tests {
         // RGBx maps to ABGR8888 for CUDA compatibility
         // CUDA rejects XBGR8888 and RGBX8888 with tiled modifiers, but accepts ABGR8888
         let fourcc = spa_video_format_to_drm_fourcc(spa::param::video::VideoFormat::RGBx);
-        assert_eq!(fourcc, 0x34324241, "RGBx should map to ABGR8888 (AB24) for CUDA compatibility");
+        assert_eq!(
+            fourcc, 0x34324241,
+            "RGBx should map to ABGR8888 (AB24) for CUDA compatibility"
+        );
     }
 
     #[test]

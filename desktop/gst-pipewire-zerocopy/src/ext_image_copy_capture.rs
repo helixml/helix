@@ -56,14 +56,17 @@ use wayland_client::{
 /// Sway often uses wayland-1 instead of the default wayland-0.
 fn connect_to_wayland() -> Result<Connection, String> {
     // If WAYLAND_DISPLAY is already set, use it
-    if std::env::var("WAYLAND_DISPLAY").map(|s| !s.is_empty()).unwrap_or(false) {
+    if std::env::var("WAYLAND_DISPLAY")
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+    {
         return Connection::connect_to_env()
             .map_err(|e| format!("Failed to connect to Wayland: {}", e));
     }
 
     // Try common socket names
-    let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| "/run/user/1000".to_string());
+    let xdg_runtime_dir =
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
 
     for socket_name in &["wayland-1", "wayland-0"] {
         let socket_path = format!("{}/{}", xdg_runtime_dir, socket_name);
@@ -73,7 +76,10 @@ fn connect_to_wayland() -> Result<Connection, String> {
             match Connection::connect_to_env() {
                 Ok(conn) => return Ok(conn),
                 Err(e) => {
-                    eprintln!("[EXT_IMAGE_COPY] Failed to connect to {}: {}", socket_name, e);
+                    eprintln!(
+                        "[EXT_IMAGE_COPY] Failed to connect to {}: {}",
+                        socket_name, e
+                    );
                     continue;
                 }
             }
@@ -184,7 +190,10 @@ impl ShmBuffer {
             qh,
             (),
         );
-        WlBufferWrapper { wl_buffer, _pool: pool }
+        WlBufferWrapper {
+            wl_buffer,
+            _pool: pool,
+        }
     }
 
     fn copy_to_vec(&self) -> Vec<u8> {
@@ -290,14 +299,8 @@ impl ExtCaptureState {
 
     /// Initialize capture source and session
     fn init_session(&mut self, qh: &QueueHandle<Self>) -> Result<(), String> {
-        let source_manager = self
-            .source_manager
-            .as_ref()
-            .ok_or("No source manager")?;
-        let capture_manager = self
-            .capture_manager
-            .as_ref()
-            .ok_or("No capture manager")?;
+        let source_manager = self.source_manager.as_ref().ok_or("No source manager")?;
+        let capture_manager = self.capture_manager.as_ref().ok_or("No capture manager")?;
         let output = self.outputs.first().ok_or("No output")?;
 
         // Create source from first output
@@ -464,12 +467,14 @@ impl ExtCaptureState {
                 "[EXT_IMAGE_COPY] Creating wl_buffer: {}x{} stride={} bpp={} format={:?}",
                 width, height, stride, bpp, format.format
             );
-            let wl_buf_wrapper = shm_buf.create_wl_buffer(&shm, width, height, stride, format.format, qh);
+            let wl_buf_wrapper =
+                shm_buf.create_wl_buffer(&shm, width, height, stride, format.format, qh);
             self.current_wl_buffer = Some(wl_buf_wrapper);
         }
 
         // Attach buffer and capture
-        if let (Some(frame), Some(wl_buf_wrapper)) = (&self.current_frame, &self.current_wl_buffer) {
+        if let (Some(frame), Some(wl_buf_wrapper)) = (&self.current_frame, &self.current_wl_buffer)
+        {
             eprintln!("[EXT_IMAGE_COPY] Attaching buffer and capturing...");
             frame.attach_buffer(&wl_buf_wrapper.wl_buffer);
             // Request full damage (entire buffer)
@@ -483,11 +488,9 @@ impl ExtCaptureState {
         self.frame_ready = true;
         let now = std::time::Instant::now();
 
-        if let (Some(size), Some(format), Some(shm_buf)) = (
-            &self.buffer_size,
-            &self.selected_format,
-            &self.shm_buffer,
-        ) {
+        if let (Some(size), Some(format), Some(shm_buf)) =
+            (&self.buffer_size, &self.selected_format, &self.shm_buffer)
+        {
             eprintln!("[EXT_IMAGE_COPY] Frame ready!");
 
             let data = shm_buf.copy_to_vec();
@@ -718,10 +721,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
     ) {
         match event {
             ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
-                eprintln!(
-                    "[EXT_IMAGE_COPY] Session buffer size: {}x{}",
-                    width, height
-                );
+                eprintln!("[EXT_IMAGE_COPY] Session buffer size: {}x{}", width, height);
                 // Store initial buffer size hint from session
                 if state.buffer_size.is_none() {
                     state.buffer_size = Some(BufferSize { width, height });
@@ -877,7 +877,9 @@ impl ExtImageCopyCaptureStream {
                         if let wl_registry::Event::Global { interface, .. } = event {
                             if interface == "ext_image_copy_capture_manager_v1" {
                                 state.has_capture_manager = true;
-                                eprintln!("[EXT_IMAGE_COPY] Found ext_image_copy_capture_manager_v1");
+                                eprintln!(
+                                    "[EXT_IMAGE_COPY] Found ext_image_copy_capture_manager_v1"
+                                );
                             } else if interface == "ext_output_image_capture_source_manager_v1" {
                                 state.has_source_manager = true;
                                 eprintln!("[EXT_IMAGE_COPY] Found ext_output_image_capture_source_manager_v1");
@@ -960,9 +962,7 @@ fn run_capture_loop(
         );
     }
     if state.source_manager.is_none() {
-        return Err(
-            "ext_output_image_capture_source_manager_v1 not available".to_string(),
-        );
+        return Err("ext_output_image_capture_source_manager_v1 not available".to_string());
     }
     if state.shm.is_none() {
         return Err("wl_shm not available".to_string());
@@ -1017,19 +1017,12 @@ fn run_capture_loop(
                 revents: 0,
             };
 
-            let poll_result = unsafe {
-                libc::poll(
-                    &mut pollfd,
-                    1,
-                    poll_timeout.as_millis() as libc::c_int,
-                )
-            };
+            let poll_result =
+                unsafe { libc::poll(&mut pollfd, 1, poll_timeout.as_millis() as libc::c_int) };
 
             if poll_result > 0 {
                 // Data available - read events
-                guard
-                    .read()
-                    .map_err(|e| format!("Read failed: {}", e))?;
+                guard.read().map_err(|e| format!("Read failed: {}", e))?;
             } else if poll_result == 0 {
                 // Timeout - drop guard to cancel read, loop will check shutdown flag
                 drop(guard);

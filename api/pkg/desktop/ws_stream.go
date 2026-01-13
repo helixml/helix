@@ -289,9 +289,29 @@ func checkGstElement(element string) bool {
 // buildPipelineString creates a GStreamer pipeline string ending with appsink.
 //
 // Video modes (HELIX_VIDEO_MODE env var):
-// - shm: Current default, uses pipewiresrc → system memory → encoder (1-2 CPU copies)
+// - shm: Uses pipewiresrc → system memory → encoder (1-2 CPU copies)
 // - native: Uses pipewiresrc with DMA-BUF → encoder (GStreamer 1.24+, fewer copies)
 // - zerocopy: Uses pipewirezerocopysrc plugin → CUDA/DMABuf memory (0 CPU copies, requires plugin)
+//
+// ============================================================================
+// THE 4 CASES - Explicit properties for pipewirezerocopysrc (no auto-detection)
+// ============================================================================
+//
+// Case 1: GNOME + NVIDIA (true zero-copy CUDA)
+//   capture-source=pipewire buffer-type=dmabuf
+//   Output: CUDAMemory → nvh264enc (0 CPU copies)
+//
+// Case 2: GNOME + AMD (SHM → VA encoder)
+//   capture-source=pipewire buffer-type=shm
+//   Output: System memory → vapostproc → vah264enc
+//
+// Case 3: Sway + NVIDIA
+//   capture-source=wayland buffer-type=shm
+//   Output: System memory → cudaupload → nvh264enc
+//
+// Case 4: Sway + AMD
+//   capture-source=wayland buffer-type=shm
+//   Output: System memory → vapostproc → vah264enc
 //
 // GPU optimization notes:
 // - NVIDIA: cudaupload gets frames into CUDA memory, nvh264enc does colorspace on GPU
@@ -301,48 +321,47 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	var parts []string
 
 	// Build source section based on video mode
-	// Both GNOME and Sway now use pipewirezerocopysrc for unified zero-copy capture.
+	// pipewirezerocopysrc is the unified capture element for both GNOME and Sway.
 	// For ScreenCast nodes, pipeWireFd from OpenPipeWireRemote is REQUIRED
 	// Without it, pipewiresrc gets "target not found" because the default
 	// PipeWire connection doesn't have access to portal ScreenCast nodes.
-	//
-	// pipewirezerocopysrc supports both CUDA (NVIDIA) and DmaBuf (AMD/Intel) output.
-	// For AMD/Intel: DmaBuf output with drm-format caps -> vapostproc -> vah264enc
-	// The drm-format caps (set in pipewiresrc/imp.rs) allow vapostproc to import the DmaBuf.
 
 	switch v.videoMode {
 		case VideoModePlugin:
 			// pipewirezerocopysrc: Zero-copy via GPU memory sharing
 			// Requires gst-plugin-pipewire-zerocopy to be installed
-			// Note: framerate is handled internally via max_framerate in PipeWire negotiation
 			//
-			// Output mode selection based on compositor and encoder:
-			// - Sway: Always use system memory (xdg-desktop-portal-wlr doesn't support GPU modifiers)
-			// - GNOME + NVIDIA: auto (tries DMA-BUF → CUDA for true zero-copy)
-			// - GNOME + VA-API: system (SHM → vapostproc → GPU, Wolf's "legacy" path)
-			// - Software encoders: system (CPU encoder needs system memory)
-			var outputMode string
+			// EXPLICIT CONTROL: We tell the element exactly what to do:
+			// - capture-source: "pipewire" (GNOME) or "wayland" (Sway ext-image-copy-capture)
+			// - buffer-type: "dmabuf" (GNOME+NVIDIA CUDA) or "shm" (everything else)
+			//
+			// No probing, no fallbacks, no guessing. Go code knows the environment.
 
-			// Detect Sway/wlroots - must use SHM because xdg-desktop-portal-wlr
-			// doesn't support NVIDIA tiled modifiers or DMA-BUF negotiation
-			isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway")
+			// Detect compositor: Sway uses ext-image-copy-capture, GNOME uses PipeWire ScreenCast
+			isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
+				os.Getenv("SWAYSOCK") != ""
 
+			// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
+			isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
+
+			// Set explicit properties based on the 4 cases
+			var captureSource, bufferType string
 			if isSway {
-				outputMode = "system" // Sway: SHM → cudaupload/vapostproc → encoder
+				// Cases 3 & 4: Sway always uses ext-image-copy-capture (Wayland protocol)
+				captureSource = "wayland"
+				bufferType = "shm"
+			} else if isNvidiaGnome {
+				// Case 1: GNOME + NVIDIA → true zero-copy CUDA
+				captureSource = "pipewire"
+				bufferType = "dmabuf"
 			} else {
-				switch encoder {
-				case "vaapi", "vaapi-legacy", "vaapi-lp", "qsv":
-					// VA-API: Use system memory - vapostproc will upload to GPU
-					// This matches Wolf's "legacy pipeline" which is still fast because
-					// encoding happens on GPU, only the initial frame upload goes through CPU
-					outputMode = "system"
-				case "x264", "openh264":
-					outputMode = "system" // CPU encoder needs system memory
-				default:
-					outputMode = "auto" // GNOME + NVENC: try DMA-BUF → CUDA
-				}
+				// Case 2: GNOME + AMD/Intel → SHM (VA-API handles GPU upload)
+				captureSource = "pipewire"
+				bufferType = "shm"
 			}
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=%s keepalive-time=100", v.nodeID, outputMode)
+
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=100",
+				v.nodeID, captureSource, bufferType)
 			// Add fd property if we have portal FD (required for ScreenCast access)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
@@ -392,27 +411,25 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "nvenc":
 		// NVIDIA NVENC encoding
-		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
 		//
-		// Zero-copy path (no cudaupload needed):
-		// - GNOME with output-mode=auto: pipewirezerocopysrc outputs CUDAMemory directly
+		// Case 1: GNOME + NVIDIA (buffer-type=dmabuf)
+		//   → pipewirezerocopysrc outputs CUDAMemory directly → nvh264enc (no cudaupload needed)
 		//
-		// SHM path (cudaupload required):
-		// - Sway: xdg-desktop-portal-wlr doesn't support NVIDIA modifiers, forces SHM
-		// - GNOME with output-mode=system: fallback when DMA-BUF fails
-		// - VideoModeSHM/Native: always system memory
-		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway")
-		needsCudaUpload := v.videoMode != VideoModePlugin || isSway
-		if needsCudaUpload {
+		// Cases 2, 3, 4: Everything else (buffer-type=shm)
+		//   → System memory → videoconvert → cudaupload → nvh264enc
+		//
+		// Sway ext-image-copy-capture outputs BGR888 (24-bit), so videoconvert is always
+		// needed to convert to 32-bit RGBA for cudaupload.
+		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
+			os.Getenv("SWAYSOCK") != ""
+		isZeroCopyCuda := v.videoMode == VideoModePlugin && !isSway // Case 1 only
+
+		if !isZeroCopyCuda {
 			// SHM path: system memory → videoconvert → cudaupload → nvh264enc
-			// IMPORTANT: ext-image-copy-capture on Sway outputs BGR888 (24-bit, 3 bytes/pixel)
-			// but cudaupload/nvh264enc require 32-bit formats.
-			// videoconvert handles BGR → RGBA conversion (swaps R↔B channels).
-			// Using RGBA not BGRx because nvh264enc expects RGB order.
 			parts = append(parts,
 				"videoconvert",
-				"video/x-raw,format=RGBA", // Convert BGR→RGB and add alpha for cudaupload
+				"video/x-raw,format=RGBA", // Convert BGR→RGBA (32-bit) for cudaupload
 				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
