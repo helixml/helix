@@ -19,7 +19,10 @@ See also: `.cursor/rules/*.mdc`
 
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
+- **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
+- **NEVER** run commands that slow down future builds — trust the build system
 - `docker compose restart` does NOT apply .env or image changes — use `down` + `up`
+- If Docker cache seems stale: the cache is NOT wrong. Check your assumptions about what triggers rebuilds.
 
 ### Other
 - **NEVER** rename current working directory — breaks shell session

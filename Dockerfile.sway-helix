@@ -477,9 +477,10 @@ RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 # Helix additions (same pattern as KDE)
 # ====================================================================
 
-# RADV/AMD debug options for GPU crash prevention
-ENV RADV_DEBUG=hang
-ENV AMD_DEBUG=sync_compile,check_vm
+# RADV/AMD debug options - REMOVED RADV_DEBUG=hang which adds significant overhead
+# See: https://docs.mesa3d.org/envvars.html
+# ENV RADV_DEBUG=hang  # DO NOT USE - adds costly GPU sync after every draw call
+# ENV AMD_DEBUG=sync_compile,check_vm  # sync_compile also adds overhead
 
 # Video streaming mode is set per-stream via URL param (?videoMode=native|zerocopy|shm)
 # Default is 'zerocopy' (custom pipewirezerocopysrc plugin) - see ws_stream.go getVideoMode()

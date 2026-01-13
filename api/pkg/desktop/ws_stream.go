@@ -351,12 +351,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			isAmdGnome := !isSway && !isNvidiaGnome
 
 			if isAmdGnome {
-				// Case 2: GNOME + AMD/Intel → use native pipewiresrc (handles DmaBuf properly)
+				// Case 2: GNOME + AMD/Intel → use native pipewiresrc with always-copy=true
+				// This forces SHM path (like Sway) instead of DmaBuf which has latency issues.
 				// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
 				// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
 				// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
-				slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc instead of pipewirezerocopysrc")
-				srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+				slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
+				srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true", v.nodeID)
 				if v.pipeWireFd > 0 {
 					srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 				}
@@ -415,10 +416,10 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline
-	// max-size-buffers=3 prevents buffer starvation - pipewiresrc needs buffers returned
-	// quickly or it can't allocate new ones for the next frame
+	// max-size-buffers=1 keeps only the newest frame, dropping older ones immediately
+	// This prevents frame buildup when Mutter drains buffered frames in bursts
 	// leaky=downstream drops oldest frames if encoding falls behind (low latency)
-	parts = append(parts, "queue max-size-buffers=3 leaky=downstream")
+	parts = append(parts, "queue max-size-buffers=1 leaky=downstream")
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path
@@ -457,31 +458,24 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "qsv":
 		// Intel Quick Sync Video
-		// Helix always matches desktop/client resolution, so no scaling needed
-		// Pipeline matches Wolf's working AMD/Intel config:
-		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		// EXACTLY matches Wolf's approach: add-borders=true, system memory caps, rate-control=cqp
 		parts = append(parts,
-			"vapostproc",
-			"video/x-raw,format=NV12",
-			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
+			"vapostproc add-borders=true",
+			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
+			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", getGOPSize(), v.config.Bitrate),
 			"h264parse",
 			"video/x-h264,profile=main,stream-format=byte-stream",
 		)
 
 	case "vaapi":
 		// AMD/Intel VA-API pipeline (gst-va plugin)
-		// Helix always matches desktop/client resolution, so no scaling needed
-		//
-		// Pipeline matches Wolf's working AMD config exactly:
-		// vapostproc → video/x-raw,format=NV12 (system memory caps) → vah264enc
-		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation
-		//
-		// POTENTIAL OPTIMIZATION: Could use video/x-raw(memory:VAMemory),format=NV12
-		// to keep data in GPU memory after vapostproc, avoiding a second copy.
-		// See design/2026-01-13-vaapi-vamemory-optimization.md for details.
+		// EXACTLY matches Wolf's "legacy pipeline" for AMD:
+		// https://github.com/games-on-whales/wolf - uses system memory caps
+		// Wolf pipeline: vapostproc add-borders=true ! video/x-raw,format=NV12 ! vah264enc rate-control=cqp
+		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation.
 		parts = append(parts,
-			"vapostproc",
-			"video/x-raw,format=NV12",
+			"vapostproc add-borders=true",
+			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
@@ -490,12 +484,10 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
-		// Helix always matches desktop/client resolution, so no scaling needed
-		// Pipeline matches Wolf's working config:
-		// vapostproc → video/x-raw,format=NV12 (system memory caps) → encoder
+		// Matches Wolf's "legacy pipeline" - system memory caps, rate-control=cqp
 		parts = append(parts,
-			"vapostproc",
-			"video/x-raw,format=NV12",
+			"vapostproc add-borders=true",
+			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
@@ -504,13 +496,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
-		// Helix always matches desktop/client resolution, so no scaling needed
-		// Pipeline matches Wolf's approach: system memory caps between elements
+		// EXACTLY matches Wolf's approach: system memory caps, rate-control=cqp
 		parts = append(parts,
-			"vaapipostproc",
-			"video/x-raw,format=NV12",
-			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
-				v.config.Bitrate, getGOPSize()),
+			"vaapipostproc add-borders=true",
+			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
+			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
+				getGOPSize()),
 		)
 
 	case "openh264":
