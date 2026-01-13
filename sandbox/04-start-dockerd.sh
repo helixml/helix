@@ -19,9 +19,23 @@ fi
 export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
-# Configure dockerd with NVIDIA runtime
+# ================================================================================
+# Configure dockerd with DNS and optional NVIDIA runtime
+# DNS is configured to use dns-proxy (172.17.0.1) which forwards to outer Docker DNS.
+# This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
+# Search domains are NOT needed for FQDNs - they're only for short hostnames.
+# ================================================================================
 mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+
+echo "🔗 DNS: 172.17.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
+
+# GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile:
+#   - sandbox-nvidia: GPU_VENDOR=nvidia
+#   - sandbox-amd-intel: GPU_VENDOR=intel
+#   - sandbox-software: GPU_VENDOR=none
+if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
+    echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
+    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 {
   "runtimes": {
     "nvidia": {
@@ -29,12 +43,23 @@ cat > /etc/docker/daemon.json <<'DAEMON_JSON'
       "runtimeArgs": []
     }
   },
+  "dns": ["172.17.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error"
 }
 DAEMON_JSON
+else
+    echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
+    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+{
+  "dns": ["172.17.0.1"],
+  "storage-driver": "overlay2",
+  "log-level": "error"
+}
+DAEMON_JSON
+fi
 
-echo "Configured sandbox dockerd with nvidia runtime support"
+echo "✅ Configured sandbox dockerd"
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
