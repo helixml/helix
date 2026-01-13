@@ -1515,17 +1515,19 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
       - |
-        # Check if Zed binary already cached for this commit
+        # Check if Zed binary AND icon already cached for this commit
+        # Both files required - old caches without icon will be rebuilt
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         CACHE_KEY="zed-$${ZED_COMMIT}"
-        if [ -f "/drone/src/cache/$${CACHE_KEY}/zed" ]; then
-          echo "Using cached Zed binary for commit $${ZED_COMMIT}"
+        if [ -f "/drone/src/cache/$${CACHE_KEY}/zed" ] && [ -f "/drone/src/cache/$${CACHE_KEY}/app-icon.png" ]; then
+          echo "Using cached Zed binary + icon for commit $${ZED_COMMIT}"
           mkdir -p zed-build
           cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png 2>/dev/null || true
+          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
           chmod +x zed-build/zed
           exit 0
         fi
+        echo "Cache miss or incomplete cache for $${ZED_COMMIT} - will rebuild"
       - echo "Building Zed binary (this may take 15-20 minutes on first run)..."
       # Build the Zed builder image
       - docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
