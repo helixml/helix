@@ -1522,6 +1522,7 @@ steps:
           echo "Using cached Zed binary for commit $${ZED_COMMIT}"
           mkdir -p zed-build
           cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png 2>/dev/null || true
           chmod +x zed-build/zed
           exit 0
         fi
@@ -1549,15 +1550,18 @@ steps:
             cargo build --release --package zed --package cli
             cp /tmp/zed-target/release/zed /output/zed
             strip /output/zed
+            cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
           '
       - ls -la /drone/src/cache/zed-build-output/
       # Copy to workspace and cache
       - mkdir -p zed-build
       - cp /drone/src/cache/zed-build-output/zed zed-build/zed
+      - cp /drone/src/cache/zed-build-output/app-icon.png zed-build/app-icon.png
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         mkdir -p /drone/src/cache/zed-$${ZED_COMMIT}
         cp zed-build/zed /drone/src/cache/zed-$${ZED_COMMIT}/zed
+        cp zed-build/app-icon.png /drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
