@@ -644,6 +644,7 @@ services:
       - /app/node_modules
 
   haystack:
+    image: ${HAYSTACK_IMAGE:-helix-haystack:dev}
     build:
       context: ./haystack_service
     # ports:
