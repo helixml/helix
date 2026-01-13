@@ -622,6 +622,13 @@ export class WebSocketStream {
     this.streamerSize = [width, height]
     this.dispatchInfoEvent({ type: "streamInit", width, height, fps })
 
+    // Reset frame latency tracking - new stream has new PTS epoch
+    // Without this, frame drift calculation goes haywire after reconnect/resolution change
+    this.firstFramePtsUs = null
+    this.firstFrameArrivalTime = null
+    this.frameLatencySamples = []
+    this.currentFrameLatencyMs = 0
+
     // Initialize video decoder
     this.initVideoDecoder(codec, width, height)
 
@@ -883,9 +890,12 @@ export class WebSocketStream {
 
     // === Frame Latency Tracking ===
     // Measure how late frames arrive compared to when they should based on PTS
+    // Skip frames with invalid PTS (0 or negative) to avoid bogus drift calculations
     const ptsUsNum = Number(ptsUs)
-    if (this.firstFramePtsUs === null) {
-      // First frame: establish baseline
+    if (ptsUsNum <= 0) {
+      // Invalid PTS, skip drift tracking for this frame
+    } else if (this.firstFramePtsUs === null || this.firstFramePtsUs <= 0) {
+      // First valid frame: establish baseline
       this.firstFramePtsUs = ptsUsNum
       this.firstFrameArrivalTime = arrivalTime
       this.currentFrameLatencyMs = 0
@@ -898,24 +908,22 @@ export class WebSocketStream {
       // Positive = frames arriving late, negative = frames arriving early
       const latencyMs = arrivalTime - expectedArrivalTime
 
-      // Keep a moving average for stability
-      this.frameLatencySamples.push(latencyMs)
-      if (this.frameLatencySamples.length > this.MAX_FRAME_LATENCY_SAMPLES) {
-        this.frameLatencySamples.shift()
+      // Detect PTS discontinuity (pipeline restart without StreamInit)
+      // If latency is absurdly large (> 60 seconds), reset baseline
+      if (Math.abs(latencyMs) > 60000) {
+        console.warn(`[WebSocketStream] PTS discontinuity detected (drift=${latencyMs.toFixed(0)}ms), resetting baseline`)
+        this.firstFramePtsUs = ptsUsNum
+        this.firstFrameArrivalTime = arrivalTime
+        this.frameLatencySamples = []
+        this.currentFrameLatencyMs = 0
+      } else {
+        // Keep a moving average for stability
+        this.frameLatencySamples.push(latencyMs)
+        if (this.frameLatencySamples.length > this.MAX_FRAME_LATENCY_SAMPLES) {
+          this.frameLatencySamples.shift()
+        }
+        this.currentFrameLatencyMs = this.frameLatencySamples.reduce((a, b) => a + b, 0) / this.frameLatencySamples.length
       }
-      this.currentFrameLatencyMs = this.frameLatencySamples.reduce((a, b) => a + b, 0) / this.frameLatencySamples.length
-
-      // DISABLED: Batching feature breaks the stream - see user report
-      // TODO: Investigate why batching causes issues before re-enabling
-      // if (this.currentFrameLatencyMs > this.FRAME_LATENCY_THRESHOLD_MS && !this.batchingRequested) {
-      //   console.warn(`[WebSocketStream] High frame latency detected (${this.currentFrameLatencyMs.toFixed(0)}ms), requesting batching`)
-      //   this.sendBatchingRequest(true)
-      //   this.batchingRequested = true
-      // } else if (this.currentFrameLatencyMs < this.FRAME_LATENCY_THRESHOLD_MS / 2 && this.batchingRequested) {
-      //   console.log(`[WebSocketStream] Frame latency recovered (${this.currentFrameLatencyMs.toFixed(0)}ms), disabling batching request`)
-      //   this.sendBatchingRequest(false)
-      //   this.batchingRequested = false
-      // }
     }
 
     // === Decoder Queue Monitoring ===

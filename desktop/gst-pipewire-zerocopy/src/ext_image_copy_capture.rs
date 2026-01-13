@@ -390,7 +390,6 @@ impl ExtCaptureState {
         let frame = session.create_frame(qh, ());
         self.current_frame = Some(frame);
         self.capturing = true;
-        eprintln!("[EXT_IMAGE_COPY] Requested frame capture");
 
         // ext-image-copy-capture protocol: frames don't send buffer_size events.
         // The session sends buffer_size during initialization, and we use that
@@ -405,7 +404,6 @@ impl ExtCaptureState {
     /// Handle buffer_size event - create buffer and attach
     fn handle_buffer_size(&mut self, width: u32, height: u32, qh: &QueueHandle<Self>) {
         self.buffer_size_received = true;
-        eprintln!("[EXT_IMAGE_COPY] Buffer size: {}x{}", width, height);
 
         self.buffer_size = Some(BufferSize { width, height });
 
@@ -463,10 +461,6 @@ impl ExtCaptureState {
         // the compositor rejecting captures after a few frames.
         // The old wl_buffer (if any) is dropped here, which destroys the Wayland object.
         if let Some(shm_buf) = &self.shm_buffer {
-            eprintln!(
-                "[EXT_IMAGE_COPY] Creating wl_buffer: {}x{} stride={} bpp={} format={:?}",
-                width, height, stride, bpp, format.format
-            );
             let wl_buf_wrapper =
                 shm_buf.create_wl_buffer(&shm, width, height, stride, format.format, qh);
             self.current_wl_buffer = Some(wl_buf_wrapper);
@@ -475,7 +469,6 @@ impl ExtCaptureState {
         // Attach buffer and capture
         if let (Some(frame), Some(wl_buf_wrapper)) = (&self.current_frame, &self.current_wl_buffer)
         {
-            eprintln!("[EXT_IMAGE_COPY] Attaching buffer and capturing...");
             frame.attach_buffer(&wl_buf_wrapper.wl_buffer);
             // Request full damage (entire buffer)
             frame.damage_buffer(0, 0, width as i32, height as i32);
@@ -491,8 +484,6 @@ impl ExtCaptureState {
         if let (Some(size), Some(format), Some(shm_buf)) =
             (&self.buffer_size, &self.selected_format, &self.shm_buffer)
         {
-            eprintln!("[EXT_IMAGE_COPY] Frame ready!");
-
             let data = shm_buf.copy_to_vec();
             let bpp = Self::bytes_per_pixel(format.format);
             let stride = size.width * bpp;
@@ -500,10 +491,6 @@ impl ExtCaptureState {
             // Convert wl_shm format to DRM fourcc for downstream processing
             // (pipewiresrc/imp.rs expects DRM fourcc codes, not wl_shm enum values)
             let drm_fourcc = wl_shm_to_drm_fourcc(format.format);
-            eprintln!(
-                "[EXT_IMAGE_COPY] Frame format: wl_shm={:?} -> DRM fourcc=0x{:08x}",
-                format.format, drm_fourcc
-            );
 
             let frame = FrameData::Shm {
                 data,
