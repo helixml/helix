@@ -21,7 +21,8 @@ import {
   MenuItem,
   FormControlLabel,
   Checkbox,
-  Chip
+  Chip,
+  Switch
 } from '@mui/material'
 import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
@@ -162,6 +163,7 @@ const ProjectSettings: FC = () => {
   const [startupScript, setStartupScript] = useState('')
   const [guidelines, setGuidelines] = useState('')
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
+  const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] = useState(false)
   const [showTestSession, setShowTestSession] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
@@ -241,6 +243,7 @@ const ProjectSettings: FC = () => {
       setStartupScript(project.startup_script || '')
       setGuidelines(project.guidelines || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      setPullRequestReviewsEnabled(project.pull_request_reviews_enabled || false)
       setSelectedAgentId(project.default_helix_app_id || '')
       setSelectedProjectManagerAgentId(project.project_manager_helix_app_id || '')
       setSelectedPullRequestReviewerAgentId(project.pull_request_reviewer_helix_app_id || '')
@@ -288,6 +291,7 @@ const ProjectSettings: FC = () => {
         startup_script: startupScript,
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        pull_request_reviews_enabled: pullRequestReviewsEnabled,
         default_helix_app_id: selectedAgentId || undefined,
         project_manager_helix_app_id: selectedProjectManagerAgentId || undefined,
         metadata: {
@@ -852,28 +856,54 @@ const ProjectSettings: FC = () => {
               Configure automatic task scheduling and workflow automation.
             </Typography>
             <Divider sx={{ mb: 3 }} />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={autoStartBacklogTasks}
-                  onChange={(e) => {
-                    setAutoStartBacklogTasks(e.target.checked)
-                    handleFieldBlur()
-                  }}
-                />
-              }
-              label={
-                <Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ flex: 1, mr: 2 }}>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Automatically start backlog items when there's capacity in the planning column
+                    Auto-start backlog tasks
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    When enabled, tasks in the backlog will automatically move to planning when the WIP limit allows.
-                    When disabled, tasks must be manually moved from backlog to planning.
+                    Automatically move tasks from backlog to planning when the WIP limit allows.
                   </Typography>
                 </Box>
-              }
-            />
+                <Switch
+                  checked={autoStartBacklogTasks}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setAutoStartBacklogTasks(newValue)
+                    updateProjectMutation.mutate({
+                      auto_start_backlog_tasks: newValue,
+                    })
+                  }}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ flex: 1, mr: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Pull request reviews
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Automatically review pull requests using the configured reviewer agent.
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={pullRequestReviewsEnabled}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setPullRequestReviewsEnabled(newValue)
+                    updateProjectMutation.mutate({
+                      pull_request_reviews_enabled: newValue,
+                    })
+                  }}
+                  disabled={!primaryRepoIsExternal}
+                />
+              </Box>
+              {!primaryRepoIsExternal && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+                  Pull request reviews require an external repository (GitHub, GitLab, etc.) as the primary repository.
+                </Typography>
+              )}
+            </Box>
           </Paper>
 
           {/* Project Guidelines */}

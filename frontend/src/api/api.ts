@@ -2949,6 +2949,7 @@ export interface TypesProject {
   organization_id?: string;
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
+  pull_request_reviews_enabled?: boolean;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
@@ -3012,6 +3013,8 @@ export interface TypesProjectUpdateRequest {
   project_manager_helix_app_id?: string;
   /** Pull request reviewer agent */
   pull_request_reviewer_helix_app_id?: string;
+  /** Whether pull request reviews are enabled */
+  pull_request_reviews_enabled?: boolean;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -3159,6 +3162,11 @@ export interface TypesPullRequest {
   title?: string;
   updated_at?: string;
   url?: string;
+}
+
+export interface TypesPullRequestReview {
+  commit_hash?: string;
+  reviewed_at?: string;
 }
 
 export interface TypesPullResponse {
@@ -3953,6 +3961,7 @@ export interface TypesSpecTask {
   project_id?: string;
   project_path?: string;
   pull_request_id?: string;
+  pull_request_review?: TypesPullRequestReview;
   /** Computed field, not stored */
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */

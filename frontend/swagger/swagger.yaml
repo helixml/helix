@@ -4855,6 +4855,8 @@ definitions:
         type: string
       pull_request_reviewer_helix_app_id:
         type: string
+      pull_request_reviews_enabled:
+        type: boolean
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
@@ -4965,6 +4967,9 @@ definitions:
       pull_request_reviewer_helix_app_id:
         description: Pull request reviewer agent
         type: string
+      pull_request_reviews_enabled:
+        description: Whether pull request reviews are enabled
+        type: boolean
       startup_script:
         type: string
       status:
@@ -5208,6 +5213,13 @@ definitions:
       updated_at:
         type: string
       url:
+        type: string
+    type: object
+  types.PullRequestReview:
+    properties:
+      commit_hash:
+        type: string
+      reviewed_at:
         type: string
     type: object
   types.PullResponse:
@@ -6556,6 +6568,8 @@ definitions:
         type: string
       pull_request_id:
         type: string
+      pull_request_review:
+        $ref: '#/definitions/types.PullRequestReview'
       pull_request_url:
         description: Computed field, not stored
         type: string
