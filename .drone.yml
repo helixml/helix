@@ -1574,7 +1574,7 @@ steps:
           echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
 
           # Build the Zed builder image
-          docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+          docker build --pull -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
           # Run Zed build in container, output directly to cache directory
           # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
@@ -1695,7 +1695,7 @@ steps:
         fi
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
-        docker build -f Dockerfile.sandbox \
+        docker build --pull -f Dockerfile.sandbox \
           -t helix-sandbox:latest \
           -t helix-sandbox:$${VERSION} \
           -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT} \
