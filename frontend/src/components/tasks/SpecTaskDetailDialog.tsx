@@ -1069,7 +1069,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                 {displayTask.pull_request_url && (
                   <Button
                     variant="outlined"
-                    color="primary"
+                    color="secondary"
                     startIcon={<LaunchIcon />}
                     onClick={() => window.open(displayTask.pull_request_url, '_blank')}
                   >
