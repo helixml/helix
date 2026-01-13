@@ -1398,6 +1398,11 @@ services:
 #   - Tags: use git tag (e.g., v1.2.3)
 #   - Branches: use commit hash (e.g., abc123f)
 #
+# Concurrency:
+#   Steps use shared host volumes for caching. To prevent race conditions
+#   when multiple builds run concurrently, we use flock for file-based locking.
+#   flock auto-releases on process death (no stale locks).
+#
 # No GPU required - builds work on standard runners.
 # ====================================================================
 kind: pipeline
@@ -1410,8 +1415,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
-    - auotmate-builds
+    - fix/ci-sandbox-build-concurrency
 
 volumes:
   - name: dockersocket
@@ -1431,9 +1435,13 @@ steps:
   # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
   # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
   # Optional: CI warns if pinned version is behind upstream HEAD
+  #
+  # CONCURRENCY: Uses flock to prevent race conditions when multiple builds
+  # access shared cache. flock auto-releases on process death (no stale locks).
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
+      - apk add --no-cache flock
       - mkdir -p /drone/src/external /drone/src/cache
       # Read pinned versions
       - |
@@ -1452,34 +1460,40 @@ steps:
         if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
           echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
-      # Clone Zed only if not cached
+      # Clone Zed only if not cached (flock prevents concurrent clone race)
       - |
         . /drone/src/sandbox-versions.txt
-        if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ] && [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/app-icon.png" ]; then
-          echo "✓ Zed binary+icon cached for $${ZED_COMMIT:0:12}"
-        else
-          echo "Cloning Zed at commit $${ZED_COMMIT}..."
-          rm -rf /drone/src/cache/zed-source
-          mkdir -p /drone/src/cache/zed-source
-          cd /drone/src/cache/zed-source
-          git init
-          git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-          git checkout FETCH_HEAD
-        fi
-      # Clone qwen-code only if not cached
+        ZED_SHORT=$${ZED_COMMIT:0:12}
+        flock /drone/src/cache/zed-source.lock -c "
+          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
+            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
+          else
+            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
+            rm -rf /drone/src/cache/zed-source
+            mkdir -p /drone/src/cache/zed-source
+            cd /drone/src/cache/zed-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
+      # Clone qwen-code only if not cached (flock prevents concurrent clone race)
       - |
         . /drone/src/sandbox-versions.txt
-        if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT:0:12}/dist/index.js" ]; then
-          echo "✓ qwen-code cached for $${QWEN_COMMIT:0:12}"
-        else
-          echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-          rm -rf /drone/src/cache/qwen-source
-          mkdir -p /drone/src/cache/qwen-source
-          cd /drone/src/cache/qwen-source
-          git init
-          git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-          git checkout FETCH_HEAD
-        fi
+        QWEN_SHORT=$${QWEN_COMMIT:0:12}
+        flock /drone/src/cache/qwen-source.lock -c "
+          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/index.js' ]; then
+            echo '✓ qwen-code cached for $${QWEN_SHORT}'
+          else
+            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
+            rm -rf /drone/src/cache/qwen-source
+            mkdir -p /drone/src/cache/qwen-source
+            cd /drone/src/cache/qwen-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -1488,32 +1502,44 @@ steps:
         path: /drone/src/cache
 
   # Step 2: Build qwen-code (with caching)
+  # Uses flock to prevent concurrent builds from racing on shared cache
   - name: build-qwen-code
     image: node:20-slim
     commands:
+      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
       - |
         QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js" ]; then
-          echo "Using cached qwen-code for commit $${QWEN_COMMIT}"
-          mkdir -p qwen-code-build
-          cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* qwen-code-build/
-          exit 0
-        fi
-      - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-      - mkdir -p qwen-code-build
-      # qwen-code source is cloned to cache volume (see clone-dependencies step)
-      - cd /drone/src/cache/qwen-source
-      - npm ci --ignore-scripts
-      - npm run bundle
-      - cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
-      - cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
-      - echo "qwen-code build complete"
-      - ls -la /drone/src/qwen-code-build/
-      # Cache the build
-      - |
-        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
-        cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
+        # Use flock for entire build to prevent races on qwen-source and cache
+        flock /drone/src/cache/qwen-build.lock -c "
+          # Double-check cache after acquiring lock (another build may have finished)
+          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js' ]; then
+            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
+            mkdir -p /drone/src/qwen-code-build
+            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
+            exit 0
+          fi
+
+          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
+          mkdir -p /drone/src/qwen-code-build
+          cd /drone/src/cache/qwen-source
+          npm ci --ignore-scripts
+          npm run bundle
+
+          # Copy everything needed for runtime (matching ./stack build-qwen-code)
+          # node_modules is required because tiktoken has native bindings that can't be bundled
+          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
+          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
+          cp -r node_modules/ /drone/src/qwen-code-build/
+          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
+          echo 'qwen-code build complete'
+          ls -la /drone/src/qwen-code-build/
+
+          # Cache the build
+          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
+          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
+        "
+      # Copy from workspace (flock wrote here)
+      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
     volumes:
       - name: sandbox-build-cache
         path: /drone/src/cache
@@ -1523,60 +1549,67 @@ steps:
       - clone-dependencies
 
   # Step 3: Build Zed binary
+  # Uses flock to prevent concurrent builds from racing on shared cache
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
+      - apk add --no-cache flock
       - |
-        # Check if Zed binary AND icon already cached for this commit
-        # Both files required - old caches without icon will be rebuilt
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         CACHE_KEY="zed-$${ZED_COMMIT}"
-        if [ -f "/drone/src/cache/$${CACHE_KEY}/zed" ] && [ -f "/drone/src/cache/$${CACHE_KEY}/app-icon.png" ]; then
-          echo "Using cached Zed binary + icon for commit $${ZED_COMMIT}"
+        # Use flock for entire build to prevent races on cache
+        flock /drone/src/cache/zed-build.lock -c "
+          # Double-check cache after acquiring lock (another build may have finished)
+          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
+            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
+            mkdir -p zed-build
+            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+            chmod +x zed-build/zed
+            exit 0
+          fi
+
+          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+
+          # Build the Zed builder image
+          docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+
+          # Run Zed build in container
+          # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
+          #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
+          #       Docker-in-Docker mounts use HOST paths, not container paths.
+          mkdir -p /drone/src/cache/zed-build-output
+          docker run --rm \\
+            -v '/var/cache/drone/sandbox-build/zed-source:/zed:ro' \\
+            -v '/var/cache/drone/cargo/registry:/root/.cargo/registry' \\
+            -v '/var/cache/drone/cargo/git:/root/.cargo/git' \\
+            -v '/var/cache/drone/cargo/zed-target:/zed-target' \\
+            -v '/var/cache/drone/sandbox-build/zed-build-output:/output' \\
+            -w /zed \\
+            zed-builder:ubuntu25 \\
+            bash -c '
+              export CARGO_TARGET_DIR=/zed-target
+              RUSTFLAGS=\"-C link-arg=-s\" cargo build --release --features external_websocket_sync
+              cp /zed-target/release/zed /output/zed
+              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
+            '
+
+          ls -la /drone/src/cache/zed-build-output/
+
+          # Copy to workspace
           mkdir -p zed-build
-          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+          cp /drone/src/cache/zed-build-output/zed zed-build/zed
+          cp /drone/src/cache/zed-build-output/app-icon.png zed-build/app-icon.png
           chmod +x zed-build/zed
-          exit 0
-        fi
-        echo "Cache miss or incomplete cache for $${ZED_COMMIT} - will rebuild"
-      - echo "Building Zed binary (this may take 15-20 minutes on first run)..."
-      # Build the Zed builder image
-      - docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
-      # Run Zed build in container
-      # Note: Don't mount .rustup - it's already installed in the image
-      # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
-      #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
-      #       Docker-in-Docker mounts use HOST paths, not container paths.
-      # Output goes to cache volume (known host path for Docker-in-Docker)
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        mkdir -p /drone/src/cache/zed-build-output
-        docker run --rm \
-          -v "/var/cache/drone/sandbox-build/zed-source:/zed:ro" \
-          -v "/var/cache/drone/cargo/registry:/root/.cargo/registry" \
-          -v "/var/cache/drone/cargo/git:/root/.cargo/git" \
-          -v "/var/cache/drone/sandbox-build/zed-build-output:/output" \
-          -w /zed \
-          zed-builder:ubuntu25 \
-          bash -c '
-            export CARGO_TARGET_DIR=/tmp/zed-target
-            RUSTFLAGS="-C link-arg=-s" cargo build --release --features external_websocket_sync
-            cp /tmp/zed-target/release/zed /output/zed
-            cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
-          '
-      - ls -la /drone/src/cache/zed-build-output/
-      # Copy to workspace and cache
-      - mkdir -p zed-build
-      - cp /drone/src/cache/zed-build-output/zed zed-build/zed
-      - cp /drone/src/cache/zed-build-output/app-icon.png zed-build/app-icon.png
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        mkdir -p /drone/src/cache/zed-$${ZED_COMMIT}
-        cp zed-build/zed /drone/src/cache/zed-$${ZED_COMMIT}/zed
-        cp zed-build/app-icon.png /drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png
+
+          # Cache the build
+          mkdir -p /drone/src/cache/$${CACHE_KEY}
+          cp zed-build/zed /drone/src/cache/$${CACHE_KEY}/zed
+          cp zed-build/app-icon.png /drone/src/cache/$${CACHE_KEY}/app-icon.png
+        "
+      - chmod +x zed-build/zed
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1720,7 +1753,6 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
-        - auotmate-builds
+        - fix/ci-sandbox-build-concurrency
     depends_on:
       - build-sandbox
