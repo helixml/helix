@@ -900,7 +900,7 @@ export default function TaskCard({
             <Button
               size="small"
               variant="contained"
-              color="primary"
+              color="secondary"
               startIcon={<ViewIcon />}
               onClick={(e) => {
                 e.stopPropagation()
