@@ -19,15 +19,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+//go:generate mockgen -source $GOFILE -destination controller_mocks.go -package $GOPACKAGE
+
+type Controller interface {
+	RunBlockingSession(ctx context.Context, req *controller.RunSessionRequest) (*types.Interaction, error)
+	WriteSession(ctx context.Context, session *types.Session) error
+}
+
 // HelixCodeReviewTrigger is triggered by code changes in the project, for example
 // agent pushes code when implementing the spec task and the PR is opened
 type HelixCodeReviewTrigger struct { //nolint:revive
 	cfg        *config.ServerConfig
 	store      store.Store
-	controller *controller.Controller
+	controller Controller
 }
 
-func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *HelixCodeReviewTrigger {
+func New(cfg *config.ServerConfig, store store.Store, controller Controller) *HelixCodeReviewTrigger {
 	return &HelixCodeReviewTrigger{
 		cfg:        cfg,
 		store:      store,
