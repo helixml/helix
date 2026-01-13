@@ -150,6 +150,11 @@ func (s *Server) Run(ctx context.Context) error {
 		"session_id", s.config.SessionID,
 	)
 
+	// Pre-initialize GStreamer to avoid 4-second delay on first video stream connection.
+	// GStreamer initialization includes scanning for plugins which is slow on first call.
+	InitGStreamer()
+	s.logger.Info("GStreamer initialized")
+
 	// Detect compositor type and setup D-Bus sessions accordingly
 	s.compositorType = s.detectCompositor()
 	s.logger.Info("detected compositor", "type", s.compositorType)
