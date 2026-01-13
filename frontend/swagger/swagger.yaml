@@ -5059,13 +5059,6 @@ definitions:
       url:
         type: string
     type: object
-  types.PullRequestReview:
-    properties:
-      commit_hash:
-        type: string
-      reviewed_at:
-        type: string
-    type: object
   types.PullResponse:
     properties:
       branch:
@@ -6442,8 +6435,6 @@ definitions:
         type: string
       pull_request_id:
         type: string
-      pull_request_review:
-        $ref: '#/definitions/types.PullRequestReview'
       pull_request_url:
         description: Computed field, not stored
         type: string
