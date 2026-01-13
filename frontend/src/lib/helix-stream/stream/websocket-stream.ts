@@ -872,14 +872,9 @@ export class WebSocketStream {
     // Use a class counter since framesDecoded only increments on successful decode
     this.framesReceived = (this.framesReceived || 0) + 1
     if (this.framesReceived <= 10) {
-      console.log(`[WebSocketStream] Frame ${this.framesReceived} received: type=${msgType} codec=${codec} flags=0x${flags.toString(16)} isKeyframe=${isKeyframe} size=${data.length}`)
-      // Log first 32 bytes of delta frames too (not just keyframes) to debug decoder failures
-      if (!isKeyframe && data.length >= 47) { // 15 header + 32 payload
-        const hexBytes = Array.from(data.slice(15, 47))
-          .map(b => b.toString(16).padStart(2, "0"))
-          .join(" ")
-        console.log(`[WebSocketStream] Delta frame first 32 bytes: ${hexBytes}`)
-      }
+      // Log header bytes to debug PTS issues
+      const ptsBytes = Array.from(data.slice(3, 11)).map(b => b.toString(16).padStart(2, "0")).join(" ")
+      console.log(`[WebSocketStream] Frame ${this.framesReceived}: type=${msgType} codec=${codec} flags=0x${flags.toString(16)} isKeyframe=${isKeyframe} size=${data.length} pts=${ptsUs} (bytes: ${ptsBytes})`)
     }
     // width at offset 11, height at offset 13 (already have from StreamInit)
 
@@ -911,7 +906,8 @@ export class WebSocketStream {
       // Detect PTS discontinuity (pipeline restart without StreamInit)
       // If latency is absurdly large (> 60 seconds), reset baseline
       if (Math.abs(latencyMs) > 60000) {
-        console.warn(`[WebSocketStream] PTS discontinuity detected (drift=${latencyMs.toFixed(0)}ms), resetting baseline`)
+        // Log detailed info to debug oscillating PTS issue
+        console.warn(`[WebSocketStream] PTS discontinuity: drift=${latencyMs.toFixed(0)}ms, pts=${ptsUsNum}, firstPts=${this.firstFramePtsUs}, ptsDelta=${ptsDeltaMs.toFixed(0)}ms`)
         this.firstFramePtsUs = ptsUsNum
         this.firstFrameArrivalTime = arrivalTime
         this.frameLatencySamples = []
