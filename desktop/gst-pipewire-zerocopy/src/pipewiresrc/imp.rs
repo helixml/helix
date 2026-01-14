@@ -172,7 +172,7 @@ impl Default for Settings {
             pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             cuda_device_id: -1,
-            keepalive_time_ms: 100,
+            keepalive_time_ms: 500,
             target_fps: 60,
             capture_source: CaptureSource::PipeWire,
             buffer_type: BufferType::Shm,
@@ -383,7 +383,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                     .blurb("Resend last buffer after this many ms (0=disabled)")
                     .minimum(0)
                     .maximum(60000)
-                    .default_value(100)
+                    .default_value(500)
                     .construct()
                     .build(),
                 glib::ParamSpecUInt::builder("target-fps")

@@ -137,6 +137,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
+  const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
+  const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
   // Quality mode: video delivery method (hot-switchable without disrupting WebSocket connection)
   // - 'high': 60fps video over WebSocket
   // - 'sse': 60fps video over SSE (lower latency for long connections)
@@ -2507,6 +2509,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [audioEnabled]);
 
+  // Apply debug throttle ratio override to WebSocketStream
+  useEffect(() => {
+    if (streamRef.current instanceof WebSocketStream) {
+      (streamRef.current as WebSocketStream).setThrottleRatio(debugThrottleRatio);
+    }
+  }, [debugThrottleRatio]);
+
   // Poll WebRTC stats when stats overlay or charts are visible
   useEffect(() => {
     if ((!showStats && !showCharts) || !streamRef.current) {
@@ -2549,6 +2558,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             framesDecoded: isForcedLow ? 0 : (isSSE ? sseStats.framesDecoded : wsStats.framesDecoded),
             framesDropped: isForcedLow ? 0 : (isSSE ? sseStats.framesDropped : wsStats.framesDropped),
             rttMs: wsStats.rttMs,                                              // RTT still from WebSocket
+            encoderLatencyMs: wsStats.encoderLatencyMs,                        // Server-side encoder latency
             isHighLatency: wsStats.isHighLatency,                              // High latency flag from WS
             // Batching stats (only for non-SSE mode)
             batchingRatio: isSSE ? 0 : wsStats.batchingRatio,
@@ -2556,7 +2566,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             batchesReceived: isSSE ? 0 : wsStats.batchesReceived,
             // Frame latency and decoder queue (works in both WebSocket and SSE modes)
             frameLatencyMs: isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs,
-            batchingRequested: isSSE ? false : wsStats.batchingRequested,
+            // Adaptive input throttling
+            adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
+            effectiveInputFps: wsStats.effectiveInputFps,
+            isThrottled: wsStats.isThrottled,
             decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
             maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
             framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
@@ -2592,6 +2605,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
         // Update high latency state for warning banner
         setIsHighLatency(wsStats.isHighLatency);
+        // Update throttle state for warning banner
+        setIsThrottled(wsStats.isThrottled);
         // Show orange border for forced low quality mode
         setIsOnFallback(isForcedLow);
 
@@ -3458,6 +3473,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Adaptive Throttle Warning Banner - shown when input rate is reduced due to high latency */}
+      {isThrottled && isConnected && streamingMode === 'websocket' && !shouldPollScreenshots && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            backgroundColor: 'rgba(255, 152, 0, 0.9)',
+            color: 'black',
+            padding: '4px 16px',
+            borderRadius: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+          }}
+        >
+          <Wifi sx={{ fontSize: 16 }} />
+          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+            High latency detected - input rate reduced to {stats?.video?.effectiveInputFps?.toFixed(0) || '?'} Hz
+          </Typography>
+        </Box>
+      )}
+
       {/* Unified Connection Status Overlay - single overlay for all connection states */}
       {/* Suppressed when parent component (ExternalAgentDesktopViewer) is showing its own overlay */}
       {!suppressOverlay && (!isConnected || isConnecting || error || retryCountdown !== null) && (
@@ -3772,21 +3814,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
-                {/* RTT (WebSocket mode) */}
+                {/* Latency metrics (WebSocket mode) */}
                 {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
-                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                    {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
+                      <>
+                        <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
+                        <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
+                      </>
+                    )}
+                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️</span>}
                   </div>
                 )}
-                {/* Batching stats (WebSocket mode) - shows congestion handling */}
-                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                {/* Adaptive input throttling (WebSocket mode) - reduces input rate when RTT is high */}
+                {streamingMode === 'websocket' && stats.video.adaptiveThrottleRatio !== undefined && (
                   <div>
-                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
-                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
-                      : 'OFF'}
-                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
-                    {stats.video.batchingRequested && <span style={{ color: '#ff9800' }}> (requested)</span>}
+                    <strong>Input Throttle:</strong> {(stats.video.adaptiveThrottleRatio * 100).toFixed(0)}%
+                    {' '}({stats.video.effectiveInputFps?.toFixed(0) || 0} Hz)
+                    {stats.video.isThrottled && <span style={{ color: '#ff9800' }}> ⚠️ Reduced due to latency</span>}
                   </div>
                 )}
                 {/* Frame latency (WebSocket and SSE modes) - actual delivery delay based on PTS */}
@@ -3865,6 +3911,31 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               </div>
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
+            {/* Debug: Throttle ratio override */}
+            {streamingMode === 'websocket' && (
+              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                <strong>🔧 Debug: Throttle Override</strong>
+                <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {[null, 1.0, 0.75, 0.5, 0.33, 0.25].map((ratio) => (
+                    <button
+                      key={ratio === null ? 'auto' : ratio}
+                      onClick={() => setDebugThrottleRatio(ratio)}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: '10px',
+                        background: debugThrottleRatio === ratio ? '#4caf50' : 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        borderRadius: 3,
+                        color: 'white',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {ratio === null ? 'Auto' : `${(ratio * 100).toFixed(0)}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Screenshot mode stats */}
             {shouldPollScreenshots && (
               <>
