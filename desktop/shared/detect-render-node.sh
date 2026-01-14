@@ -114,24 +114,28 @@ detect_render_node() {
         export WLR_DRM_DEVICES="$detected_card"
         echo "[render-node] Set WLR_DRM_DEVICES=$detected_card for Sway"
 
-        # Create udev rule for GNOME/Mutter GPU selection
-        # Mutter uses the mutter-device-preferred-primary udev tag to select primary GPU
+        # Configure Mutter GPU selection by writing directly to udev database
+        # Mutter uses the mutter-device-preferred-primary tag to select primary GPU
         # See: https://github.com/GNOME/mutter/blob/main/doc/multi-gpu.md
-        # This rule must be created before Mutter starts
-        UDEV_RULE_FILE="/etc/udev/rules.d/61-helix-mutter-primary-gpu.rules"
-        if [ "$(id -u)" = "0" ] || [ -w "/etc/udev/rules.d" ]; then
-            # Create udev rule that matches by device path (most reliable in containers)
-            echo "SUBSYSTEM==\"drm\", ENV{DEVNAME}==\"$detected_card\", TAG+=\"mutter-device-preferred-primary\"" > "$UDEV_RULE_FILE"
-            echo "[render-node] Created udev rule for Mutter primary GPU: $UDEV_RULE_FILE"
+        #
+        # In containers without udevd, we can't use udev rules. Instead, we write
+        # directly to /run/udev/data/c<major>:<minor> which libgudev reads.
+        # We must tag the RENDER NODE (not card device) as that's what Mutter checks.
+        if [ -n "$detected_node" ]; then
+            mkdir -p /run/udev/data
 
-            # Reload udev rules if udevadm is available
-            if command -v udevadm >/dev/null 2>&1; then
-                udevadm control --reload-rules 2>/dev/null || true
-                udevadm trigger --subsystem-match=drm 2>/dev/null || true
-                echo "[render-node] Reloaded udev rules for Mutter"
+            # Get major:minor for the render node
+            if [ -c "$detected_node" ]; then
+                MAJOR=$(stat -c %t "$detected_node")
+                MINOR=$(stat -c %T "$detected_node")
+                # Convert hex to decimal
+                MAJOR_DEC=$((16#$MAJOR))
+                MINOR_DEC=$((16#$MINOR))
+
+                UDEV_DB_FILE="/run/udev/data/c${MAJOR_DEC}:${MINOR_DEC}"
+                echo "G:mutter-device-preferred-primary" > "$UDEV_DB_FILE"
+                echo "[render-node] Created udev database entry for Mutter: $UDEV_DB_FILE"
             fi
-        else
-            echo "[render-node] WARNING: Cannot create udev rule (not root). Mutter may select wrong GPU."
         fi
     fi
 
