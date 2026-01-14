@@ -13,17 +13,9 @@ log() {
 
 log "Starting..."
 
-# D-Bus session should already be set by dbus-run-session wrapper
-# If not set, try to source from file as fallback
+# D-Bus session is inherited from dbus-run-session (both Sway and GNOME use this pattern)
 if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    DBUS_ENV_FILE="${XDG_RUNTIME_DIR:-/run/user/1000}/dbus-session.env"
-    if [ -f "$DBUS_ENV_FILE" ]; then
-        # shellcheck source=/dev/null
-        source "$DBUS_ENV_FILE"
-        log "D-Bus session sourced from file"
-    else
-        log "WARNING: DBUS_SESSION_BUS_ADDRESS not set and no env file found"
-    fi
+    log "WARNING: DBUS_SESSION_BUS_ADDRESS not set - should be launched from dbus-run-session"
 fi
 
 # Wait for Wayland socket (aggressive polling - 50ms intervals)

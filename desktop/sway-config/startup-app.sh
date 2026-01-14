@@ -509,11 +509,6 @@ EOF
 echo "[sway-session] Starting inside D-Bus session..."
 echo "[sway-session] DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
-# Write D-Bus session env to file for init scripts to source
-DBUS_ENV_FILE="${XDG_RUNTIME_DIR}/dbus-session.env"
-echo "export DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'" > "$DBUS_ENV_FILE"
-echo "[sway-session] D-Bus env written to $DBUS_ENV_FILE"
-
 # Enable core dumps for crash debugging
 # Core dumps are saved to /tmp/cores/ for later analysis
 mkdir -p /tmp/cores
