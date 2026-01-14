@@ -165,8 +165,9 @@ detect_render_node() {
         # In containers without udevd, we can't use udev rules. Instead, we write
         # directly to /run/udev/data/c<major>:<minor> which libgudev reads.
         # We must tag the RENDER NODE (not card device) as that's what Mutter checks.
+        # NOTE: Requires sudo since /run/udev/data is root-owned.
         if [ -n "$detected_node" ]; then
-            mkdir -p /run/udev/data
+            sudo mkdir -p /run/udev/data
 
             # Get major:minor for the render node
             if [ -c "$detected_node" ]; then
@@ -177,7 +178,7 @@ detect_render_node() {
                 MINOR_DEC=$((16#$MINOR))
 
                 UDEV_DB_FILE="/run/udev/data/c${MAJOR_DEC}:${MINOR_DEC}"
-                echo "G:mutter-device-preferred-primary" > "$UDEV_DB_FILE"
+                echo "G:mutter-device-preferred-primary" | sudo tee "$UDEV_DB_FILE" > /dev/null
                 echo "[render-node] Created udev database entry for Mutter: $UDEV_DB_FILE"
             fi
         fi
