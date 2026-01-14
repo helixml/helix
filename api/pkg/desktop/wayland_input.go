@@ -408,23 +408,41 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 	// Step 1: Pre-initialize BOTH axis sources to FINGER
 	// This ensures no stale WHEEL source can cause assertion failures
-	w.pointer.Axis(now, virtual_pointer.AxisVertical, 0)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
-	w.pointer.Axis(now, virtual_pointer.AxisHorizontal, 0)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+	if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, 0); err != nil {
+		w.logger.Debug("axis pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, 0); err != nil {
+		w.logger.Debug("axis pre-init horizontal failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init horizontal failed", "err", err)
+	}
 
 	// Step 2: Send the actual scroll deltas (overwriting the zero deltas above)
 	// We set source again after each Axis to ensure it's set for the correct axis
 	if deltaY != 0 {
-		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
-		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15); err != nil {
+			w.logger.Debug("axis vertical failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source vertical failed", "err", err)
+		}
 	}
 
 	if deltaX != 0 {
-		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
-		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15); err != nil {
+			w.logger.Debug("axis horizontal failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source horizontal failed", "err", err)
+		}
 	}
 
-	w.pointer.Frame()
+	if err := w.pointer.Frame(); err != nil {
+		w.logger.Debug("frame failed", "err", err)
+	}
 	return nil
 }
