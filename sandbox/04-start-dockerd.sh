@@ -125,14 +125,15 @@ load_desktop_image() {
     local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
     local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
 
-    # Read expected version from .version file (required)
+    # Read expected version from .version file
     if [ ! -f "$VERSION_FILE" ]; then
         if [ "$REQUIRED" = "true" ]; then
             echo "⚠️  ${IMAGE_NAME} version file missing: ${VERSION_FILE}"
+            return 1
         else
             echo "ℹ️  ${IMAGE_NAME} not configured (no version file)"
+            return 0  # OK for optional images
         fi
-        return 1
     fi
     local VERSION=$(cat "$VERSION_FILE")
 
