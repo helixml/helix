@@ -47,6 +47,13 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get source project's primary repo ID for reference worktree support
+	var sourceRepoID string
+	sourceProject, err := s.Store.GetProject(ctx, sourceTask.ProjectID)
+	if err == nil && sourceProject != nil {
+		sourceRepoID = sourceProject.DefaultRepoID
+	}
+
 	// Create clone group to track this batch
 	cloneGroup := &types.CloneGroup{
 		SourceTaskID:        sourceTask.ID,
@@ -74,7 +81,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 
 	// Clone to existing projects
 	for _, projectID := range req.TargetProjectIDs {
-		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, sourceRepoID, req.AutoStart)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: projectID,
@@ -101,7 +108,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Clone to the new project
-		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, sourceRepoID, req.AutoStart)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: project.ID,
@@ -120,7 +127,8 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // cloneTaskToProject creates a copy of a task in the target project
-func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart bool) (*types.CloneTaskResult, error) {
+// sourceRepoID is the primary repository from the source project (for reference worktree support)
+func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail, sourceRepoID string, autoStart bool) (*types.CloneTaskResult, error) {
 	// Get project to include its name in the result
 	project, err := s.Store.GetProject(ctx, projectID)
 	if err != nil {
@@ -155,9 +163,13 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,
-		CreatedBy:           userID,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		// Source context for session learning + reference worktree
+		SourceSessionID:  source.PlanningSessionID,
+		SourceBranchName: source.BranchName,
+		SourceRepoID:     sourceRepoID,
+		CreatedBy:        userID,
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 	}
 
 	if err := s.Store.CreateSpecTask(ctx, newTask); err != nil {

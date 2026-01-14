@@ -153,6 +153,11 @@ type SpecTask struct {
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty" gorm:"size:255;index"` // Original project
 	CloneGroupID        string `json:"clone_group_id,omitempty" gorm:"size:255;index"`         // Groups tasks from same clone operation
 
+	// Source context for cloned tasks (to inject session learning + reference code)
+	SourceSessionID  string `json:"source_session_id,omitempty" gorm:"size:255"`  // Source task's planning session for context injection
+	SourceBranchName string `json:"source_branch_name,omitempty" gorm:"size:255"` // Source task's branch for reference worktree
+	SourceRepoID     string `json:"source_repo_id,omitempty" gorm:"size:255"`     // Source task's primary repo for reference worktree
+
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
 	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)

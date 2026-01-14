@@ -381,7 +381,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Create initial interaction combining planning instructions with user's request
 	// The planning prompt tells Zed how to create design documents
 	// The user's prompt is what they want designed
-	fullMessage := planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+
+	// If this is a cloned task, inject context from the source session
+	cloneContext := s.buildCloneContext(ctx, task)
+
+	fullMessage := planningPrompt + "\n\n" + cloneContext + "**User Request:**\n" + task.OriginalPrompt
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -792,7 +796,10 @@ Follow these guidelines when making changes:
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
 
-	promptWithBranch := fmt.Sprintf(`%s
+	// If this is a cloned task, inject context from the source session
+	cloneContext := s.buildCloneContext(ctx, task)
+
+	promptWithBranch := fmt.Sprintf(`%s%s
 %s
 ---
 
@@ -805,7 +812,7 @@ Follow these guidelines when making changes:
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, cloneContext, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1214,6 +1221,116 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 		return ""
 	}
 	return s.zedAgentPool[0]
+}
+
+// buildCloneContext generates context from the source session for cloned tasks.
+// This allows the agent to learn from the original implementation.
+func (s *SpecDrivenTaskService) buildCloneContext(ctx context.Context, task *types.SpecTask) string {
+	if task.SourceSessionID == "" {
+		return ""
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_session_id", task.SourceSessionID).
+		Msg("Building clone context from source session")
+
+	// Get source session
+	session, err := s.store.GetSession(ctx, task.SourceSessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("source_session_id", task.SourceSessionID).Msg("Failed to get source session for clone context")
+		return ""
+	}
+
+	// Get interactions to build TOC
+	interactions, _, err := s.store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    task.SourceSessionID,
+		GenerationID: session.GenerationID,
+		PerPage:      100, // Limit to avoid huge context
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("source_session_id", task.SourceSessionID).Msg("Failed to list interactions for clone context")
+		return ""
+	}
+
+	if len(interactions) == 0 {
+		return ""
+	}
+
+	// Build formatted TOC
+	var tocLines []string
+	for i, interaction := range interactions {
+		turn := i + 1
+		summary := interaction.Summary
+		if summary == "" {
+			// Extract first line of prompt as fallback summary
+			summary = interaction.PromptMessage
+			if len(summary) > 100 {
+				summary = summary[:97] + "..."
+			}
+			// Clean up newlines
+			if idx := indexOf(summary, '\n'); idx != -1 {
+				summary = summary[:idx]
+			}
+		}
+		tocLines = append(tocLines, fmt.Sprintf("%d. %s", turn, summary))
+	}
+
+	// Build clone context block
+	context := fmt.Sprintf(`
+## Context from Previous Implementation
+
+This task was cloned from a completed implementation. The original agent's session provides valuable context about what was learned.
+
+### Source Session: %s
+**Session Title:** %s
+**Turns:** %d
+
+### Table of Contents
+%s
+
+### How to Access Full Details
+Use the MCP session tools to dive deeper into the source implementation:
+- session_toc(session_id="%s") - Full table of contents
+- get_turn(session_id="%s", turn=N) - Read specific interaction details
+- search_session(session_id="%s", query="...") - Find relevant content
+
+Adapt the patterns and solutions learned in the source implementation to this repository.
+
+---
+
+`, task.SourceSessionID, session.Name, len(interactions),
+		stringJoin(tocLines, "\n"),
+		task.SourceSessionID, task.SourceSessionID, task.SourceSessionID)
+
+	log.Info().
+		Str("task_id", task.ID).
+		Int("source_turns", len(interactions)).
+		Msg("Built clone context from source session")
+
+	return context
+}
+
+// indexOf returns the index of the first occurrence of c in s, or -1 if not found
+func indexOf(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+// stringJoin joins strings with a separator (avoiding import for simple operation)
+func stringJoin(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
