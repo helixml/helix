@@ -294,7 +294,45 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
+	// Override API URLs with sandbox's own HELIX_API_URL
+	// The API server sends localhost URLs, but desktop containers inside DinD
+	// need to reach the API via the sandbox's configured URL (set during install)
+	sandboxAPIURL := os.Getenv("HELIX_API_URL")
+	if sandboxAPIURL != "" {
+		log.Debug().
+			Str("sandbox_api_url", sandboxAPIURL).
+			Msg("Overriding API URLs in desktop container env with sandbox's HELIX_API_URL")
+
+		env = overrideEnvVar(env, "HELIX_API_URL", sandboxAPIURL)
+		env = overrideEnvVar(env, "HELIX_API_BASE_URL", sandboxAPIURL)
+		env = overrideEnvVar(env, "ANTHROPIC_BASE_URL", sandboxAPIURL)
+
+		// ZED_HELIX_URL needs host:port without scheme
+		zedURL := strings.TrimPrefix(sandboxAPIURL, "https://")
+		zedURL = strings.TrimPrefix(zedURL, "http://")
+		env = overrideEnvVar(env, "ZED_HELIX_URL", zedURL)
+
+		// Also set TLS flag based on scheme
+		if strings.HasPrefix(sandboxAPIURL, "https://") {
+			env = overrideEnvVar(env, "ZED_HELIX_TLS", "true")
+		} else {
+			env = overrideEnvVar(env, "ZED_HELIX_TLS", "false")
+		}
+	}
+
 	return env
+}
+
+// overrideEnvVar replaces an environment variable if it exists, or appends it if not
+func overrideEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // buildHostConfig builds the host configuration for the container
