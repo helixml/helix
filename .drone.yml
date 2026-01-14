@@ -76,8 +76,8 @@ steps:
       - apk add --no-cache bash git
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
-      - chmod +x ./desktop/sway-config/test-helix-specs-creation.sh
-      - ./desktop/sway-config/test-helix-specs-creation.sh
+      - chmod +x ./desktop/shared/test-helix-specs-creation.sh
+      - ./desktop/shared/test-helix-specs-creation.sh
     when:
       event:
         - push
