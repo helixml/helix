@@ -447,7 +447,16 @@ func (w *WaylandInput) sendScrollStop() {
 		return
 	}
 
+	// Nothing to stop if we weren't scrolling
+	if !w.scrollingX && !w.scrollingY {
+		return
+	}
+
 	now := time.Now()
+
+	// IMPORTANT: Must set axis_source before any axis events in a frame
+	// Sway asserts that cached_axis_source matches source for all events
+	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
 
 	// Send axis_stop for each axis that was scrolling
 	if w.scrollingY {
