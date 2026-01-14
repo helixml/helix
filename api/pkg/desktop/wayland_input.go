@@ -37,13 +37,6 @@ type WaylandInput struct {
 	// to update the compositor's modifier state (XKB modifier masks).
 	modsDepressed uint32 // Currently held modifiers (Shift=1, Ctrl=4, Alt=8, Meta=64)
 
-	// Scroll gesture tracking for proper axis_stop signaling.
-	// After 150ms of no scroll events, we send axis_stop to signal gesture end.
-	// This enables proper kinetic scrolling behavior in applications.
-	scrollStopTimer *time.Timer
-	scrollingX      bool   // Currently scrolling on X axis
-	scrollingY      bool   // Currently scrolling on Y axis
-	scrollGeneration uint64 // Incremented on each scroll, used to detect stale timer callbacks
 }
 
 // XKB modifier masks (from linux/input-event-codes.h and xkbcommon)
@@ -132,12 +125,6 @@ func (w *WaylandInput) Close() error {
 		return nil
 	}
 	w.closed = true
-
-	// Stop scroll timer if running
-	if w.scrollStopTimer != nil {
-		w.scrollStopTimer.Stop()
-		w.scrollStopTimer = nil
-	}
 
 	var errs []error
 
@@ -375,11 +362,6 @@ func (w *WaylandInput) MouseClick(button int) error {
 	return w.MouseButtonUp(button)
 }
 
-// scrollStopDelay is the time to wait after the last scroll event before
-// sending axis_stop. This signals the end of a scroll gesture and may
-// trigger kinetic scrolling in applications.
-const scrollStopDelay = 150 * time.Millisecond
-
 // MouseWheel sends a scroll event using Wayland axis protocol.
 // deltaX/deltaY: values in browser pixels (from frontend WheelEvent).
 //
@@ -390,7 +372,9 @@ const scrollStopDelay = 150 * time.Millisecond
 // Every scroll event is sent immediately with no accumulation, ensuring
 // small finger movements always result in immediate scroll response.
 //
-// After 150ms of no scroll events, axis_stop is sent to signal gesture end.
+// Note: We don't send axis_stop events. They were causing Sway crashes when
+// mixed with other pointer events (assertion failures in wlr_seat), and
+// scrolling works correctly without them.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -416,72 +400,12 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	// Values stay as floats throughout (no integer truncation)
 	if deltaY != 0 {
 		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
-		w.scrollingY = true
 	}
 
 	if deltaX != 0 {
 		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
-		w.scrollingX = true
 	}
 
 	w.pointer.Frame()
-
-	// Schedule axis_stop after inactivity period
-	// Cancel any existing timer and start fresh
-	if w.scrollStopTimer != nil {
-		w.scrollStopTimer.Stop()
-	}
-
-	// Increment generation - timer callback will check this to detect if
-	// a new scroll came in while it was waiting on the lock
-	w.scrollGeneration++
-	gen := w.scrollGeneration
-
-	w.scrollStopTimer = time.AfterFunc(scrollStopDelay, func() {
-		w.sendScrollStop(gen)
-	})
-
 	return nil
-}
-
-// sendScrollStop sends axis_stop events to signal end of scroll gesture.
-// Called after scrollStopDelay of no scroll events.
-// The generation parameter is used to detect if a new scroll came in while
-// this callback was waiting on the lock - if so, we skip the axis_stop.
-func (w *WaylandInput) sendScrollStop(generation uint64) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed || w.pointer == nil {
-		return
-	}
-
-	// Check if a new scroll came in while we were waiting on the lock
-	// If the generation changed, this timer callback is stale - skip it
-	if w.scrollGeneration != generation {
-		return
-	}
-
-	// Nothing to stop if we weren't scrolling
-	if !w.scrollingX && !w.scrollingY {
-		return
-	}
-
-	now := time.Now()
-
-	// IMPORTANT: Must set axis_source before any axis events in a frame
-	// Sway asserts that cached_axis_source matches source for all events
-	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
-
-	// Send axis_stop for each axis that was scrolling
-	if w.scrollingY {
-		w.pointer.AxisStop(now, virtual_pointer.AxisVertical)
-		w.scrollingY = false
-	}
-	if w.scrollingX {
-		w.pointer.AxisStop(now, virtual_pointer.AxisHorizontal)
-		w.scrollingX = false
-	}
-
-	w.pointer.Frame()
 }

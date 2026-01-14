@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -27,12 +26,9 @@ const (
 	DeltaModePage  = 2
 )
 
-// wsInputState tracks scroll gesture state for finish detection
+// wsInputState tracks scroll gesture state (reserved for future use)
 type wsInputState struct {
-	mu              sync.Mutex
-	scrollTimer     *time.Timer
-	lastScrollTime  time.Time
-	isTrackpadScroll bool
+	mu sync.Mutex
 }
 
 var wsUpgrader = websocket.Upgrader{
@@ -231,10 +227,12 @@ func (s *Server) handleMouseButtonClick(button int, isDown bool) {
 // 1. GNOME RemoteDesktop D-Bus - uses NotifyPointerAxis with FINGER source
 // 2. Wayland-native (Sway/wlroots) - uses zwlr_virtual_pointer with AxisSourceFinger
 //
-// Both paths:
-// - Scale browser pixels to scroll units (pixels * 0.15)
-// - Use FINGER source (enables smooth scrolling in apps like Zed)
-// - Send scroll finish after 150ms of inactivity (enables kinetic scrolling)
+// Both paths scale browser pixels to scroll units (pixels * 0.15) and use
+// FINGER source for smooth scrolling in apps like Zed.
+//
+// Note: We don't send scroll finish/axis_stop events. They were causing Sway
+// crashes when mixed with other pointer events (assertion failures in wlr_seat),
+// and scrolling works correctly without them.
 func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
 	// Scale browser pixels to scroll units
 	// Browser sends ~100-120 pixels per wheel notch
@@ -256,16 +254,6 @@ func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
 		if err != nil {
 			s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
 		}
-
-		// Schedule scroll finish after 150ms of inactivity (enables kinetic scrolling)
-		s.scrollFinishMu.Lock()
-		if s.scrollFinishTimer != nil {
-			s.scrollFinishTimer.Stop()
-		}
-		s.scrollFinishTimer = time.AfterFunc(150*time.Millisecond, func() {
-			s.sendScrollFinish()
-		})
-		s.scrollFinishMu.Unlock()
 		return
 	}
 
@@ -452,34 +440,8 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 			s.logger.Debug("Wayland virtual scroll failed", "err", err)
 		}
 	}
-
-	// Step 5: Schedule scroll finish for trackpad (enables kinetic scrolling)
-	if isTrackpad {
-		state.mu.Lock()
-		if state.scrollTimer != nil {
-			state.scrollTimer.Stop()
-		}
-		state.scrollTimer = time.AfterFunc(150*time.Millisecond, func() {
-			s.sendScrollFinish()
-		})
-		state.mu.Unlock()
-	}
-}
-
-// sendScrollFinish sends the scroll gesture finished signal to GNOME.
-func (s *Server) sendScrollFinish() {
-	if s.conn == nil || s.rdSessionPath == "" {
-		return
-	}
-
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	// Finish flags: 3 = both axes finished (HORIZONTAL | VERTICAL)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, 0.0, 0.0, uint32(3)).Err
-	if err != nil {
-		s.logger.Debug("WebSocket scroll finish D-Bus call failed", "err", err)
-	} else {
-		s.logger.Debug("WebSocket scroll finish sent")
-	}
+	// Note: We don't send scroll finish events - they were causing crashes
+	// when mixed with other pointer events, and scrolling works without them.
 }
 
 // handleWSTouch handles touch input messages.

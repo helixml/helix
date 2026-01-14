@@ -192,42 +192,14 @@ func (s *Server) injectInput(event *InputEvent) {
 
 	case "scroll_smooth":
 		// High-resolution smooth scrolling via Mutter's NotifyPointerAxis.
-		//
-		// Input: Frontend sends browser pixel values:
-		//   - Mouse wheel: ~100-120 pixels per notch
-		//   - Trackpad: ~1-10 pixels per event (high frequency)
-		//
-		// Flags (ClutterScrollFinishFlags):
-		// - 0: Continuous scrolling (no finish)
-		// - 1: CLUTTER_SCROLL_FINISHED_HORIZONTAL
-		// - 2: CLUTTER_SCROLL_FINISHED_VERTICAL
-		// - 3: Both axes finished
-		//
-		// We send flags=0 during scrolling, then flags=3 after 150ms of no events
-		// to signal scroll gesture ended. This enables kinetic scrolling in apps.
+		// Input: Frontend sends browser pixel values.
+		// We use flags=0 (continuous scrolling, no finish signal).
+		// Note: We don't send scroll finish events - they were causing issues
+		// and scrolling works correctly without them.
 		mutterDX := -event.DX
 		mutterDY := -event.DY
 		s.logger.Debug("scroll_smooth", "raw_dx", event.DX, "raw_dy", event.DY, "mutter_dx", mutterDX, "mutter_dy", mutterDY)
 		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, mutterDX, mutterDY, uint32(0)).Err
-
-		// Schedule scroll finish after 150ms of no scroll events
-		s.scrollFinishMu.Lock()
-		if s.scrollFinishTimer != nil {
-			s.scrollFinishTimer.Stop()
-		}
-		s.scrollFinishTimer = time.AfterFunc(150*time.Millisecond, func() {
-			if s.conn == nil || s.rdSessionPath == "" {
-				return
-			}
-			rdSess := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-			// Send zero-delta scroll with finish flags (3 = both axes finished)
-			if err := rdSess.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, 0.0, 0.0, uint32(3)).Err; err != nil {
-				s.logger.Debug("scroll finish failed", "err", err)
-			} else {
-				s.logger.Debug("scroll finish sent")
-			}
-		})
-		s.scrollFinishMu.Unlock()
 
 	case "key":
 		s.logger.Info("key event", "keycode", event.Keycode, "state", event.State)

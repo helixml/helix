@@ -75,10 +75,6 @@ type Server struct {
 	scrollLogCount int
 	inputCallCount uint64 // For D-Bus latency sampling
 
-	// Scroll finish detection - send "scroll finished" to Mutter after timeout
-	scrollFinishTimer *time.Timer
-	scrollFinishMu    sync.Mutex
-
 	// Screen dimensions for mouse coordinate scaling
 	// Initialized from GAMESCOPE_WIDTH/HEIGHT env vars (default: 1920x1080)
 	screenWidth  int
