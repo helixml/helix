@@ -389,27 +389,32 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 	now := time.Now()
 
-	// CRITICAL: Send a Frame() first to reset seat's sent_axis_source state.
-	// wlroots has a bug where if focus changes between an axis event and its
-	// frame event, sent_axis_source stays true (wlr_seat_pointer_send_frame
-	// returns early when focused_client is NULL without resetting the flag).
-	// This can cause assertion failures on subsequent scroll events.
-	// Sending an empty frame first ensures clean state.
-	w.pointer.Frame()
+	// WORKAROUND for wlroots axis_source assertion crash:
+	//
+	// The crash occurs in wlr_seat_pointer_send_axis when axis events have
+	// mismatched sources within a single frame. After Frame() clears the
+	// axis_event struct with {0}, the source field defaults to 0 (WHEEL).
+	//
+	// The wlroots virtual_pointer_axis() function populates delta, time, etc.
+	// but does NOT set the source field. The source is only set by
+	// virtual_pointer_axis_source(), which writes to axis_event[pointer->axis].
+	//
+	// To ensure ALL axis events have source=FINGER, we pre-set the source on
+	// BOTH axis slots before sending any real scroll data. This prevents any
+	// stale WHEEL (0) source from causing a mismatch.
+	//
+	// The zero-delta axis events will pass through the seat's source assertion
+	// check but won't actually scroll anything (the seat skips events with value=0).
 
-	// Build complete scroll event with source always set for every axis we touch.
-	// The wlroots virtual pointer batches all axis/axis_source calls until Frame().
-	//
-	// Protocol quirk: axis_source() sets the source for axis_event[pointer->axis],
-	// where pointer->axis is set by the PREVIOUS axis() call. So we must call
-	// axis_source AFTER axis to set the source for the correct axis.
-	//
-	// We use Finger source for smooth scrolling - Zed ignores Wheel source events.
-	//
-	// CRITICAL: We use a single Frame() at the end to emit all axis events atomically.
-	// This ensures all axis events in this frame have the same source (FINGER),
-	// satisfying wlroots' assertion that all axis events in a frame must have
-	// matching sources.
+	// Step 1: Pre-initialize BOTH axis sources to FINGER
+	// This ensures no stale WHEEL source can cause assertion failures
+	w.pointer.Axis(now, virtual_pointer.AxisVertical, 0)
+	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+	w.pointer.Axis(now, virtual_pointer.AxisHorizontal, 0)
+	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+
+	// Step 2: Send the actual scroll deltas (overwriting the zero deltas above)
+	// We set source again after each Axis to ensure it's set for the correct axis
 	if deltaY != 0 {
 		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
 		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
