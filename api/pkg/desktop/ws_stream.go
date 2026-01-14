@@ -391,7 +391,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 					bufferType = "dmabuf"
 				}
 
-				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=100",
+				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
 					v.nodeID, captureSource, bufferType)
 				// Add fd property if we have portal FD (required for ScreenCast access)
 				if v.pipeWireFd > 0 {

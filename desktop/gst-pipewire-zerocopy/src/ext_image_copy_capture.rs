@@ -989,7 +989,7 @@ fn run_capture_loop(
     // 1. Check shutdown flag periodically
     // 2. Allow pipewiresrc's keepalive to work (recv_frame_timeout returns Timeout)
     // 3. Handle static screens where no damage events occur
-    let poll_timeout = Duration::from_millis(100); // 10Hz polling
+    let poll_timeout = Duration::from_millis(500); // 2Hz polling (reduced from 10Hz to save bandwidth)
 
     while !shutdown.load(Ordering::SeqCst) && !state.session_stopped {
         // Flush any pending requests
