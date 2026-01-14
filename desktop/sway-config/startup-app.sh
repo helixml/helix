@@ -460,11 +460,24 @@ EOF
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================
-    # Window appearance - clean borderless look
+    # Window appearance - generous borders for easy resizing, no title bars
     # =====================================================================
-    echo "# Remove window borders and title bars for clean look" >> $HOME/.config/sway/config
-    echo "default_border none" >> $HOME/.config/sway/config
-    echo "default_floating_border none" >> $HOME/.config/sway/config
+    # Use thick pixel borders so windows can be easily resized by dragging
+    echo "# Generous pixel borders for easy resize, no title bars" >> $HOME/.config/sway/config
+    echo "default_border pixel 8" >> $HOME/.config/sway/config
+    echo "default_floating_border pixel 8" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # Make borders subtle (dark, blends with gaps)
+    echo "# Subtle border colors that blend with the dark theme" >> $HOME/.config/sway/config
+    echo "client.focused          #404050 #404050 #ffffff #7c3aed #404050" >> $HOME/.config/sway/config
+    echo "client.focused_inactive #303040 #303040 #888888 #484e50 #303040" >> $HOME/.config/sway/config
+    echo "client.unfocused        #252530 #252530 #888888 #292d2e #252530" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # Allow Alt+drag to move/resize windows (works for both tiled and floating)
+    echo "# Alt+left-drag to move, Alt+right-drag to resize" >> $HOME/.config/sway/config
+    echo "floating_modifier \$mod normal" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================

@@ -362,9 +362,11 @@ func (w *WaylandInput) MouseClick(button int) error {
 }
 
 // MouseWheel sends a scroll event using Wayland axis protocol.
-// deltaY: positive = scroll down, negative = scroll up
-// Uses AxisDiscrete for discrete scroll steps (required by apps like Zed)
-// plus continuous Axis for smooth scrolling support.
+// deltaX/deltaY: values in "GNOME units" (~10-15 per wheel notch)
+//
+// Uses continuous Axis events only (not AxisDiscrete) to avoid double-counting.
+// Some apps listen to both continuous and discrete events, causing scroll to be
+// counted twice if we send both. Modern Wayland apps handle continuous scrolling well.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -375,21 +377,19 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 	now := time.Now()
 
-	// Set axis source to wheel (required for proper scroll handling)
+	// Set axis source to wheel
 	w.pointer.AxisSource(virtual_pointer.AxisSourceWheel)
 
-	// Send vertical scroll with discrete steps
-	// Discrete value is the number of 120ths of a wheel notch (Linux HID standard)
-	// We calculate discrete from the delta: ~15 units = 1 wheel notch = 120 discrete
+	// Wayland/wlroots scroll scaling:
+	// Input: ~10-12 GNOME units per wheel notch (already divided by 10 from browser pixels)
+	// Wayland continuous scroll values are typically ~15 per wheel notch
+	// We pass through as-is since the input is already in a reasonable range
 	if deltaY != 0 {
-		discrete := int32(deltaY * 8) // Scale to discrete units
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisVertical, deltaY, discrete)
+		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY)
 	}
 
-	// Send horizontal scroll with discrete steps
 	if deltaX != 0 {
-		discrete := int32(deltaX * 8)
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisHorizontal, deltaX, discrete)
+		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX)
 	}
 
 	w.pointer.Frame()
