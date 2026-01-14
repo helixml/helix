@@ -35,17 +35,17 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # Go build stage for desktop-bridge and settings-sync-daemon
 # ====================================================================
 FROM golang:1.24 AS go-build-env
-ARG GO_CODE_HASH=unknown
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+# Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Hyprland Desktop - Ubuntu 25.10 base with pipewiresrc

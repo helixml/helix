@@ -1022,23 +1022,17 @@ function build-desktop() {
   local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
-  # Get Go code hash for Docker cache busting (api/ directory)
-  # This ensures Go rebuild when desktop.go or other Go files change
-  local GO_CODE_HASH=$(find api -name '*.go' -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -c1-12)
-  echo "📌 Go code hash: ${GO_CODE_HASH}"
-
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
 
   # Build the desktop image
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
-  # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
+  # Docker automatically detects Go code changes via COPY layers
   echo "🔨 Building ${IMAGE_NAME}:latest..."
 
   docker build --provenance=false -f "$DOCKERFILE" \
     --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-    --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
     -t "${IMAGE_NAME}:latest" \
     .
 

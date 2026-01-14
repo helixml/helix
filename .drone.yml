@@ -1648,12 +1648,10 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-sway..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_CODE_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
           -t registry.helixml.tech/helix/helix-sway:latest \
           .
@@ -1663,12 +1661,10 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_CODE_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
           -t registry.helixml.tech/helix/helix-ubuntu:latest \
           .
