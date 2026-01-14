@@ -1,0 +1,40 @@
+# Dockerfile.ubuntu-helix.dockerignore
+# Excludes large directories not needed for desktop builds
+
+# From base .dockerignore
+.env
+*.sw*
+venv
+vendor
+**/.venv/*
+wolf-debug-dumps
+*.tar.gz
+*.tar
+logs
+design
+test-zed-config
+
+# Large directories not needed for desktop builds
+.git
+frontend
+sandbox
+sandbox-images
+integration-test
+charts
+operator
+runner
+haystack_service
+screenshot-server
+
+# Binary artifacts
+helix
+helix-runner
+helix-cli
+
+# Build caches (rebuilt inside container)
+desktop/gst-pipewire-zerocopy/target/
+**/target/
+
+# Exclude node_modules EXCEPT qwen-code-build (needed for Qwen Code)
+frontend/node_modules/
+api/node_modules/

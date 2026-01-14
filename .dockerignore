@@ -17,6 +17,7 @@ frontend/dist
 logs
 design
 test-zed-config
+desktop/gst-pipewire-zerocopy/target
 
 # Binary artifacts (these are rebuilt in the container)
 helix
