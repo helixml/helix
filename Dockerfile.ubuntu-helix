@@ -485,7 +485,7 @@ RUN apt-get update && \
     sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
     # Create wrapper script so --password-store=basic is always used (even from command line)
     mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
-    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage "$@"' > /usr/bin/google-chrome-stable && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable && \
     chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
