@@ -389,23 +389,60 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 	now := time.Now()
 
-	// Send axis events with source set AFTER each axis call.
-	// IMPORTANT: wlroots virtual pointer protocol has a quirk - axis_source()
-	// sets the source for axis_event[pointer->axis], where pointer->axis is
-	// set by the PREVIOUS axis() call. So we must call axis_source AFTER axis,
-	// not before, to set the source for the correct axis.
+	// WORKAROUND for wlroots axis_source assertion crash:
 	//
-	// Use Finger source for smooth scrolling - Zed ignores Wheel source events.
+	// The crash occurs in wlr_seat_pointer_send_axis when axis events have
+	// mismatched sources within a single frame. After Frame() clears the
+	// axis_event struct with {0}, the source field defaults to 0 (WHEEL).
+	//
+	// The wlroots virtual_pointer_axis() function populates delta, time, etc.
+	// but does NOT set the source field. The source is only set by
+	// virtual_pointer_axis_source(), which writes to axis_event[pointer->axis].
+	//
+	// To ensure ALL axis events have source=FINGER, we pre-set the source on
+	// BOTH axis slots before sending any real scroll data. This prevents any
+	// stale WHEEL (0) source from causing a mismatch.
+	//
+	// The zero-delta axis events will pass through the seat's source assertion
+	// check but won't actually scroll anything (the seat skips events with value=0).
+
+	// Step 1: Pre-initialize BOTH axis sources to FINGER
+	// This ensures no stale WHEEL source can cause assertion failures
+	if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, 0); err != nil {
+		w.logger.Debug("axis pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, 0); err != nil {
+		w.logger.Debug("axis pre-init horizontal failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init horizontal failed", "err", err)
+	}
+
+	// Step 2: Send the actual scroll deltas (overwriting the zero deltas above)
+	// We set source again after each Axis to ensure it's set for the correct axis
 	if deltaY != 0 {
-		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
-		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15); err != nil {
+			w.logger.Debug("axis vertical failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source vertical failed", "err", err)
+		}
 	}
 
 	if deltaX != 0 {
-		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
-		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15); err != nil {
+			w.logger.Debug("axis horizontal failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source horizontal failed", "err", err)
+		}
 	}
 
-	w.pointer.Frame()
+	if err := w.pointer.Frame(); err != nil {
+		w.logger.Debug("frame failed", "err", err)
+	}
 	return nil
 }
