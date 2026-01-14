@@ -613,7 +613,11 @@ RUN apt-get update && apt-get install -y \
       "ImportSavedPasswords": false, \
       "ImportSearchEngine": false, \
       "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
+      "PasswordManagerEnabled": true, \
+      "PrivacySandboxPromptEnabled": false, \
+      "PrivacySandboxAdTopicsEnabled": false, \
+      "PrivacySandboxSiteEnabledAdsEnabled": false, \
+      "PrivacySandboxAdMeasurementEnabled": false \
     }' > /etc/opt/chrome/policies/managed/helix.json \
     # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
     && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \

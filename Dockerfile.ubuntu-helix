@@ -451,7 +451,11 @@ RUN apt-get update && \
       "ImportSavedPasswords": false, \
       "ImportSearchEngine": false, \
       "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
+      "PasswordManagerEnabled": true, \
+      "PrivacySandboxPromptEnabled": false, \
+      "PrivacySandboxAdTopicsEnabled": false, \
+      "PrivacySandboxSiteEnabledAdsEnabled": false, \
+      "PrivacySandboxAdMeasurementEnabled": false \
     }' > /etc/opt/chrome/policies/managed/helix.json && \
     # Create master preferences to skip first run and welcome page
     mkdir -p /opt/google/chrome && \
