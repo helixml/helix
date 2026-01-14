@@ -41,8 +41,9 @@ type WaylandInput struct {
 	// After 150ms of no scroll events, we send axis_stop to signal gesture end.
 	// This enables proper kinetic scrolling behavior in applications.
 	scrollStopTimer *time.Timer
-	scrollingX      bool // Currently scrolling on X axis
-	scrollingY      bool // Currently scrolling on Y axis
+	scrollingX      bool   // Currently scrolling on X axis
+	scrollingY      bool   // Currently scrolling on Y axis
+	scrollGeneration uint64 // Incremented on each scroll, used to detect stale timer callbacks
 }
 
 // XKB modifier masks (from linux/input-event-codes.h and xkbcommon)
@@ -430,8 +431,14 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	if w.scrollStopTimer != nil {
 		w.scrollStopTimer.Stop()
 	}
+
+	// Increment generation - timer callback will check this to detect if
+	// a new scroll came in while it was waiting on the lock
+	w.scrollGeneration++
+	gen := w.scrollGeneration
+
 	w.scrollStopTimer = time.AfterFunc(scrollStopDelay, func() {
-		w.sendScrollStop()
+		w.sendScrollStop(gen)
 	})
 
 	return nil
@@ -439,11 +446,19 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 // sendScrollStop sends axis_stop events to signal end of scroll gesture.
 // Called after scrollStopDelay of no scroll events.
-func (w *WaylandInput) sendScrollStop() {
+// The generation parameter is used to detect if a new scroll came in while
+// this callback was waiting on the lock - if so, we skip the axis_stop.
+func (w *WaylandInput) sendScrollStop(generation uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	if w.closed || w.pointer == nil {
+		return
+	}
+
+	// Check if a new scroll came in while we were waiting on the lock
+	// If the generation changed, this timer callback is stale - skip it
+	if w.scrollGeneration != generation {
 		return
 	}
 

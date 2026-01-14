@@ -538,7 +538,9 @@ while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
     # We rely on wlroots printing assertion failures to stderr before abort()
     echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS)..."
     CRASH_LOG="${CRASH_DIR}/sway-crash-$(date +%Y%m%d-%H%M%S).log"
-    sway --unsupported-gpu 2>&1 | tee -a "$CRASH_LOG" &
+    # Use process substitution to capture output while getting sway's actual PID
+    # (Using pipe would give us tee's PID, breaking wait and restart logic)
+    sway --unsupported-gpu > >(tee -a "$CRASH_LOG") 2>&1 &
     SWAY_PID=$!
     echo "[sway-session] Sway started with PID $SWAY_PID"
 
