@@ -509,18 +509,13 @@ EOF
 echo "[sway-session] Starting inside D-Bus session..."
 echo "[sway-session] DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
-# Enable core dumps for crash debugging
-# Save to workspace (bind-mounted) so they persist outside container
-CORE_DIR="/home/retro/work/.helix-cores"
-mkdir -p "$CORE_DIR"
-ulimit -c unlimited
-
-# Override core_pattern to write directly to workspace instead of piping to apport
-if echo "${CORE_DIR}/core.%e.%p" | sudo tee /proc/sys/kernel/core_pattern > /dev/null 2>&1; then
-    echo "[sway-session] Core pattern set to ${CORE_DIR}/core.%e.%p"
-else
-    echo "[sway-session] Warning: Could not set core_pattern (need privileged container)"
-fi
+# Crash debugging setup
+# Core dumps via kernel core_pattern don't work in unprivileged containers
+# (core_pattern pipes to apport which isn't running in container)
+# Use catchsegv wrapper instead - prints backtrace on crash with minimal overhead
+CRASH_DIR="/home/retro/work/.helix-crashes"
+mkdir -p "$CRASH_DIR"
+echo "[sway-session] Crash backtraces will be saved to: $CRASH_DIR"
 
 # Start PipeWire BEFORE Sway (needed for screen capture)
 echo "[sway-session] Starting PipeWire..."
@@ -538,9 +533,12 @@ RESTART_COUNT=0
 SERVICES_STARTED=false
 
 while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
-    # Start sway in background
+    # Start sway in background, capturing all output for crash debugging
+    # Note: catchsegv was removed from glibc in newer versions (not in Ubuntu 25.10)
+    # We rely on wlroots printing assertion failures to stderr before abort()
     echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS)..."
-    sway --unsupported-gpu &
+    CRASH_LOG="${CRASH_DIR}/sway-crash-$(date +%Y%m%d-%H%M%S).log"
+    sway --unsupported-gpu 2>&1 | tee -a "$CRASH_LOG" &
     SWAY_PID=$!
     echo "[sway-session] Sway started with PID $SWAY_PID"
 
@@ -613,35 +611,11 @@ while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
         echo "[sway-session] ERROR: Sway exited with error code $EXIT_CODE"
     fi
 
-    # Look for core dump in workspace (persists outside container)
-    # Pattern is: ${CORE_DIR}/core.sway.${PID}
-    CORE_FILE=""
-    for pattern in "${CORE_DIR}/core.sway.$SWAY_PID" "${CORE_DIR}/core.sway."*; do
-        if [ -f "$pattern" ]; then
-            CORE_FILE="$pattern"
-            break
-        fi
-    done
-
-    if [ -n "$CORE_FILE" ] && [ -f "$CORE_FILE" ]; then
-        CRASH_TIME=$(date +%Y%m%d-%H%M%S)
-        SAVED_CORE="${CORE_DIR}/sway-crash-${CRASH_TIME}.core"
-        mv "$CORE_FILE" "$SAVED_CORE" 2>/dev/null || cp "$CORE_FILE" "$SAVED_CORE"
-        echo "[sway-session] Core dump saved to: $SAVED_CORE"
-
-        # Try to get basic backtrace if gdb is available
-        if command -v gdb >/dev/null 2>&1 && [ -f "$SAVED_CORE" ]; then
-            echo "[sway-session] Extracting backtrace..."
-            BT_FILE="${CORE_DIR}/sway-crash-${CRASH_TIME}.bt"
-            gdb -batch -ex "bt full" -ex "quit" /usr/bin/sway "$SAVED_CORE" 2>/dev/null | head -100 > "$BT_FILE" || true
-            if [ -s "$BT_FILE" ]; then
-                echo "[sway-session] Backtrace saved to: $BT_FILE"
-                cat "$BT_FILE"
-            fi
-        fi
-    else
-        echo "[sway-session] No core dump found in $CORE_DIR"
-    fi
+    # Backtrace was already captured by catchsegv and saved to $CRASH_LOG
+    echo "[sway-session] Crash backtrace saved to: $CRASH_LOG"
+    # Print last 50 lines which should include the backtrace
+    echo "[sway-session] === Recent log output ==="
+    tail -50 "$CRASH_LOG" 2>/dev/null || true
 
     RESTART_COUNT=$((RESTART_COUNT + 1))
 
@@ -652,7 +626,7 @@ while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
         rm -f "${XDG_RUNTIME_DIR}/wayland-1" 2>/dev/null || true
     else
         echo "[sway-session] FATAL: Sway crashed $MAX_RESTARTS times, giving up"
-        echo "[sway-session] Check $CORE_DIR for crash dumps"
+        echo "[sway-session] Check $CRASH_DIR for crash backtraces"
     fi
 done
 
