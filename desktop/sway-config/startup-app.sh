@@ -5,6 +5,25 @@ set -e
 
 echo "Starting Helix Desktop (Sway)..."
 
+# ============================================================================
+# GPU Detection - MUST happen before Sway starts
+# ============================================================================
+# detect-render-node.sh detects the correct GPU based on GPU_VENDOR env var
+# and exports:
+#   HELIX_RENDER_NODE  - for GStreamer encoder (e.g., /dev/dri/renderD129)
+#   HELIX_DRM_CARD     - corresponding card device (e.g., /dev/dri/card1)
+#   WLR_DRM_DEVICES    - for Sway compositor GPU selection
+#   LIBVA_DRIVER_NAME  - for VA-API encoder on AMD/Intel
+#
+# This handles multi-GPU systems like Lambda Labs where:
+#   /dev/dri/renderD128 = virtio-gpu (useless)
+#   /dev/dri/renderD129 = actual NVIDIA/AMD GPU
+if [ -f /usr/local/bin/detect-render-node.sh ]; then
+    source /usr/local/bin/detect-render-node.sh
+else
+    echo "WARNING: detect-render-node.sh not found, GPU detection skipped"
+fi
+
 # NOTE: Telemetry firewall is configured in the sandbox container,
 # not inside agent containers. This provides centralized monitoring across all agents.
 

@@ -295,6 +295,21 @@ chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null ||
 chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
 _USER_INIT
 
+# GPU detection init script - creates udev rule for Mutter primary GPU selection
+# This MUST run as root before Mutter starts to ensure correct GPU is used
+# on multi-GPU systems (e.g., Hyper-V + AMD GPU where first device is Hyper-V)
+COPY <<'_GPU_INIT' /etc/cont-init.d/15-detect-gpu.sh
+#!/bin/bash
+echo "**** Detecting GPU and creating udev rules ****"
+# Source the GPU detection script (creates udev rule for Mutter)
+if [ -f /usr/local/bin/detect-render-node.sh ]; then
+    source /usr/local/bin/detect-render-node.sh
+    echo "GPU detection complete: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}"
+else
+    echo "WARNING: detect-render-node.sh not found, GPU detection skipped"
+fi
+_GPU_INIT
+
 # GOW entrypoint
 COPY <<'_ENTRYPOINT' /entrypoint.sh
 #!/usr/bin/env bash
@@ -522,6 +537,14 @@ COPY <<'_STARTUP' /opt/gow/startup.sh
 source /opt/gow/bash-lib/utils.sh
 
 gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
+
+# GPU detection - export HELIX_RENDER_NODE and LIBVA_DRIVER_NAME for GStreamer
+# The udev rule for Mutter was already created by the root init script,
+# but we need the env vars for the GStreamer pipelines in desktop-bridge
+if [ -f /usr/local/bin/detect-render-node.sh ]; then
+    source /usr/local/bin/detect-render-node.sh
+    gow_log "[start] GPU: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}, LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-not set}"
+fi
 
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
@@ -776,14 +799,20 @@ RUN chmod +x /opt/gow/startup.sh
 
 # Helix helper scripts
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+# Shared scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini

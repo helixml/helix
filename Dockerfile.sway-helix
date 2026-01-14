@@ -662,13 +662,19 @@ RUN chmod +x /opt/gow/startup-app.sh
 
 # Helix helper scripts
 ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+# Shared scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh
 
 # Docker group init script
 ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
