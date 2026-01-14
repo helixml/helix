@@ -490,20 +490,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Wolf pipeline: vapostproc add-borders=true ! video/x-raw,format=NV12 ! vah264enc rate-control=cqp
 		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation.
 		//
-		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
-		// Only the encoder (vah264enc) has this property, not vapostproc.
-		renderDevice := getRenderDevice()
-		vah264encOpts := fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-			v.config.Bitrate, v.config.Bitrate, getGOPSize())
-		if renderDevice != "" {
-			vah264encOpts = fmt.Sprintf("vah264enc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
-			slog.Info("[STREAM] Using explicit render device for VA-API", "device", renderDevice)
+		// GPU selection: gst-va elements use the VA display from the environment.
+		// We set LIBVA_DRIVER_NAME in detect-render-node.sh to ensure correct GPU.
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API using render device from environment", "device", renderDevice)
 		}
 		parts = append(parts,
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			vah264encOpts,
+			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
 			"video/x-h264,profile=main,stream-format=byte-stream",
 		)
@@ -511,20 +507,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Matches Wolf's "legacy pipeline" - system memory caps, rate-control=cqp
-		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
-		// Only the encoder (vah264lpenc) has this property, not vapostproc.
-		renderDevice := getRenderDevice()
-		vah264lpencOpts := fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-			v.config.Bitrate, v.config.Bitrate, getGOPSize())
-		if renderDevice != "" {
-			vah264lpencOpts = fmt.Sprintf("vah264lpenc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
-			slog.Info("[STREAM] Using explicit render device for VA-API LP", "device", renderDevice)
+		// GPU selection: gst-va elements use the VA display from the environment.
+		// We set LIBVA_DRIVER_NAME in detect-render-node.sh to ensure correct GPU.
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API LP using render device from environment", "device", renderDevice)
 		}
 		parts = append(parts,
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			vah264lpencOpts,
+			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
 			"video/x-h264,profile=main,stream-format=byte-stream",
 		)
