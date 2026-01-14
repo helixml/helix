@@ -42,6 +42,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const account = useAccount()
   const lightTheme = useLightTheme()
   const containerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const { NewInference } = useStreaming()
 
   // Smart scroll state - use refs to avoid re-renders on scroll
@@ -88,7 +89,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     lastScrollTopRef.current = scrollTop
   }, [checkIsAtBottom])
 
-  // Handle resize - don't count as user scroll, but do scroll to bottom if we were at bottom
+  // Handle container resize - don't count as user scroll, but do scroll to bottom if we were at bottom
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -111,6 +112,28 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     })
 
     resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [])
+
+  // Watch for content height changes (tool calls, streaming updates, etc.)
+  // This handles the case where content grows within an existing interaction
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+
+    const resizeObserver = new ResizeObserver(() => {
+      // If user hasn't scrolled up, scroll to bottom when content grows
+      if (!userScrolledUpRef.current) {
+        requestAnimationFrame(() => {
+          if (containerRef.current) {
+            containerRef.current.scrollTop = containerRef.current.scrollHeight
+            isAtBottomRef.current = true
+          }
+        })
+      }
+    })
+
+    resizeObserver.observe(content)
     return () => resizeObserver.disconnect()
   }, [])
 
@@ -271,6 +294,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       }}
     >
       <Box
+        ref={contentRef}
         sx={{
           width: '100%',
           maxWidth: 700,
