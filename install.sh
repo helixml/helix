@@ -804,12 +804,32 @@ fi
 
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
-    # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
-        return 0
-    else
-        return 1
+    # Method 1: nvidia-smi actually queries the GPU (not just driver presence)
+    # This fails if drivers are installed but no GPU is available
+    if command -v nvidia-smi &> /dev/null; then
+        if nvidia-smi --query-gpu=name --format=csv,noheader &> /dev/null; then
+            return 0
+        fi
     fi
+
+    # Method 2: Check /dev/dri for nvidia driver (works even if nvidia-smi missing)
+    if [ -d "/sys/class/drm" ]; then
+        for node in /dev/dri/renderD*; do
+            if [ -e "$node" ]; then
+                driver=$(readlink "/sys/class/drm/$(basename $node)/device/driver" 2>/dev/null | xargs basename 2>/dev/null)
+                if [ "$driver" = "nvidia" ]; then
+                    return 0
+                fi
+            fi
+        done
+    fi
+
+    # Method 3: Docker already has NVIDIA runtime configured (WSL2 fallback)
+    if $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Function to check for AMD GPU specifically (for Helix Code with ROCm)

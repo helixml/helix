@@ -86,18 +86,62 @@ detect_render_node() {
         done
     fi
 
-    # Fallback to first available render node if detection failed
+    # Fallback: auto-detect best available GPU if specified driver not found
+    # This handles cases where GPU_VENDOR doesn't match reality (e.g., nvidia-smi
+    # exists but no NVIDIA GPU available, or multi-GPU system with wrong vendor set)
     if [ -z "$detected_node" ]; then
-        if [ -e "/dev/dri/renderD128" ]; then
+        echo "[render-node] WARNING: Could not find $target_driver driver, auto-detecting best available GPU..."
+
+        # Priority order: nvidia > amdgpu > i915 > first available
+        local priority_drivers="nvidia amdgpu i915"
+        for try_driver in $priority_drivers; do
+            for render_node in /dev/dri/renderD*; do
+                if [ -e "$render_node" ]; then
+                    node_name=$(basename "$render_node")
+                    driver_link="/sys/class/drm/$node_name/device/driver"
+                    if [ -L "$driver_link" ]; then
+                        driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+                        if [ "$driver" = "$try_driver" ]; then
+                            detected_node="$render_node"
+                            echo "[render-node] Auto-detected: $render_node (driver: $driver)"
+
+                            # Find corresponding card device
+                            pci_path=$(readlink -f "/sys/class/drm/$node_name/device")
+                            for card in /dev/dri/card*; do
+                                if [ -e "$card" ]; then
+                                    card_name=$(basename "$card")
+                                    card_pci=$(readlink -f "/sys/class/drm/$card_name/device")
+                                    if [ "$pci_path" = "$card_pci" ]; then
+                                        detected_card="$card"
+                                        echo "[render-node] Auto-detected card: $card"
+                                        break
+                                    fi
+                                fi
+                            done
+
+                            # Update gpu_vendor to match detected driver for VA-API config
+                            case "$driver" in
+                                nvidia) gpu_vendor="nvidia" ;;
+                                amdgpu) gpu_vendor="amd" ;;
+                                i915)   gpu_vendor="intel" ;;
+                            esac
+                            break 2  # Exit both loops
+                        fi
+                    fi
+                fi
+            done
+        done
+
+        # If still nothing found, try first available render node
+        if [ -z "$detected_node" ] && [ -e "/dev/dri/renderD128" ]; then
             detected_node="/dev/dri/renderD128"
             detected_card="/dev/dri/card0"
-            echo "[render-node] WARNING: Could not find $target_driver driver, falling back to $detected_node"
-        else
+            echo "[render-node] Fallback: using $detected_node (unknown driver)"
+        fi
+
+        if [ -z "$detected_node" ]; then
             # No render nodes found - this is OK for NVIDIA (uses NVENC via CUDA, not VA-API)
-            # For AMD/Intel, this would be a problem, but we shouldn't fail container startup
             echo "[render-node] WARNING: No render nodes found in /dev/dri/ (OK for NVIDIA NVENC)"
-            # Don't set HELIX_RENDER_NODE - getRenderDevice() will return empty string
-            # which means no render-device property will be added to GStreamer pipelines
             return 0
         fi
     fi
