@@ -389,21 +389,21 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 
 	now := time.Now()
 
-	// Use Finger source for smooth scrolling - Zed ignores Axis events
-	// when source is Wheel, but processes them for Finger (trackpad)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
-
-	// Send continuous axis events with immediate values
-	// Scale browser pixels to Wayland scroll units
-	// Browser sends ~100-120 pixels per wheel notch, Wayland expects ~10-15 units per notch
-	// Use scale of 0.15 to convert: 100 pixels → 15 units
-	// Values stay as floats throughout (no integer truncation)
+	// Send axis events with source set AFTER each axis call.
+	// IMPORTANT: wlroots virtual pointer protocol has a quirk - axis_source()
+	// sets the source for axis_event[pointer->axis], where pointer->axis is
+	// set by the PREVIOUS axis() call. So we must call axis_source AFTER axis,
+	// not before, to set the source for the correct axis.
+	//
+	// Use Finger source for smooth scrolling - Zed ignores Wheel source events.
 	if deltaY != 0 {
 		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
+		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
 	}
 
 	if deltaX != 0 {
 		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
+		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
 	}
 
 	w.pointer.Frame()

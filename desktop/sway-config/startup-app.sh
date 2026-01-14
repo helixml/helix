@@ -528,15 +528,15 @@ sleep 0.3
 # Sway crash recovery loop
 # If Sway crashes (bus error, segfault, etc.), we capture the core dump and restart
 # This prevents permanent video stream failure from transient GPU/driver issues
-MAX_RESTARTS=3
+# We never give up - keep restarting forever with no delay
 RESTART_COUNT=0
 SERVICES_STARTED=false
 
-while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
+while true; do
     # Start sway in background, capturing all output for crash debugging
     # Note: catchsegv was removed from glibc in newer versions (not in Ubuntu 25.10)
     # We rely on wlroots printing assertion failures to stderr before abort()
-    echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS)..."
+    echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1)))..."
     CRASH_LOG="${CRASH_DIR}/sway-crash-$(date +%Y%m%d-%H%M%S).log"
     # Use process substitution to capture output while getting sway's actual PID
     # (Using pipe would give us tee's PID, breaking wait and restart logic)
@@ -621,18 +621,15 @@ while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
 
     RESTART_COUNT=$((RESTART_COUNT + 1))
 
-    if [ $RESTART_COUNT -lt $MAX_RESTARTS ]; then
-        echo "[sway-session] Restarting Sway in 2 seconds..."
-        sleep 2
-        # Clean up stale Wayland socket if present
-        rm -f "${XDG_RUNTIME_DIR}/wayland-1" 2>/dev/null || true
-    else
-        echo "[sway-session] FATAL: Sway crashed $MAX_RESTARTS times, giving up"
-        echo "[sway-session] Check $CRASH_DIR for crash backtraces"
-    fi
+    # Restart immediately - no delay to minimize video stream interruption
+    echo "[sway-session] Restarting Sway immediately (crash #${RESTART_COUNT})..."
+
+    # Clean up stale Wayland socket if present
+    rm -f "${XDG_RUNTIME_DIR}/wayland-1" 2>/dev/null || true
 done
 
-echo "[sway-session] Session ended (restart_count=$RESTART_COUNT, exit_code=$EXIT_CODE)"
+# This should never be reached since we loop forever
+echo "[sway-session] Session ended unexpectedly (restart_count=$RESTART_COUNT, exit_code=$EXIT_CODE)"
 SWAY_SESSION_EOF
     chmod +x $XDG_RUNTIME_DIR/sway-session.sh
 
