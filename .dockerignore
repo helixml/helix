@@ -8,12 +8,10 @@ vendor
 # Large directories that slow down builds
 # Note: .git is NOT ignored - needed by main Dockerfile for version info
 # Note: zed-build is NOT ignored - needed by Dockerfile.sway-helix
-# Note: helix-sway.tar is NOT ignored - needed by Dockerfile.sandbox
+# Note: sandbox-images/*.tar no longer needed - using registry for image transfer
 wolf-debug-dumps
 *.tar.gz
 *.tar
-!helix-sway.tar
-!helix-sway.tar.hash
 frontend/node_modules
 frontend/dist
 logs

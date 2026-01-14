@@ -155,11 +155,11 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
 # The sandbox pulls images from registry on startup (with layer caching)
 # See design/2026-01-12-sandbox-registry-based-images.md
 # ====================================================================
-# Copy entire sandbox-images directory - may contain:
-# - .ref: registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3")
-# - .version: just the tag (e.g., "v1.2.3")
-# - .tar: full image tarball (for local dev builds without registry)
-# At runtime, startup script checks for .ref first, falls back to .tar
+# Copy sandbox-images directory containing:
+# - .ref: registry path for production (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3")
+# - .version: image hash tag for dev (e.g., "abc123")
+# At runtime, startup script pulls from registry (production) or expects
+# images transferred via local dev registry (development)
 COPY sandbox-images/ /opt/images/
 
 # ====================================================================
