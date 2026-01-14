@@ -856,6 +856,16 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		})
 	}
 
+	// Crash dump directory - persists core dumps from compositor crashes (Sway/GNOME)
+	// Mounted from sandbox's /data/sessions/{sessionID}/crash-dumps to container's /tmp/cores
+	// This allows crash analysis even after container restarts
+	crashDumpDir := filepath.Join("/data/sessions", agent.SessionID, "crash-dumps")
+	mounts = append(mounts, hydra.MountConfig{
+		Source:      crashDumpDir,
+		Destination: "/tmp/cores",
+		ReadOnly:    false,
+	})
+
 	return mounts
 }
 

@@ -482,44 +482,138 @@ DBUS_ENV_FILE="${XDG_RUNTIME_DIR}/dbus-session.env"
 echo "export DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'" > "$DBUS_ENV_FILE"
 echo "[sway-session] D-Bus env written to $DBUS_ENV_FILE"
 
+# Enable core dumps for crash debugging
+# Core dumps are saved to /tmp/cores/ for later analysis
+mkdir -p /tmp/cores
+ulimit -c unlimited
+echo "[sway-session] Core dumps enabled (ulimit -c unlimited)"
+
 # Start PipeWire BEFORE Sway (needed for screen capture)
 echo "[sway-session] Starting PipeWire..."
 pipewire > /tmp/pipewire.log 2>&1 &
+PIPEWIRE_PID=$!
 sleep 0.3
 pipewire-pulse > /tmp/pipewire-pulse.log 2>&1 &
 sleep 0.3
 
-# Start sway in background
-sway --unsupported-gpu &
-SWAY_PID=$!
-echo "[sway-session] Sway started with PID $SWAY_PID"
+# Sway crash recovery loop
+# If Sway crashes (bus error, segfault, etc.), we capture the core dump and restart
+# This prevents permanent video stream failure from transient GPU/driver issues
+MAX_RESTARTS=3
+RESTART_COUNT=0
+SERVICES_STARTED=false
 
-# Wait for Wayland socket before starting portals
-echo "[sway-session] Waiting for Wayland socket..."
-for i in $(seq 1 30); do
-    if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
-        echo "[sway-session] Wayland socket ready"
+while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
+    # Start sway in background
+    echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS)..."
+    sway --unsupported-gpu &
+    SWAY_PID=$!
+    echo "[sway-session] Sway started with PID $SWAY_PID"
+
+    # Wait for Wayland socket before starting portals (only on first start)
+    echo "[sway-session] Waiting for Wayland socket..."
+    SOCKET_READY=false
+    for i in $(seq 1 30); do
+        if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
+            echo "[sway-session] Wayland socket ready"
+            SOCKET_READY=true
+            break
+        fi
+        # Check if Sway already crashed during startup
+        if ! kill -0 $SWAY_PID 2>/dev/null; then
+            echo "[sway-session] Sway crashed during startup!"
+            break
+        fi
+        sleep 0.5
+    done
+
+    # Start services only on first successful start
+    if [ "$SOCKET_READY" = "true" ] && [ "$SERVICES_STARTED" = "false" ]; then
+        # Start XDG portals in background - NO WAITING NEEDED
+        # Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
+        # which are native Wayland protocols that bypass the portal entirely.
+        # Portals are only needed for file dialogs, etc. - not critical path.
+        echo "[sway-session] Starting XDG portals in background (not needed for video)..."
+        WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
+        /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
+        echo "[sway-session] Portals started (non-blocking)"
+
+        # Start services via shared init scripts (they wait for Wayland socket internally)
+        # Logs are prefixed and go to docker logs (stdout)
+        /usr/local/bin/start-desktop-bridge.sh &
+        /usr/local/bin/start-settings-sync-daemon.sh &
+        SERVICES_STARTED=true
+    fi
+
+    # Wait for sway to exit
+    wait $SWAY_PID
+    EXIT_CODE=$?
+
+    # Check exit status
+    # 0 = normal exit (user closed sway)
+    # 128+N = killed by signal N (e.g., 128+7=135 for SIGBUS, 128+11=139 for SIGSEGV)
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "[sway-session] Sway exited normally (code 0)"
         break
     fi
-    sleep 0.5
+
+    # Sway crashed - determine signal
+    if [ $EXIT_CODE -gt 128 ]; then
+        SIGNAL=$((EXIT_CODE - 128))
+        case $SIGNAL in
+            7)  SIGNAL_NAME="SIGBUS (bus error)" ;;
+            11) SIGNAL_NAME="SIGSEGV (segmentation fault)" ;;
+            6)  SIGNAL_NAME="SIGABRT (abort)" ;;
+            *)  SIGNAL_NAME="signal $SIGNAL" ;;
+        esac
+        echo "[sway-session] ERROR: Sway crashed with $SIGNAL_NAME (exit code $EXIT_CODE)"
+    else
+        echo "[sway-session] ERROR: Sway exited with error code $EXIT_CODE"
+    fi
+
+    # Look for core dump (may be in current dir or /tmp/cores)
+    CORE_FILE=""
+    for pattern in "core" "core.$SWAY_PID" "/tmp/cores/core" "/tmp/cores/core.$SWAY_PID"; do
+        if [ -f "$pattern" ]; then
+            CORE_FILE="$pattern"
+            break
+        fi
+    done
+
+    if [ -n "$CORE_FILE" ]; then
+        # Move core dump to timestamped file for preservation
+        CRASH_TIME=$(date +%Y%m%d-%H%M%S)
+        SAVED_CORE="/tmp/cores/sway-crash-${CRASH_TIME}.core"
+        mv "$CORE_FILE" "$SAVED_CORE" 2>/dev/null || cp "$CORE_FILE" "$SAVED_CORE"
+        echo "[sway-session] Core dump saved to: $SAVED_CORE"
+
+        # Try to get basic backtrace if gdb is available
+        if command -v gdb >/dev/null 2>&1 && [ -f "$SAVED_CORE" ]; then
+            echo "[sway-session] Attempting to extract backtrace..."
+            gdb -batch -ex "bt" -ex "quit" /usr/bin/sway "$SAVED_CORE" 2>/dev/null | head -50 > "/tmp/cores/sway-crash-${CRASH_TIME}.bt" || true
+            if [ -s "/tmp/cores/sway-crash-${CRASH_TIME}.bt" ]; then
+                echo "[sway-session] Backtrace saved to: /tmp/cores/sway-crash-${CRASH_TIME}.bt"
+                cat "/tmp/cores/sway-crash-${CRASH_TIME}.bt"
+            fi
+        fi
+    else
+        echo "[sway-session] No core dump found (core_pattern may need configuration)"
+    fi
+
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    if [ $RESTART_COUNT -lt $MAX_RESTARTS ]; then
+        echo "[sway-session] Restarting Sway in 2 seconds..."
+        sleep 2
+        # Clean up stale Wayland socket if present
+        rm -f "${XDG_RUNTIME_DIR}/wayland-1" 2>/dev/null || true
+    else
+        echo "[sway-session] FATAL: Sway crashed $MAX_RESTARTS times, giving up"
+        echo "[sway-session] Check /tmp/cores/ for crash dumps"
+    fi
 done
 
-# Start XDG portals in background - NO WAITING NEEDED
-# Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
-# which are native Wayland protocols that bypass the portal entirely.
-# Portals are only needed for file dialogs, etc. - not critical path.
-echo "[sway-session] Starting XDG portals in background (not needed for video)..."
-WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
-/usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
-echo "[sway-session] Portals started (non-blocking)"
-
-# Start services via shared init scripts (they wait for Wayland socket internally)
-# Logs are prefixed and go to docker logs (stdout)
-/usr/local/bin/start-desktop-bridge.sh &
-/usr/local/bin/start-settings-sync-daemon.sh &
-
-# Wait for sway to exit (keeps container alive)
-wait $SWAY_PID
+echo "[sway-session] Session ended (restart_count=$RESTART_COUNT, exit_code=$EXIT_CODE)"
 SWAY_SESSION_EOF
     chmod +x $XDG_RUNTIME_DIR/sway-session.sh
 

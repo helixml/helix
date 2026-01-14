@@ -524,6 +524,8 @@ RUN apt-get update && apt-get install -y \
     kitty \
     scrot xclip \
     vulkan-tools \
+    # gdb for crash dump analysis (backtraces from Sway bus errors)
+    gdb \
     # GStreamer for video streaming (pipewiresrc → h264 encoding → RTP)
     gstreamer1.0-tools \
     gstreamer1.0-pipewire \
@@ -617,7 +619,7 @@ RUN apt-get update && apt-get install -y \
     && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
     # Create wrapper script with VA-API for hardware video decoding
     && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
-    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
     && chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs

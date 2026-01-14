@@ -439,7 +439,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log('[DesktopStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
       // Get streaming bitrate: user-selected > backend config > default
-      let streamingBitrateMbps = 10; // Default: 10 Mbps (conservative for low-bandwidth)
+      // 5 Mbps provides smoother streaming than higher bitrates - lower encoder latency
+      // and more consistent frame pacing outweigh the quality benefits of higher bitrates
+      let streamingBitrateMbps = 5; // Default: 5 Mbps (smoother than higher bitrates)
 
       if (userBitrate !== null) {
         // User explicitly selected a bitrate - use it
@@ -1809,31 +1811,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // Probe bandwidth BEFORE connecting to start at optimal bitrate
-    const probeAndConnect = async () => {
-      hasConnectedRef.current = true;
-
-      // Show connecting overlay so user sees the probe status
-      setIsConnecting(true);
-      console.log('[DesktopStreamViewer] Probing bandwidth before initial connection...');
-      setStatus('Measuring bandwidth...');
-
-      const throughput = await runInitialBandwidthProbe();
-
-      if (throughput > 0) {
-        const optimalBitrate = calculateOptimalBitrate(throughput);
-        console.log(`[DesktopStreamViewer] Initial probe: ${throughput.toFixed(1)} Mbps → starting at ${optimalBitrate} Mbps`);
-        setUserBitrate(optimalBitrate);
-        setRequestedBitrate(optimalBitrate);
-      } else {
-        console.log('[DesktopStreamViewer] Initial probe failed, using default 10 Mbps');
-      }
-
-      console.log('[DesktopStreamViewer] Auto-connecting with sandboxId:', sandboxId);
-      connect();
-    };
-
-    probeAndConnect();
+    // Skip bandwidth probe - 5 Mbps default provides smoother streaming than higher bitrates
+    // Lower encoder latency and more consistent frame pacing outweigh quality benefits
+    hasConnectedRef.current = true;
+    setIsConnecting(true);
+    console.log('[DesktopStreamViewer] Auto-connecting at 5 Mbps (skipping bandwidth probe)');
+    setUserBitrate(5);
+    setRequestedBitrate(5);
+    connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sandboxId, sessionId, isVisible]); // Only trigger on props and visibility, not on function identity changes
 
@@ -2241,64 +2226,68 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       } else {
         // Low frame drift - connection is stable at current bitrate
         congestionCheckCountRef.current = 0; // Reset congestion counter on good sample
-        stableCheckCountRef.current++;
-
-        // Try to increase if stable for a while
-        if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
-          const timeSinceLastChange = now - lastBitrateChangeRef.current;
-
-          if (timeSinceLastChange > INCREASE_COOLDOWN_MS) {
-            const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
-
-            if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
-              // Run bandwidth probe to measure actual throughput
-              // Then jump directly to the highest sustainable bitrate (not just +1 tier)
-              console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing to find optimal bitrate...`);
-
-              // Mark that we're attempting an increase (prevent re-triggering during probe)
-              stableCheckCountRef.current = 0;
-
-              runBandwidthProbe().then((measuredThroughputMbps) => {
-                if (measuredThroughputMbps <= 0) {
-                  console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
-                  lastBitrateChangeRef.current = Date.now();
-                  return;
-                }
-
-                // Calculate max sustainable bitrate with 25% headroom
-                // If we measure 100 Mbps, we can sustain 100/1.25 = 80 Mbps
-                const maxSustainableBitrate = measuredThroughputMbps / 1.25;
-
-                // Find the highest BITRATE_OPTIONS that fits
-                let targetBitrate = currentBitrate;
-                for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
-                  if (BITRATE_OPTIONS[i] <= maxSustainableBitrate && BITRATE_OPTIONS[i] > currentBitrate) {
-                    targetBitrate = BITRATE_OPTIONS[i];
-                    break;
-                  }
-                }
-
-                if (targetBitrate > currentBitrate) {
-                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
-                  console.log(`[AdaptiveBitrate] Recommending upgrade: ${currentBitrate} → ${targetBitrate} Mbps`);
-
-                  // Show recommendation popup instead of auto-switching
-                  setBitrateRecommendation({
-                    type: 'increase',
-                    targetBitrate: targetBitrate,
-                    reason: `Your connection has improved (measured ${measuredThroughputMbps.toFixed(0)} Mbps)`,
-                    measuredThroughput: measuredThroughputMbps,
-                  });
-
-                  lastBitrateChangeRef.current = Date.now();
-                } else {
-                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
-                  lastBitrateChangeRef.current = Date.now();
-                }
-              });
-            }
-          }
-        }
+        // DISABLED: We no longer recommend increasing bitrate even when stable.
+        // Lower bitrates (5 Mbps) provide smoother streaming than higher bitrates -
+        // lower encoder latency and more consistent frame pacing outweigh quality benefits.
+        // Users can manually increase bitrate via the menu if they want higher quality.
+        // stableCheckCountRef.current++;
+        //
+        // // Try to increase if stable for a while
+        // if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
+        //   const timeSinceLastChange = now - lastBitrateChangeRef.current;
+        //
+        //   if (timeSinceLastChange > INCREASE_COOLDOWN_MS) {
+        //     const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
+        //
+        //     if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
+        //       // Run bandwidth probe to measure actual throughput
+        //       // Then jump directly to the highest sustainable bitrate (not just +1 tier)
+        //       console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing to find optimal bitrate...`);
+        //
+        //       // Mark that we're attempting an increase (prevent re-triggering during probe)
+        //       stableCheckCountRef.current = 0;
+        //
+        //       runBandwidthProbe().then((measuredThroughputMbps) => {
+        //         if (measuredThroughputMbps <= 0) {
+        //           console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
+        //           lastBitrateChangeRef.current = Date.now();
+        //           return;
+        //         }
+        //
+        //         // Calculate max sustainable bitrate with 25% headroom
+        //         // If we measure 100 Mbps, we can sustain 100/1.25 = 80 Mbps
+        //         const maxSustainableBitrate = measuredThroughputMbps / 1.25;
+        //
+        //         // Find the highest BITRATE_OPTIONS that fits
+        //         let targetBitrate = currentBitrate;
+        //         for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
+        //           if (BITRATE_OPTIONS[i] <= maxSustainableBitrate && BITRATE_OPTIONS[i] > currentBitrate) {
+        //             targetBitrate = BITRATE_OPTIONS[i];
+        //             break;
+        //           }
+        //         }
+        //
+        //         if (targetBitrate > currentBitrate) {
+        //           console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
+        //           console.log(`[AdaptiveBitrate] Recommending upgrade: ${currentBitrate} → ${targetBitrate} Mbps`);
+        //
+        //           // Show recommendation popup instead of auto-switching
+        //           setBitrateRecommendation({
+        //             type: 'increase',
+        //             targetBitrate: targetBitrate,
+        //             reason: `Your connection has improved (measured ${measuredThroughputMbps.toFixed(0)} Mbps)`,
+        //             measuredThroughput: measuredThroughputMbps,
+        //           });
+        //
+        //           lastBitrateChangeRef.current = Date.now();
+        //         } else {
+        //           console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
+        //           lastBitrateChangeRef.current = Date.now();
+        //         }
+        //       });
+        //     }
+        //   }
+        // }
       }
     };
 
