@@ -132,6 +132,21 @@ start_zed_helix() {
     echo "========================================="
     echo ""
 
+    # Prevent duplicate Zed instances after compositor crash/restart
+    # The compositor's exec command runs again on restart, but we're already running
+    ZED_LOCK_FILE="/tmp/helix-zed-startup.lock"
+    if [ -f "$ZED_LOCK_FILE" ]; then
+        OLD_PID=$(cat "$ZED_LOCK_FILE" 2>/dev/null)
+        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "Zed startup already running (PID $OLD_PID) - exiting duplicate"
+            exit 0
+        fi
+        echo "Stale lock file found, removing..."
+        rm -f "$ZED_LOCK_FILE"
+    fi
+    echo $$ > "$ZED_LOCK_FILE"
+    trap 'rm -f "$ZED_LOCK_FILE"' EXIT
+
     # Clean up old signal files
     rm -f "$COMPLETE_SIGNAL" "$FOLDERS_FILE"
 

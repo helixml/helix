@@ -554,22 +554,30 @@ while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
         sleep 0.5
     done
 
-    # Start services only on first successful start
-    if [ "$SOCKET_READY" = "true" ] && [ "$SERVICES_STARTED" = "false" ]; then
-        # Start XDG portals in background - NO WAITING NEEDED
-        # Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
-        # which are native Wayland protocols that bypass the portal entirely.
-        # Portals are only needed for file dialogs, etc. - not critical path.
-        echo "[sway-session] Starting XDG portals in background (not needed for video)..."
-        WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
-        /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
-        echo "[sway-session] Portals started (non-blocking)"
+    # Start services when Wayland socket is ready
+    if [ "$SOCKET_READY" = "true" ]; then
+        # XDG portals and settings-sync only need to start once
+        if [ "$SERVICES_STARTED" = "false" ]; then
+            # Start XDG portals in background - NO WAITING NEEDED
+            # Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
+            # which are native Wayland protocols that bypass the portal entirely.
+            # Portals are only needed for file dialogs, etc. - not critical path.
+            echo "[sway-session] Starting XDG portals in background (not needed for video)..."
+            WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
+            /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
+            echo "[sway-session] Portals started (non-blocking)"
 
-        # Start services via shared init scripts (they wait for Wayland socket internally)
-        # Logs are prefixed and go to docker logs (stdout)
+            # Settings sync daemon only needs to start once
+            /usr/local/bin/start-settings-sync-daemon.sh &
+            SERVICES_STARTED=true
+        fi
+
+        # Desktop-bridge MUST restart after Sway crash because it holds Wayland connections
+        # Kill any existing instance before starting fresh
+        echo "[sway-session] Starting desktop-bridge (kills stale instance if any)..."
+        pkill -f "desktop-bridge" 2>/dev/null || true
+        sleep 0.2
         /usr/local/bin/start-desktop-bridge.sh &
-        /usr/local/bin/start-settings-sync-daemon.sh &
-        SERVICES_STARTED=true
     fi
 
     # Wait for sway to exit
