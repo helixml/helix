@@ -6,6 +6,11 @@
 # Same minimal GOW pattern as KDE and Sway for package version consistency.
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+#
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-14).
+# Update digests when intentionally upgrading base images.
+# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.24  -> sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e
 
 # ====================================================================
 # Go build stage for Helix binaries
@@ -47,7 +52,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Enable with HELIX_VIDEO_MODE=zerocopy
 #
 # Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-FROM ubuntu:25.10 AS rust-build-env
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
 
 # Install Rust and GStreamer dev packages
@@ -101,7 +106,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
-FROM ubuntu:25.10
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
 
 # Configure default user and set env (from GOW base-app)
 ENV \
