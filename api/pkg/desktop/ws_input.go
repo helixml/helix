@@ -225,32 +225,52 @@ func (s *Server) handleMouseButtonClick(button int, isDown bool) {
 	}
 }
 
-// handleMouseWheel handles scroll wheel events with pixel-perfect accuracy
+// handleMouseWheel handles scroll wheel events with smooth scrolling.
+//
+// Two paths with matching behavior:
+// 1. GNOME RemoteDesktop D-Bus - uses NotifyPointerAxis with FINGER source
+// 2. Wayland-native (Sway/wlroots) - uses zwlr_virtual_pointer with AxisSourceFinger
+//
+// Both paths:
+// - Scale browser pixels to scroll units (pixels * 0.15)
+// - Use FINGER source (enables smooth scrolling in apps like Zed)
+// - Send scroll finish after 150ms of inactivity (enables kinetic scrolling)
 func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
-	// Pass through absolute scroll values for smooth pixel-perfect scrolling
-	// Frontend already normalizes to pixels (see input.ts onMouseWheel)
-	//
-	// GNOME NotifyPointerAxis conventions:
-	// - Uses GNOME's coordinate system (no inversion needed for our use case)
-	// - Values passed through as-is for pixel-perfect scrolling
-	gnomeDX := deltaX
-	gnomeDY := deltaY
-
-	// GNOME scroll flags: 0x08 = CONTINUOUS source (smooth/touchpad scrolling)
-	// This enables pixel-perfect scrolling rather than discrete notches
-	gnomeFlags := uint32(0x08)
+	// Scale browser pixels to scroll units
+	// Browser sends ~100-120 pixels per wheel notch
+	// Scroll protocols expect ~10-15 units per notch
+	// Scale factor 0.15: 100 pixels → 15 units
+	scaledDX := deltaX * 0.15
+	scaledDY := deltaY * 0.15
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
+		// GNOME RemoteDesktop flags:
+		// - bits 0-1: finish flags (1=finish X, 2=finish Y, 3=finish both)
+		// - bits 2-3: source (0=FINGER, 1=WHEEL, 2=CONTINUOUS)
+		// Use FINGER source (0x00) for smooth scrolling - matches Wayland path
+		gnomeFlags := uint32(0x00) // FINGER source
+
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, scaledDX, scaledDY, gnomeFlags).Err
 		if err != nil {
 			s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
 		}
+
+		// Schedule scroll finish after 150ms of inactivity (enables kinetic scrolling)
+		s.scrollFinishMu.Lock()
+		if s.scrollFinishTimer != nil {
+			s.scrollFinishTimer.Stop()
+		}
+		s.scrollFinishTimer = time.AfterFunc(150*time.Millisecond, func() {
+			s.sendScrollFinish()
+		})
+		s.scrollFinishMu.Unlock()
 		return
 	}
 
 	// Fallback to Wayland-native input for Sway/wlroots
+	// MouseWheel already scales by 0.15 internally, so pass raw pixels
 	if s.waylandInput != nil {
 		if err := s.waylandInput.MouseWheel(deltaX, deltaY); err != nil {
 			s.logger.Debug("Wayland virtual mouse wheel failed", "err", err)
