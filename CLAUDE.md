@@ -103,6 +103,7 @@ New sessions use updated image; existing containers don't update.
 - No `setTimeout` for async — use events/promises
 - Extract components when files exceed 500 lines
 - No `type="number"` inputs — use text + parseInt
+- **useEffect dependency arrays**: Never include context values like `streaming`, `api`, `snackbar`, etc. — they don't need to be dependencies. Use refs for one-time async actions.
 
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
