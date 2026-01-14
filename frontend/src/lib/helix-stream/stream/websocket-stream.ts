@@ -168,8 +168,9 @@ export class WebSocketStream {
   private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
   private rttSamples: number[] = []
   private currentRttMs = 0
+  private encoderLatencyMs = 0  // Encoder pipeline latency from server (PTS to WebSocket send)
   private pingIntervalId: ReturnType<typeof setInterval> | null = null
-  private readonly PING_INTERVAL_MS = 1000  // Send ping every second
+  private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
   private readonly HIGH_LATENCY_THRESHOLD_MS = 150  // Show warning above this
 
@@ -187,7 +188,6 @@ export class WebSocketStream {
   private currentFrameLatencyMs = 0                   // How late current frame arrived (ms)
   private frameLatencySamples: number[] = []          // Recent samples for smoothing
   private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
-  private readonly FRAME_LATENCY_THRESHOLD_MS = 200   // Trigger batching above this
 
   // Decoder queue monitoring - tracks if decoder is backing up (for stats display)
   // When queue is high AND we receive a keyframe, we flush and skip to the keyframe
@@ -197,12 +197,13 @@ export class WebSocketStream {
   private framesSkippedToKeyframe = 0                 // Count of frames flushed for stats
   private queueBackupLogged = false                   // Prevent log spam during queue backup
 
-  // Batching request sent to server
-  private batchingRequested = false
+  // Adaptive input throttling based on RTT
+  // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
+  private adaptiveThrottleRatio = 1.0                 // 1.0 = full rate, 0.25 = 25% rate
+  private manualThrottleRatio: number | null = null   // For debug override (null = use adaptive)
 
   // Mouse input throttling - prevents flooding WebSocket with high-polling-rate mice (500-1000 Hz)
-  // Throttle matches stream FPS - no point sending mouse events faster than we can render them
-  private mouseThrottleMs = 16  // Calculated from settings.fps in constructor
+  // Throttle rate is adaptive based on RTT - see getAdaptiveThrottleMs()
   private lastMouseSendTime = 0
   private pendingMousePosition: { x: number; y: number; refW: number; refH: number } | null = null
   private pendingMouseMove: { dx: number; dy: number } | null = null
@@ -270,10 +271,6 @@ export class WebSocketStream {
     this.sessionId = sessionId
     this.clientUniqueId = clientUniqueId
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
-
-    // Calculate mouse throttle based on stream FPS
-    // No point sending mouse events faster than we can render them
-    this.mouseThrottleMs = Math.floor(1000 / settings.fps)
 
     // Initialize input handler
     // Use evdev keycodes for direct WebSocket mode - bypasses VK→evdev conversion on backend
@@ -1012,23 +1009,57 @@ export class WebSocketStream {
   }
 
   /**
-   * Send a batching enable/disable request to the server
+   * Get adaptive throttle interval based on RTT
+   * Returns the effective throttle interval in ms, accounting for RTT-based reduction
    */
-  private sendBatchingRequest(enable: boolean) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+  private getAdaptiveThrottleMs(): number {
+    const ratio = this.manualThrottleRatio ?? this.adaptiveThrottleRatio
+    const baseThrottleMs = 1000 / this.settings.fps
+    // When ratio < 1, we send LESS frequently, so interval INCREASES
+    return baseThrottleMs / ratio
+  }
+
+  /**
+   * Update adaptive throttle ratio based on current RTT
+   * Called from handlePong() whenever RTT measurement is updated
+   */
+  private updateAdaptiveThrottle() {
+    // Don't update if manually overridden
+    if (this.manualThrottleRatio !== null) {
       return
     }
 
-    const json = JSON.stringify({ set_batching_enabled: enable })
-    const encoder = new TextEncoder()
-    const jsonBytes = encoder.encode(json)
+    const rtt = this.currentRttMs
 
-    const message = new Uint8Array(1 + jsonBytes.length)
-    message[0] = WsMessageType.ControlMessage
-    message.set(jsonBytes, 1)
+    // Calculate ratio based on RTT thresholds
+    let ratio: number
+    if (rtt < 50) {
+      ratio = 1.0     // 100% - full configured rate
+    } else if (rtt < 100) {
+      ratio = 0.75    // 75%
+    } else if (rtt < 150) {
+      ratio = 0.5     // 50%
+    } else if (rtt < 250) {
+      ratio = 0.33    // 33%
+    } else {
+      ratio = 0.25    // 25% - minimum
+    }
 
-    this.ws.send(message.buffer)
-    console.log(`[WebSocketStream] Sent batching request: ${enable}`)
+    // Smooth transitions with exponential moving average
+    this.adaptiveThrottleRatio = this.adaptiveThrottleRatio * 0.7 + ratio * 0.3
+  }
+
+  /**
+   * Set manual throttle ratio override for debugging
+   * Pass null to return to automatic adaptive throttling
+   */
+  setThrottleRatio(ratio: number | null) {
+    this.manualThrottleRatio = ratio
+    if (ratio !== null) {
+      console.log(`[WebSocketStream] Manual throttle ratio set to ${ratio * 100}%`)
+    } else {
+      console.log(`[WebSocketStream] Returned to adaptive throttle (current: ${(this.adaptiveThrottleRatio * 100).toFixed(0)}%)`)
+    }
   }
 
   /**
@@ -1241,7 +1272,8 @@ export class WebSocketStream {
   }
 
   private handlePong(data: Uint8Array) {
-    // Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+    // Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
+    // Backward compatible: old servers send 21 bytes without encoder latency
     if (data.length < 21) {
       console.warn("[WebSocketStream] Pong too short:", data.length)
       return
@@ -1271,6 +1303,14 @@ export class WebSocketStream {
     // Calculate moving average
     const sum = this.rttSamples.reduce((a, b) => a + b, 0)
     this.currentRttMs = sum / this.rttSamples.length
+
+    // Extract encoder latency if present (extended Pong format: 23 bytes)
+    if (data.length >= 23) {
+      this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
+    }
+
+    // Update adaptive input throttling based on new RTT
+    this.updateAdaptiveThrottle()
 
     // Dispatch event if latency is high
     if (this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS) {
@@ -1436,11 +1476,11 @@ export class WebSocketStream {
       }
       this.inputsDroppedDueToCongestion++
       // Schedule flush when buffer might be clearer
-      this.scheduleMouseFlush(this.mouseThrottleMs)
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
       return
     }
 
-    if (elapsed >= this.mouseThrottleMs) {
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
       // Enough time has passed - send immediately
       this.sendMouseMoveImmediate(movementX, movementY)
       this.lastMouseSendTime = now
@@ -1454,7 +1494,7 @@ export class WebSocketStream {
         this.pendingMouseMove = { dx: movementX, dy: movementY }
       }
       // Schedule flush after throttle period
-      this.scheduleMouseFlush(this.mouseThrottleMs - elapsed)
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs() - elapsed)
     }
   }
 
@@ -1533,11 +1573,11 @@ export class WebSocketStream {
       this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
       this.inputsDroppedDueToCongestion++
       // Schedule flush when buffer might be clearer
-      this.scheduleMouseFlush(this.mouseThrottleMs)
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
       return
     }
 
-    if (elapsed >= this.mouseThrottleMs) {
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
       // Enough time has passed - send immediately
       this.sendMousePositionImmediate(x, y, refWidth, refHeight)
       this.lastMouseSendTime = now
@@ -1546,7 +1586,7 @@ export class WebSocketStream {
       // Throttled - store latest position (absolute positions replace, not accumulate)
       this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
       // Schedule flush after throttle period
-      this.scheduleMouseFlush(this.mouseThrottleMs - elapsed)
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs() - elapsed)
     }
   }
 
@@ -1569,7 +1609,7 @@ export class WebSocketStream {
 
       // If still congested, reschedule for later
       if (this.isInputBufferCongested()) {
-        this.scheduleMouseFlush(this.mouseThrottleMs)
+        this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
         return
       }
 
@@ -1621,12 +1661,12 @@ export class WebSocketStream {
     }
 
     // If enough time has passed, send immediately
-    if (elapsed >= this.mouseThrottleMs) {
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
       this.flushPendingScroll()
       this.lastScrollSendTime = now
     } else {
       // Schedule flush after throttle period
-      this.scheduleScrollFlush(this.mouseThrottleMs - elapsed)
+      this.scheduleScrollFlush(this.getAdaptiveThrottleMs() - elapsed)
     }
   }
 
@@ -1690,6 +1730,7 @@ export class WebSocketStream {
     width: number
     height: number
     rttMs: number                    // Round-trip time in milliseconds
+    encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
     isHighLatency: boolean           // True if RTT exceeds threshold
     // Batching stats for congestion visibility
     batchesReceived: number          // Total batch messages received
@@ -1699,7 +1740,10 @@ export class WebSocketStream {
     batchingRatio: number            // Percent of frames that arrived batched (0-100)
     // Frame latency (measures actual delivery delay, not just RTT)
     frameLatencyMs: number           // How late frames are arriving based on PTS
-    batchingRequested: boolean       // True if client requested batching from server
+    // Adaptive input throttling stats
+    adaptiveThrottleRatio: number    // Current throttle ratio (1.0 = full, 0.25 = 25%)
+    effectiveInputFps: number        // Actual input rate after throttling
+    isThrottled: boolean             // True if throttle ratio < 1.0
     // Decoder queue stats (detects if decoder can't keep up)
     decodeQueueSize: number          // Current decoder queue depth
     maxDecodeQueueSize: number       // Peak queue size seen
@@ -1743,6 +1787,7 @@ export class WebSocketStream {
       width: this.streamerSize[0],
       height: this.streamerSize[1],
       rttMs: this.currentRttMs,
+      encoderLatencyMs: this.encoderLatencyMs,
       isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
       // Batching stats
       batchesReceived: this.batchesReceived,
@@ -1752,7 +1797,10 @@ export class WebSocketStream {
       batchingRatio,
       // Frame latency (the real measure of how delayed frames are)
       frameLatencyMs: this.currentFrameLatencyMs,
-      batchingRequested: this.batchingRequested,
+      // Adaptive input throttling
+      adaptiveThrottleRatio: this.manualThrottleRatio ?? this.adaptiveThrottleRatio,
+      effectiveInputFps: this.settings.fps * (this.manualThrottleRatio ?? this.adaptiveThrottleRatio),
+      isThrottled: (this.manualThrottleRatio ?? this.adaptiveThrottleRatio) < 0.99,
       // Decoder queue
       decodeQueueSize: this.lastDecodeQueueSize,
       maxDecodeQueueSize: this.maxDecodeQueueSize,
