@@ -4,6 +4,18 @@
 
 ---
 
+Here's something you'll find in every large, successful enterprise: lots of repositories that look almost identical.
+
+This isn't an accident. It's how you stay sane at scale. When you have 200 developers across 15 teams, you don't want 50 different ways to structure a data pipeline or 30 different logging patterns. You create templates. You establish conventions. You enforce consistency.
+
+The result? Dozens—sometimes hundreds—of repositories with the same structure, the same patterns, the same libraries. A microservices architecture where every service follows the same skeleton. A data platform where every pipeline has the same `client.py → transform.py → loader.py` structure.
+
+This is good engineering. It makes onboarding easier, code review faster, and incident response predictable.
+
+But it creates an interesting problem for AI coding assistants.
+
+## The AI Agent Problem
+
 There's a dirty secret about AI coding assistants: they're great at greenfield projects but struggle with the messy reality of enterprise codebases.
 
 You know the pattern. You ask an AI to "add logging to this service" and it produces beautiful, idiomatic code—for a codebase that doesn't exist. Your actual codebase has conventions. Shared libraries. That one weird pattern from 2019 that everyone forgot why it exists but would break everything if you changed it.
@@ -12,7 +24,7 @@ The first time an AI agent works in your codebase, it has to discover all of thi
 
 We built something to fix this.
 
-## The Problem: 50 Repositories, One Pattern
+## The Opportunity: 50 Repositories, One Pattern
 
 One of our customers—a financial services company—came to us with a common problem. They had 50+ data pipeline repositories, all with similar structure:
 
