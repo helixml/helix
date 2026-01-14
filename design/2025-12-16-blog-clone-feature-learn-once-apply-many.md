@@ -122,6 +122,28 @@ This works because:
 
 3. **Specs preserve reasoning.** The technical design explains *why* we need contextvars, not just *that* we're using it. This helps the agent adapt when the target repo is slightly different.
 
+## Beyond Specs: Transferring the Journey
+
+Specs capture *what* the agent learned. But sometimes, the *how* matters just as much.
+
+When the original agent worked on the Stocks pipeline, it didn't immediately know about `contextvars`. It tried things. It hit dead ends. It discovered the solution through exploration. That journey—the reasoning, the failed attempts, the "aha" moments—contains valuable context that specs alone don't capture.
+
+So we added something new: **session context injection**.
+
+When you clone a task, we now also transfer a reference to the original agent's conversation history. The cloned agent receives:
+
+1. **A table of contents** of what was discussed in the source session
+2. **MCP tools** to read specific turns from that session
+3. **Directive instructions** to study and replicate the proven approach
+
+The prompt tells the cloned agent:
+
+> *"This task has already been successfully completed on a similar repository. Your job is to study that implementation and replicate it here, adapting for any differences."*
+
+The agent can then use tools like `get_turn(session_id="ses_xxx", turn=5)` to read exactly what the original agent discovered at turn 5—maybe that's where it figured out the `contextvars` pattern.
+
+This is different from just giving the agent the final specs. It's giving the agent access to the *entire learning process*. If something in the target repository is slightly different and the spec doesn't quite apply, the agent can look back at *why* the original agent made certain decisions and adapt accordingly.
+
 ## Try It Yourself
 
 We built a demo: the "Data Pipeline Logging Migration" sample project.
@@ -138,6 +160,7 @@ The Stocks task takes ~30 minutes. The other 4 take ~5-10 minutes each.
 
 Clone is just the beginning. We're exploring:
 
+- **Reference worktrees**: Mount the source task's code branch as a read-only reference, so the cloned agent can see *exactly* what code was written
 - **Automatic pattern detection**: "These 12 repositories share structure—want to apply this task to all of them?"
 - **Spec libraries**: Save and share specs across your organization
 - **Cross-language transfer**: A logging pattern learned in Python, adapted for Go
