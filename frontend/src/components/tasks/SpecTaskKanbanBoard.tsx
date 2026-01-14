@@ -182,13 +182,16 @@ const DroppableColumn: React.FC<{
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
+  onStartAll?: () => Promise<void>;
+  startAllInProgress?: boolean;
+  availableSlots?: number;
   projectId?: string;
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
   showMetrics?: boolean;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, showMetrics, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, onStartAll, startAllInProgress, availableSlots, projectId, focusTaskId, archivingTaskId, hasExternalRepo, showMetrics, theme }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
@@ -288,6 +291,37 @@ const DroppableColumn: React.FC<{
                   </Box>
                 )}
               </Box>
+              {/* Start All button for backlog column */}
+              {column.id === 'backlog' && column.tasks.length > 0 && onStartAll && (
+                <Tooltip title={availableSlots && availableSlots > 0
+                  ? `Start up to ${Math.min(column.tasks.length, availableSlots)} task${Math.min(column.tasks.length, availableSlots) > 1 ? 's' : ''}`
+                  : 'Planning column is full'
+                }>
+                  <span>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={startAllInProgress ? <CircularProgress size={14} /> : <LaunchIcon sx={{ fontSize: 14 }} />}
+                      onClick={onStartAll}
+                      disabled={startAllInProgress || !availableSlots || availableSlots <= 0}
+                      sx={{
+                        fontSize: '0.7rem',
+                        py: 0.25,
+                        px: 1,
+                        minWidth: 'auto',
+                        borderColor: 'rgba(0, 0, 0, 0.15)',
+                        color: 'text.secondary',
+                        '&:hover': {
+                          borderColor: 'primary.main',
+                          color: 'primary.main',
+                        },
+                      }}
+                    >
+                      {startAllInProgress ? 'Starting...' : 'Start All'}
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
             </Box>
           </Box>
 
@@ -364,6 +398,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+  const [startAllInProgress, setStartAllInProgress] = useState(false);
 
   // Use props for showArchived and showMetrics (controlled from parent)
   const showArchived = showArchivedProp;
@@ -822,6 +857,60 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   };
 
+  // Handle starting all backlog tasks (up to WIP limit)
+  const handleStartAll = async () => {
+    const planningColumn = columns.find(col => col.id === 'planning');
+    const backlogColumn = columns.find(col => col.id === 'backlog');
+
+    if (!planningColumn || !backlogColumn) return;
+
+    const planningLimit = planningColumn.limit || 3;
+    const currentPlanningCount = planningColumn.tasks.length;
+    const availableSlots = Math.max(0, planningLimit - currentPlanningCount);
+
+    if (availableSlots <= 0) {
+      setError(`Planning column is full (${planningLimit} tasks max). Please complete existing planning tasks first.`);
+      return;
+    }
+
+    // Get backlog tasks that can be started (not queued, not failed)
+    const startableTasks = backlogColumn.tasks.filter(
+      t => t.planningStatus !== 'queued' && t.planningStatus !== 'failed'
+    );
+
+    const tasksToStart = startableTasks.slice(0, availableSlots);
+
+    if (tasksToStart.length === 0) {
+      setError('No tasks available to start.');
+      return;
+    }
+
+    setStartAllInProgress(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      // Start tasks sequentially to avoid overwhelming the backend
+      for (const task of tasksToStart) {
+        try {
+          await handleStartPlanning(task);
+          successCount++;
+          // Small delay between starts to prevent race conditions
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err) {
+          console.error(`Failed to start task ${task.id}:`, err);
+          errorCount++;
+        }
+      }
+
+      if (errorCount > 0) {
+        setError(`Started ${successCount} task(s), ${errorCount} failed.`);
+      }
+    } finally {
+      setStartAllInProgress(false);
+    }
+  };
+
   // Handle reviewing documents - optionally open to a specific tab
   // Default to 'requirements' since that's the natural starting point for review
   const handleReviewDocs = async (task: SpecTaskWithExtras, initialTab: 'requirements' | 'technical_design' | 'implementation_plan' = 'requirements') => {
@@ -950,23 +1039,36 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           },
         },
       }}>
-        {columns.map((column) => (
-          <DroppableColumn
-            key={column.id}
-            column={column}
-            columns={columns}
-            onStartPlanning={handleStartPlanning}
-            onArchiveTask={handleArchiveTask}
-            onTaskClick={onTaskClick}
-            onReviewDocs={handleReviewDocs}
-            projectId={projectId}
-            focusTaskId={focusTaskId}
-            archivingTaskId={archivingTaskId}
-            hasExternalRepo={hasExternalRepo}
-            showMetrics={showMetrics}
-            theme={theme}
-          />
-        ))}
+        {columns.map((column) => {
+          // Calculate available slots for backlog column
+          const planningColumn = columns.find(col => col.id === 'planning');
+          const planningLimit = planningColumn?.limit || 3;
+          const currentPlanningCount = planningColumn?.tasks.length || 0;
+          const availableSlots = column.id === 'backlog'
+            ? Math.max(0, planningLimit - currentPlanningCount)
+            : undefined;
+
+          return (
+            <DroppableColumn
+              key={column.id}
+              column={column}
+              columns={columns}
+              onStartPlanning={handleStartPlanning}
+              onArchiveTask={handleArchiveTask}
+              onTaskClick={onTaskClick}
+              onReviewDocs={handleReviewDocs}
+              onStartAll={column.id === 'backlog' ? handleStartAll : undefined}
+              startAllInProgress={startAllInProgress}
+              availableSlots={availableSlots}
+              projectId={projectId}
+              focusTaskId={focusTaskId}
+              archivingTaskId={archivingTaskId}
+              hasExternalRepo={hasExternalRepo}
+              showMetrics={showMetrics}
+              theme={theme}
+            />
+          );
+        })}
       </Box>
 
       {/* Design Review Viewer - Floating window for spec review */}
