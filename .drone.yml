@@ -1422,9 +1422,6 @@ trigger:
   event:
     - tag
     - push
-  branch:
-    - main
-    - fix/ci-sandbox-build-concurrency
 
 volumes:
   - name: dockersocket
@@ -1751,8 +1748,5 @@ steps:
       event:
         - tag
         - push
-      branch:
-        - main
-        - fix/ci-sandbox-build-concurrency
     depends_on:
       - build-sandbox
