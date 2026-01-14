@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import {
   Box,
   FormControl,
+  FormHelperText,
   InputLabel,
   Select,
   MenuItem,
@@ -26,6 +27,8 @@ interface AgentDropdownProps {
   disabled?: boolean
   /** Size variant */
   size?: 'small' | 'medium'
+  /** Helper text displayed below the dropdown */
+  helperText?: string
 }
 
 /**
@@ -39,6 +42,7 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
   label = 'Agent',
   disabled = false,
   size = 'small',
+  helperText,
 }) => {
   const account = useAccount()
 
@@ -81,6 +85,7 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
           </MenuItem>
         )}
       </Select>
+      {helperText && <FormHelperText>{helperText}</FormHelperText>}
     </FormControl>
   )
 }

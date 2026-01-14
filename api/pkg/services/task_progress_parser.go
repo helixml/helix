@@ -88,7 +88,7 @@ func findTaskDirectory(repoPath string, specTaskID string, designDocPath string)
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to list helix-specs branch: %w", err)
+		return "", fmt.Errorf("failed to list helix-specs branch: %w (%s)", err, string(output))
 	}
 
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")

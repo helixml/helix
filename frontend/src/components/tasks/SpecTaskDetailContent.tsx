@@ -644,7 +644,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               {task.pull_request_url && (
                 <Button
                   variant="outlined"
-                  color="primary"
+                  color="secondary"
                   startIcon={<LaunchIcon />}
                   onClick={() => window.open(task.pull_request_url, '_blank')}
                 >

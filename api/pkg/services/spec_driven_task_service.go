@@ -1092,16 +1092,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
-		// Specs approved - move to implementation
-		task.Status = types.TaskStatusImplementation
-		task.BranchName = branchName
-		task.StartedAt = ptr.To(time.Now())
-
-		err = s.store.UpdateSpecTask(ctx, task)
-		if err != nil {
-			return fmt.Errorf("failed to update task approval: %w", err)
-		}
-
 		// Send instruction to existing agent session (reuse planning session)
 		sessionID := task.PlanningSessionID
 
@@ -1109,28 +1099,23 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			// Create agent instruction service
 			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent)
 
-			// Send approval instruction asynchronously (don't block the response)
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-
-				err := agentInstructionService.SendApprovalInstruction(
-					context.Background(),
-					sessionID,
-					task.CreatedBy, // User who created the task
-					task,
-					branchName,
-					repo.DefaultBranch,
-					repo.Name,
-				)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("task_id", task.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to send approval instruction to agent")
-				}
-			}()
+			err := agentInstructionService.SendApprovalInstruction(
+				context.Background(),
+				sessionID,
+				task.CreatedBy, // User who created the task
+				task,
+				branchName,
+				repo.DefaultBranch,
+				repo.Name,
+			)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("session_id", sessionID).
+					Msg("Failed to send approval instruction to agent")
+				return err
+			}
 
 			log.Info().
 				Str("task_id", task.ID).
@@ -1141,6 +1126,15 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			log.Warn().
 				Str("task_id", task.ID).
 				Msg("No planning session ID found - agent will not receive implementation instruction")
+		}
+
+		task.Status = types.TaskStatusImplementation
+		task.BranchName = branchName
+		task.StartedAt = ptr.To(time.Now())
+
+		err = s.store.UpdateSpecTask(ctx, task)
+		if err != nil {
+			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
 	} else {

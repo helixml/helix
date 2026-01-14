@@ -354,6 +354,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.ProjectManagerHelixAppID != nil {
 		project.ProjectManagerHelixAppID = *req.ProjectManagerHelixAppID
 	}
+	if req.PullRequestReviewerHelixAppID != nil {
+		project.PullRequestReviewerHelixAppID = *req.PullRequestReviewerHelixAppID
+	}
+	if req.PullRequestReviewsEnabled != nil {
+		project.PullRequestReviewsEnabled = *req.PullRequestReviewsEnabled
+	}
 	// Track guidelines changes with versioning
 	if req.Guidelines != nil && *req.Guidelines != project.Guidelines {
 		// Save current version to history before updating
@@ -470,6 +476,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		if req.ProjectManagerHelixAppID != nil {
 			changedFields = append(changedFields, "project_manager_helix_app_id")
+		}
+		if req.PullRequestReviewerHelixAppID != nil {
+			changedFields = append(changedFields, "pull_request_reviewer_helix_app_id")
 		}
 		if req.Metadata != nil {
 			changedFields = append(changedFields, "metadata")

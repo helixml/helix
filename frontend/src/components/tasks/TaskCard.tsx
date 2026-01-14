@@ -900,7 +900,7 @@ export default function TaskCard({
             <Button
               size="small"
               variant="contained"
-              color="primary"
+              color="secondary"
               startIcon={<ViewIcon />}
               onClick={(e) => {
                 e.stopPropagation()
@@ -949,7 +949,7 @@ export default function TaskCard({
                 <Button
                   size="small"
                   variant="contained"
-                  color="primary"
+                  color="secondary"
                   startIcon={<LaunchIcon />}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -1027,34 +1027,6 @@ export default function TaskCard({
                 fullWidth
               >
                 Start Exploratory Session
-              </Button>
-            </Alert>
-          </Box>
-        )}
-
-        {/* Pull Request link - for external repos (ADO, etc.) */}
-        {task.pull_request_url && (
-          <Box sx={{ mt: 1.5 }}>
-            <Alert
-              severity={task.status === 'done' ? 'success' : 'info'}
-              sx={{ py: 0.5 }}
-              icon={<OpenInNewIcon fontSize="small" />}
-            >
-              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                {task.status === 'done' ? 'Task complete! Review the PR:' : 'Pull Request:'}
-              </Typography>
-              <Button
-                size="small"
-                variant="outlined"
-                color={task.status === 'done' ? 'success' : 'info'}
-                startIcon={<OpenInNewIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  window.open(task.pull_request_url, '_blank')
-                }}
-                fullWidth
-              >
-                View Pull Request #{task.pull_request_id}
               </Button>
             </Alert>
           </Box>

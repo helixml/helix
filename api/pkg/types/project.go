@@ -21,26 +21,29 @@ type Project struct {
 
 	// Project-level repository management
 	// DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
-	DefaultRepoID string `json:"default_repo_id" gorm:"type:varchar(255)"`
+	DefaultRepoID string `json:"default_repo_id"`
 
 	// Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database
 	StartupScript string `json:"startup_script" gorm:"-"`
 
 	// Automation settings
-	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available
+	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available
 
 	// Default agent for spec tasks in this project (App ID)
 	// New spec tasks inherit this agent; can be overridden per-task
-	DefaultHelixAppID string `json:"default_helix_app_id,omitempty" gorm:"type:varchar(255)"`
+	DefaultHelixAppID string `json:"default_helix_app_id"`
 
-	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id,omitempty"`
+	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id"`
+
+	PullRequestReviewerHelixAppID string `json:"pull_request_reviewer_helix_app_id"`
+	PullRequestReviewsEnabled     bool   `json:"pull_request_reviews_enabled"`
 
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
-	Guidelines          string    `json:"guidelines" gorm:"type:text"`
-	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
-	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
-	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
+	Guidelines          string    `json:"guidelines"`
+	GuidelinesVersion   int       `json:"guidelines_version"`    // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"` // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"` // User ID who last updated guidelines
 
 	// Auto-incrementing task number for human-readable directory names
 	// Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
@@ -152,19 +155,21 @@ type ProjectCreateRequest struct {
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                     *string          `json:"name,omitempty"`
-	Description              *string          `json:"description,omitempty"`
-	GitHubRepoURL            *string          `json:"github_repo_url,omitempty"`
-	DefaultBranch            *string          `json:"default_branch,omitempty"`
-	Technologies             []string         `json:"technologies,omitempty"`
-	Status                   *string          `json:"status,omitempty"`
-	DefaultRepoID            *string          `json:"default_repo_id,omitempty"`
-	StartupScript            *string          `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks    *bool            `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID        *string          `json:"default_helix_app_id,omitempty"`         // Default agent for spec tasks
-	ProjectManagerHelixAppID *string          `json:"project_manager_helix_app_id,omitempty"` // Project manager agent
-	Guidelines               *string          `json:"guidelines,omitempty"`                   // Project-specific AI agent guidelines
-	Metadata                 *ProjectMetadata `json:"metadata,omitempty"`
+	Name                          *string          `json:"name,omitempty"`
+	Description                   *string          `json:"description,omitempty"`
+	GitHubRepoURL                 *string          `json:"github_repo_url,omitempty"`
+	DefaultBranch                 *string          `json:"default_branch,omitempty"`
+	Technologies                  []string         `json:"technologies,omitempty"`
+	Status                        *string          `json:"status,omitempty"`
+	DefaultRepoID                 *string          `json:"default_repo_id,omitempty"`
+	StartupScript                 *string          `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks         *bool            `json:"auto_start_backlog_tasks,omitempty"`
+	DefaultHelixAppID             *string          `json:"default_helix_app_id,omitempty"`               // Default agent for spec tasks
+	ProjectManagerHelixAppID      *string          `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
+	PullRequestReviewerHelixAppID *string          `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
+	PullRequestReviewsEnabled     *bool            `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
+	Guidelines                    *string          `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`
 }
 
 // SampleProject represents a pre-built sample project that can be instantiated

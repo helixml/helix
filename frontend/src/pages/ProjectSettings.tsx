@@ -21,7 +21,8 @@ import {
   MenuItem,
   FormControlLabel,
   Checkbox,
-  Chip
+  Chip,
+  Switch
 } from '@mui/material'
 import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
@@ -162,6 +163,7 @@ const ProjectSettings: FC = () => {
   const [startupScript, setStartupScript] = useState('')
   const [guidelines, setGuidelines] = useState('')
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
+  const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] = useState(false)
   const [showTestSession, setShowTestSession] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
@@ -185,6 +187,7 @@ const ProjectSettings: FC = () => {
   // Default agent state
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] = useState<string>('')
+  const [selectedPullRequestReviewerAgentId, setSelectedPullRequestReviewerAgentId] = useState<string>('')
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
   const [selectedProvider, setSelectedProvider] = useState('')
@@ -212,6 +215,13 @@ const ProjectSettings: FC = () => {
     return [...zedExternalApps, ...otherApps]
   }, [apps])
 
+  // Check if the primary repository is an external repository (has external_url set)
+  const primaryRepoIsExternal = useMemo(() => {
+    if (!project?.default_repo_id || repositories.length === 0) return false
+    const primaryRepo = repositories.find(repo => repo.id === project.default_repo_id)
+    return primaryRepo?.external_url ? true : false
+  }, [project?.default_repo_id, repositories])
+
   // Load apps when component mounts
   useEffect(() => {
     loadApps()
@@ -233,8 +243,10 @@ const ProjectSettings: FC = () => {
       setStartupScript(project.startup_script || '')
       setGuidelines(project.guidelines || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      setPullRequestReviewsEnabled(project.pull_request_reviews_enabled || false)
       setSelectedAgentId(project.default_helix_app_id || '')
       setSelectedProjectManagerAgentId(project.project_manager_helix_app_id || '')
+      setSelectedPullRequestReviewerAgentId(project.pull_request_reviewer_helix_app_id || '')
 
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
@@ -279,6 +291,7 @@ const ProjectSettings: FC = () => {
         startup_script: startupScript,
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        pull_request_reviews_enabled: pullRequestReviewsEnabled,
         default_helix_app_id: selectedAgentId || undefined,
         project_manager_helix_app_id: selectedProjectManagerAgentId || undefined,
         metadata: {
@@ -660,7 +673,7 @@ const ProjectSettings: FC = () => {
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Select the default agent for spec tasks in this project. You can configure MCP servers in the agent settings.
+              Set agents for this project. Agents are used for working on spec tasks, managing the project and reviewing pull requests.
             </Typography>
             <Divider sx={{ mb: 3 }} />
 
@@ -687,6 +700,19 @@ const ProjectSettings: FC = () => {
                   }}
                   agents={sortedApps}
                   label="Project Manager Agent"
+                />
+                <AgentDropdown
+                  value={selectedPullRequestReviewerAgentId}
+                  onChange={(newAgentId) => {
+                    setSelectedPullRequestReviewerAgentId(newAgentId)
+                    updateProjectMutation.mutate({
+                      pull_request_reviewer_helix_app_id: newAgentId || undefined,
+                    })
+                  }}
+                  agents={sortedApps}
+                  label="Pull Request Reviewer Agent"
+                  disabled={!primaryRepoIsExternal}
+                  helperText={!primaryRepoIsExternal ? 'Requires an external repository (GitHub, GitLab, etc.) as the primary repository' : undefined}
                 />
                 <Button
                   size="small"
@@ -830,28 +856,54 @@ const ProjectSettings: FC = () => {
               Configure automatic task scheduling and workflow automation.
             </Typography>
             <Divider sx={{ mb: 3 }} />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={autoStartBacklogTasks}
-                  onChange={(e) => {
-                    setAutoStartBacklogTasks(e.target.checked)
-                    handleFieldBlur()
-                  }}
-                />
-              }
-              label={
-                <Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ flex: 1, mr: 2 }}>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Automatically start backlog items when there's capacity in the planning column
+                    Auto-start backlog tasks
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    When enabled, tasks in the backlog will automatically move to planning when the WIP limit allows.
-                    When disabled, tasks must be manually moved from backlog to planning.
+                    Automatically move tasks from backlog to planning when the WIP limit allows.
                   </Typography>
                 </Box>
-              }
-            />
+                <Switch
+                  checked={autoStartBacklogTasks}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setAutoStartBacklogTasks(newValue)
+                    updateProjectMutation.mutate({
+                      auto_start_backlog_tasks: newValue,
+                    })
+                  }}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ flex: 1, mr: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Pull request reviews
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Automatically review pull requests using the configured reviewer agent.
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={pullRequestReviewsEnabled}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setPullRequestReviewsEnabled(newValue)
+                    updateProjectMutation.mutate({
+                      pull_request_reviews_enabled: newValue,
+                    })
+                  }}
+                  disabled={!primaryRepoIsExternal}
+                />
+              </Box>
+              {!primaryRepoIsExternal && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+                  Pull request reviews require an external repository (GitHub, GitLab, etc.) as the primary repository.
+                </Typography>
+              )}
+            </Box>
           </Paper>
 
           {/* Project Guidelines */}
