@@ -125,15 +125,19 @@ load_desktop_image() {
     local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
     local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
 
-    # Read expected version
-    local VERSION="latest"
-    if [ -f "$VERSION_FILE" ]; then
-        VERSION=$(cat "$VERSION_FILE")
+    # Read expected version from .version file (required)
+    if [ ! -f "$VERSION_FILE" ]; then
+        if [ "$REQUIRED" = "true" ]; then
+            echo "⚠️  ${IMAGE_NAME} version file missing: ${VERSION_FILE}"
+        else
+            echo "ℹ️  ${IMAGE_NAME} not configured (no version file)"
+        fi
+        return 1
     fi
+    local VERSION=$(cat "$VERSION_FILE")
 
     # Check if the EXACT version already exists
-    # IMPORTANT: Do NOT check for :latest here - that could be an old version!
-    # We only want to skip the pull if the specific version tag exists.
+    # We only skip the pull if the specific version tag exists.
     local EXISTING_ID=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
     if [ -n "$EXISTING_ID" ]; then
         echo "✅ ${IMAGE_NAME}:${VERSION} already available (ID: ${EXISTING_ID})"
@@ -167,7 +171,6 @@ load_desktop_image() {
             echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
             # Tag as local name for Hydra compatibility
             docker tag "$REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
-            docker tag "$REGISTRY_REF" "${IMAGE_NAME}:latest" 2>/dev/null || true
             return 0
         else
             echo "⚠️  Failed to pull ${REGISTRY_REF}"
