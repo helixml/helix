@@ -272,6 +272,12 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
+	// Add GPU_VENDOR for detect-render-node.sh inside the container
+	// This tells the container which GPU to look for in /sys/class/drm
+	if req.GPUVendor != "" {
+		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
+	}
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":

@@ -135,6 +135,19 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+
+  # Local Docker registry for efficient desktop image transfers (development only)
+  # Instead of `docker save | docker load` which transfers entire tarballs,
+  # registry push/pull only transfers changed layers (like CI builds).
+  # This dramatically speeds up iterative development when only a few layers change.
+  # The sandbox's dockerd is configured to trust host.docker.internal:5000
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
   # Example/test MCP server
   postgres-mcp:
     image: crystaldba/postgres-mcp:latest
@@ -693,6 +706,7 @@ volumes:
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
   hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
   zed-work:
+  registry-data: # Local registry storage for efficient desktop image transfers
 
   go-pkg-mod: # Go module cache
   go-build-cache: # Go build cache

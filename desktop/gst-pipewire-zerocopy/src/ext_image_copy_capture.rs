@@ -1008,6 +1008,16 @@ fn run_capture_loop(
                 unsafe { libc::poll(&mut pollfd, 1, poll_timeout.as_millis() as libc::c_int) };
 
             if poll_result > 0 {
+                // Check for connection closed (POLLHUP) or error (POLLERR)
+                // This happens when Sway crashes - detect it before trying to read
+                if pollfd.revents & libc::POLLHUP != 0 || pollfd.revents & libc::POLLERR != 0 {
+                    eprintln!(
+                        "[EXT_IMAGE_COPY] Wayland connection closed (revents=0x{:x})",
+                        pollfd.revents
+                    );
+                    return Err("Wayland connection closed (compositor crashed?)".to_string());
+                }
+
                 // Data available - read events
                 guard.read().map_err(|e| format!("Read failed: {}", e))?;
             } else if poll_result == 0 {

@@ -36,6 +36,7 @@ type WaylandInput struct {
 	// The protocol requires calling Modifiers() after modifier key events
 	// to update the compositor's modifier state (XKB modifier masks).
 	modsDepressed uint32 // Currently held modifiers (Shift=1, Ctrl=4, Alt=8, Meta=64)
+
 }
 
 // XKB modifier masks (from linux/input-event-codes.h and xkbcommon)
@@ -362,9 +363,18 @@ func (w *WaylandInput) MouseClick(button int) error {
 }
 
 // MouseWheel sends a scroll event using Wayland axis protocol.
-// deltaY: positive = scroll down, negative = scroll up
-// Uses AxisDiscrete for discrete scroll steps (required by apps like Zed)
-// plus continuous Axis for smooth scrolling support.
+// deltaX/deltaY: values in browser pixels (from frontend WheelEvent).
+//
+// Uses AxisSourceFinger for smooth continuous scrolling. This is critical
+// because Zed ignores wl_pointer.axis events when source is Wheel, but
+// processes them for Finger source (trackpad scrolling).
+//
+// Every scroll event is sent immediately with no accumulation, ensuring
+// small finger movements always result in immediate scroll response.
+//
+// Note: We don't send axis_stop events. They were causing Sway crashes when
+// mixed with other pointer events (assertion failures in wlr_seat), and
+// scrolling works correctly without them.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -373,26 +383,29 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 		return nil
 	}
 
-	now := time.Now()
-
-	// Set axis source to wheel (required for proper scroll handling)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceWheel)
-
-	// Send vertical scroll with discrete steps
-	// Discrete value is the number of 120ths of a wheel notch (Linux HID standard)
-	// We calculate discrete from the delta: ~15 units = 1 wheel notch = 120 discrete
-	if deltaY != 0 {
-		discrete := int32(deltaY * 8) // Scale to discrete units
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisVertical, deltaY, discrete)
+	if deltaX == 0 && deltaY == 0 {
+		return nil
 	}
 
-	// Send horizontal scroll with discrete steps
+	now := time.Now()
+
+	// Send axis events with source set AFTER each axis call.
+	// IMPORTANT: wlroots virtual pointer protocol has a quirk - axis_source()
+	// sets the source for axis_event[pointer->axis], where pointer->axis is
+	// set by the PREVIOUS axis() call. So we must call axis_source AFTER axis,
+	// not before, to set the source for the correct axis.
+	//
+	// Use Finger source for smooth scrolling - Zed ignores Wheel source events.
+	if deltaY != 0 {
+		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
+		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
+	}
+
 	if deltaX != 0 {
-		discrete := int32(deltaX * 8)
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisHorizontal, deltaX, discrete)
+		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
+		w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
 	}
 
 	w.pointer.Frame()
-
 	return nil
 }

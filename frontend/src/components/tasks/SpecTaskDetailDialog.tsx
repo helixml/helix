@@ -195,7 +195,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [docViewerOpen, setDocViewerOpen] = useState(false)
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
-  const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
 
   // Session restart state
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
@@ -260,36 +259,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
     })
   }, [displayTask?.id, displayTask?.status, displayTask?.planning_session_id, activeSessionId])
 
-  // Auto-send review request message when dialog opens for implementation_review
-  useEffect(() => {
-    if (
-      open &&
-      !implementationReviewMessageSent &&
-      displayTask?.status === 'implementation_review' &&
-      activeSessionId
-    ) {
-      const reviewMessage = `I'm here to review your implementation.
-
-If this is a web application, please start the development server and provide the URL where I can test it.
-
-I'll give you feedback and we can iterate on any changes needed.`
-
-      streaming.NewInference({
-        type: SESSION_TYPE_TEXT,
-        message: reviewMessage,
-        sessionId: activeSessionId,
-      }).then(() => {
-        setImplementationReviewMessageSent(true)
-      }).catch((err) => {
-        console.error('Failed to send implementation review message:', err)
-      })
-    }
-
-    // Reset when dialog closes
-    if (!open) {
-      setImplementationReviewMessageSent(false)
-    }
-  }, [open, implementationReviewMessageSent, displayTask?.status, activeSessionId, streaming])
 
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {

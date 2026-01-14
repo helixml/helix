@@ -5,6 +5,25 @@ set -e
 
 echo "Starting Helix Desktop (Sway)..."
 
+# ============================================================================
+# GPU Detection - MUST happen before Sway starts
+# ============================================================================
+# detect-render-node.sh detects the correct GPU based on GPU_VENDOR env var
+# and exports:
+#   HELIX_RENDER_NODE  - for GStreamer encoder (e.g., /dev/dri/renderD129)
+#   HELIX_DRM_CARD     - corresponding card device (e.g., /dev/dri/card1)
+#   WLR_DRM_DEVICES    - for Sway compositor GPU selection
+#   LIBVA_DRIVER_NAME  - for VA-API encoder on AMD/Intel
+#
+# This handles multi-GPU systems like Lambda Labs where:
+#   /dev/dri/renderD128 = virtio-gpu (useless)
+#   /dev/dri/renderD129 = actual NVIDIA/AMD GPU
+if [ -f /usr/local/bin/detect-render-node.sh ]; then
+    source /usr/local/bin/detect-render-node.sh
+else
+    echo "WARNING: detect-render-node.sh not found, GPU detection skipped"
+fi
+
 # NOTE: Telemetry firewall is configured in the sandbox container,
 # not inside agent containers. This provides centralized monitoring across all agents.
 
@@ -441,11 +460,24 @@ EOF
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================
-    # Window appearance - clean borderless look
+    # Window appearance - generous borders for easy resizing, no title bars
     # =====================================================================
-    echo "# Remove window borders and title bars for clean look" >> $HOME/.config/sway/config
-    echo "default_border none" >> $HOME/.config/sway/config
-    echo "default_floating_border none" >> $HOME/.config/sway/config
+    # Use thick pixel borders so windows can be easily resized by dragging
+    echo "# Generous pixel borders for easy resize, no title bars" >> $HOME/.config/sway/config
+    echo "default_border pixel 8" >> $HOME/.config/sway/config
+    echo "default_floating_border pixel 8" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # Make borders subtle (dark, blends with gaps)
+    echo "# Subtle border colors that blend with the dark theme" >> $HOME/.config/sway/config
+    echo "client.focused          #404050 #404050 #ffffff #7c3aed #404050" >> $HOME/.config/sway/config
+    echo "client.focused_inactive #303040 #303040 #888888 #484e50 #303040" >> $HOME/.config/sway/config
+    echo "client.unfocused        #252530 #252530 #888888 #292d2e #252530" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # Allow Alt+drag to move/resize windows (works for both tiled and floating)
+    echo "# Alt+left-drag to move, Alt+right-drag to resize" >> $HOME/.config/sway/config
+    echo "floating_modifier \$mod normal" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================
@@ -477,49 +509,127 @@ EOF
 echo "[sway-session] Starting inside D-Bus session..."
 echo "[sway-session] DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
-# Write D-Bus session env to file for init scripts to source
-DBUS_ENV_FILE="${XDG_RUNTIME_DIR}/dbus-session.env"
-echo "export DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'" > "$DBUS_ENV_FILE"
-echo "[sway-session] D-Bus env written to $DBUS_ENV_FILE"
+# Crash debugging setup
+# Core dumps via kernel core_pattern don't work in unprivileged containers
+# (core_pattern pipes to apport which isn't running in container)
+# Use catchsegv wrapper instead - prints backtrace on crash with minimal overhead
+CRASH_DIR="/home/retro/work/.helix-crashes"
+mkdir -p "$CRASH_DIR"
+echo "[sway-session] Crash backtraces will be saved to: $CRASH_DIR"
 
 # Start PipeWire BEFORE Sway (needed for screen capture)
 echo "[sway-session] Starting PipeWire..."
 pipewire > /tmp/pipewire.log 2>&1 &
+PIPEWIRE_PID=$!
 sleep 0.3
 pipewire-pulse > /tmp/pipewire-pulse.log 2>&1 &
 sleep 0.3
 
-# Start sway in background
-sway --unsupported-gpu &
-SWAY_PID=$!
-echo "[sway-session] Sway started with PID $SWAY_PID"
+# Sway crash recovery loop
+# If Sway crashes (bus error, segfault, etc.), we capture the core dump and restart
+# This prevents permanent video stream failure from transient GPU/driver issues
+# We never give up - keep restarting forever with no delay
+RESTART_COUNT=0
+SERVICES_STARTED=false
 
-# Wait for Wayland socket before starting portals
-echo "[sway-session] Waiting for Wayland socket..."
-for i in $(seq 1 30); do
-    if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
-        echo "[sway-session] Wayland socket ready"
+while true; do
+    # Start sway in background, capturing all output for crash debugging
+    # Note: catchsegv was removed from glibc in newer versions (not in Ubuntu 25.10)
+    # We rely on wlroots printing assertion failures to stderr before abort()
+    echo "[sway-session] Starting Sway (attempt $((RESTART_COUNT + 1)))..."
+    CRASH_LOG="${CRASH_DIR}/sway-crash-$(date +%Y%m%d-%H%M%S).log"
+    # Use process substitution to capture output while getting sway's actual PID
+    # (Using pipe would give us tee's PID, breaking wait and restart logic)
+    sway --unsupported-gpu > >(tee -a "$CRASH_LOG") 2>&1 &
+    SWAY_PID=$!
+    echo "[sway-session] Sway started with PID $SWAY_PID"
+
+    # Wait for Wayland socket before starting portals (only on first start)
+    echo "[sway-session] Waiting for Wayland socket..."
+    SOCKET_READY=false
+    for i in $(seq 1 30); do
+        if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
+            echo "[sway-session] Wayland socket ready"
+            SOCKET_READY=true
+            break
+        fi
+        # Check if Sway already crashed during startup
+        if ! kill -0 $SWAY_PID 2>/dev/null; then
+            echo "[sway-session] Sway crashed during startup!"
+            break
+        fi
+        sleep 0.5
+    done
+
+    # Start services when Wayland socket is ready
+    if [ "$SOCKET_READY" = "true" ]; then
+        # XDG portals and settings-sync only need to start once
+        if [ "$SERVICES_STARTED" = "false" ]; then
+            # Start XDG portals in background - NO WAITING NEEDED
+            # Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
+            # which are native Wayland protocols that bypass the portal entirely.
+            # Portals are only needed for file dialogs, etc. - not critical path.
+            echo "[sway-session] Starting XDG portals in background (not needed for video)..."
+            WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
+            /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
+            echo "[sway-session] Portals started (non-blocking)"
+
+            # Settings sync daemon only needs to start once
+            /usr/local/bin/start-settings-sync-daemon.sh &
+            SERVICES_STARTED=true
+        fi
+
+        # Desktop-bridge MUST restart after Sway crash because it holds Wayland connections
+        # Kill any existing instance before starting fresh
+        echo "[sway-session] Starting desktop-bridge (kills stale instance if any)..."
+        pkill -f "desktop-bridge" 2>/dev/null || true
+        sleep 0.2
+        /usr/local/bin/start-desktop-bridge.sh &
+    fi
+
+    # Wait for sway to exit
+    wait $SWAY_PID
+    EXIT_CODE=$?
+
+    # Check exit status
+    # 0 = normal exit (user closed sway)
+    # 128+N = killed by signal N (e.g., 128+7=135 for SIGBUS, 128+11=139 for SIGSEGV)
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "[sway-session] Sway exited normally (code 0)"
         break
     fi
-    sleep 0.5
+
+    # Sway crashed - determine signal
+    if [ $EXIT_CODE -gt 128 ]; then
+        SIGNAL=$((EXIT_CODE - 128))
+        case $SIGNAL in
+            7)  SIGNAL_NAME="SIGBUS (bus error)" ;;
+            11) SIGNAL_NAME="SIGSEGV (segmentation fault)" ;;
+            6)  SIGNAL_NAME="SIGABRT (abort)" ;;
+            *)  SIGNAL_NAME="signal $SIGNAL" ;;
+        esac
+        echo "[sway-session] ERROR: Sway crashed with $SIGNAL_NAME (exit code $EXIT_CODE)"
+    else
+        echo "[sway-session] ERROR: Sway exited with error code $EXIT_CODE"
+    fi
+
+    # Backtrace was already captured by catchsegv and saved to $CRASH_LOG
+    echo "[sway-session] Crash backtrace saved to: $CRASH_LOG"
+    # Print last 50 lines which should include the backtrace
+    echo "[sway-session] === Recent log output ==="
+    tail -50 "$CRASH_LOG" 2>/dev/null || true
+
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    # Restart immediately - no delay to minimize video stream interruption
+    echo "[sway-session] Restarting Sway immediately (crash #${RESTART_COUNT})..."
+
+    # Clean up stale Wayland socket if present
+    rm -f "${XDG_RUNTIME_DIR}/wayland-1" 2>/dev/null || true
 done
 
-# Start XDG portals in background - NO WAITING NEEDED
-# Our video capture uses ext-image-copy-capture (Sway 1.10+) or wlr-screencopy,
-# which are native Wayland protocols that bypass the portal entirely.
-# Portals are only needed for file dialogs, etc. - not critical path.
-echo "[sway-session] Starting XDG portals in background (not needed for video)..."
-WAYLAND_DISPLAY=wayland-1 /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1 &
-/usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1 &
-echo "[sway-session] Portals started (non-blocking)"
-
-# Start services via shared init scripts (they wait for Wayland socket internally)
-# Logs are prefixed and go to docker logs (stdout)
-/usr/local/bin/start-desktop-bridge.sh &
-/usr/local/bin/start-settings-sync-daemon.sh &
-
-# Wait for sway to exit (keeps container alive)
-wait $SWAY_PID
+# This should never be reached since we loop forever
+echo "[sway-session] Session ended unexpectedly (restart_count=$RESTART_COUNT, exit_code=$EXIT_CODE)"
 SWAY_SESSION_EOF
     chmod +x $XDG_RUNTIME_DIR/sway-session.sh
 

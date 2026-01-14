@@ -208,6 +208,12 @@ export class WebSocketStream {
   private pendingMouseMove: { dx: number; dy: number } | null = null
   private mouseThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
 
+  // Scroll input throttling - same principle as mouse, no point sending faster than frame rate
+  // Scroll deltas accumulate during throttle period (like relative mouse movement)
+  private lastScrollSendTime = 0
+  private pendingScroll: { dx: number; dy: number; highRes: boolean } | null = null
+  private scrollThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+
   // Input send buffer congestion detection
   // Skip mouse moves immediately if buffer hasn't drained - prevents "ghost moves"
   // that arrive late and make it look like something else is controlling the cursor
@@ -1593,20 +1599,70 @@ export class WebSocketStream {
   }
 
   sendMouseWheelHighRes(deltaX: number, deltaY: number) {
-    // Format: subType(1) + deltaX(4 float32) + deltaY(4 float32)
-    // Uses float32 to preserve precision for small trackpad movements
-    this.inputBuffer[0] = 3 // sub-type for high-res wheel
-    this.inputView.setFloat32(1, deltaX, true) // little-endian
-    this.inputView.setFloat32(5, deltaY, true) // little-endian
-    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 9))
+    this.sendScrollThrottled(deltaX, deltaY, true)
   }
 
   sendMouseWheel(deltaX: number, deltaY: number) {
-    // Format: subType(1) + deltaX(1) + deltaY(1)
-    this.inputBuffer[0] = 4 // sub-type for normal wheel
-    this.inputBuffer[1] = Math.round(deltaX) & 0xFF
-    this.inputBuffer[2] = Math.round(deltaY) & 0xFF
-    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
+    this.sendScrollThrottled(deltaX, deltaY, false)
+  }
+
+  private sendScrollThrottled(deltaX: number, deltaY: number, highRes: boolean) {
+    const now = performance.now()
+    const elapsed = now - this.lastScrollSendTime
+
+    // Accumulate scroll deltas (like relative mouse movement)
+    if (this.pendingScroll) {
+      this.pendingScroll.dx += deltaX
+      this.pendingScroll.dy += deltaY
+      // Keep highRes if any event in batch was highRes
+      this.pendingScroll.highRes = this.pendingScroll.highRes || highRes
+    } else {
+      this.pendingScroll = { dx: deltaX, dy: deltaY, highRes }
+    }
+
+    // If enough time has passed, send immediately
+    if (elapsed >= this.mouseThrottleMs) {
+      this.flushPendingScroll()
+      this.lastScrollSendTime = now
+    } else {
+      // Schedule flush after throttle period
+      this.scheduleScrollFlush(this.mouseThrottleMs - elapsed)
+    }
+  }
+
+  private scheduleScrollFlush(delayMs: number) {
+    if (this.scrollThrottleTimeoutId) return // Already scheduled
+
+    this.scrollThrottleTimeoutId = setTimeout(() => {
+      this.scrollThrottleTimeoutId = null
+      if (this.pendingScroll) {
+        this.flushPendingScroll()
+        this.lastScrollSendTime = performance.now()
+      }
+    }, delayMs)
+  }
+
+  private flushPendingScroll() {
+    if (!this.pendingScroll) return
+
+    const { dx, dy, highRes } = this.pendingScroll
+    this.pendingScroll = null
+
+    if (dx === 0 && dy === 0) return
+
+    if (highRes) {
+      // Format: subType(1) + deltaX(4 float32) + deltaY(4 float32)
+      this.inputBuffer[0] = 3 // sub-type for high-res wheel
+      this.inputView.setFloat32(1, dx, true) // little-endian
+      this.inputView.setFloat32(5, dy, true) // little-endian
+      this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 9))
+    } else {
+      // Format: subType(1) + deltaX(1) + deltaY(1)
+      this.inputBuffer[0] = 4 // sub-type for normal wheel
+      this.inputBuffer[1] = Math.round(dx) & 0xFF
+      this.inputBuffer[2] = Math.round(dy) & 0xFF
+      this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
+    }
   }
 
   // ============================================================================
@@ -1959,6 +2015,13 @@ export class WebSocketStream {
       clearTimeout(this.mouseThrottleTimeoutId)
       this.mouseThrottleTimeoutId = null
     }
+
+    // Cancel pending scroll throttle flush
+    if (this.scrollThrottleTimeoutId) {
+      clearTimeout(this.scrollThrottleTimeoutId)
+      this.scrollThrottleTimeoutId = null
+    }
+    this.pendingScroll = null
 
     // Reset stream state
     this.resetStreamState()

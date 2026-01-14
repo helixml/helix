@@ -70,6 +70,22 @@ func getGOPSize() int {
 	return 120 // Default: 2 seconds at 60fps
 }
 
+// getRenderDevice returns the VA-API render device property string if configured.
+// Set via HELIX_RENDER_NODE environment variable (e.g., /dev/dri/renderD129).
+// On multi-GPU systems (Lambda Labs), this ensures VA-API uses the correct GPU.
+// Returns empty string if not set or if set to "SOFTWARE".
+func getRenderDevice() string {
+	node := os.Getenv("HELIX_RENDER_NODE")
+	if node == "" || node == "SOFTWARE" {
+		return ""
+	}
+	// Validate it looks like a render node path
+	if !strings.HasPrefix(node, "/dev/dri/renderD") {
+		return ""
+	}
+	return node
+}
+
 // Binary message types for streaming protocol (matching frontend websocket-stream.ts)
 const (
 	StreamMsgVideoFrame  = 0x01
@@ -459,8 +475,15 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "qsv":
 		// Intel Quick Sync Video
 		// EXACTLY matches Wolf's approach: add-borders=true, system memory caps, rate-control=cqp
+		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
+		renderDevice := getRenderDevice()
+		vapostprocOpts := "vapostproc add-borders=true"
+		if renderDevice != "" {
+			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
+			slog.Info("[STREAM] Using explicit render device for QSV", "device", renderDevice)
+		}
 		parts = append(parts,
-			"vapostproc add-borders=true",
+			vapostprocOpts,
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", getGOPSize(), v.config.Bitrate),
 			"h264parse",
@@ -473,11 +496,23 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// https://github.com/games-on-whales/wolf - uses system memory caps
 		// Wolf pipeline: vapostproc add-borders=true ! video/x-raw,format=NV12 ! vah264enc rate-control=cqp
 		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation.
+		//
+		// render-device: On multi-GPU systems (Lambda Labs), HELIX_RENDER_NODE specifies
+		// which GPU to use. Without this, VA-API may pick the wrong GPU (e.g., virtio-gpu).
+		renderDevice := getRenderDevice()
+		vapostprocOpts := "vapostproc add-borders=true"
+		vah264encOpts := fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+			v.config.Bitrate, v.config.Bitrate, getGOPSize())
+		if renderDevice != "" {
+			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
+			vah264encOpts = fmt.Sprintf("vah264enc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
+			slog.Info("[STREAM] Using explicit render device for VA-API", "device", renderDevice)
+		}
 		parts = append(parts,
-			"vapostproc add-borders=true",
+			vapostprocOpts,
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+			vah264encOpts,
 			"h264parse",
 			"video/x-h264,profile=main,stream-format=byte-stream",
 		)
@@ -485,11 +520,21 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Matches Wolf's "legacy pipeline" - system memory caps, rate-control=cqp
+		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
+		renderDevice := getRenderDevice()
+		vapostprocOpts := "vapostproc add-borders=true"
+		vah264lpencOpts := fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+			v.config.Bitrate, v.config.Bitrate, getGOPSize())
+		if renderDevice != "" {
+			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
+			vah264lpencOpts = fmt.Sprintf("vah264lpenc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
+			slog.Info("[STREAM] Using explicit render device for VA-API LP", "device", renderDevice)
+		}
 		parts = append(parts,
-			"vapostproc add-borders=true",
+			vapostprocOpts,
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+			vah264lpencOpts,
 			"h264parse",
 			"video/x-h264,profile=main,stream-format=byte-stream",
 		)
@@ -497,12 +542,19 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// EXACTLY matches Wolf's approach: system memory caps, rate-control=cqp
+		// Note: gst-vaapi plugin uses GstVaapiDisplay which respects LIBVA_DRIVER_NAME env var.
+		// Unlike gst-va plugin, it doesn't have a render-device property, but we set LIBVA_DRIVER_NAME
+		// in detect-render-node.sh to ensure correct GPU is used.
 		parts = append(parts,
 			"vaapipostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
 				getGOPSize()),
 		)
+		// Log if render device is configured (even though legacy plugin uses env var instead)
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API legacy using LIBVA_DRIVER_NAME env var for GPU selection", "device", renderDevice)
+		}
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)

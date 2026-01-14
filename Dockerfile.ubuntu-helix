@@ -6,17 +6,24 @@
 # Same minimal GOW pattern as KDE and Sway for package version consistency.
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+#
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-14).
+# Update digests when intentionally upgrading base images.
+# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.24  -> sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e
 
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-FROM golang:1.24 AS go-build-env
-ARG GO_CODE_HASH=unknown
+# Pin to specific digest for stable layer caching (golang:1.24 as of 2026-01-13)
+# Update digest when intentionally upgrading Go version
+FROM golang:1.24@sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
+# NOTE: This layer is cached independently of Go code changes
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
@@ -27,12 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+# Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
@@ -44,7 +52,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Enable with HELIX_VIDEO_MODE=zerocopy
 #
 # Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-FROM ubuntu:25.10 AS rust-build-env
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
 
 # Install Rust and GStreamer dev packages
@@ -98,7 +106,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
-FROM ubuntu:25.10
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -295,6 +303,21 @@ chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null ||
 chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
 _USER_INIT
 
+# GPU detection init script - creates udev rule for Mutter primary GPU selection
+# This MUST run as root before Mutter starts to ensure correct GPU is used
+# on multi-GPU systems (e.g., Hyper-V + AMD GPU where first device is Hyper-V)
+COPY <<'_GPU_INIT' /etc/cont-init.d/15-detect-gpu.sh
+#!/bin/bash
+echo "**** Detecting GPU and creating udev rules ****"
+# Source the GPU detection script (creates udev rule for Mutter)
+if [ -f /usr/local/bin/detect-render-node.sh ]; then
+    source /usr/local/bin/detect-render-node.sh
+    echo "GPU detection complete: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}"
+else
+    echo "WARNING: detect-render-node.sh not found, GPU detection skipped"
+fi
+_GPU_INIT
+
 # GOW entrypoint
 COPY <<'_ENTRYPOINT' /entrypoint.sh
 #!/usr/bin/env bash
@@ -340,8 +363,6 @@ ENV LANG=en_US.UTF-8 \
     SDL_VIDEODRIVER=wayland \
     MUTTER_ALLOW_NESTED=1 \
     MUTTER_DEBUG_KMS_THREAD_TYPE=user \
-    MUTTER_DEBUG=screen-cast \
-    CLUTTER_DEBUG=frame-clock,frame-timings \
     CLUTTER_PAINT=disable-dynamic-max-render-time \
     CLUTTER_DEFAULT_FPS=60
 
@@ -451,7 +472,11 @@ RUN apt-get update && \
       "ImportSavedPasswords": false, \
       "ImportSearchEngine": false, \
       "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
+      "PasswordManagerEnabled": true, \
+      "PrivacySandboxPromptEnabled": false, \
+      "PrivacySandboxAdTopicsEnabled": false, \
+      "PrivacySandboxSiteEnabledAdsEnabled": false, \
+      "PrivacySandboxAdMeasurementEnabled": false \
     }' > /etc/opt/chrome/policies/managed/helix.json && \
     # Create master preferences to skip first run and welcome page
     mkdir -p /opt/google/chrome && \
@@ -485,7 +510,7 @@ RUN apt-get update && \
     sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
     # Create wrapper script so --password-store=basic is always used (even from command line)
     mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
-    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable && \
     chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
@@ -513,275 +538,27 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
 WORKDIR /
 
 # Helix startup script (GNOME Wayland session)
-# Cache-bust: 2026-01-08 Ubuntu theming
-COPY <<'_STARTUP' /opt/gow/startup.sh
-#!/bin/bash -e
-# GOW startup script for Helix Desktop (Ubuntu GNOME Wayland)
-source /opt/gow/bash-lib/utils.sh
-
-gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
-
-# Create symlink to Zed binary if not exists
-if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
-    sudo ln -sf /zed-build/zed /usr/local/bin/zed
-    gow_log "[start] Created symlink: /usr/local/bin/zed -> /zed-build/zed"
-fi
-
-# Workspace setup (same pattern as KDE/Sway)
-if [ -z "$WORKSPACE_DIR" ]; then
-    gow_log "[start] FATAL: WORKSPACE_DIR environment variable not set"
-    exit 1
-fi
-if [ ! -d "$WORKSPACE_DIR" ]; then
-    gow_log "[start] FATAL: WORKSPACE_DIR does not exist: $WORKSPACE_DIR"
-    exit 1
-fi
-if [ ! -d /home/retro/work ]; then
-    gow_log "[start] FATAL: /home/retro/work bind mount not present"
-    exit 1
-fi
-sudo chown retro:retro "$WORKSPACE_DIR"
-sudo chown retro:retro /home/retro/work
-gow_log "[start] Workspace mounted at both $WORKSPACE_DIR and /home/retro/work"
-
-# Create Zed config symlinks
-WORK_DIR=/home/retro/work
-ZED_STATE_DIR=$WORK_DIR/.zed-state
-cd /home/retro/work
-
-mkdir -p $ZED_STATE_DIR/config $ZED_STATE_DIR/local-share $ZED_STATE_DIR/cache
-
-rm -rf ~/.config/zed && mkdir -p ~/.config && ln -sf $ZED_STATE_DIR/config ~/.config/zed
-rm -rf ~/.local/share/zed && mkdir -p ~/.local/share && ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
-rm -rf ~/.cache/zed && mkdir -p ~/.cache && ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
-
-gow_log "[start] Zed state symlinks created"
-
-# Configure fontconfig for grayscale antialiasing
-mkdir -p ~/.config/fontconfig
-cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <match target="font">
-    <edit name="rgba" mode="assign"><const>none</const></edit>
-    <edit name="antialias" mode="assign"><bool>true</bool></edit>
-    <edit name="hinting" mode="assign"><bool>true</bool></edit>
-    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
-  </match>
-</fontconfig>
-FONTCONFIG_EOF
-
-# Configure Qwen Code session persistence
-export QWEN_DATA_DIR=$WORK_DIR/.qwen-state
-mkdir -p $QWEN_DATA_DIR
-rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
-gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
-
-# Note: RevDial client is now integrated into desktop-bridge
-
-# Disable IBus Input Method Framework
-# IBus can interfere with keyboard input in remote streaming environments
-# This fixes Shift key and other modifier keys not working properly
-export GTK_IM_MODULE=gtk-im-context-simple
-export QT_IM_MODULE=gtk-im-context-simple
-export XMODIFIERS=@im=none
-gow_log "[start] IBus disabled (using simple input context)"
-
-# GNOME Wayland session setup
-export GAMESCOPE_WIDTH=${GAMESCOPE_WIDTH:-1920}
-export GAMESCOPE_HEIGHT=${GAMESCOPE_HEIGHT:-1080}
-export GAMESCOPE_REFRESH=${GAMESCOPE_REFRESH:-60}
-
-# Display scaling support
-# HELIX_DISPLAY_SCALE (e.g., "1.5" or "2") sets the scale factor for GTK/Qt apps
-# GNOME Shell's --virtual-monitor sets the compositor resolution
-if [ -n "$HELIX_DISPLAY_SCALE" ] && [ "$HELIX_DISPLAY_SCALE" != "1" ]; then
-    export GDK_SCALE=$HELIX_DISPLAY_SCALE
-    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
-    export QT_SCALE_FACTOR=$HELIX_DISPLAY_SCALE
-    gow_log "[start] Display scaling enabled: ${HELIX_DISPLAY_SCALE}x"
-else
-    gow_log "[start] Display scaling: 1x (default)"
-fi
-
-# Enable nested mode for Mutter (running inside Wolf's compositor)
-export MUTTER_ALLOW_NESTED=1
-
-# Save Wolf's Wayland display (wayland-1) before we change it for client apps
-WOLF_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
-
-# Create GNOME start script
-# Note: Using non-quoted heredoc so $WOLF_WAYLAND_DISPLAY is captured at script creation
-cat <<GNOME_EOF > $XDG_RUNTIME_DIR/start_gnome
-#!/bin/bash
-source /opt/gow/bash-lib/utils.sh
-
-# Set GNOME environment
-export XDG_CURRENT_DESKTOP=GNOME
-export XDG_SESSION_DESKTOP=gnome
-export XDG_SESSION_TYPE=wayland
-export DESKTOP_SESSION=gnome
-
-# Ensure IBus is disabled (fixes keyboard input issues with modifier keys)
-export GTK_IM_MODULE=gtk-im-context-simple
-export QT_IM_MODULE=gtk-im-context-simple
-export XMODIFIERS=@im=none
-
-# Display scaling
-# HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by hydra_executor
-# Convert to scale factor: 100→1, 150→1.5, 200→2
-#
-# Scaling works at TWO levels:
-# 1. Compositor level: org.gnome.desktop.interface scaling-factor (GSettings)
-#    - This makes GNOME Shell/Mutter use a global scale factor for all monitors
-#    - Required for proper DPI scaling of the entire desktop
-#    - Note: MUTTER_DEBUG_DUMMY_MONITOR_SCALES only works for dummy/test backend, not headless
-# 2. Client app level: GDK_SCALE/QT_SCALE_FACTOR for GTK/Qt applications
-#    - These tell individual apps to render at the correct scale
-#
-# Reference: mutter src/backends/meta-settings.c meta_settings_get_global_scaling_factor()
-ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
-if [ "\$ZOOM_LEVEL" -gt 100 ]; then
-    # Calculate integer scale factor from zoom percentage (e.g., 200% → 2)
-    # Note: scaling-factor is an integer, so 150% becomes 1 (rounded down) or we use 2
-    HELIX_SCALE_FACTOR=\$((\$ZOOM_LEVEL / 100))
-
-    # Client app scaling (GTK and Qt applications)
-    export GDK_SCALE=\$HELIX_SCALE_FACTOR
-    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
-    export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
-
-    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (GDK_SCALE=\$HELIX_SCALE_FACTOR)"
-else
-    HELIX_SCALE_FACTOR=""
-    gow_log "[start] Display scaling: 1x (default)"
-fi
-
-# GNOME 49 Mutter SDK (--devkit) Architecture:
-# =============================================
-# PipeWire mode: gnome-shell --headless + pipewiresrc capture
-# - gnome-shell --headless creates a virtual display
-# - Container creates ScreenCast session via D-Bus
-# - Wolf/Moonlight captures via pipewiresrc
-
-# Don't inherit any parent Wayland display
-unset WAYLAND_DISPLAY
-gow_log "[start] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
-
-gow_log "[start] Starting PipeWire + WirePlumber"
-pipewire &
-sleep 0.5
-wireplumber &
-sleep 0.5
-
-# Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
-if [ -f /opt/gow/dconf-settings.ini ]; then
-    gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
-    dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
-fi
-
-# Enable Just Perfection extension and hide screen recording indicator
-# This MUST be done before gnome-shell starts so the extension is loaded
-# The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
-# Also keep Ubuntu Dock enabled for the Ubuntu experience
-gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
-gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection']"
-gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
-gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
-gow_log "[start] Just Perfection extension configured"
-
-# Set global scaling factor before gnome-shell starts
-# This tells Mutter to use this scale for ALL monitors (including virtual ones)
-# The scaling-factor gsetting is read by meta_settings_get_global_scaling_factor()
-# which overrides the calculated per-monitor scale
-if [ -n "\$HELIX_SCALE_FACTOR" ] && [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
-    gow_log "[start] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
-    gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
-    # Also enable fractional scaling feature (needed for the UI to show scale options)
-    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
-fi
-
-# Start Helix services via shared init scripts
-# These scripts handle D-Bus/Wayland waiting and log prefixing consistently
-# across both Sway and Ubuntu desktops
-gow_log "[start] Starting Helix services via shared init scripts..."
-/usr/local/bin/start-desktop-bridge.sh &
-/usr/local/bin/start-settings-sync-daemon.sh &
-
-# Verify display scale after GNOME Shell is ready (if scaling is enabled)
-# Global scaling-factor from GSettings is applied at Mutter startup
-if [ -n "\$HELIX_SCALE_FACTOR" ]; then
-  (
-    gow_log "[start] Waiting to verify display scale..."
-    for i in \$(seq 1 30); do
-      if pgrep -x gnome-shell > /dev/null 2>&1; then
-        sleep 2
-        break
-      fi
-      sleep 1
-    done
-
-    # Log the current display configuration for debugging
-    STATE=\$(gdbus call --session \\
-        --dest org.gnome.Mutter.DisplayConfig \\
-        --object-path /org/gnome/Mutter/DisplayConfig \\
-        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1 || echo "D-Bus call failed")
-
-    gow_log "[start] Display config (scaling-factor=\$HELIX_SCALE_FACTOR): \${STATE:0:400}"
-  ) &
-fi
-
-# Launch Zed after GNOME Shell is ready - it needs wayland-0
-if [ -x /zed-build/zed ]; then
-  (
-    gow_log "[start] Waiting for GNOME Shell to start before launching Zed..."
-    for i in \$(seq 1 60); do
-      if pgrep -x gnome-shell > /dev/null 2>&1; then
-        gow_log "[start] gnome-shell detected, waiting 2 more seconds for initialization..."
-        sleep 2
-        break
-      fi
-      sleep 1
-    done
-    gow_log "[start] Launching Zed (WAYLAND_DISPLAY=wayland-0)..."
-    WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
-  ) &
-fi
-
-gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
-
-# Enable experimental features for better frame pacing:
-# - variable-refresh-rate: VRR support (may help with frame sync)
-# - triple-buffering: Additional buffer for smoother frame delivery
-# These are set unconditionally to help diagnose frame rate issues
-gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
-gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
-
-# Start GNOME Shell in headless mode with virtual monitor
-# --headless: No display output - captured via pipewiresrc from ScreenCast
-# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
-# --virtual-monitor WxH@R: Creates virtual display at specified resolution
-gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
-gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
-GNOME_EOF
-
-chmod +x $XDG_RUNTIME_DIR/start_gnome
-
-dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
-_STARTUP
+# Extracted to external file for consistency with Sway
+ADD desktop/ubuntu-config/startup-app.sh /opt/gow/startup.sh
 RUN chmod +x /opt/gow/startup.sh
 
 # Helix helper scripts
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+# Shared scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini

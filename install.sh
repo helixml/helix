@@ -1801,42 +1801,10 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
-        # Auto-detect GPU render node for sandbox based on GPU_VENDOR
-        # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
-
-        # Handle "none" case for software rendering (no GPU available)
-        if [ "$GPU_VENDOR" = "none" ]; then
-            echo "No GPU detected - using software rendering (llvmpipe)"
-        elif [ -d "/sys/class/drm" ]; then
-            # Determine which driver to look for based on GPU_VENDOR
-            case "$GPU_VENDOR" in
-                nvidia)
-                    target_driver="nvidia"
-                    ;;
-                amd)
-                    target_driver="amdgpu"
-                    ;;
-                *)
-                    target_driver=""
-                    ;;
-            esac
-
-            if [ -n "$target_driver" ]; then
-                for render_node in /dev/dri/renderD*; do
-                    if [ -e "$render_node" ]; then
-                        # Check if this render node matches our target driver
-                        node_name=$(basename "$render_node")
-                        driver_link="/sys/class/drm/$node_name/device/driver"
-                        if [ -L "$driver_link" ]; then
-                            driver=$(readlink "$driver_link" | grep -o '[^/]*$')
-                            if [[ "$driver" == "$target_driver" ]]; then
-                                break
-                            fi
-                        fi
-                    fi
-                done
-            fi
-        fi
+        # NOTE: Render node selection is done inside the desktop container at startup.
+        # All /dev/dri/* devices are bind-mounted, and the container detects which
+        # render node matches GPU_VENDOR (handles multi-GPU systems like Lambda Labs
+        # where renderD128 is virtio-gpu and actual GPU is renderD129).
 
         cat << EOF >> "$ENV_FILE"
 
