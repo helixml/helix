@@ -475,15 +475,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "qsv":
 		// Intel Quick Sync Video
 		// EXACTLY matches Wolf's approach: add-borders=true, system memory caps, rate-control=cqp
-		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
-		renderDevice := getRenderDevice()
-		vapostprocOpts := "vapostproc add-borders=true"
-		if renderDevice != "" {
-			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
-			slog.Info("[STREAM] Using explicit render device for QSV", "device", renderDevice)
-		}
 		parts = append(parts,
-			vapostprocOpts,
+			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", getGOPSize(), v.config.Bitrate),
 			"h264parse",
@@ -497,20 +490,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Wolf pipeline: vapostproc add-borders=true ! video/x-raw,format=NV12 ! vah264enc rate-control=cqp
 		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation.
 		//
-		// render-device: On multi-GPU systems (Lambda Labs), HELIX_RENDER_NODE specifies
-		// which GPU to use. Without this, VA-API may pick the wrong GPU (e.g., virtio-gpu).
+		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
+		// Only the encoder (vah264enc) has this property, not vapostproc.
 		renderDevice := getRenderDevice()
-		vapostprocOpts := "vapostproc add-borders=true"
 		vah264encOpts := fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 			v.config.Bitrate, v.config.Bitrate, getGOPSize())
 		if renderDevice != "" {
-			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
 			vah264encOpts = fmt.Sprintf("vah264enc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
 			slog.Info("[STREAM] Using explicit render device for VA-API", "device", renderDevice)
 		}
 		parts = append(parts,
-			vapostprocOpts,
+			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			vah264encOpts,
 			"h264parse",
@@ -521,18 +512,17 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Matches Wolf's "legacy pipeline" - system memory caps, rate-control=cqp
 		// render-device: On multi-GPU systems, HELIX_RENDER_NODE specifies which GPU to use.
+		// Only the encoder (vah264lpenc) has this property, not vapostproc.
 		renderDevice := getRenderDevice()
-		vapostprocOpts := "vapostproc add-borders=true"
 		vah264lpencOpts := fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 			v.config.Bitrate, v.config.Bitrate, getGOPSize())
 		if renderDevice != "" {
-			vapostprocOpts = fmt.Sprintf("vapostproc add-borders=true render-device=%s", renderDevice)
 			vah264lpencOpts = fmt.Sprintf("vah264lpenc render-device=%s aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				renderDevice, v.config.Bitrate, v.config.Bitrate, getGOPSize())
 			slog.Info("[STREAM] Using explicit render device for VA-API LP", "device", renderDevice)
 		}
 		parts = append(parts,
-			vapostprocOpts,
+			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			vah264lpencOpts,
 			"h264parse",
