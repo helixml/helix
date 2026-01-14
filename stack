@@ -424,7 +424,6 @@ function build-zed() {
 
   echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
-  echo "🎯 Compatible with: Ubuntu 22.04+ (glibc 2.35+)"
 
   # Verify external WebSocket sync is included
   if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
