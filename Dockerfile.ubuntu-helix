@@ -12,7 +12,9 @@
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-FROM golang:1.24 AS go-build-env
+# Pin to specific digest for stable layer caching (golang:1.24 as of 2026-01-13)
+# Update digest when intentionally upgrading Go version
+FROM golang:1.24@sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
