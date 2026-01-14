@@ -196,6 +196,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
+  const implementationReviewMessageSendingRef = useRef(false) // Ref to prevent race condition
 
   // Session restart state
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
@@ -265,9 +266,13 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
     if (
       open &&
       !implementationReviewMessageSent &&
+      !implementationReviewMessageSendingRef.current && // Check ref to prevent race condition
       displayTask?.status === 'implementation_review' &&
       activeSessionId
     ) {
+      // Set ref IMMEDIATELY (synchronously) before async call to prevent duplicate sends
+      implementationReviewMessageSendingRef.current = true
+
       const reviewMessage = `I'm here to review your implementation.
 
 If this is a web application, please start the development server and provide the URL where I can test it.
@@ -282,14 +287,20 @@ I'll give you feedback and we can iterate on any changes needed.`
         setImplementationReviewMessageSent(true)
       }).catch((err) => {
         console.error('Failed to send implementation review message:', err)
+        // Reset ref on error so user can retry
+        implementationReviewMessageSendingRef.current = false
       })
     }
 
     // Reset when dialog closes
     if (!open) {
       setImplementationReviewMessageSent(false)
+      implementationReviewMessageSendingRef.current = false
     }
-  }, [open, implementationReviewMessageSent, displayTask?.status, activeSessionId, streaming])
+    // NOTE: streaming is intentionally excluded from deps - it changes every render but we only
+    // need to call NewInference once. The ref prevents the race condition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, implementationReviewMessageSent, displayTask?.status, activeSessionId])
 
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
