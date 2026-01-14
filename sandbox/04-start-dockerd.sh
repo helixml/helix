@@ -131,16 +131,12 @@ load_desktop_image() {
         VERSION=$(cat "$VERSION_FILE")
     fi
 
-    # Check if image already exists (from dev transfer or previous pull)
+    # Check if the EXACT version already exists
+    # IMPORTANT: Do NOT check for :latest here - that could be an old version!
+    # We only want to skip the pull if the specific version tag exists.
     local EXISTING_ID=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
     if [ -n "$EXISTING_ID" ]; then
         echo "✅ ${IMAGE_NAME}:${VERSION} already available (ID: ${EXISTING_ID})"
-        return 0
-    fi
-
-    EXISTING_ID=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
-    if [ -n "$EXISTING_ID" ]; then
-        echo "✅ ${IMAGE_NAME}:latest already available (ID: ${EXISTING_ID})"
         return 0
     fi
 
