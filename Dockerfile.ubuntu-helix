@@ -340,8 +340,6 @@ ENV LANG=en_US.UTF-8 \
     SDL_VIDEODRIVER=wayland \
     MUTTER_ALLOW_NESTED=1 \
     MUTTER_DEBUG_KMS_THREAD_TYPE=user \
-    MUTTER_DEBUG=screen-cast \
-    CLUTTER_DEBUG=frame-clock,frame-timings \
     CLUTTER_PAINT=disable-dynamic-max-render-time \
     CLUTTER_DEFAULT_FPS=60
 
