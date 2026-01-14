@@ -426,9 +426,9 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 		}
 	} else if s.waylandInput != nil {
 		// Fallback to Wayland-native input for Sway/wlroots
-		// Use gnomeDY which already has correct direction for GNOME-like behavior
-		// (negated from browser convention)
-		if err := s.waylandInput.MouseWheel(gnomeDX, gnomeDY); err != nil {
+		// Pass raw pixel values - MouseWheel does its own scaling
+		// Note: Negate Y for GNOME-like direction (matches gnomeDY behavior)
+		if err := s.waylandInput.MouseWheel(pixelX, -pixelY); err != nil {
 			s.logger.Debug("Wayland virtual scroll failed", "err", err)
 		}
 	}

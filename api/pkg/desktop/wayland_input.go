@@ -362,10 +362,14 @@ func (w *WaylandInput) MouseClick(button int) error {
 }
 
 // MouseWheel sends a scroll event using Wayland axis protocol.
-// deltaX/deltaY: values in "GNOME units" (~10-15 per wheel notch)
+// deltaX/deltaY: values in browser pixels (from frontend WheelEvent).
 //
-// Uses AxisDiscrete for discrete scroll steps - required by apps like Zed that
-// listen for discrete wheel events rather than continuous axis values.
+// Uses AxisSourceFinger for smooth continuous scrolling. This is critical
+// because Zed ignores wl_pointer.axis events when source is Wheel, but
+// processes them for Finger source (trackpad scrolling).
+//
+// Every scroll event is sent immediately with no accumulation, ensuring
+// small finger movements always result in immediate scroll response.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -374,22 +378,27 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 		return nil
 	}
 
+	if deltaX == 0 && deltaY == 0 {
+		return nil
+	}
+
 	now := time.Now()
 
-	// Set axis source to wheel (required for proper scroll handling)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceWheel)
+	// Use Finger source for smooth scrolling - Zed ignores Axis events
+	// when source is Wheel, but processes them for Finger (trackpad)
+	w.pointer.AxisSource(virtual_pointer.AxisSourceFinger)
 
-	// Send scroll with discrete steps
-	// Discrete value is in 120ths of a wheel notch (Linux HID standard)
-	// Input is ~10-15 GNOME units per notch, scale to discrete: ~15 units = 120 discrete
+	// Send continuous axis events with immediate values
+	// Scale browser pixels to Wayland scroll units
+	// Browser sends ~100-120 pixels per wheel notch, Wayland expects ~10-15 units per notch
+	// Use scale of 0.15 to convert: 100 pixels → 15 units
+	// Values stay as floats throughout (no integer truncation)
 	if deltaY != 0 {
-		discrete := int32(deltaY * 8) // Scale to discrete units
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisVertical, deltaY, discrete)
+		w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15)
 	}
 
 	if deltaX != 0 {
-		discrete := int32(deltaX * 8)
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisHorizontal, deltaX, discrete)
+		w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15)
 	}
 
 	w.pointer.Frame()
