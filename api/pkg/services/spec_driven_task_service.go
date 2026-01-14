@@ -1276,32 +1276,40 @@ func (s *SpecDrivenTaskService) buildCloneContext(ctx context.Context, task *typ
 		tocLines = append(tocLines, fmt.Sprintf("%d. %s", turn, summary))
 	}
 
-	// Build clone context block
+	// Build clone context block - directive, telling agent what to do
 	context := fmt.Sprintf(`
-## Context from Previous Implementation
+## Your Goal: Replicate a Proven Implementation
 
-This task was cloned from a completed implementation. The original agent's session provides valuable context about what was learned.
+This task has already been successfully completed on a similar repository. Your job is to **study that implementation and replicate it here**, adapting for any differences in this repository.
 
-### Source Session: %s
-**Session Title:** %s
-**Turns:** %d
+### What You Must Do
 
-### Table of Contents
+1. **Study the source implementation first** - Use the MCP session tools below to understand exactly what was done and why
+2. **Identify the pattern** - Look for the approach, libraries used, and key decisions made
+3. **Apply the same pattern here** - Replicate the solution, adapting only where this repository differs
+4. **Don't reinvent** - The hard work of figuring out the right approach is already done
+
+### Source Implementation Details
+
+**Session:** %s ("%s")
+**Total Turns:** %d
+
+**What was discussed:**
 %s
 
-### How to Access Full Details
-Use the MCP session tools to dive deeper into the source implementation:
-- session_toc(session_id="%s") - Full table of contents
-- get_turn(session_id="%s", turn=N) - Read specific interaction details
-- search_session(session_id="%s", query="...") - Find relevant content
+### MCP Tools to Explore the Source
 
-Adapt the patterns and solutions learned in the source implementation to this repository.
+Use these tools to read the full implementation details:
+- get_turn(session_id="%s", turn=N) - Read a specific turn's full prompt and response
+- search_session(session_id="%s", query="...") - Search for specific topics
+
+Start by reading the key turns where decisions were made, then apply that pattern here.
 
 ---
 
 `, task.SourceSessionID, session.Name, len(interactions),
 		stringJoin(tocLines, "\n"),
-		task.SourceSessionID, task.SourceSessionID, task.SourceSessionID)
+		task.SourceSessionID, task.SourceSessionID)
 
 	log.Info().
 		Str("task_id", task.ID).
