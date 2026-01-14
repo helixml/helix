@@ -643,14 +643,16 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
 
-	// Latency tracking
-	var frameCount uint64
+	// Latency tracking for logging (resets every 5 seconds)
+	var logFrameCount uint64
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
 	// Encoder latency tracking (PTS to send time)
 	// We use a baseline frame to correlate GStreamer PTS (pipeline time) to wall clock.
 	// Skip first 10 frames to avoid encoder warmup skewing the average.
+	// totalFrameCount is separate from logFrameCount so baseline isn't affected by log resets.
+	var totalFrameCount uint64
 	var baselineFrameNum uint64 = 10
 	var baselineWallTime time.Time
 	var baselinePTS uint64
@@ -678,7 +680,8 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			}
 			sendTime := time.Since(sendStart)
 			totalSendTime += sendTime
-			frameCount++
+			logFrameCount++
+			totalFrameCount++
 
 			// Use actualSendTime from writeMessage (after mutex acquired) for accurate latency
 			// If frame was skipped (video paused), actualSendTime is zero
@@ -688,13 +691,13 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 
 			// Calculate encoder latency (capture PTS to WebSocket send)
 			// After baseline is established, measure latency for each frame
-			if frameCount == baselineFrameNum {
+			if totalFrameCount == baselineFrameNum {
 				// Establish baseline after encoder warmup
 				baselineWallTime = actualSendTime
 				baselinePTS = frame.PTS
 				v.logger.Debug("encoder latency baseline established",
-					"frame", frameCount, "pts_us", frame.PTS)
-			} else if frameCount > baselineFrameNum && baselinePTS > 0 {
+					"frame", totalFrameCount, "pts_us", frame.PTS)
+			} else if totalFrameCount > baselineFrameNum && baselinePTS > 0 {
 				// Calculate expected wall time based on PTS delta from baseline
 				ptsDeltaUs := frame.PTS - baselinePTS
 				expectedWallTime := baselineWallTime.Add(time.Duration(ptsDeltaUs) * time.Microsecond)
@@ -707,17 +710,17 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			}
 
 			// Log latency stats every 5 seconds
-			if time.Since(lastLogTime) >= 5*time.Second && frameCount > 0 {
-				avgSend := totalSendTime / time.Duration(frameCount)
+			if time.Since(lastLogTime) >= 5*time.Second && logFrameCount > 0 {
+				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				v.logger.Info("VIDEO LATENCY STATS",
-					"frames", frameCount,
+					"frames", logFrameCount,
 					"avg_send_us", avgSend.Microseconds(),
 					"encoder_latency_ms", fmt.Sprintf("%.1f", encoderLatMs),
 					"frame_size_bytes", len(frame.Data),
 					"is_keyframe", frame.IsKeyframe)
-				// Reset counters (but keep encoder latency average running)
-				frameCount = 0
+				// Reset log counters (but keep encoder latency average and totalFrameCount running)
+				logFrameCount = 0
 				totalSendTime = 0
 				lastLogTime = time.Now()
 			}
