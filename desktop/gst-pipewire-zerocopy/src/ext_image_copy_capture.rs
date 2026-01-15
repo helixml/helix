@@ -498,6 +498,7 @@ impl ExtCaptureState {
                 height: size.height,
                 stride,
                 format: drm_fourcc,
+                pts_ns: 0, // ext-image-copy-capture doesn't provide compositor timestamp
             };
 
             let _ = self.frame_tx.try_send(frame);

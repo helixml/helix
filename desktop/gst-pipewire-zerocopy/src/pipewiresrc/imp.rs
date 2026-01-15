@@ -814,7 +814,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             Err(_) => return Err(gst::FlowError::Error),
         };
 
-        let (buffer, actual_format, width, height, pts_ns) = match frame {
+        let (mut buffer, actual_format, width, height, pts_ns) = match frame {
             FrameData::DmaBuf { dmabuf, pts_ns } if state.output_mode == OutputMode::Cuda => {
                 // CUDA path: DmaBuf → EGL → CUDA
                 // === TIMING INSTRUMENTATION ===
