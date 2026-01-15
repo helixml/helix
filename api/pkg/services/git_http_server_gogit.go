@@ -422,8 +422,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	}
 	defer session.Close()
 
-	body := s.getRequestBody(r)
-	bodyBytes, err := io.ReadAll(body)
+	bodyBytes, err := s.readRequestBody(r)
 	if err != nil {
 		http.Error(w, "Failed to read request", http.StatusInternalServerError)
 		return
@@ -476,8 +475,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 	defer session.Close()
 
-	body := s.getRequestBody(r)
-	bodyBytes, err := io.ReadAll(body)
+	bodyBytes, err := s.readRequestBody(r)
 	if err != nil {
 		http.Error(w, "Failed to read request", http.StatusInternalServerError)
 		return
@@ -533,17 +531,18 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// getRequestBody handles gzip decompression if needed
-func (s *GitHTTPServer) getRequestBody(r *http.Request) io.Reader {
+// readRequestBody reads the full request body, handling gzip decompression if needed
+func (s *GitHTTPServer) readRequestBody(r *http.Request) ([]byte, error) {
 	if r.Header.Get("Content-Encoding") == "gzip" {
 		gzReader, err := gzip.NewReader(r.Body)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create gzip reader")
-			return r.Body
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		return gzReader
+		defer gzReader.Close()
+		return io.ReadAll(gzReader)
 	}
-	return r.Body
+	return io.ReadAll(r.Body)
 }
 
 // handlePostPushHook processes commits after a successful push
