@@ -686,6 +686,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 
 		// LLM proxy configuration for Zed's built-in agent
+		// Note: API keys are now provided via settings.json (see zed_config.go)
+		// These env vars are kept for backwards compatibility
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", h.helixAPIToken),
 		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
 
