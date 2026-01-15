@@ -65,6 +65,7 @@ import {
   usePushPullGitRepository,
   useCreateBranch,
   useCreateGitRepository,
+  QUERY_KEYS,
 } from '../services/gitRepositoryService'
 import { useListProjects } from '../services/projectService'
 import {
@@ -360,9 +361,9 @@ const GitRepoDetail: FC = () => {
 
       await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
 
-      // Invalidate queries
-      await queryClient.invalidateQueries({ queryKey: ['git-repository', repoId] })
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate queries - use QUERY_KEYS to ensure keys match
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepository(repoId) })
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories })
 
       setEditDialogOpen(false)
       setEditPassword('')
