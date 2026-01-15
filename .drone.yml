@@ -809,12 +809,10 @@ type: docker
 name: build-controlplane
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -841,12 +839,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 kind: pipeline
@@ -854,12 +850,10 @@ type: docker
 name: build-haystack
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -887,12 +881,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 kind: pipeline
@@ -900,12 +892,10 @@ type: docker
 name: build-runner
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -936,12 +926,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 kind: pipeline
@@ -949,12 +937,10 @@ type: docker
 name: build-runner-small
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -987,12 +973,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1028,12 +1012,10 @@ type: docker
 name: build-runner-large
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -1066,12 +1048,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1107,12 +1087,10 @@ type: docker
 name: build-typesense_baked_models
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -1137,12 +1115,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 kind: pipeline
@@ -1150,12 +1126,10 @@ type: docker
 name: build-demos
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - feature/sway-crash-recovery
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -1180,12 +1154,10 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - feature/sway-crash-recovery
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 # See integration-test/smoke/README.md
@@ -1383,12 +1355,10 @@ type: docker
 name: build-sandbox
 
 trigger:
-  event:
-    - tag
-    - push
-  branch:
-    - main
-    - fix/ci-sandbox-build-concurrency
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -1712,11 +1682,9 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
     when:
-      event:
-        - tag
-        - push
-      branch:
-        - main
-        - fix/ci-sandbox-build-concurrency
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
     depends_on:
       - build-sandbox
