@@ -2398,6 +2398,12 @@ TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
+
+# Check if controlplane container is running locally - if so, use Docker network hostname
+if docker ps --format '{{.Image}}' | grep -q 'registry.helixml.tech/helix/controlplane'; then
+    HELIX_API_URL="http://api:8080"
+    echo "Detected controlplane container running. Setting HELIX_API_URL to ${HELIX_API_URL}"
+fi
 EOF
 
     # Conditionally append network check based on whether controlplane is co-located
