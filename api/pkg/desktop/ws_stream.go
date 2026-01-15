@@ -157,10 +157,10 @@ type VideoStreamer struct {
 	// Video pause control (for screenshot mode switching)
 	videoEnabled atomic.Bool
 
-	// Encoder latency tracking (PTS to WebSocket send)
-	// Uses first-frame baseline to correlate GStreamer PTS to wall clock.
+	// Pipeline latency tracking (appsink callback to WebSocket write)
+	// Measures time frames spend in Go code (channel wait + mutex wait).
 	// Stored as microseconds for precision, accessed atomically from Pong handler.
-	encoderLatencyUs atomic.Int64 // Average encoder latency in microseconds
+	encoderLatencyUs atomic.Int64 // Average pipeline latency in microseconds
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -648,16 +648,6 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
-	// Encoder latency tracking (PTS to send time)
-	// We use a baseline frame to correlate GStreamer PTS (pipeline time) to wall clock.
-	// Skip first 10 frames to avoid encoder warmup skewing the average.
-	// totalFrameCount is separate from logFrameCount so baseline isn't affected by log resets.
-	var totalFrameCount uint64
-	var baselineFrameNum uint64 = 10
-	var baselineWallTime time.Time
-	var baselinePTS uint64
-	var encoderLatencyAvgUs float64
-
 	frameCh := v.gstPipeline.Frames()
 
 	for {
@@ -681,7 +671,6 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			sendTime := time.Since(sendStart)
 			totalSendTime += sendTime
 			logFrameCount++
-			totalFrameCount++
 
 			// Use actualSendTime from writeMessage (after mutex acquired) for accurate latency
 			// If frame was skipped (video paused), actualSendTime is zero
@@ -689,24 +678,13 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				continue
 			}
 
-			// Calculate encoder latency (capture PTS to WebSocket send)
-			// After baseline is established, measure latency for each frame
-			if totalFrameCount == baselineFrameNum {
-				// Establish baseline after encoder warmup
-				baselineWallTime = actualSendTime
-				baselinePTS = frame.PTS
-				v.logger.Debug("encoder latency baseline established",
-					"frame", totalFrameCount, "pts_us", frame.PTS)
-			} else if totalFrameCount > baselineFrameNum && baselinePTS > 0 {
-				// Calculate expected wall time based on PTS delta from baseline
-				ptsDeltaUs := frame.PTS - baselinePTS
-				expectedWallTime := baselineWallTime.Add(time.Duration(ptsDeltaUs) * time.Microsecond)
-				// Encoder latency = actual send time - expected time based on PTS
-				latencyUs := float64(actualSendTime.Sub(expectedWallTime).Microseconds())
-				// Exponential moving average (α=0.1 for smooth tracking)
-				encoderLatencyAvgUs = encoderLatencyAvgUs*0.9 + latencyUs*0.1
-				// Store atomically for Pong handler access
-				v.encoderLatencyUs.Store(int64(encoderLatencyAvgUs))
+			// Calculate pipeline latency: time from appsink callback to WebSocket write
+			// This measures total encode+pipeline time: PipeWire capture -> GStreamer encode -> channel -> WebSocket
+			// Now that pipewirezerocopysrc uses compositor timestamp (spa_meta_header.pts), this is real encoder latency
+			latencyUs := actualSendTime.Sub(frame.Timestamp).Microseconds()
+			// Store latest value directly (no EMA, never reset)
+			if latencyUs > 0 {
+				v.encoderLatencyUs.Store(latencyUs)
 			}
 
 			// Log latency stats every 5 seconds
