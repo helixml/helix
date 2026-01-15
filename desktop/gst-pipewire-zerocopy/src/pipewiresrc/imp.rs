@@ -1003,12 +1003,17 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             drop(g);
         }
 
-        // Set PTS from compositor timestamp (PipeWire spa_meta_header.pts)
-        // This is set by Mutter/compositor when the frame was captured
-        // pts_ns is in nanoseconds, which matches GStreamer's ClockTime unit
-        if pts_ns > 0 {
-            if let Some(buffer_ref) = buffer.get_mut() {
-                buffer_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns as u64));
+        // Set PTS for encoder latency measurement
+        // We use wall clock time (nanoseconds since UNIX epoch) so Go can compare directly with time.Now()
+        // spa_meta_header.pts from Mutter is in CLOCK_MONOTONIC, which can't be compared to wall clock,
+        // so we always use wall clock here for consistent latency measurement.
+        if let Some(buffer_ref) = buffer.get_mut() {
+            let wall_clock_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
+            if wall_clock_ns > 0 {
+                buffer_ref.set_pts(gst::ClockTime::from_nseconds(wall_clock_ns));
             }
         }
 

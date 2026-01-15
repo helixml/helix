@@ -97,6 +97,12 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 
 // CreateRepository creates a new git repository
 func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	// Enable Kodit indexing by default for all new repositories
+	// This provides code intelligence (MCP server for snippets/architecture) out of the box
+	// Note: Since KoditIndexing is a bool (not *bool), we can't distinguish "explicitly false" from "unset"
+	// If users want to disable it, they can update the repo after creation via the update API
+	request.KoditIndexing = true
+
 	if request.ExternalType == types.ExternalRepositoryTypeADO {
 		if request.AzureDevOps == nil {
 			return nil, fmt.Errorf("azure devops repository not provided")

@@ -201,14 +201,23 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	// GST_BUFFER_FLAG_DELTA_UNIT is set for non-keyframes
 	isKeyframe := !buffer.HasFlags(gst.BufferFlagDeltaUnit)
 
-	// Calculate capture wall clock time
-	// With realtime clock: baseTimeNs + PTS = nanoseconds since epoch when frame was captured
-	// Without realtime clock: fall back to time.Now() (appsink receive time)
+	// Calculate capture wall clock time for encoder latency measurement
+	// There are two cases:
+	// 1. pipewirezerocopysrc: PTS is wall clock nanoseconds since epoch (very large, ~1.7e18 for 2024)
+	// 2. native pipewiresrc with realtime clock: baseTimeNs + PTS = wall clock
+	// 3. Fallback: use time.Now() (appsink receive time)
 	var captureTime time.Time
-	if g.useRealtimeClock && g.baseTimeNs > 0 && ptsNs >= 0 {
+	// Check if PTS looks like wall clock (> year 2020 in nanoseconds = 1.577e18)
+	const minWallClockNs = int64(1577836800000000000) // 2020-01-01 00:00:00 UTC
+	if ptsNs > minWallClockNs {
+		// PTS is already wall clock nanoseconds (from pipewirezerocopysrc)
+		captureTime = time.Unix(0, ptsNs)
+	} else if g.useRealtimeClock && g.baseTimeNs > 0 && ptsNs >= 0 {
+		// PTS is running time, convert using base_time (from native pipewiresrc with realtime clock)
 		captureTimeNs := int64(g.baseTimeNs) + ptsNs
 		captureTime = time.Unix(0, captureTimeNs)
 	} else {
+		// Fallback: use current time (only measures Go processing time, not encoder latency)
 		captureTime = time.Now()
 	}
 
