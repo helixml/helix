@@ -34,14 +34,30 @@ type VideoFrame struct {
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 
+// GstPipelineOptions configures the GStreamer pipeline
+type GstPipelineOptions struct {
+	// UseRealtimeClock forces the pipeline to use a realtime (wall clock) based clock.
+	// When enabled, do-timestamp=true on source elements will produce PTS values
+	// that are relative to pipeline start but based on wall clock time.
+	// This is useful for latency measurement when comparing PTS to time.Now().
+	UseRealtimeClock bool
+}
+
 // GstPipeline wraps a GStreamer pipeline with appsink for video capture
 type GstPipeline struct {
-	pipeline   *gst.Pipeline
-	appsink    *app.Sink
-	frameCh    chan VideoFrame
-	running    atomic.Bool
-	stopOnce   sync.Once
-	pipelineID string // For logging
+	pipeline      *gst.Pipeline
+	appsink       *app.Sink
+	frameCh       chan VideoFrame
+	running       atomic.Bool
+	stopOnce      sync.Once
+	pipelineID    string     // For logging
+	realtimeClock *gst.Clock // Kept to prevent GC if we create a custom clock
+
+	// baseTimeNs is the pipeline's base_time in nanoseconds since epoch (only valid with realtime clock).
+	// Used to convert PTS (running time) to wall clock: captureTime = baseTimeNs + PTS
+	baseTimeNs uint64
+	// useRealtimeClock indicates if the pipeline is using a realtime clock for latency calculation
+	useRealtimeClock bool
 }
 
 // NewGstPipeline creates a new GStreamer pipeline from a pipeline string.
@@ -51,6 +67,12 @@ type GstPipeline struct {
 //
 //	pipewiresrc path=47 ! nvh264enc ! h264parse ! appsink name=videosink
 func NewGstPipeline(pipelineStr string) (*GstPipeline, error) {
+	return NewGstPipelineWithOptions(pipelineStr, GstPipelineOptions{})
+}
+
+// NewGstPipelineWithOptions creates a new GStreamer pipeline with custom options.
+// The pipeline string must end with an appsink element named "videosink".
+func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*GstPipeline, error) {
 	InitGStreamer()
 
 	// Parse the pipeline string
@@ -79,6 +101,21 @@ func NewGstPipeline(pipelineStr string) (*GstPipeline, error) {
 		pipelineID: fmt.Sprintf("gst-%p", pipeline),
 	}
 
+	// Force the pipeline to use a realtime clock if requested.
+	// This makes do-timestamp=true use wall clock time instead of monotonic time,
+	// enabling accurate latency measurement by comparing PTS to time.Now().
+	if opts.UseRealtimeClock {
+		clock, err := gst.NewSystemClock(gst.ClockTypeRealtime)
+		if err != nil {
+			pipeline.SetState(gst.StateNull)
+			return nil, fmt.Errorf("failed to create realtime clock: %w", err)
+		}
+		pipeline.ForceClock(clock.Clock)
+		g.realtimeClock = clock.Clock // Keep reference to prevent GC
+		g.useRealtimeClock = true
+		fmt.Printf("[GST_PIPELINE] Using realtime clock for wall clock timestamps\n")
+	}
+
 	return g, nil
 }
 
@@ -103,6 +140,15 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	// Start the pipeline
 	if err := g.pipeline.SetState(gst.StatePlaying); err != nil {
 		return fmt.Errorf("failed to set pipeline to playing: %w", err)
+	}
+
+	// Capture base_time when using realtime clock for PTS→wall clock conversion
+	// base_time is the clock time (nanoseconds since epoch for realtime clock) when pipeline started
+	if g.useRealtimeClock {
+		baseTime := g.pipeline.GetBaseTime()
+		g.baseTimeNs = uint64(baseTime)
+		fmt.Printf("[GST_PIPELINE] Captured base_time: %d ns (epoch: %s)\n",
+			g.baseTimeNs, time.Unix(0, int64(g.baseTimeNs)).Format(time.RFC3339Nano))
 	}
 
 	g.running.Store(true)
@@ -145,19 +191,32 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	// PTS = 0 is valid for the first frame, only nil is invalid
 	ptsDur := buffer.PresentationTimestamp().AsDuration()
 	var pts uint64
+	var ptsNs int64
 	if ptsDur != nil {
 		pts = uint64(ptsDur.Microseconds())
+		ptsNs = int64(*ptsDur) // Duration in nanoseconds
 	}
 
 	// Check if this is a keyframe
 	// GST_BUFFER_FLAG_DELTA_UNIT is set for non-keyframes
 	isKeyframe := !buffer.HasFlags(gst.BufferFlagDeltaUnit)
 
+	// Calculate capture wall clock time
+	// With realtime clock: baseTimeNs + PTS = nanoseconds since epoch when frame was captured
+	// Without realtime clock: fall back to time.Now() (appsink receive time)
+	var captureTime time.Time
+	if g.useRealtimeClock && g.baseTimeNs > 0 && ptsNs >= 0 {
+		captureTimeNs := int64(g.baseTimeNs) + ptsNs
+		captureTime = time.Unix(0, captureTimeNs)
+	} else {
+		captureTime = time.Now()
+	}
+
 	frame := VideoFrame{
 		Data:       data,
 		PTS:        pts,
 		IsKeyframe: isKeyframe,
-		Timestamp:  time.Now(),
+		Timestamp:  captureTime,
 	}
 
 	// Non-blocking send to avoid blocking the GStreamer thread

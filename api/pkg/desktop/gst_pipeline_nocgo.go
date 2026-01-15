@@ -24,6 +24,11 @@ type VideoFrame struct {
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 
+// GstPipelineOptions configures the GStreamer pipeline
+type GstPipelineOptions struct {
+	UseRealtimeClock bool
+}
+
 // GstPipeline wraps a GStreamer pipeline with appsink for video capture.
 // This stub implementation always returns errors.
 type GstPipeline struct {
@@ -32,6 +37,11 @@ type GstPipeline struct {
 
 // NewGstPipeline returns an error when CGO is disabled.
 func NewGstPipeline(pipelineStr string) (*GstPipeline, error) {
+	return nil, ErrCGORequired
+}
+
+// NewGstPipelineWithOptions returns an error when CGO is disabled.
+func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*GstPipeline, error) {
 	return nil, ErrCGORequired
 }
 
