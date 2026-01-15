@@ -33,6 +33,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// setNoCacheHeaders sets HTTP headers to prevent caching of git protocol responses.
+// Includes headers for HTTP/1.0 (Pragma, Expires) and HTTP/1.1 (Cache-Control) compatibility.
+func setNoCacheHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
+}
+
 // GitHTTPServer provides HTTP access to git repositories using pure Go (go-git).
 // This is the primary implementation - no CGI or external git processes.
 type GitHTTPServer struct {
@@ -418,7 +426,7 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", fmt.Sprintf("application/x-%s-advertisement", service))
-	w.Header().Set("Cache-Control", "no-cache")
+	setNoCacheHeaders(w)
 
 	pktEnc := pktline.NewEncoder(w)
 	if err := pktEnc.Encodef("# service=%s\n", service); err != nil {
@@ -473,7 +481,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
-	w.Header().Set("Cache-Control", "no-cache")
+	setNoCacheHeaders(w)
 
 	resp, err := session.UploadPack(r.Context(), req)
 	if err != nil {
@@ -537,7 +545,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Int("commands", len(req.Commands)).Msg("Parsed receive-pack commands")
 
 	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
-	w.Header().Set("Cache-Control", "no-cache")
+	setNoCacheHeaders(w)
 
 	resp, err := session.ReceivePack(r.Context(), req)
 	if err != nil {
