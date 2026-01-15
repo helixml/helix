@@ -137,6 +137,11 @@ type VideoStreamer struct {
 
 	// Video pause control (for screenshot mode switching)
 	videoEnabled atomic.Bool
+
+	// Pipeline latency tracking (appsink callback to WebSocket write)
+	// Measures time frames spend in Go code (channel wait + mutex wait).
+	// Stored as microseconds for precision, accessed atomically from Pong handler.
+	encoderLatencyUs atomic.Int64 // Average pipeline latency in microseconds
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -607,10 +612,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 // writeMessage is a thread-safe wrapper for WebSocket writes.
 // gorilla/websocket requires that all writes to the same connection be serialized.
-func (v *VideoStreamer) writeMessage(messageType int, data []byte) error {
+// Returns the wall clock time when the write actually happened (after mutex acquired).
+func (v *VideoStreamer) writeMessage(messageType int, data []byte) (time.Time, error) {
 	v.wsMu.Lock()
 	defer v.wsMu.Unlock()
-	return v.ws.WriteMessage(messageType, data)
+	writeTime := time.Now()
+	err := v.ws.WriteMessage(messageType, data)
+	return writeTime, err
 }
 
 // writeJSON is a thread-safe wrapper for WebSocket JSON writes.
@@ -633,7 +641,8 @@ func (v *VideoStreamer) sendStreamInit() error {
 	binary.BigEndian.PutUint32(msg[8:12], 0) // sample rate
 	msg[12] = 0                              // touch supported
 
-	return v.writeMessage(websocket.BinaryMessage, msg)
+	_, err := v.writeMessage(websocket.BinaryMessage, msg)
+	return err
 }
 
 // connectionCompleteMsg is the JSON structure expected by frontend websocket-stream.ts
@@ -662,7 +671,7 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
 
 	// Latency tracking
-	var frameCount uint64
+	var logFrameCount uint64
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
@@ -681,24 +690,42 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 
 			// Measure WebSocket send time
 			sendStart := time.Now()
-			if err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS); err != nil {
+			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS)
+			if err != nil {
 				v.logger.Error("send frame error", "err", err)
 				return
 			}
 			sendTime := time.Since(sendStart)
 			totalSendTime += sendTime
-			frameCount++
+			logFrameCount++
+
+			// Use actualSendTime from writeMessage (after mutex acquired) for accurate latency
+			// If frame was skipped (video paused), actualSendTime is zero
+			if actualSendTime.IsZero() {
+				continue
+			}
+
+			// Calculate pipeline latency: time from appsink callback to WebSocket write
+			// This measures total encode+pipeline time: PipeWire capture -> GStreamer encode -> channel -> WebSocket
+			// Now that pipewirezerocopysrc uses compositor timestamp (spa_meta_header.pts), this is real encoder latency
+			latencyUs := actualSendTime.Sub(frame.Timestamp).Microseconds()
+			// Store latest value directly (no EMA, never reset)
+			if latencyUs > 0 {
+				v.encoderLatencyUs.Store(latencyUs)
+			}
 
 			// Log latency stats every 5 seconds
-			if time.Since(lastLogTime) >= 5*time.Second && frameCount > 0 {
-				avgSend := totalSendTime / time.Duration(frameCount)
+			if time.Since(lastLogTime) >= 5*time.Second && logFrameCount > 0 {
+				avgSend := totalSendTime / time.Duration(logFrameCount)
+				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				v.logger.Info("VIDEO LATENCY STATS",
-					"frames", frameCount,
+					"frames", logFrameCount,
 					"avg_send_us", avgSend.Microseconds(),
+					"encoder_latency_ms", fmt.Sprintf("%.1f", encoderLatMs),
 					"frame_size_bytes", len(frame.Data),
 					"is_keyframe", frame.IsKeyframe)
-				// Reset counters
-				frameCount = 0
+				// Reset log counters (but keep encoder latency average and totalFrameCount running)
+				logFrameCount = 0
 				totalSendTime = 0
 				lastLogTime = time.Now()
 			}
@@ -709,10 +736,11 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
 // pts is the presentation timestamp in microseconds from GStreamer
-func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) error {
+// Returns the wall clock time when the frame was actually written to the socket (after mutex).
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) (time.Time, error) {
 	// Skip sending if video is paused (screenshot mode)
 	if !v.videoEnabled.Load() {
-		return nil
+		return time.Time{}, nil
 	}
 
 	v.frameCount++
@@ -751,7 +779,7 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
-			if err := v.writeMessage(websocket.PingMessage, nil); err != nil {
+			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
 				v.logger.Debug("ping failed", "err", err)
 				return
 			}
@@ -898,16 +926,26 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 			// Handle Ping/Pong at this level (needs ws access for response)
 			if msgType == StreamMsgPing {
 				// Client sent Ping for RTT measurement - respond with Pong
-				// Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+				// Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
+				// encoderLatencyMs is the average time from PipeWire capture to WebSocket send (encoder pipeline)
 				if len(msg) >= 13 {
-					pong := make([]byte, 21)
+					pong := make([]byte, 23)
 					pong[0] = StreamMsgPong
 					copy(pong[1:13], msg[1:13]) // Echo back seq + clientTime
 					// Add server time (microseconds since epoch)
 					serverTime := uint64(time.Now().UnixMicro())
 					binary.BigEndian.PutUint64(pong[13:21], serverTime)
+					// Add encoder latency (microseconds -> milliseconds, clamped to uint16 range)
+					encoderLatencyUs := streamer.encoderLatencyUs.Load()
+					encoderLatencyMs := encoderLatencyUs / 1000
+					if encoderLatencyMs < 0 {
+						encoderLatencyMs = 0
+					} else if encoderLatencyMs > 65535 {
+						encoderLatencyMs = 65535
+					}
+					binary.BigEndian.PutUint16(pong[21:23], uint16(encoderLatencyMs))
 					// Use streamer's mutex-protected write to avoid concurrent write panic
-					if err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
+					if _, err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
 						logger.Debug("failed to send pong", "err", err)
 					}
 				}
