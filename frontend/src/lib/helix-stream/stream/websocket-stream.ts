@@ -168,7 +168,7 @@ export class WebSocketStream {
   private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
   private rttSamples: number[] = []
   private currentRttMs = 0
-  private encoderLatencyMs = 0  // Encoder pipeline latency from server (PTS to WebSocket send)
+  private encoderLatencyMs: number | undefined = undefined  // Encoder latency from server (undefined = not reported)
   private pingIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
@@ -1733,7 +1733,7 @@ export class WebSocketStream {
     width: number
     height: number
     rttMs: number                    // Round-trip time in milliseconds
-    encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
+    encoderLatencyMs: number | undefined  // Server-side encoder latency (undefined = not reported by server)
     isHighLatency: boolean           // True if RTT exceeds threshold
     // Batching stats for congestion visibility
     batchesReceived: number          // Total batch messages received

@@ -3818,7 +3818,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
-                    {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
+                    {stats.video.encoderLatencyMs !== undefined && (
                       <>
                         <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
                         <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
