@@ -157,10 +157,11 @@ type VideoStreamer struct {
 	// Video pause control (for screenshot mode switching)
 	videoEnabled atomic.Bool
 
-	// Pipeline latency tracking (appsink callback to WebSocket write)
-	// Measures time frames spend in Go code (channel wait + mutex wait).
-	// Stored as microseconds for precision, accessed atomically from Pong handler.
-	encoderLatencyUs atomic.Int64 // Average pipeline latency in microseconds
+	// Encoder latency tracking (PipeWire capture to WebSocket send)
+	// Uses PTS baseline correlation to measure time from compositor frame capture
+	// to WebSocket write. Stored in microseconds, accessed atomically from Pong handler.
+	// Value is 0 when baseline hasn't been established or PTS is unavailable (Sway).
+	encoderLatencyUs atomic.Int64
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -648,6 +649,15 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
+	// Encoder latency tracking using PTS baseline
+	// We correlate GStreamer PTS (monotonic clock) to wall clock at frame 10,
+	// then measure drift for subsequent frames.
+	// totalFrameCount never resets, ensuring baseline stays valid.
+	var totalFrameCount uint64
+	const baselineFrameNum uint64 = 10
+	var baselineWallTime time.Time
+	var baselinePTS uint64
+
 	frameCh := v.gstPipeline.Frames()
 
 	for {
@@ -671,6 +681,7 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			sendTime := time.Since(sendStart)
 			totalSendTime += sendTime
 			logFrameCount++
+			totalFrameCount++
 
 			// Use actualSendTime from writeMessage (after mutex acquired) for accurate latency
 			// If frame was skipped (video paused), actualSendTime is zero
@@ -678,13 +689,31 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				continue
 			}
 
-			// Calculate pipeline latency: time from appsink callback to WebSocket write
-			// This measures total encode+pipeline time: PipeWire capture -> GStreamer encode -> channel -> WebSocket
-			// Now that pipewirezerocopysrc uses compositor timestamp (spa_meta_header.pts), this is real encoder latency
-			latencyUs := actualSendTime.Sub(frame.Timestamp).Microseconds()
-			// Store latest value directly (no EMA, never reset)
-			if latencyUs > 0 {
-				v.encoderLatencyUs.Store(latencyUs)
+			// Calculate encoder latency using PTS baseline correlation
+			// frame.PTS contains the compositor timestamp (spa_meta_header.pts) in microseconds.
+			// We establish a baseline at frame 10 to correlate PTS clock to wall clock,
+			// then measure how much actual send time drifts from expected time.
+			// This gives us real encoder latency (PipeWire capture -> WebSocket send).
+			//
+			// Note: frame.PTS = 0 for Sway (ext-image-copy-capture doesn't provide timestamp)
+			if frame.PTS > 0 {
+				if totalFrameCount == baselineFrameNum {
+					// Establish baseline after encoder warmup
+					baselineWallTime = actualSendTime
+					baselinePTS = frame.PTS
+					v.logger.Debug("encoder latency baseline established",
+						"frame", totalFrameCount, "pts_us", frame.PTS)
+				} else if totalFrameCount > baselineFrameNum && baselinePTS > 0 {
+					// Calculate expected wall time based on PTS delta from baseline
+					ptsDeltaUs := frame.PTS - baselinePTS
+					expectedWallTime := baselineWallTime.Add(time.Duration(ptsDeltaUs) * time.Microsecond)
+					// Encoder latency = actual send time - expected time based on PTS
+					latencyUs := actualSendTime.Sub(expectedWallTime).Microseconds()
+					// Store latest value (no EMA, never reset, clamp to positive)
+					if latencyUs > 0 {
+						v.encoderLatencyUs.Store(latencyUs)
+					}
+				}
 			}
 
 			// Log latency stats every 5 seconds
