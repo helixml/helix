@@ -41,6 +41,35 @@ func setNoCacheHeaders(w http.ResponseWriter) {
 	w.Header().Set("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
 }
 
+// flushingWriter wraps an http.ResponseWriter to flush after each write.
+// This ensures git clients receive data incrementally during large pack transfers.
+type flushingWriter struct {
+	w       http.ResponseWriter
+	flusher http.Flusher
+}
+
+func newFlushingWriter(w http.ResponseWriter) *flushingWriter {
+	fw := &flushingWriter{w: w}
+	if f, ok := w.(http.Flusher); ok {
+		fw.flusher = f
+	}
+	return fw
+}
+
+func (fw *flushingWriter) Write(p []byte) (n int, err error) {
+	n, err = fw.w.Write(p)
+	if fw.flusher != nil && n > 0 {
+		fw.flusher.Flush()
+	}
+	return
+}
+
+func (fw *flushingWriter) Flush() {
+	if fw.flusher != nil {
+		fw.flusher.Flush()
+	}
+}
+
 // GitHTTPServer provides HTTP access to git repositories using pure Go (go-git).
 // This is the primary implementation - no CGI or external git processes.
 type GitHTTPServer struct {
@@ -490,10 +519,13 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := resp.Encode(w); err != nil {
+	// Use flushing writer for streaming large pack files
+	fw := newFlushingWriter(w)
+	if err := resp.Encode(fw); err != nil {
 		log.Error().Err(err).Msg("Failed to encode response")
 		return
 	}
+	fw.Flush()
 
 	log.Info().Str("repo_id", repoID).Msg("Upload-pack completed")
 }
@@ -555,10 +587,13 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 
 	if resp != nil {
-		if err := resp.Encode(w); err != nil {
+		// Use flushing writer for streaming response
+		fw := newFlushingWriter(w)
+		if err := resp.Encode(fw); err != nil {
 			log.Error().Err(err).Msg("Failed to encode response")
 			return
 		}
+		fw.Flush()
 	}
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
