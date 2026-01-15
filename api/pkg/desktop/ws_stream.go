@@ -166,18 +166,23 @@ type VideoStreamer struct {
 	// It tells the pipeline to use a realtime (wall clock) based clock so that
 	// do-timestamp=true produces PTS values comparable to time.Now().
 	useRealtimeClock bool
+
+	// Audio streaming (optional, created if audio enabled)
+	audioStreamer *AudioStreamer
+	audioConfig   AudioConfig
 }
 
 // NewVideoStreamer creates a new video streamer
 // pipeWireFd is the FD from OpenPipeWireRemote portal call - required for ScreenCast access
 func NewVideoStreamer(nodeID uint32, pipeWireFd int, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
-		nodeID:     nodeID,
-		pipeWireFd: pipeWireFd,
-		videoMode:  getVideoMode(config.VideoMode),
-		config:     config,
-		ws:         ws,
-		logger:     logger,
+		nodeID:      nodeID,
+		pipeWireFd:  pipeWireFd,
+		videoMode:   getVideoMode(config.VideoMode),
+		config:      config,
+		ws:          ws,
+		logger:      logger,
+		audioConfig: DefaultAudioConfig(),
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -247,6 +252,9 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	if err := v.sendConnectionComplete(); err != nil {
 		v.logger.Error("failed to send ConnectionComplete", "err", err)
 	}
+
+	// Start audio streaming (optional - doesn't fail if audio isn't available)
+	v.startAudioStreaming(ctx)
 
 	// Read frames from appsink and send to WebSocket
 	go v.readFramesAndSend(ctx)
@@ -625,9 +633,9 @@ func (v *VideoStreamer) sendStreamInit() error {
 	binary.BigEndian.PutUint16(msg[2:4], uint16(v.config.Width))
 	binary.BigEndian.PutUint16(msg[4:6], uint16(v.config.Height))
 	msg[6] = byte(v.config.FPS)
-	msg[7] = 0                               // audio channels (not implemented yet)
-	binary.BigEndian.PutUint32(msg[8:12], 0) // sample rate
-	msg[12] = 0                              // touch supported
+	msg[7] = byte(v.audioConfig.Channels)                      // audio channels (2 for stereo)
+	binary.BigEndian.PutUint32(msg[8:12], uint32(v.audioConfig.SampleRate)) // sample rate (48000)
+	msg[12] = 1 // touch supported (GNOME only for now)
 
 	_, err := v.writeMessage(websocket.BinaryMessage, msg)
 	return err
@@ -790,6 +798,11 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
+	// Stop audio streaming
+	if v.audioStreamer != nil {
+		v.audioStreamer.Stop()
+	}
+
 	// Stop GStreamer pipeline
 	if v.gstPipeline != nil {
 		v.gstPipeline.Stop()
@@ -799,6 +812,22 @@ func (v *VideoStreamer) Stop() {
 		"frames", v.frameCount,
 		"duration", time.Since(v.startTime),
 	)
+}
+
+// startAudioStreaming initializes and starts audio capture if available.
+// This is non-blocking and doesn't fail video streaming if audio fails.
+func (v *VideoStreamer) startAudioStreaming(ctx context.Context) {
+	// Create audio streamer with shared WebSocket mutex
+	v.audioStreamer = NewAudioStreamer(v.ws, &v.wsMu, v.logger, v.audioConfig)
+	if v.audioStreamer == nil {
+		v.logger.Debug("audio streaming disabled (CGO not available)")
+		return
+	}
+
+	if err := v.audioStreamer.Start(ctx); err != nil {
+		v.logger.Warn("failed to start audio streaming", "err", err)
+		// Don't fail - audio is optional
+	}
 }
 
 // HandleStreamWebSocket handles the /ws/stream endpoint (standalone version)

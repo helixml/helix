@@ -315,6 +315,15 @@ export class WebSocketStream {
     this.input.sendMouseWheel = (deltaX: number, deltaY: number) => {
       wsStream.sendMouseWheel(deltaX, deltaY)
     }
+    // @ts-ignore - patch sendTouch to use WebSocket transport
+    const origCalcNormalizedPosition = this.input['calcNormalizedPosition'].bind(this.input)
+    // @ts-ignore
+    this.input['sendTouch'] = (type: number, touch: Touch, rect: DOMRect) => {
+      const position = origCalcNormalizedPosition(touch.clientX, touch.clientY, rect)
+      if (position) {
+        wsStream.sendTouch(type, touch.identifier, position[0], position[1])
+      }
+    }
   }
 
   private calculateStreamerSize(viewerScreenSize: [number, number]): [number, number] {
@@ -1709,6 +1718,99 @@ export class WebSocketStream {
   }
 
   // ============================================================================
+  // Touch Input (WebSocket transport)
+  // ============================================================================
+
+  // Touch throttling - motion events are throttled like mouse/scroll, down/up are immediate
+  private lastTouchSendTime = 0
+  private pendingTouchMotion: Map<number, { normX: number; normY: number }> = new Map()
+  private touchThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+  // Map browser touch identifiers to slot numbers (0-9)
+  private touchSlotMap: Map<number, number> = new Map()
+  private nextTouchSlot = 0
+
+  /**
+   * Send touch event via WebSocket.
+   * Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
+   * x/y are normalized 0.0-1.0 coordinates.
+   */
+  sendTouch(eventType: number, identifier: number, normX: number, normY: number) {
+    // Map browser identifier to slot (0-9)
+    let slot: number
+    if (eventType === 0) {
+      // Touch down - assign new slot
+      slot = this.nextTouchSlot++ % 10
+      this.touchSlotMap.set(identifier, slot)
+    } else {
+      // Touch motion or up - use existing slot
+      const existingSlot = this.touchSlotMap.get(identifier)
+      if (existingSlot === undefined) {
+        console.warn("[WebSocketStream] Touch event for unknown identifier:", identifier)
+        return
+      }
+      slot = existingSlot
+    }
+
+    if (eventType === 0 || eventType === 2) {
+      // Touch down/up - send immediately (discrete events)
+      this.sendTouchImmediate(eventType, slot, normX, normY)
+
+      // Clean up slot on touch up
+      if (eventType === 2) {
+        this.touchSlotMap.delete(identifier)
+      }
+    } else {
+      // Touch motion - throttle like mouse movement
+      this.sendTouchMotionThrottled(slot, normX, normY)
+    }
+  }
+
+  private sendTouchImmediate(eventType: number, slot: number, normX: number, normY: number) {
+    // Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
+    this.inputBuffer[0] = eventType
+    this.inputBuffer[1] = slot
+    this.inputView.setFloat32(2, normX, true) // little-endian
+    this.inputView.setFloat32(6, normY, true) // little-endian
+    this.sendInputMessage(WsMessageType.TouchEvent, this.inputBuffer.subarray(0, 10))
+  }
+
+  private sendTouchMotionThrottled(slot: number, normX: number, normY: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastTouchSendTime
+
+    // Store latest position for this slot (overwrites previous - we only care about latest position)
+    this.pendingTouchMotion.set(slot, { normX, normY })
+
+    // If enough time has passed, send immediately
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
+      this.flushPendingTouchMotion()
+      this.lastTouchSendTime = now
+    } else {
+      // Schedule flush after throttle period
+      this.scheduleTouchFlush(this.getAdaptiveThrottleMs() - elapsed)
+    }
+  }
+
+  private scheduleTouchFlush(delayMs: number) {
+    if (this.touchThrottleTimeoutId) return // Already scheduled
+
+    this.touchThrottleTimeoutId = setTimeout(() => {
+      this.touchThrottleTimeoutId = null
+      if (this.pendingTouchMotion.size > 0) {
+        this.flushPendingTouchMotion()
+        this.lastTouchSendTime = performance.now()
+      }
+    }, delayMs)
+  }
+
+  private flushPendingTouchMotion() {
+    for (const [slot, pos] of this.pendingTouchMotion) {
+      this.sendTouchImmediate(1, slot, pos.normX, pos.normY) // 1 = motion
+    }
+    this.pendingTouchMotion.clear()
+  }
+
+  // ============================================================================
   // Public API
   // ============================================================================
 
@@ -2073,6 +2175,14 @@ export class WebSocketStream {
       this.scrollThrottleTimeoutId = null
     }
     this.pendingScroll = null
+
+    // Cancel pending touch throttle flush
+    if (this.touchThrottleTimeoutId) {
+      clearTimeout(this.touchThrottleTimeoutId)
+      this.touchThrottleTimeoutId = null
+    }
+    this.pendingTouchMotion.clear()
+    this.touchSlotMap.clear()
 
     // Reset stream state
     this.resetStreamState()

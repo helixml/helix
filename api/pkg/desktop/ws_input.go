@@ -662,7 +662,8 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 }
 
 // handleWSTouch handles touch input messages.
-// Format: [eventType:1][slot:1][x:4][y:4]
+// Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
+// x and y are normalized coordinates (0.0-1.0) which we convert to screen coordinates.
 func (s *Server) handleWSTouch(data []byte) {
 	if len(data) < 10 {
 		return
@@ -670,8 +671,13 @@ func (s *Server) handleWSTouch(data []byte) {
 
 	eventType := data[0]
 	slot := uint32(data[1])
-	x := math.Float32frombits(binary.LittleEndian.Uint32(data[2:6]))
-	y := math.Float32frombits(binary.LittleEndian.Uint32(data[6:10]))
+	// Normalized coordinates 0.0-1.0
+	normX := float64(math.Float32frombits(binary.LittleEndian.Uint32(data[2:6])))
+	normY := float64(math.Float32frombits(binary.LittleEndian.Uint32(data[6:10])))
+
+	// Convert to screen coordinates
+	screenX := normX * float64(s.screenWidth)
+	screenY := normY * float64(s.screenHeight)
 
 	if s.conn == nil || s.rdSessionPath == "" {
 		return
@@ -687,9 +693,9 @@ func (s *Server) handleWSTouch(data []byte) {
 
 	switch eventType {
 	case 0: // Touch down
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, slot, float64(x), float64(y)).Err
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, slot, screenX, screenY).Err
 	case 1: // Touch motion
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, slot, float64(x), float64(y)).Err
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, slot, screenX, screenY).Err
 	case 2: // Touch up
 		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, slot).Err
 	}
