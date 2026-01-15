@@ -938,12 +938,19 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 					serverTime := uint64(time.Now().UnixMicro())
 					binary.BigEndian.PutUint64(pong[13:21], serverTime)
 					// Add encoder latency (microseconds -> milliseconds, clamped to uint16 range)
+					// Special values:
+					//   0xFFFF (65535) = calculating (baseline not yet established)
+					//   0-65534 = actual latency in ms
 					encoderLatencyUs := streamer.encoderLatencyUs.Load()
-					encoderLatencyMs := encoderLatencyUs / 1000
-					if encoderLatencyMs < 0 {
-						encoderLatencyMs = 0
-					} else if encoderLatencyMs > 65535 {
+					var encoderLatencyMs int64
+					if encoderLatencyUs <= 0 {
+						// Baseline not established yet - send sentinel value
 						encoderLatencyMs = 65535
+					} else {
+						encoderLatencyMs = encoderLatencyUs / 1000
+						if encoderLatencyMs > 65534 {
+							encoderLatencyMs = 65534 // Reserve 65535 for "calculating"
+						}
 					}
 					binary.BigEndian.PutUint16(pong[21:23], uint16(encoderLatencyMs))
 					// Use streamer's mutex-protected write to avoid concurrent write panic

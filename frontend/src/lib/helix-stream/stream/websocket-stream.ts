@@ -168,7 +168,7 @@ export class WebSocketStream {
   private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
   private rttSamples: number[] = []
   private currentRttMs = 0
-  private encoderLatencyMs: number | undefined = undefined  // Encoder latency from server (undefined = not reported)
+  private encoderLatencyMs: number | 'calculating' | undefined = undefined  // Encoder latency: number=ms, 'calculating'=baseline not ready, undefined=not reported
   private pingIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
@@ -1305,9 +1305,16 @@ export class WebSocketStream {
     this.currentRttMs = sum / this.rttSamples.length
 
     // Extract encoder latency if present (extended Pong format: 23 bytes)
+    // Special values: 0xFFFF (65535) = calculating (baseline not established)
     if (data.length >= 23) {
-      this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
-      console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, Encoder=${this.encoderLatencyMs}ms, pongSize=${data.length}`)
+      const rawLatency = view.getUint16(21, false)  // big-endian
+      if (rawLatency === 65535) {
+        this.encoderLatencyMs = 'calculating'
+        console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, Encoder=calculating, pongSize=${data.length}`)
+      } else {
+        this.encoderLatencyMs = rawLatency
+        console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, Encoder=${this.encoderLatencyMs}ms, pongSize=${data.length}`)
+      }
     } else {
       console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, pongSize=${data.length} (no encoder latency - old backend?)`)
     }
@@ -1733,7 +1740,7 @@ export class WebSocketStream {
     width: number
     height: number
     rttMs: number                    // Round-trip time in milliseconds
-    encoderLatencyMs: number | undefined  // Server-side encoder latency (undefined = not reported by server)
+    encoderLatencyMs: number | 'calculating' | undefined  // Encoder latency: number=ms, 'calculating'=baseline not ready, undefined=not reported
     isHighLatency: boolean           // True if RTT exceeds threshold
     // Batching stats for congestion visibility
     batchesReceived: number          // Total batch messages received

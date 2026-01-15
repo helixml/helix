@@ -3819,10 +3819,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
                     {stats.video.encoderLatencyMs !== undefined && (
-                      <>
-                        <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
-                        <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
-                      </>
+                      stats.video.encoderLatencyMs === 'calculating' ? (
+                        <span style={{ color: '#888' }}> | Encoder: calculating...</span>
+                      ) : (
+                        <>
+                          <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
+                          <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
+                        </>
+                      )
                     )}
                     {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️</span>}
                   </div>
