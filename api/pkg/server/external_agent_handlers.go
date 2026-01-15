@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -1603,27 +1606,54 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 		return
 	}
 
-	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection established, starting bidirectional proxy")
+	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection established, starting resilient proxy")
 
-	// Bidirectional copy between client and server
-	done := make(chan struct{})
+	// Generate a unique proxy session ID
+	proxySessionID := generateProxySessionID()
 
-	// Client -> Server
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(serverConn, clientConn)
-	}()
+	// Create dial function that uses connman with grace period support
+	dialFunc := func(ctx context.Context) (net.Conn, error) {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
 
-	// Server -> Client
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(clientConn, serverConn)
-	}()
+	// Create upgrade function for WebSocket
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/input", wsKey)
 
-	// Wait for either direction to complete
-	<-done
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+		SessionID:   proxySessionID,
+		ClientConn:  clientConn,
+		ServerConn:  serverConn,
+		DialFunc:    dialFunc,
+		UpgradeFunc: upgradeFunc,
+	})
+	defer resilientProxy.Close()
 
-	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection closed")
+	// Run the proxy (blocks until connection closes or error)
+	if err := resilientProxy.Run(req.Context()); err != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("proxy_session_id", proxySessionID).
+			Err(err).
+			Msg("Resilient proxy ended with error")
+	}
+
+	stats := resilientProxy.Stats()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("proxy_session_id", proxySessionID).
+		Int64("reconnect_count", stats.ReconnectCount).
+		Int64("input_bytes_buffered", stats.InputBytesBuffered).
+		Int64("output_bytes_buffered", stats.OutputBytesBuffered).
+		Msg("Input WebSocket connection closed")
+}
+
+// generateProxySessionID generates a unique session ID for proxy connections
+func generateProxySessionID() string {
+	buf := make([]byte, 8)
+	rand.Read(buf)
+	return hex.EncodeToString(buf)
 }
 
 // proxyStreamWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/stream
@@ -1752,26 +1782,45 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		return
 	}
 
-	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting bidirectional proxy")
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
-	// Bidirectional copy between client and server
-	// Video frames go server→client, init/ping messages go client→server
-	done := make(chan struct{})
+	// Generate a unique proxy session ID
+	proxySessionID := generateProxySessionID()
 
-	// Client -> Server (init message, pongs)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(serverConn, clientConn)
-	}()
+	// Create dial function that uses connman with grace period support
+	dialFunc := func(ctx context.Context) (net.Conn, error) {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
 
-	// Server -> Client (video frames, pings)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(clientConn, serverConn)
-	}()
+	// Create upgrade function for WebSocket
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey)
 
-	// Wait for either direction to complete
-	<-done
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+		SessionID:   proxySessionID,
+		ClientConn:  clientConn,
+		ServerConn:  serverConn,
+		DialFunc:    dialFunc,
+		UpgradeFunc: upgradeFunc,
+	})
+	defer resilientProxy.Close()
 
-	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection closed")
+	// Run the proxy (blocks until connection closes or error)
+	if err := resilientProxy.Run(req.Context()); err != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("proxy_session_id", proxySessionID).
+			Err(err).
+			Msg("Resilient proxy ended with error")
+	}
+
+	stats := resilientProxy.Stats()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("proxy_session_id", proxySessionID).
+		Int64("reconnect_count", stats.ReconnectCount).
+		Int64("input_bytes_buffered", stats.InputBytesBuffered).
+		Int64("output_bytes_buffered", stats.OutputBytesBuffered).
+		Msg("Stream WebSocket connection closed")
 }
