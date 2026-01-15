@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -88,9 +89,17 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		sandboxAPIURL = helixAPIURL
 	}
 
-	helixToken := apiServer.Cfg.WebServer.RunnerToken
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not configured")
+	// Get the session owner's API key for MCP authentication
+	// This ensures MCP servers authenticate as the user, not as the system runner
+	sessionOwner, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	if err != nil {
+		log.Error().Err(err).Str("owner", session.Owner).Msg("Failed to get session owner")
+		return nil, system.NewHTTPError500("failed to get session owner")
+	}
+	helixToken, err := apiServer.getOrCreateUserAPIKey(ctx, sessionOwner)
+	if err != nil {
+		log.Error().Err(err).Str("owner", session.Owner).Msg("Failed to get user API key")
+		return nil, system.NewHTTPError500("failed to get user API key")
 	}
 
 	// Determine if Kodit should be enabled for this session
@@ -363,9 +372,12 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	helixToken := apiServer.Cfg.WebServer.RunnerToken
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not configured")
+	// Get the user's API key for MCP authentication
+	// This ensures MCP servers authenticate as the user, not as the system runner
+	helixToken, err := apiServer.getOrCreateUserAPIKey(ctx, user)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to get user API key")
+		return nil, system.NewHTTPError500("failed to get user API key")
 	}
 
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
