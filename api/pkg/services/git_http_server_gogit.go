@@ -1096,27 +1096,32 @@ func (s *GitHTTPServer) getRepositoryStats(repoPath string, gitRepo *GitRepo) ma
 	}
 	stats["size_bytes"] = size
 
-	// Get commit count using go-git
+	// Get commit count and last commit using go-git
 	if gitRepo != nil {
-		if commit, err := gitRepo.GetHeadCommit("HEAD"); err == nil {
-			// Count commits by walking history
-			count := 0
-			iter, err := gitRepo.repo.Log(&git.LogOptions{From: commit.Hash})
+		// Get HEAD reference directly (not via branch name)
+		headRef, err := gitRepo.repo.Head()
+		if err == nil {
+			commit, err := gitRepo.repo.CommitObject(headRef.Hash())
 			if err == nil {
-				iter.ForEach(func(c *object.Commit) error {
-					count++
-					return nil
-				})
-			}
-			stats["commit_count"] = count
+				// Count commits by walking history
+				count := 0
+				iter, err := gitRepo.repo.Log(&git.LogOptions{From: commit.Hash})
+				if err == nil {
+					iter.ForEach(func(c *object.Commit) error {
+						count++
+						return nil
+					})
+				}
+				stats["commit_count"] = count
 
-			// Get last commit info
-			stats["last_commit"] = map[string]interface{}{
-				"hash":          commit.Hash.String(),
-				"author_name":   commit.Author.Name,
-				"author_email":  commit.Author.Email,
-				"timestamp":     commit.Author.When.Unix(),
-				"message":       strings.Split(commit.Message, "\n")[0], // First line only
+				// Get last commit info
+				stats["last_commit"] = map[string]interface{}{
+					"hash":          commit.Hash.String(),
+					"author_name":   commit.Author.Name,
+					"author_email":  commit.Author.Email,
+					"timestamp":     commit.Author.When.Unix(),
+					"message":       strings.Split(commit.Message, "\n")[0], // First line only
+				}
 			}
 		}
 	}
