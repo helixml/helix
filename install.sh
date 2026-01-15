@@ -2049,41 +2049,49 @@ if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlpl
     API_HOST="http://api:8080"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
+EOF
 
-# Check if helix_default network exists
-# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
-# If standalone runner (no docker-compose.yaml), create network if needed
-SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-if [ -f "\$SCRIPT_DIR/docker-compose.yaml" ]; then
-    # Controlplane is on same machine - network should be created by docker compose
-    if ! docker network inspect helix_default >/dev/null 2>&1; then
-        echo "Error: helix_default network does not exist."
-        echo "Please run 'docker compose up -d' first to start the controlplane."
-        echo "The controlplane creates the network with correct Docker Compose labels."
-        exit 1
-    fi
-    # Check if network has correct Docker Compose labels
-    NETWORK_LABEL=\$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
-    if [ "\$NETWORK_LABEL" != "default" ]; then
-        echo "Error: helix_default network exists but has incorrect labels."
-        echo "This happens when the network was created manually instead of by Docker Compose."
-        echo ""
-        echo "To fix, run:"
-        echo "  docker network rm helix_default"
-        echo "  docker compose up -d"
-        echo "  ./runner.sh"
-        exit 1
-    fi
-    echo "helix_default network exists with correct labels."
-else
-    # Standalone runner - create network if needed
-    if ! docker network inspect helix_default >/dev/null 2>&1; then
-        echo "Creating helix_default network..."
-        docker network create helix_default
-    else
-        echo "helix_default network already exists."
-    fi
+    # Conditionally append network check based on whether controlplane is co-located
+    if [ "$CONTROLPLANE" = true ]; then
+        cat << 'NETWORK_EOF' >> $INSTALL_DIR/runner.sh
+
+# Check if helix_default network exists (controlplane co-located)
+# Require network to be created by docker compose with correct labels
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Error: helix_default network does not exist."
+    echo "Please run 'docker compose up -d' first to start the controlplane."
+    echo "The controlplane creates the network with correct Docker Compose labels."
+    exit 1
 fi
+# Check if network has correct Docker Compose labels
+NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+if [ "$NETWORK_LABEL" != "default" ]; then
+    echo "Error: helix_default network exists but has incorrect labels."
+    echo "This happens when the network was created manually instead of by Docker Compose."
+    echo ""
+    echo "To fix, run:"
+    echo "  docker network rm helix_default"
+    echo "  docker compose up -d"
+    echo "  ./runner.sh"
+    exit 1
+fi
+echo "helix_default network exists with correct labels."
+NETWORK_EOF
+    else
+        cat << 'NETWORK_EOF' >> $INSTALL_DIR/runner.sh
+
+# Check if helix_default network exists (standalone runner)
+# Create network if needed - no compose label validation required
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    docker network create helix_default
+else
+    echo "helix_default network already exists."
+fi
+NETWORK_EOF
+    fi
+
+    cat << EOF >> $INSTALL_DIR/runner.sh
 
 # Detect total number of GPUs based on vendor
 if [ "\$GPU_VENDOR" = "nvidia" ]; then
@@ -2367,42 +2375,50 @@ TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
+EOF
 
-# Check if helix_default network exists
-# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
-# If standalone sandbox (no docker-compose.yaml), create network if needed
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/docker-compose.yaml" ]; then
-    # Controlplane is on same machine - network should be created by docker compose
-    if ! docker network inspect helix_default >/dev/null 2>&1; then
-        echo "Error: helix_default network does not exist."
-        echo "Please run 'docker compose up -d' first to start the controlplane."
-        echo "The controlplane creates the network with correct Docker Compose labels."
-        exit 1
-    fi
-    # Check if network has correct Docker Compose labels
-    NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
-    if [ "$NETWORK_LABEL" != "default" ]; then
-        echo "Error: helix_default network exists but has incorrect labels."
-        echo "This happens when the network was created manually instead of by Docker Compose."
-        echo ""
-        echo "To fix, run:"
-        echo "  docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null"
-        echo "  docker network rm helix_default"
-        echo "  docker compose up -d"
-        echo "  ./sandbox.sh"
-        exit 1
-    fi
-    echo "helix_default network exists with correct labels."
-else
-    # Standalone sandbox - create network if needed
-    if ! docker network inspect helix_default >/dev/null 2>&1; then
-        echo "Creating helix_default network..."
-        docker network create helix_default
-    else
-        echo "helix_default network already exists."
-    fi
+    # Conditionally append network check based on whether controlplane is co-located
+    if [ "$CONTROLPLANE" = true ]; then
+        cat << 'NETWORK_EOF' >> $INSTALL_DIR/sandbox.sh
+
+# Check if helix_default network exists (controlplane co-located)
+# Require network to be created by docker compose with correct labels
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Error: helix_default network does not exist."
+    echo "Please run 'docker compose up -d' first to start the controlplane."
+    echo "The controlplane creates the network with correct Docker Compose labels."
+    exit 1
 fi
+# Check if network has correct Docker Compose labels
+NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+if [ "$NETWORK_LABEL" != "default" ]; then
+    echo "Error: helix_default network exists but has incorrect labels."
+    echo "This happens when the network was created manually instead of by Docker Compose."
+    echo ""
+    echo "To fix, run:"
+    echo "  docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null"
+    echo "  docker network rm helix_default"
+    echo "  docker compose up -d"
+    echo "  ./sandbox.sh"
+    exit 1
+fi
+echo "helix_default network exists with correct labels."
+NETWORK_EOF
+    else
+        cat << 'NETWORK_EOF' >> $INSTALL_DIR/sandbox.sh
+
+# Check if helix_default network exists (standalone sandbox)
+# Create network if needed - no compose label validation required
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    docker network create helix_default
+else
+    echo "helix_default network already exists."
+fi
+NETWORK_EOF
+    fi
+
+    cat << 'EOF' >> $INSTALL_DIR/sandbox.sh
 
 # Stop and remove existing sandbox container if it exists
 if docker ps -a --format '{{.Names}}' | grep -q "^helix-sandbox$"; then
