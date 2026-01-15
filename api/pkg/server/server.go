@@ -338,23 +338,24 @@ func NewServer(
 
 	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, and Session backends")
 
-	// Initialize Git HTTP Server for clone/push operations
+	// Initialize Git HTTP Server for clone/push operations (pure Go implementation)
+	gitHTTPConfig := &services.GitHTTPServerConfig{
+		ServerBaseURL:   cfg.WebServer.URL,
+		AuthTokenHeader: "Authorization",
+		EnablePush:      true,
+		EnablePull:      true,
+		MaxRepoSize:     1024 * 1024 * 1024, // 1GB
+		RequestTimeout:  5 * time.Minute,
+	}
+
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
 		apiServer.gitRepositoryService,
-		&services.GitHTTPServerConfig{
-			ServerBaseURL:     cfg.WebServer.URL,
-			GitExecutablePath: "git",
-			AuthTokenHeader:   "Authorization",
-			EnablePush:        true,
-			EnablePull:        true,
-			MaxRepoSize:       1024 * 1024 * 1024, // 1GB
-			RequestTimeout:    5 * time.Minute,
-		},
-		apiServer.authorizeUserToResource, // Use server's existing RBAC system
+		gitHTTPConfig,
+		apiServer.authorizeUserToResource,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
+	log.Info().Msg("Initialized Git HTTP server (go-git implementation)")
 
 	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
 	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
