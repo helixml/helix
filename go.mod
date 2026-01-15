@@ -29,7 +29,7 @@ require (
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
-	github.com/go-git/go-git/v5 v5.16.4
+	github.com/go-git/go-billy/v6 v6.0.0-20250627091229-31e2a16eef30
 	github.com/go-git/go-git/v6 v6.0.0-20250728093604-6aaf1933ecab
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
@@ -116,7 +116,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
 	github.com/go-git/gcfg/v2 v2.0.2 // indirect
-	github.com/go-git/go-billy/v6 v6.0.0-20250627091229-31e2a16eef30 // indirect
+	github.com/go-git/go-git/v5 v5.16.4 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
@@ -198,7 +198,7 @@ require (
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.7.0
+	github.com/go-git/go-billy/v5 v5.7.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

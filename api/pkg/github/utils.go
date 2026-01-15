@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	git "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/transport"
+	"github.com/go-git/go-git/v6/plumbing/transport/ssh"
 	"github.com/helixml/helix/api/pkg/types"
 	crypto_ssh "golang.org/x/crypto/ssh"
 )
@@ -27,7 +27,7 @@ func CloneOrUpdateRepo(
 			if err != nil {
 				return fmt.Errorf("failed to create directory: %v", err)
 			}
-			_, err = git.PlainClone(repoPath, false, &git.CloneOptions{
+			_, err = git.PlainClone(repoPath, &git.CloneOptions{
 				URL:      fmt.Sprintf("git@github.com:%s.git", repo),
 				Progress: os.Stdout,
 				Auth:     makeAuth(keypair),

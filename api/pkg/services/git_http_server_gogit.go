@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/base64"
@@ -15,17 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/cache"
-	"github.com/go-git/go-git/v5/plumbing/format/pktline"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
-	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/server"
-	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-billy/v6/osfs"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/transport"
+	"github.com/go-git/go-git/v6/storage"
+	"github.com/go-git/go-git/v6/storage/filesystem"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -71,7 +65,7 @@ func (fw *flushingWriter) Flush() {
 	}
 }
 
-// GitHTTPServer provides HTTP access to git repositories using pure Go (go-git).
+// GitHTTPServer provides HTTP access to git repositories using pure Go (go-git v6).
 // This is the primary implementation - no CGI or external git processes.
 type GitHTTPServer struct {
 	store                  store.Store
@@ -87,9 +81,6 @@ type GitHTTPServer struct {
 	sendMessageToAgentFunc SpecTaskMessageSender
 	triggerManager         *trigger.Manager
 	wg                     sync.WaitGroup
-
-	// go-git server for handling git protocol
-	gitServer transport.Transport
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -150,29 +141,16 @@ func NewGitHTTPServer(
 		triggerManager:  triggerManager,
 	}
 
-	// Create a custom loader that resolves repository IDs to filesystem storage
-	loader := &helixRepoLoader{server: s}
-	s.gitServer = server.NewServer(loader)
-
+	log.Info().Msg("Git HTTP server initialized (go-git v6)")
 	return s
 }
 
-// helixRepoLoader implements server.Loader to map repository IDs to storage
-type helixRepoLoader struct {
-	server *GitHTTPServer
-}
-
-// Load implements server.Loader - loads a repository's storage from endpoint
-func (l *helixRepoLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
-	repoID := strings.TrimPrefix(ep.Path, "/")
-	if repoID == "" {
-		return nil, transport.ErrRepositoryNotFound
-	}
-
-	repo, err := l.server.gitRepoService.GetRepository(context.Background(), repoID)
+// getStorage loads storage for a repository ID
+func (s *GitHTTPServer) getStorage(ctx context.Context, repoID string) (storage.Storer, *types.GitRepository, error) {
+	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	// Verify this is a bare repository
@@ -181,26 +159,26 @@ func (l *helixRepoLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
 
 	if _, err := os.Stat(objectsPath); os.IsNotExist(err) {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Not a valid bare repository (missing objects/)")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	if _, err := os.Stat(headPath); os.IsNotExist(err) {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Not a valid bare repository (missing HEAD)")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	// Reject non-bare repositories
 	dotGitPath := filepath.Join(repo.LocalPath, ".git")
 	if info, err := os.Stat(dotGitPath); err == nil && info.IsDir() {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Non-bare repository not supported")
-		return nil, fmt.Errorf("non-bare repository not supported: %s", repoID)
+		return nil, nil, fmt.Errorf("non-bare repository not supported: %s", repoID)
 	}
 
 	fs := osfs.New(repo.LocalPath)
-	storage := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	st := filesystem.NewStorage(fs, nil)
 
 	log.Debug().Str("repo_id", repoID).Str("repo_path", repo.LocalPath).Msg("Loaded repository storage")
-	return storage, nil
+	return st, repo, nil
 }
 
 // SetTestMode enables or disables test mode
@@ -410,76 +388,37 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, err := transport.NewEndpoint("/" + repoID)
+	st, _, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		http.Error(w, "Invalid repository", http.StatusBadRequest)
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository storage")
+		if err == transport.ErrRepositoryNotFound {
+			http.Error(w, "Repository not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to access repository", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	var advRefs *packp.AdvRefs
+	// Determine service type for go-git v6
+	var svc transport.Service
 	if service == "git-upload-pack" {
-		session, err := s.gitServer.NewUploadPackSession(ep, nil)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to create upload-pack session")
-			if err == transport.ErrRepositoryNotFound {
-				http.Error(w, "Repository not found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Failed to access repository", http.StatusInternalServerError)
-			}
-			return
-		}
-		defer session.Close()
-		advRefs, err = session.AdvertisedReferencesContext(r.Context())
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get advertised references")
-			http.Error(w, "Failed to get references", http.StatusInternalServerError)
-			return
-		}
+		svc = transport.UploadPackService
 	} else {
-		session, err := s.gitServer.NewReceivePackSession(ep, nil)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to create receive-pack session")
-			if err == transport.ErrRepositoryNotFound {
-				http.Error(w, "Repository not found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Failed to access repository", http.StatusInternalServerError)
-			}
-			return
-		}
-		defer session.Close()
-		advRefs, err = session.AdvertisedReferencesContext(r.Context())
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get advertised references")
-			http.Error(w, "Failed to get references", http.StatusInternalServerError)
-			return
-		}
-
-		// Advertise no-thin capability to prevent clients from sending thin packs.
-		// go-git's PackfileWriter doesn't handle thin packs correctly (can't resolve
-		// external delta references). See: https://github.com/go-git/go-git/issues/190
-		if err := advRefs.Capabilities.Set(capability.Capability("no-thin")); err != nil {
-			log.Warn().Err(err).Msg("Failed to set no-thin capability")
-		}
+		svc = transport.ReceivePackService
 	}
 
 	w.Header().Set("Content-Type", fmt.Sprintf("application/x-%s-advertisement", service))
 	setNoCacheHeaders(w)
 
-	pktEnc := pktline.NewEncoder(w)
-	if err := pktEnc.Encodef("# service=%s\n", service); err != nil {
-		log.Error().Err(err).Msg("Failed to write service header")
-		return
-	}
-	if err := pktEnc.Flush(); err != nil {
-		log.Error().Err(err).Msg("Failed to flush")
-		return
-	}
-	if err := advRefs.Encode(w); err != nil {
-		log.Error().Err(err).Msg("Failed to encode refs")
+	// go-git v6 AdvertiseReferences handles everything including the service header
+	// when smart=true (stateless RPC mode for HTTP)
+	if err := transport.AdvertiseReferences(r.Context(), st, w, svc, true); err != nil {
+		log.Error().Err(err).Msg("Failed to advertise references")
+		http.Error(w, "Failed to get references", http.StatusInternalServerError)
 		return
 	}
 
-	log.Info().Str("repo_id", repoID).Int("refs_count", len(advRefs.References)).Msg("Sent advertised references")
+	log.Info().Str("repo_id", repoID).Str("service", service).Msg("Sent advertised references")
 }
 
 // handleUploadPack handles POST /git-upload-pack (clone/fetch)
@@ -495,47 +434,42 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ep, _ := transport.NewEndpoint("/" + repoID)
-	session, err := s.gitServer.NewUploadPackSession(ep, nil)
+	st, _, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create session")
+		log.Error().Err(err).Msg("Failed to get repository storage")
 		http.Error(w, "Failed to access repository", http.StatusInternalServerError)
-		return
-	}
-	defer session.Close()
-
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request", http.StatusInternalServerError)
-		return
-	}
-
-	req := packp.NewUploadPackRequest()
-	if err := req.Decode(bytes.NewReader(bodyBytes)); err != nil {
-		log.Error().Err(err).Msg("Failed to decode request")
-		http.Error(w, fmt.Sprintf("Failed to parse request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
 	setNoCacheHeaders(w)
 
-	resp, err := session.UploadPack(r.Context(), req)
-	if err != nil {
-		log.Error().Err(err).Msg("Upload-pack failed")
-		http.Error(w, fmt.Sprintf("Upload-pack failed: %v", err), http.StatusInternalServerError)
-		return
+	// go-git v6 UploadPack handles the entire protocol exchange
+	opts := &transport.UploadPackOptions{
+		StatelessRPC: true, // HTTP smart protocol uses stateless RPC
 	}
 
 	// Use flushing writer for streaming large pack files
 	fw := newFlushingWriter(w)
-	if err := resp.Encode(fw); err != nil {
-		log.Error().Err(err).Msg("Failed to encode response")
+	wc := &nopWriteCloser{Writer: fw}
+
+	if err := transport.UploadPack(r.Context(), st, r.Body, wc, opts); err != nil {
+		log.Error().Err(err).Msg("Upload-pack failed")
+		// Can't send HTTP error after we've started writing
 		return
 	}
 	fw.Flush()
 
 	log.Info().Str("repo_id", repoID).Msg("Upload-pack completed")
+}
+
+// nopWriteCloser wraps a Writer to add a no-op Close method
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (n *nopWriteCloser) Close() error {
+	return nil
 }
 
 // handleReceivePack handles POST /git-receive-pack (push)
@@ -551,72 +485,81 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ep, _ := transport.NewEndpoint("/" + repoID)
-	session, err := s.gitServer.NewReceivePackSession(ep, nil)
+	st, repo, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create session")
+		log.Error().Err(err).Msg("Failed to get repository storage")
 		http.Error(w, "Failed to access repository", http.StatusInternalServerError)
 		return
 	}
-	defer session.Close()
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request", http.StatusInternalServerError)
-		return
-	}
-
-	req := packp.NewReferenceUpdateRequest()
-	if err := req.Decode(bytes.NewReader(bodyBytes)); err != nil {
-		log.Error().Err(err).Msg("Failed to decode request")
-		http.Error(w, fmt.Sprintf("Failed to parse request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// Extract pushed branches from commands
-	var pushedBranches []string
-	for _, cmd := range req.Commands {
-		if strings.HasPrefix(string(cmd.Name), "refs/heads/") {
-			branchName := strings.TrimPrefix(string(cmd.Name), "refs/heads/")
-			pushedBranches = append(pushedBranches, branchName)
-		}
-	}
-
-	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Int("commands", len(req.Commands)).Msg("Parsed receive-pack commands")
+	// Get branches before push to detect what changed
+	branchesBefore := s.getBranchHashes(st)
 
 	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
 	setNoCacheHeaders(w)
 
-	resp, err := session.ReceivePack(r.Context(), req)
-	if err != nil {
-		log.Error().Err(err).Msg("Receive-pack failed")
-		http.Error(w, fmt.Sprintf("Receive-pack failed: %v", err), http.StatusInternalServerError)
-		return
+	// go-git v6 ReceivePack handles the entire protocol exchange
+	// Note: v6 already advertises no-thin capability, so thin packs are disabled
+	opts := &transport.ReceivePackOptions{
+		StatelessRPC: true, // HTTP smart protocol uses stateless RPC
 	}
 
-	if resp != nil {
-		// Use flushing writer for streaming response
-		fw := newFlushingWriter(w)
-		if err := resp.Encode(fw); err != nil {
-			log.Error().Err(err).Msg("Failed to encode response")
-			return
-		}
-		fw.Flush()
+	// Use flushing writer for streaming response
+	fw := newFlushingWriter(w)
+	wc := &nopWriteCloser{Writer: fw}
+
+	if err := transport.ReceivePack(r.Context(), st, r.Body, wc, opts); err != nil {
+		log.Error().Err(err).Msg("Receive-pack failed")
+		// Can't send HTTP error after we've started writing
+		return
 	}
+	fw.Flush()
+
+	// Detect pushed branches by comparing before/after
+	branchesAfter := s.getBranchHashes(st)
+	pushedBranches := s.detectChangedBranches(branchesBefore, branchesAfter)
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
 	// Trigger post-push hooks asynchronously
-	if len(pushedBranches) > 0 {
-		repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
-		if err == nil {
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
-			}()
+	if len(pushedBranches) > 0 && repo != nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
+		}()
+	}
+}
+
+// getBranchHashes returns a map of branch names to their current commit hashes
+func (s *GitHTTPServer) getBranchHashes(st storage.Storer) map[string]string {
+	result := make(map[string]string)
+	iter, err := st.IterReferences()
+	if err != nil {
+		return result
+	}
+	defer iter.Close()
+	for {
+		ref, err := iter.Next()
+		if err != nil {
+			break
+		}
+		if ref.Name().IsBranch() {
+			result[ref.Name().Short()] = ref.Hash().String()
 		}
 	}
+	return result
+}
+
+// detectChangedBranches compares before/after branch hashes to find changed branches
+func (s *GitHTTPServer) detectChangedBranches(before, after map[string]string) []string {
+	var changed []string
+	for branch, hash := range after {
+		if beforeHash, exists := before[branch]; !exists || beforeHash != hash {
+			changed = append(changed, branch)
+		}
+	}
+	return changed
 }
 
 // handlePostPushHook processes commits after a successful push
