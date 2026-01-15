@@ -117,7 +117,7 @@ type HelixAPIServer struct {
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              *services.KoditService
 	mcpGateway    *MCPGateway
-	gitHTTPServer *services.GitHTTPServer
+	gitHTTPServer services.GitHTTPServerInterface
 	// Rate limiting for streaming connections
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
@@ -339,22 +339,38 @@ func NewServer(
 	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, and Session backends")
 
 	// Initialize Git HTTP Server for clone/push operations
-	apiServer.gitHTTPServer = services.NewGitHTTPServer(
-		store,
-		apiServer.gitRepositoryService,
-		&services.GitHTTPServerConfig{
-			ServerBaseURL:     cfg.WebServer.URL,
-			GitExecutablePath: "git",
-			AuthTokenHeader:   "Authorization",
-			EnablePush:        true,
-			EnablePull:        true,
-			MaxRepoSize:       1024 * 1024 * 1024, // 1GB
-			RequestTimeout:    5 * time.Minute,
-		},
-		apiServer.authorizeUserToResource, // Use server's existing RBAC system
-		apiServer.trigger,
-	)
-	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
+	// Switch between CGI-based (git-http-backend) and pure Go (go-git) implementations
+	gitHTTPConfig := &services.GitHTTPServerConfig{
+		ServerBaseURL:     cfg.WebServer.URL,
+		GitExecutablePath: "git",
+		AuthTokenHeader:   "Authorization",
+		EnablePush:        true,
+		EnablePull:        true,
+		MaxRepoSize:       1024 * 1024 * 1024, // 1GB
+		RequestTimeout:    5 * time.Minute,
+	}
+
+	if cfg.WebServer.GitHTTPBackend == "gogit" {
+		// Use pure Go implementation (go-git) - more robust, no external dependencies
+		apiServer.gitHTTPServer = services.NewGoGitHTTPServer(
+			store,
+			apiServer.gitRepositoryService,
+			gitHTTPConfig,
+			apiServer.authorizeUserToResource,
+			apiServer.trigger,
+		)
+		log.Info().Msg("Initialized Git HTTP server (go-git implementation)")
+	} else {
+		// Use CGI-based implementation (git-http-backend) - default
+		apiServer.gitHTTPServer = services.NewGitHTTPServer(
+			store,
+			apiServer.gitRepositoryService,
+			gitHTTPConfig,
+			apiServer.authorizeUserToResource,
+			apiServer.trigger,
+		)
+		log.Info().Msg("Initialized Git HTTP server (CGI implementation)")
+	}
 
 	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
 	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)

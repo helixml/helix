@@ -437,6 +437,10 @@ type WebServer struct {
 	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
 	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
 
+	// Git HTTP server implementation: "gogit" (default, pure Go) or "cgi" (git-http-backend)
+	// The "gogit" implementation is more robust and doesn't depend on external git binary
+	GitHTTPBackend string `envconfig:"GIT_HTTP_BACKEND" default:"gogit" description:"Git HTTP server implementation: 'gogit' (pure Go, default) or 'cgi' (git-http-backend)"`
+
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
