@@ -492,12 +492,10 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	// Extract pushed branches from commands
 	var pushedBranches []string
-	var latestCommitHash string
 	for _, cmd := range req.Commands {
 		if strings.HasPrefix(string(cmd.Name), "refs/heads/") {
 			branchName := strings.TrimPrefix(string(cmd.Name), "refs/heads/")
 			pushedBranches = append(pushedBranches, branchName)
-			latestCommitHash = cmd.New.String()
 		}
 	}
 
@@ -529,7 +527,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
-				s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches, latestCommitHash)
+				s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
 			}()
 		}
 	}
@@ -549,7 +547,7 @@ func (s *GitHTTPServer) getRequestBody(r *http.Request) io.Reader {
 }
 
 // handlePostPushHook processes commits after a successful push
-func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string, pushedBranches []string, latestCommitHash string) {
+func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string, pushedBranches []string) {
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Processing post-push hook")
 
 	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
