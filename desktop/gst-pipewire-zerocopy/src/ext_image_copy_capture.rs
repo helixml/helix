@@ -492,13 +492,20 @@ impl ExtCaptureState {
             // (pipewiresrc/imp.rs expects DRM fourcc codes, not wl_shm enum values)
             let drm_fourcc = wl_shm_to_drm_fourcc(format.format);
 
+            // Use wall clock time for encoder latency measurement
+            // (ext-image-copy-capture doesn't provide compositor timestamp)
+            let pts_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as i64)
+                .unwrap_or(0);
+
             let frame = FrameData::Shm {
                 data,
                 width: size.width,
                 height: size.height,
                 stride,
                 format: drm_fourcc,
-                pts_ns: 0, // ext-image-copy-capture doesn't provide compositor timestamp
+                pts_ns,
             };
 
             let _ = self.frame_tx.try_send(frame);
