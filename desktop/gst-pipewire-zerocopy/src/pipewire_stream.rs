@@ -254,30 +254,56 @@ fn spa_video_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32
     }
 }
 
-/// Extract PTS (presentation timestamp) from PipeWire buffer's spa_meta_header.
-/// The PTS is set by the compositor when the frame was captured.
-/// Returns 0 if no header metadata is present.
+/// Extract PTS (presentation timestamp) from PipeWire buffer's spa_meta_header,
+/// or use wall clock fallback if spa_meta_header is not present.
+///
+/// Mutter ScreenCast doesn't always include spa_meta_header in its buffers,
+/// so we fall back to wall clock timestamps for encoder latency measurement.
+///
+/// Returns timestamp in nanoseconds (wall clock epoch if fallback is used).
 ///
 /// # Safety
 /// The buffer pointer must be valid and point to a spa_buffer.
 unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LOGGED_FALLBACK: AtomicBool = AtomicBool::new(false);
+
+    // Get wall clock time as fallback
+    let wall_clock_ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as i64)
+        .unwrap_or(0);
+
     if buffer.is_null() {
-        return 0;
+        return wall_clock_ns;
     }
     let n_metas = (*buffer).n_metas;
+
     if n_metas == 0 {
-        return 0;
+        return wall_clock_ns;
     }
+
     let mut meta_ptr = (*buffer).metas;
     let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
     while meta_ptr != metas_end {
-        if (*meta_ptr).type_ == SPA_META_Header {
+        let meta_type = (*meta_ptr).type_;
+        if meta_type == SPA_META_Header {
             let meta_header: &spa_meta_header = &*((*meta_ptr).data as *const spa_meta_header);
-            return meta_header.pts;
+            let pts = meta_header.pts;
+            // Verify PTS is valid (non-zero and not CLOCK_TIME_NONE = 0xffffffffffffffff)
+            if pts > 0 && pts != i64::MAX {
+                return pts;
+            }
         }
         meta_ptr = meta_ptr.wrapping_add(1);
     }
-    0
+
+    // No valid spa_meta_header found - use wall clock fallback
+    // Log this once to indicate we're using the fallback path
+    if !LOGGED_FALLBACK.swap(true, Ordering::Relaxed) {
+        eprintln!("[pipewirezerocopysrc] Mutter ScreenCast doesn't provide spa_meta_header.pts - using wall clock timestamps for encoder latency");
+    }
+    wall_clock_ns
 }
 
 fn run_pipewire_loop(

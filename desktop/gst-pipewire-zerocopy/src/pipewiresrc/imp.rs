@@ -939,6 +939,14 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
         };
 
+        // Set PTS from compositor timestamp (PipeWire spa_meta_header.pts) or wall clock fallback
+        // CRITICAL: Must set PTS BEFORE any buffer.clone() calls (e.g., for keepalive)
+        // Use make_mut() which creates a writable copy if buffer is shared (e.g., from CUDA pool)
+        {
+            let buffer_ref = buffer.make_mut();
+            buffer_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns as u64));
+        }
+
         // Update caps if format/size changed
         let needs_update = match &state.video_info {
             Some(info) => {
@@ -1001,15 +1009,6 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
             state.frame_count += 1;
             drop(g);
-        }
-
-        // Set PTS from compositor timestamp (PipeWire spa_meta_header.pts)
-        // This is set by Mutter/compositor when the frame was captured
-        // pts_ns is in nanoseconds, which matches GStreamer's ClockTime unit
-        if pts_ns > 0 {
-            if let Some(buffer_ref) = buffer.get_mut() {
-                buffer_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns as u64));
-            }
         }
 
         Ok(CreateSuccess::NewBuffer(buffer))

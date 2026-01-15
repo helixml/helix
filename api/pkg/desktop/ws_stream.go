@@ -649,14 +649,12 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
-	// Encoder latency tracking using PTS baseline
-	// We correlate GStreamer PTS (monotonic clock) to wall clock at frame 10,
-	// then measure drift for subsequent frames.
-	// totalFrameCount never resets, ensuring baseline stays valid.
+	// Encoder latency = time from frame capture to WebSocket send
+	// frame.PTS contains wall clock timestamp (microseconds since Unix epoch)
+	// when the frame was captured by pipewirezerocopysrc.
+	// This is either from spa_meta_header.pts (if Mutter provides it) or
+	// wall clock fallback (if Mutter doesn't provide compositor timestamps).
 	var totalFrameCount uint64
-	const baselineFrameNum uint64 = 10
-	var baselineWallTime time.Time
-	var baselinePTS uint64
 
 	frameCh := v.gstPipeline.Frames()
 
@@ -689,30 +687,29 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				continue
 			}
 
-			// Calculate encoder latency using PTS baseline correlation
-			// frame.PTS contains the compositor timestamp (spa_meta_header.pts) in microseconds.
-			// We establish a baseline at frame 10 to correlate PTS clock to wall clock,
-			// then measure how much actual send time drifts from expected time.
-			// This gives us real encoder latency (PipeWire capture -> WebSocket send).
+			// Calculate encoder latency directly using wall clock timestamps
+			// frame.PTS is now always a wall clock timestamp (microseconds since Unix epoch)
+			// set by pipewirezerocopysrc when the frame arrived from PipeWire.
+			// Encoder latency = actualSendTime - captureTime (both wall clock)
 			//
-			// Note: frame.PTS = 0 for Sway (ext-image-copy-capture doesn't provide timestamp)
+			// Note: frame.PTS = 0 only for Sway ext-image-copy-capture which doesn't
+			// go through pipewirezerocopysrc (uses different capture path)
 			if frame.PTS > 0 {
-				if totalFrameCount == baselineFrameNum {
-					// Establish baseline after encoder warmup
-					baselineWallTime = actualSendTime
-					baselinePTS = frame.PTS
-					v.logger.Debug("encoder latency baseline established",
-						"frame", totalFrameCount, "pts_us", frame.PTS)
-				} else if totalFrameCount > baselineFrameNum && baselinePTS > 0 {
-					// Calculate expected wall time based on PTS delta from baseline
-					ptsDeltaUs := frame.PTS - baselinePTS
-					expectedWallTime := baselineWallTime.Add(time.Duration(ptsDeltaUs) * time.Microsecond)
-					// Encoder latency = actual send time - expected time based on PTS
-					latencyUs := actualSendTime.Sub(expectedWallTime).Microseconds()
-					// Store latest value (no EMA, never reset, clamp to positive)
-					if latencyUs > 0 {
-						v.encoderLatencyUs.Store(latencyUs)
-					}
+				// Convert capture time from microseconds to time.Time
+				captureTime := time.UnixMicro(int64(frame.PTS))
+				// Encoder latency = time from capture to send
+				latencyUs := actualSendTime.Sub(captureTime).Microseconds()
+				// Store latest value (clamp to positive and reasonable range)
+				if latencyUs > 0 && latencyUs < 10_000_000 { // < 10 seconds
+					v.encoderLatencyUs.Store(latencyUs)
+				}
+				// Debug log for first 5 frames
+				if totalFrameCount <= 5 {
+					v.logger.Debug("encoder latency",
+						"frame", totalFrameCount,
+						"capture_us", frame.PTS,
+						"send_us", actualSendTime.UnixMicro(),
+						"latency_ms", float64(latencyUs)/1000.0)
 				}
 			}
 
@@ -939,12 +936,13 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 					binary.BigEndian.PutUint64(pong[13:21], serverTime)
 					// Add encoder latency (microseconds -> milliseconds, clamped to uint16 range)
 					// Special values:
-					//   0xFFFF (65535) = calculating (baseline not yet established)
+					//   0xFFFF (65535) = calculating (no frames received yet)
 					//   0-65534 = actual latency in ms
+					// Encoder latency is measured from first frame onwards using wall clock timestamps.
 					encoderLatencyUs := streamer.encoderLatencyUs.Load()
 					var encoderLatencyMs int64
 					if encoderLatencyUs <= 0 {
-						// Baseline not established yet - send sentinel value
+						// No frames received yet or Sway path (no PTS available)
 						encoderLatencyMs = 65535
 					} else {
 						encoderLatencyMs = encoderLatencyUs / 1000

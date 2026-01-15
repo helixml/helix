@@ -197,18 +197,24 @@ Build the CLI first:
 cd api && CGO_ENABLED=0 go build -o /tmp/helix . && cd ..
 ```
 
-Set up environment:
+Set up environment (CRITICAL - must export all variables):
 ```bash
-source .env.userkey
-export HELIX_URL="http://localhost:8080"
-# HELIX_API_KEY is already set from .env.userkey
+# Option 1: Export from .env.usercreds (has all required variables)
+export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
+export HELIX_URL=`grep HELIX_URL .env.usercreds | cut -d= -f2-`
+export HELIX_PROJECT=`grep HELIX_PROJECT .env.usercreds | cut -d= -f2-`
+
+# Option 2: Use set -a to auto-export
+set -a && source .env.usercreds && set +a
 ```
+
+**IMPORTANT**: The `spectask start` command REQUIRES `--project`. Always export `HELIX_PROJECT` first!
 
 **Session Management:**
 ```bash
 /tmp/helix spectask list              # List sessions with external agents
 /tmp/helix spectask list-agents       # List available Helix agents/apps
-/tmp/helix spectask start --project <prj_id> -n "Task name"  # Create new task + sandbox
+/tmp/helix spectask start --project $HELIX_PROJECT -n "Task name"  # Create new task + sandbox
 /tmp/helix spectask resume <session-id>   # Resume existing session
 /tmp/helix spectask stop <session-id>     # Stop a session
 /tmp/helix spectask stop --all            # Stop ALL sessions
