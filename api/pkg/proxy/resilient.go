@@ -213,7 +213,7 @@ func (p *ResilientProxy) Run(ctx context.Context) error {
 // copyClientToServer copies data from client to server with buffering during reconnection.
 // This goroutine runs for the lifetime of the proxy, handling reconnections internally.
 func (p *ResilientProxy) copyClientToServer(ctx context.Context) error {
-	buf := make([]byte, 32*1024) // 32KB read buffer
+	buf := make([]byte, 4*1024) // 4KB read buffer - sized for low-latency WebSocket messages
 
 	for {
 		select {
@@ -269,7 +269,7 @@ func (p *ResilientProxy) copyClientToServer(ctx context.Context) error {
 // copyServerToClient copies data from server to client with buffering during reconnection.
 // This goroutine runs for the lifetime of the proxy, handling reconnections internally.
 func (p *ResilientProxy) copyServerToClient(ctx context.Context) error {
-	buf := make([]byte, 32*1024) // 32KB read buffer
+	buf := make([]byte, 4*1024) // 4KB read buffer - sized for low-latency WebSocket messages
 
 	for {
 		select {
