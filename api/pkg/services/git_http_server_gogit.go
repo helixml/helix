@@ -19,6 +19,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/go-git/go-git/v6/storage"
+	gitutil "github.com/go-git/go-git/v6/utils/ioutil"
 	"github.com/go-git/go-git/v6/storage/filesystem"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -63,6 +64,11 @@ func (fw *flushingWriter) Flush() {
 	if fw.flusher != nil {
 		fw.flusher.Flush()
 	}
+}
+
+// Close implements io.Closer. It is a no-op for HTTP response writers.
+func (fw *flushingWriter) Close() error {
+	return nil
 }
 
 // GitHTTPServer provides HTTP access to git repositories using pure Go (go-git v6).
@@ -399,20 +405,30 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine service type for go-git v6
-	var svc transport.Service
-	if service == "git-upload-pack" {
-		svc = transport.UploadPackService
-	} else {
-		svc = transport.ReceivePackService
-	}
+	version := r.Header.Get("Git-Protocol")
 
 	w.Header().Set("Content-Type", fmt.Sprintf("application/x-%s-advertisement", service))
 	setNoCacheHeaders(w)
 
-	// go-git v6 AdvertiseReferences handles everything including the service header
-	// when smart=true (stateless RPC mode for HTTP)
-	if err := transport.AdvertiseReferences(r.Context(), st, w, svc, true); err != nil {
+	// Use transport.UploadPack/ReceivePack with AdvertiseRefs: true for info/refs
+	// This matches go-git v6's backend/http implementation
+	if service == "git-upload-pack" {
+		err = transport.UploadPack(r.Context(), st, nil, gitutil.WriteNopCloser(w),
+			&transport.UploadPackOptions{
+				GitProtocol:   version,
+				AdvertiseRefs: true,
+				StatelessRPC:  true,
+			})
+	} else {
+		err = transport.ReceivePack(r.Context(), st, nil, gitutil.WriteNopCloser(w),
+			&transport.ReceivePackOptions{
+				GitProtocol:   version,
+				AdvertiseRefs: true,
+				StatelessRPC:  true,
+			})
+	}
+
+	if err != nil {
 		log.Error().Err(err).Msg("Failed to advertise references")
 		http.Error(w, "Failed to get references", http.StatusInternalServerError)
 		return
@@ -441,19 +457,26 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	version := r.Header.Get("Git-Protocol")
+
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
+	w.Header().Set("Connection", "Keep-Alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	setNoCacheHeaders(w)
 
 	// go-git v6 UploadPack handles the entire protocol exchange
+	// AdvertiseRefs: false because refs were already sent in info/refs
 	opts := &transport.UploadPackOptions{
-		StatelessRPC: true, // HTTP smart protocol uses stateless RPC
+		GitProtocol:   version,
+		AdvertiseRefs: false,
+		StatelessRPC:  true,
 	}
 
 	// Use flushing writer for streaming large pack files
 	fw := newFlushingWriter(w)
-	wc := &nopWriteCloser{Writer: fw}
 
-	if err := transport.UploadPack(r.Context(), st, r.Body, wc, opts); err != nil {
+	if err := transport.UploadPack(r.Context(), st, r.Body, fw, opts); err != nil {
 		log.Error().Err(err).Msg("Upload-pack failed")
 		// Can't send HTTP error after we've started writing
 		return
@@ -461,15 +484,6 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	fw.Flush()
 
 	log.Info().Str("repo_id", repoID).Msg("Upload-pack completed")
-}
-
-// nopWriteCloser wraps a Writer to add a no-op Close method
-type nopWriteCloser struct {
-	io.Writer
-}
-
-func (n *nopWriteCloser) Close() error {
-	return nil
 }
 
 // handleReceivePack handles POST /git-receive-pack (push)
@@ -495,20 +509,26 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// Get branches before push to detect what changed
 	branchesBefore := s.getBranchHashes(st)
 
+	version := r.Header.Get("Git-Protocol")
+
 	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
+	w.Header().Set("Connection", "Keep-Alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	setNoCacheHeaders(w)
 
 	// go-git v6 ReceivePack handles the entire protocol exchange
-	// Note: v6 already advertises no-thin capability, so thin packs are disabled
+	// AdvertiseRefs: false because refs were already sent in info/refs
 	opts := &transport.ReceivePackOptions{
-		StatelessRPC: true, // HTTP smart protocol uses stateless RPC
+		GitProtocol:   version,
+		AdvertiseRefs: false,
+		StatelessRPC:  true,
 	}
 
 	// Use flushing writer for streaming response
 	fw := newFlushingWriter(w)
-	wc := &nopWriteCloser{Writer: fw}
 
-	if err := transport.ReceivePack(r.Context(), st, r.Body, wc, opts); err != nil {
+	if err := transport.ReceivePack(r.Context(), st, r.Body, fw, opts); err != nil {
 		log.Error().Err(err).Msg("Receive-pack failed")
 		// Can't send HTTP error after we've started writing
 		return

@@ -838,6 +838,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
 			Metadata:       map[string]interface{}{},
+			KoditIndexing:  true,
 		}
 
 		log.Info().
@@ -908,6 +909,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			LocalPath:      notebooksPath,
 			DefaultBranch:  "main",
 			Metadata:       map[string]interface{}{"repo_purpose": "notebooks"},
+			KoditIndexing:  true,
 		}
 
 		err = s.Store.CreateGitRepository(ctx, notebooksRepo)
@@ -949,6 +951,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			LocalPath:      pyforestPath,
 			DefaultBranch:  "main",
 			Metadata:       map[string]interface{}{"repo_purpose": "library"},
+			KoditIndexing:  true,
 		}
 
 		err = s.Store.CreateGitRepository(ctx, pyforestRepo)
@@ -1077,6 +1080,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				LocalPath:      codeRepoPath,
 				DefaultBranch:  "main",
 				Metadata:       map[string]interface{}{"clone_demo": true},
+				KoditIndexing:  true,
 			}
 
 			if repoCreateErr := s.Store.CreateGitRepository(ctx, codeRepo); repoCreateErr != nil {
@@ -1198,6 +1202,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
 			Metadata:       map[string]interface{}{},
+			KoditIndexing:  true,
 		}
 
 		log.Info().
