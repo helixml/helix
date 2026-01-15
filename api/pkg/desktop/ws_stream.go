@@ -161,6 +161,11 @@ type VideoStreamer struct {
 	// Measures time frames spend in Go code (channel wait + mutex wait).
 	// Stored as microseconds for precision, accessed atomically from Pong handler.
 	encoderLatencyUs atomic.Int64 // Average pipeline latency in microseconds
+
+	// useRealtimeClock is set when using native pipewiresrc (AMD path).
+	// It tells the pipeline to use a realtime (wall clock) based clock so that
+	// do-timestamp=true produces PTS values comparable to time.Now().
+	useRealtimeClock bool
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -216,8 +221,12 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	)
 
 	// Create GStreamer pipeline with appsink
+	// Use realtime clock for native pipewiresrc so PTS can be compared to time.Now()
 	var err error
-	v.gstPipeline, err = NewGstPipeline(pipelineStr)
+	opts := GstPipelineOptions{
+		UseRealtimeClock: v.useRealtimeClock,
+	}
+	v.gstPipeline, err = NewGstPipelineWithOptions(pipelineStr, opts)
 	if err != nil {
 		return fmt.Errorf("create GStreamer pipeline: %w", err)
 	}
@@ -386,6 +395,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 					srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 				}
 				parts = []string{srcPart}
+				// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+				v.useRealtimeClock = true
 			} else {
 				// Set explicit properties based on the remaining cases
 				var captureSource, bufferType string
@@ -423,6 +434,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				// Explicit framerate prevents Mutter from defaulting to lower rate
 				fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
 			}
+			// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+			v.useRealtimeClock = true
 
 		default: // VideoModeSHM
 			// Standard pipewiresrc path - most compatible
@@ -437,6 +450,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				// Explicit framerate prevents Mutter from defaulting to lower rate
 				fmt.Sprintf("video/x-raw,format=BGRx,framerate=%d/1", v.config.FPS),
 			}
+			// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+			v.useRealtimeClock = true
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline

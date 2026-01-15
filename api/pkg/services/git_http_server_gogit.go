@@ -21,6 +21,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
@@ -451,6 +452,13 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 			log.Error().Err(err).Msg("Failed to get advertised references")
 			http.Error(w, "Failed to get references", http.StatusInternalServerError)
 			return
+		}
+
+		// Advertise no-thin capability to prevent clients from sending thin packs.
+		// go-git's PackfileWriter doesn't handle thin packs correctly (can't resolve
+		// external delta references). See: https://github.com/go-git/go-git/issues/190
+		if err := advRefs.Capabilities.Set(capability.Capability("no-thin")); err != nil {
+			log.Warn().Err(err).Msg("Failed to set no-thin capability")
 		}
 	}
 
