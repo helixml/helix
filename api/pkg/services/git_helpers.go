@@ -3,7 +3,6 @@ package services
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -221,130 +220,6 @@ func (g *GitRepo) ListBranches() ([]string, error) {
 	}
 
 	return branches, nil
-}
-
-// BranchExists checks if a branch exists in the repository.
-func (g *GitRepo) BranchExists(branchName string) bool {
-	_, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
-	return err == nil
-}
-
-// GetCommit returns the commit object for a given hash.
-func (g *GitRepo) GetCommit(commitHash string) (*object.Commit, error) {
-	hash := plumbing.NewHash(commitHash)
-	return g.repo.CommitObject(hash)
-}
-
-// GetHeadCommit returns the HEAD commit of a branch.
-func (g *GitRepo) GetHeadCommit(branchName string) (*object.Commit, error) {
-	ref, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
-	if err != nil {
-		return nil, fmt.Errorf("branch %s not found: %w", branchName, err)
-	}
-	return g.repo.CommitObject(ref.Hash())
-}
-
-// FindFilesMatchingPattern finds files matching a pattern in a branch.
-// Pattern is a simple prefix/suffix match (not full glob).
-func (g *GitRepo) FindFilesMatchingPattern(branchName, directory, suffix string) ([]string, error) {
-	files, err := g.ListFilesInBranch(branchName)
-	if err != nil {
-		return nil, err
-	}
-
-	var matches []string
-	for _, file := range files {
-		// Check if file is in the directory
-		if directory != "" && !strings.HasPrefix(file, directory+"/") && file != directory {
-			continue
-		}
-		// Check suffix
-		if suffix != "" && !strings.HasSuffix(file, suffix) {
-			continue
-		}
-		matches = append(matches, file)
-	}
-
-	return matches, nil
-}
-
-// FindTaskDirectories finds directories matching the spec task pattern in helix-specs.
-// Returns directories like ".helix/tasks/<task-id>/"
-func (g *GitRepo) FindTaskDirectories(branchName string) ([]string, error) {
-	files, err := g.ListFilesInBranch(branchName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find unique task directories
-	taskDirs := make(map[string]bool)
-	for _, file := range files {
-		if strings.HasPrefix(file, ".helix/tasks/") {
-			parts := strings.Split(file, "/")
-			if len(parts) >= 3 {
-				taskDir := filepath.Join(parts[0], parts[1], parts[2])
-				taskDirs[taskDir] = true
-			}
-		}
-	}
-
-	var dirs []string
-	for dir := range taskDirs {
-		dirs = append(dirs, dir)
-	}
-	return dirs, nil
-}
-
-// ExtractTaskIDFromPath extracts the task ID from a path like ".helix/tasks/<task-id>/..."
-func ExtractTaskIDFromPath(path string) string {
-	if !strings.HasPrefix(path, ".helix/tasks/") {
-		return ""
-	}
-	parts := strings.Split(path, "/")
-	if len(parts) >= 3 {
-		return parts[2]
-	}
-	return ""
-}
-
-// CheckDesignDocsExist checks if design docs exist in the helix-specs branch.
-func (g *GitRepo) CheckDesignDocsExist() (bool, error) {
-	files, err := g.ListFilesInBranch("helix-specs")
-	if err != nil {
-		// Branch might not exist
-		log.Debug().Err(err).Msg("helix-specs branch not found or empty")
-		return false, nil
-	}
-
-	for _, file := range files {
-		if strings.HasPrefix(file, ".helix/tasks/") {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// GetTaskIDsFromChangedFiles extracts task IDs from changed files in helix-specs.
-// This is used to determine which tasks' design docs were pushed.
-func (g *GitRepo) GetTaskIDsFromChangedFiles(branchName string) ([]string, error) {
-	files, err := g.GetChangedFilesInBranch(branchName)
-	if err != nil {
-		return nil, err
-	}
-
-	taskIDs := make(map[string]bool)
-	for _, file := range files {
-		taskID := ExtractTaskIDFromPath(file)
-		if taskID != "" {
-			taskIDs[taskID] = true
-		}
-	}
-
-	var ids []string
-	for id := range taskIDs {
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 // FindTaskDirInBranch finds the directory for a specific task in the helix-specs branch.
