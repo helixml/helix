@@ -113,9 +113,6 @@ steps:
       TYPESENSE_API_KEY: typesense
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-      KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
       - apk add --no-cache gcc g++ musl-dev
@@ -166,9 +163,6 @@ steps:
       TYPESENSE_API_KEY: typesense
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-      KEYCLOAK_PASSWORD: REPLACE_ME
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
       # Agent configuration
@@ -231,9 +225,6 @@ steps:
   #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-  #     KEYCLOAK_URL: http://keycloak:8080/auth
-  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-  #     KEYCLOAK_PASSWORD: REPLACE_ME
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
   #     WEB_SERVER_HOST: "localhost"
@@ -311,9 +302,6 @@ steps:
   #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-  #     KEYCLOAK_URL: http://keycloak:8080/auth
-  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-  #     KEYCLOAK_PASSWORD: REPLACE_ME
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
   #     WEB_SERVER_HOST: "localhost"
@@ -388,9 +376,6 @@ steps:
       TYPESENSE_API_KEY: typesense
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-      KEYCLOAK_PASSWORD: REPLACE_ME
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       # CI-specific configuration for OAuth test
       WEB_SERVER_HOST: "localhost"
@@ -471,9 +456,6 @@ steps:
   #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-  #     KEYCLOAK_URL: http://keycloak:8080/auth
-  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-  #     KEYCLOAK_PASSWORD: REPLACE_ME
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
   #     WEB_SERVER_HOST: "localhost"
@@ -556,9 +538,6 @@ steps:
   #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-  #     KEYCLOAK_URL: http://keycloak:8080/auth
-  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-  #     KEYCLOAK_PASSWORD: REPLACE_ME
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
   #     WEB_SERVER_HOST: "localhost"
@@ -647,9 +626,6 @@ steps:
   #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-  #     KEYCLOAK_URL: http://keycloak:8080/auth
-  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-  #     KEYCLOAK_PASSWORD: REPLACE_ME
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
   #     WEB_SERVER_HOST: "localhost"
@@ -798,18 +774,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: keycloak
-    image: quay.io/keycloak/keycloak:23.0
-    command: ["start-dev"]
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/postgres # Unable to run scripts to create keycloak database, so using the default instead
-      KC_DB_USERNAME: postgres
-      KC_DB_PASSWORD: postgres
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
-      KC_HOSTNAME_PATH: /auth
-      KC_HTTP_RELATIVE_PATH: /auth/
 
 volumes:
   - name: oauth-github-test-results
