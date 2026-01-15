@@ -103,6 +103,7 @@ New sessions use updated image; existing containers don't update.
 - No `setTimeout` for async — use events/promises
 - Extract components when files exceed 500 lines
 - No `type="number"` inputs — use text + parseInt
+- **useEffect dependency arrays**: Never include context values like `streaming`, `api`, `snackbar`, etc. — they don't need to be dependencies. Use refs for one-time async actions.
 
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
@@ -285,37 +286,29 @@ docker compose logs --tail 50 api 2>&1 | grep -E "external-agent|screenshot|sess
 ```
 
 ### Desktop Container Log Locations
-The Go streaming server (includes pipewirezerocopysrc plugin logs) has different names per desktop:
-- **Ubuntu/GNOME**: `screenshot-server` → logs to `/tmp/screenshot-server.log`
-- **Sway**: `desktop-bridge` → logs to stdout (visible in `docker logs`)
+Both desktops use `desktop-bridge` which logs to stdout (visible in `docker logs`).
 
 ```bash
 # Find container name:
 docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep -E "ubuntu-external|sway-external"
 
-# Ubuntu/GNOME: Read from log file (screenshot-server redirects to file)
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/screenshot-server.log
+# View logs (both Ubuntu and Sway use the same pattern now)
+docker compose exec -T sandbox-nvidia docker logs {CONTAINER} 2>&1 | grep -E "PIPEWIRE|zerocopy|desktop-bridge"
 
-# Sway: Use docker logs directly (desktop-bridge logs to stdout)
-docker compose exec -T sandbox-nvidia docker logs {CONTAINER} 2>&1 | grep -E "PIPEWIRE|zerocopy|video"
-
-# Other log files (both desktops):
+# Other log files:
 docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/settings-sync.log
 ```
 
 ### Debugging pipewirezerocopysrc (Zero-Copy GPU Streaming)
-
-**IMPORTANT**: The `pipewirezerocopysrc` GStreamer element logs go to a SEPARATE file, NOT to docker logs!
 
 **Step 1: Find the container name**
 ```bash
 docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep ubuntu-external
 ```
 
-**Step 2: Check screenshot-server.log (contains pipewirezerocopysrc logs)**
+**Step 2: Check docker logs (contains pipewirezerocopysrc logs)**
 ```bash
-# This is WHERE THE REAL LOGS ARE!
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} cat /tmp/screenshot-server.log 2>&1 | grep -E "PIPEWIRE_DEBUG|PIPEWIRESRC_DEBUG|zerocopy"
+docker compose exec -T sandbox-nvidia docker logs {CONTAINER_NAME} 2>&1 | grep -E "PIPEWIRE_DEBUG|EXT_IMAGE_COPY|zerocopy"
 ```
 
 **Step 3: Run benchmark with zerocopy mode**
@@ -350,10 +343,9 @@ docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} cat /tmp/scre
 ```
 
 **Common mistakes:**
-1. Looking at `docker logs` instead of `/tmp/screenshot-server.log` - our element logs to the file
-2. Running benchmark on a session started BEFORE rebuilding - must start NEW session
-3. Forgetting `--video-mode zerocopy` - without it, uses native pipewiresrc instead
-4. GNOME ScreenCast sends multiple Format callbacks with different modifiers - this is normal
+1. Running benchmark on a session started BEFORE rebuilding - must start NEW session
+2. Forgetting `--video-mode zerocopy` - without it, uses native pipewiresrc instead
+3. GNOME ScreenCast sends multiple Format callbacks with different modifiers - this is normal
 
 **Modifier debugging:**
 - 0x0 = LINEAR (no tiling, triggers SHM fallback)
@@ -409,7 +401,7 @@ GNOME uses **damage-based ScreenCast** in headless mode:
 docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} pw-dump | grep -A20 '"state"'
 
 # Check if zero-copy is enabled (look for modifier 0x300000000e08xxx)
-docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} cat /tmp/screenshot-server.log | grep "modifier="
+docker compose exec -T sandbox-nvidia docker logs {CONTAINER_NAME} 2>&1 | grep "modifier="
 
 # Force zerocopy mode in benchmark
 /tmp/helix spectask benchmark ses_xxx --video-mode zerocopy --duration 30

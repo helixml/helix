@@ -904,6 +904,7 @@ export default function TaskCard({
               startIcon={<ViewIcon />}
               onClick={(e) => {
                 e.stopPropagation()
+                console.log('[TaskCard] Review Implementation clicked', { onTaskClick: !!onTaskClick, taskId: task.id })
                 if (onTaskClick) onTaskClick(task)
               }}
               fullWidth

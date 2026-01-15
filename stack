@@ -424,7 +424,6 @@ function build-zed() {
 
   echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
-  echo "🎯 Compatible with: Ubuntu 22.04+ (glibc 2.35+)"
 
   # Verify external WebSocket sync is included
   if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
@@ -840,33 +839,6 @@ function get_image_tags() {
   IFS=$OLD_IFS
 }
 
-# Helper function to push all image tags
-function push_image_tags() {
-  local IMAGE_BASE=$1
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  # Use exported GIT_TAG if available (from build-and-push-helix-code), otherwise detect from git
-  local GIT_TAG="${GIT_TAG:-$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")}"
-
-  # Always push commit hash tag
-  echo "📤 Pushing ${IMAGE_BASE}:${COMMIT_HASH}"
-  if ! docker push "${IMAGE_BASE}:${COMMIT_HASH}"; then
-    echo "⚠️  Failed to push ${IMAGE_BASE}:${COMMIT_HASH}"
-    return 1
-  fi
-
-  # Also push git tag if available
-  if [ -n "$GIT_TAG" ]; then
-    echo "📤 Pushing ${IMAGE_BASE}:${GIT_TAG}"
-    if ! docker push "${IMAGE_BASE}:${GIT_TAG}"; then
-      echo "⚠️  Failed to push ${IMAGE_BASE}:${GIT_TAG}"
-      return 1
-    fi
-  fi
-
-  return 0
-}
-
-
 function build-qwen-code() {
   # ====================================================================
   # Build Qwen Code inside container for consistent, reproducible builds
@@ -1028,15 +1000,8 @@ function build-desktop() {
 
   echo "🖥️  Building ${DESKTOP_NAME} desktop container..."
 
-  # Production mode: Always rebuild Zed from latest source in release mode
-  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
-    echo "🔨 Production mode: Building fresh Zed release from latest source..."
-    if ! build-zed release; then
-      echo "❌ Failed to build Zed binary"
-      exit 1
-    fi
-  # Dev mode: Only build if binary doesn't exist
-  elif [ ! -f "./zed-build/zed" ]; then
+  # Build Zed if binary doesn't exist
+  if [ ! -f "./zed-build/zed" ]; then
     echo "❌ Zed binary not found. Building in release mode first..."
     if ! build-zed release; then
       echo "❌ Failed to build Zed binary"
@@ -1057,50 +1022,19 @@ function build-desktop() {
   local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
-  # Get Go code hash for Docker cache busting (api/ directory)
-  # This ensures Go rebuild when desktop.go or other Go files change
-  local GO_CODE_HASH=$(find api -name '*.go' -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -c1-12)
-  echo "📌 Go code hash: ${GO_CODE_HASH}"
-
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git tag --points-at HEAD 2>/dev/null | head -1)
 
   # Build the desktop image
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
-  # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
+  # Docker automatically detects Go code changes via COPY layers
   echo "🔨 Building ${IMAGE_NAME}:latest..."
 
-  # Registry tagging only for sway (primary production image)
-  if [ "$DESKTOP_NAME" = "sway" ] && [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build --provenance=false -f "$DOCKERFILE" \
-      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
-      -t "${IMAGE_NAME}:latest" \
-      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
-      .
-  elif [ "$DESKTOP_NAME" = "sway" ]; then
-    docker build --provenance=false -f "$DOCKERFILE" \
-      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
-      -t "${IMAGE_NAME}:latest" \
-      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      .
-  else
-    # Non-sway desktops: just latest and commit hash tags (also with qwen-code)
-    docker build --provenance=false -f "$DOCKERFILE" \
-      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
-      -t "${IMAGE_NAME}:latest" \
-      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
-      .
-  fi
+  docker build --provenance=false -f "$DOCKERFILE" \
+    --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+    -t "${IMAGE_NAME}:latest" \
+    .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build ${DESKTOP_NAME} container"
@@ -1118,55 +1052,27 @@ function build-desktop() {
   echo "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Log image hash comparison for debugging cache behavior
-  echo "🔍 Image cache check:"
-  echo "   Before: ${IMAGE_HASH_BEFORE:-<not captured>}"
-  echo "   After:  ${IMAGE_HASH_AFTER:-<not captured>}"
-  if [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
-    echo "   Tarball: exists ($(du -h sandbox-images/${IMAGE_NAME}.tar | cut -f1))"
-  else
-    echo "   Tarball: missing"
-  fi
-
-  # Skip export if: image unchanged AND tarball exists
-  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
-    local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
-    echo "✅ Image unchanged, tarball up-to-date: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
-    # Still transfer to sandbox if running (in case sandbox was restarted)
-    if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
-      transfer-desktop-to-sandbox "$DESKTOP_NAME"
-    fi
+  # Check if image actually changed
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
+    echo "✅ Image unchanged - skipping transfer"
     return 0
   fi
 
-  # Export tarball for embedding in sandbox
-  # Include both :latest and :${IMAGE_TAG} tags so docker ps shows proper image names
-  echo "📦 Exporting ${DESKTOP_NAME} tarball..."
-  mkdir -p sandbox-images
-
-  # Tag with IMAGE_TAG before saving (Hydra uses helix-${desktop}:${tag} to run containers)
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG}..."
-  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
-
-  # Save tarball with BOTH tags - this ensures docker ps shows the named image
-  if ! docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"; then
-    echo "❌ Failed to save ${DESKTOP_NAME} tarball (disk space issue?)"
-    rm -f "sandbox-images/${IMAGE_NAME}.tar"  # Remove partial/corrupted tarball
-    exit 1
-  fi
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-
-  local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
-  echo "✅ Tarball created: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) tag=${IMAGE_TAG}"
-
-  # Transfer to running sandbox (hot-reload in development)
+  # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
     transfer-desktop-to-sandbox "$DESKTOP_NAME"
   fi
+
+  # Write version file AFTER successful transfer
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file updated: ${IMAGE_TAG}"
 }
 
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
+# Uses local registry for efficient layer-based transfers (only changed layers transfer)
+# Automatically starts registry if not running
 function transfer-desktop-to-sandbox() {
   local DESKTOP_NAME="$1"
   local IMAGE_NAME="helix-${DESKTOP_NAME}"
@@ -1188,75 +1094,80 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
+  # Ensure local registry is running (needed for push/pull transfer)
+  if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    echo "🚀 Starting local registry for image transfer..."
+    docker compose -f docker-compose.dev.yaml up -d registry
+    # Wait for registry to be ready
+    local TIMEOUT=10
+    local ELAPSED=0
+    until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
+        break
+      fi
+      sleep 1
+      ELAPSED=$((ELAPSED + 1))
+    done
+  fi
+
   # Check if image exists on host
   if ! docker images "${IMAGE_NAME}:latest" -q | grep -q .; then
     echo "⚠️  ${IMAGE_NAME}:latest not found on host, skipping transfer"
     return 0
   fi
 
-  # Get image hash and commit hash for versioned tags
+  # Get image hash for versioned tag (content-addressable, survives push/pull)
   local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
   # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
-  # Use the version tag, not :latest, since we don't use :latest in production
   local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
   if [ -n "$SANDBOX_HAS_TAG" ]; then
     echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
     return 0
   fi
 
-  # CRITICAL: Create image tag on host - Hydra requests images by tag
-  # The heartbeat reports the tag from the version file, and Hydra uses
-  # helix-${desktop}:${tag} when creating containers. Without this tag, the
-  # sandbox won't find the image and the container will fail to start.
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG} (for Hydra)..."
-  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
+  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+  local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
-  # Check if versioned tag exists locally
-  local HAS_VERSIONED_TAG=""
-  if docker images "${IMAGE_NAME}:${COMMIT_HASH}" -q | grep -q .; then
-    HAS_VERSIONED_TAG="true"
+  # Tag for local registry and push
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
+
+  echo "📤 Pushing to local registry..."
+  if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to push to local registry"
+    return 1
   fi
 
-  # Transfer image(s) to sandbox's dockerd
-  # Always include the IMAGE_TAG since Hydra uses it to run containers
-  local TRANSFER_SUCCESS=""
-  if [ -n "$HAS_VERSIONED_TAG" ]; then
-    # Transfer all tags: latest, commit hash, and image tag (Hydra uses helix-${desktop}:${tag})
-    echo "📦 Transferring ${IMAGE_NAME}:latest, ${IMAGE_NAME}:${COMMIT_HASH}, and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
-    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
-      TRANSFER_SUCCESS="true"
-      echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
-      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
-    fi
-  else
-    # Only :latest exists - transfer with image tag
-    echo "📦 Transferring ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
-    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
-      echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
-      # Tag it with the commit hash inside sandbox for consistency
-      echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${COMMIT_HASH} inside sandbox..."
-      docker exec "$SANDBOX_CONTAINER" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}"
-      TRANSFER_SUCCESS="true"
-      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
-    fi
+  # Pull from registry inside sandbox
+  echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
+  if ! docker exec "$SANDBOX_CONTAINER" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to pull from registry inside sandbox"
+    return 1
   fi
 
-  if [ -n "$TRANSFER_SUCCESS" ]; then
-    # Version files are bind-mounted from host (updated by build-desktop)
-    if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
-      echo "✅ Version file sandbox-images/${IMAGE_NAME}.version contains: $(cat sandbox-images/${IMAGE_NAME}.version)"
-    fi
-    # Restart heartbeat to pick up the new version immediately
-    echo "🔄 Restarting heartbeat daemon to report new version..."
-    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
-    echo "✅ Image transferred and heartbeat restarted"
-  else
-    echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
+  # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
+  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
+  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+
+  # Remove the registry-prefixed tag to allow proper cleanup later
+  # (layers are shared, so this just removes the tag, not the data)
+  docker exec "$SANDBOX_CONTAINER" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
+
+  # Version files are bind-mounted from host (updated by build-desktop)
+  if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+    echo "📦 Version file: $(cat sandbox-images/${IMAGE_NAME}.version)"
   fi
+
+  # Restart heartbeat to pick up the new version immediately
+  echo "🔄 Restarting heartbeat daemon to report new version..."
+  docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+  echo "✅ Image transferred and heartbeat restarted"
 }
 
 # Backward compatibility wrappers
@@ -1309,15 +1220,16 @@ function transfer-hyprland-to-sandbox() {
 }
 
 
-# Helper function to verify tarball exists after desktop build
-function verify_tarball() {
+# Verify desktop image was built successfully
+function verify-desktop-build() {
   local desktop="$1"
-  if [ ! -f "sandbox-images/helix-${desktop}.tar" ]; then
-    echo "❌ sandbox-images/helix-${desktop}.tar not found after build"
-    rm -f sandbox-images/helix-*.tar
-    exit 1
+  local IMAGE_NAME="helix-${desktop}"
+
+  if [ ! -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+    echo "⚠️  sandbox-images/${IMAGE_NAME}.version not found"
+  else
+    echo "✅ ${IMAGE_NAME} version=$(cat sandbox-images/${IMAGE_NAME}.version)"
   fi
-  echo "✅ helix-${desktop}.tar ($(du -h sandbox-images/helix-${desktop}.tar | cut -f1)) version=$(cat sandbox-images/helix-${desktop}.version)"
 }
 
 function build-sandbox() {
@@ -1347,15 +1259,11 @@ function build-sandbox() {
   fi
   echo ""
 
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  # Use exported GIT_TAG if available (from build-and-push-helix-code), otherwise detect from git
-  local GIT_TAG="${GIT_TAG:-$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")}"
-
   # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📝 [1/6] Checking Zed binary..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
+  if [ ! -f "./zed-build/zed" ]; then
     echo "Building Zed in release mode..."
     if ! build-zed release; then
       echo "❌ Failed to build Zed"
@@ -1377,9 +1285,7 @@ function build-sandbox() {
       echo "❌ Failed to build helix-${desktop}"
       return 1
     fi
-    verify_tarball "$desktop"
-    # Remove old compressed tarball if it exists (migrating to uncompressed)
-    [ -f "sandbox-images/helix-${desktop}.tar.gz" ] && rm -f "sandbox-images/helix-${desktop}.tar.gz" "sandbox-images/helix-${desktop}.tar.gz.hash"
+    verify-desktop-build "$desktop"
     echo ""
     STEP_NUM=$((STEP_NUM + 1))
   done
@@ -1394,7 +1300,7 @@ function build-sandbox() {
         echo "❌ Failed to build helix-${desktop}"
         return 1
       fi
-      verify_tarball "$desktop"
+      verify-desktop-build "$desktop"
       echo ""
       STEP_NUM=$((STEP_NUM + 1))
     done
@@ -1403,35 +1309,18 @@ function build-sandbox() {
     echo ""
   fi
 
-  # Build sandbox container with embedded desktop tarballs
+  # Build sandbox container
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build sandbox with tarball embedded
-  if [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build -f Dockerfile.sandbox \
-      -t helix-sandbox:latest \
-      -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
-      .
-  else
-    docker build -f Dockerfile.sandbox \
-      -t helix-sandbox:latest \
-      -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
-      .
-  fi
+  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f sandbox-images/helix-*.tar
     return 1
   fi
 
-  # Keep tarballs for future builds (enables fast rebuilds when desktop images are cached)
-  # Only cleanup on failure or when explicitly requested
-  echo "✅ helix-sandbox container built successfully (kept tarballs for next build)"
+  echo "✅ helix-sandbox container built successfully"
   echo ""
 
   # Step 6: Restart sandbox and transfer fresh image
@@ -1439,37 +1328,36 @@ function build-sandbox() {
   echo "📝 [6/6] Restarting sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Restart to pick up new image (handled by existing code below)
-
-  # Push to registry in production mode
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    echo "📤 Pushing sandbox image to registry..."
-
-    # Push helix-sandbox (contains Hydra + desktop tarballs)
-    local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
-    if push_image_tags "$SANDBOX_BASE"; then
-      echo "✅ Sandbox images pushed successfully"
-    else
-      echo "⚠️  Failed to push sandbox images"
-      return 1
-    fi
-
-    echo "📦 Registry images pushed (desktop images are embedded, not pushed separately)"
+  # Restart sandbox to pick up new image
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
   fi
+  get_sandbox_names
+  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
-  # Restart sandbox in dev mode
-  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
-    # Determine correct sandbox service based on GPU profile
-    if [[ -f "$DIR/.env" ]]; then
-      source "$DIR/.env"
+  echo "✅ Sandbox container rebuilt and restarted"
+
+  # Wait for sandbox's nested dockerd to be ready
+  echo "⏳ Waiting for sandbox dockerd..."
+  local TIMEOUT=30
+  local ELAPSED=0
+  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
+      break
     fi
-    get_sandbox_names
-    echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-    docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
 
-    echo "✅ Sandbox container rebuilt and restarted successfully"
-  fi
+  # Transfer desktop images to sandbox via local registry
+  echo ""
+  echo "📦 Transferring desktop images to sandbox..."
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    transfer-desktop-to-sandbox "$desktop"
+  done
 
   echo ""
   echo "📦 Sandbox ready: helix-sandbox:latest"
@@ -1479,21 +1367,13 @@ function build-sandbox() {
   echo "  • Hydra multi-container isolation daemon"
   echo "  • RevDial client (control plane connection)"
   echo "  • Sandbox heartbeat (disk monitoring)"
-  echo "  • Desktop images:"
+  echo "  • Desktop images (transferred via local registry):"
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
-      local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
-      echo "    - helix-${desktop} (production, $size)"
+    if [ -f "sandbox-images/helix-${desktop}.version" ]; then
+      local version=$(cat "sandbox-images/helix-${desktop}.version")
+      echo "    - helix-${desktop}:${version}"
     fi
   done
-  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
-    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
-      if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
-        local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
-        echo "    - helix-${desktop} (experimental, $size)"
-      fi
-    done
-  fi
   echo ""
   echo "Services managed by GOW-style init system:"
   echo "  • 40-start-dockerd.sh - starts nested dockerd + loads desktop images"
@@ -1506,107 +1386,6 @@ function build-sandbox() {
   echo "🎉 Sandbox build completed successfully!"
 }
 
-# NOTE: This function builds and pushes Helix Code components for production deployment.
-# Requires: zed repo with feature/external-thread-sync branch for external agent support.
-function build-and-push-helix-code() {
-  # Optional: pass a tag override as first argument to force tagging even if commit doesn't match
-  local TAG_OVERRIDE="${1:-}"
-
-  echo "🚀 Building and pushing Helix Code components for production deployment"
-  echo "========================================================================"
-  echo ""
-  echo "Note: API and Frontend are built by CI - this builds Zed Agent and Sandbox"
-  echo ""
-
-  # Enable image pushing to registry for production builds
-  export PUSH_TO_REGISTRY=1
-  # Skip dev service restarts during production builds
-  export SKIP_DEV_RESTART=1
-
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-  local BUILD_START=$(date +%s)
-  local FAILED_BUILDS=()
-
-  # Allow tag override for building specific tags even if commit doesn't exactly match
-  if [ -n "$TAG_OVERRIDE" ]; then
-    echo "⚠️  Tag override: ${TAG_OVERRIDE} (ignoring git tag check)"
-    GIT_TAG="$TAG_OVERRIDE"
-  fi
-
-  # Export GIT_TAG so build-sandbox and other functions can use it
-  export GIT_TAG
-
-  echo "📝 Commit hash: ${COMMIT_HASH}"
-  if [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag: ${GIT_TAG}"
-  fi
-  echo "📅 Build started: $(date)"
-  echo ""
-
-  # Track build status
-  # Note: helix-sway (Zed agent) is built as part of build-sandbox, not separately
-  local TOTAL_BUILDS=1
-  local COMPLETED_BUILDS=0
-
-  # 1. Build Sandbox (DinD + Hydra + desktop images)
-  # Note: This also builds helix-sway (Zed agent) and embeds it as a tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [1/$TOTAL_BUILDS] Building Sandbox container (includes Sway/Zed)..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if build-sandbox; then
-    echo "✅ Sandbox built and pushed successfully"
-    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
-  else
-    echo "❌ Failed to build Sandbox"
-    FAILED_BUILDS+=("sandbox")
-  fi
-  echo ""
-
-  # Build summary
-  local BUILD_END=$(date +%s)
-  local BUILD_DURATION=$((BUILD_END - BUILD_START))
-  local BUILD_MINUTES=$((BUILD_DURATION / 60))
-  local BUILD_SECONDS=$((BUILD_DURATION % 60))
-
-  echo "=========================================================================="
-  echo "🎉 Build Summary"
-  echo "=========================================================================="
-  echo "📊 Completed: ${COMPLETED_BUILDS}/${TOTAL_BUILDS} builds"
-  echo "⏱️  Duration: ${BUILD_MINUTES}m ${BUILD_SECONDS}s"
-  echo "📝 Commit: ${COMMIT_HASH}"
-  echo "🏷️  Registry: registry.helixml.tech/helix/"
-  echo ""
-
-  if [ ${#FAILED_BUILDS[@]} -eq 0 ]; then
-    echo "✅ All images built and pushed successfully!"
-    echo ""
-    echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
-    echo "   • registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}"
-    echo ""
-    echo "📝 Note: helix-sandbox contains Hydra + desktop images (helix-sway, helix-ubuntu)"
-    if [ -n "$GIT_TAG" ]; then
-      echo ""
-      echo "📦 Also tagged with git tag (${GIT_TAG}):"
-      echo "   • registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}"
-    fi
-    echo ""
-    echo "🚀 Ready for production deployment!"
-    echo ""
-    echo "Note: API and Frontend images are built by CI and available at:"
-    echo "   • registry.helixml.tech/helix/api:${COMMIT_HASH}"
-    echo "   • registry.helixml.tech/helix/frontend:${COMMIT_HASH}"
-    return 0
-  else
-    echo "⚠️  Some builds failed:"
-    for failed in "${FAILED_BUILDS[@]}"; do
-      echo "   ✗ ${failed}"
-    done
-    echo ""
-    echo "Please review the errors above and retry failed builds individually."
-    return 1
-  fi
-}
 
 function db() {
   local subcommand="${1-cli}"
@@ -1975,8 +1754,7 @@ function help() {
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo ""
-  echo "Production build commands:"
-  echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
+  echo "Build commands:"
   echo "  build-sandbox      - Build sandbox container (DinD + Hydra + RevDial)"
   echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"

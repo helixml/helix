@@ -5,13 +5,18 @@
 # Using Ubuntu 25.10 directly (like KDE) for package version consistency.
 # Developers can switch between Sway and KDE without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+#
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-14).
+# Update digests when intentionally upgrading base images.
+# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.24  -> sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e
 
 # ====================================================================
 # Build grim from source with JPEG support
 # ====================================================================
 # Ubuntu's grim package is compiled without libjpeg, so we build from source
 # to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
-FROM ubuntu:25.10 AS grim-build
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS grim-build
 RUN apt-get update && apt-get install -y \
     meson ninja-build pkg-config git \
     libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
@@ -28,11 +33,13 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-FROM golang:1.24 AS go-build-env
-ARG GO_CODE_HASH=unknown
+# Pin to specific digest for stable layer caching (golang:1.24 as of 2026-01-13)
+# Update digest when intentionally upgrading Go version
+FROM golang:1.24@sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
+# NOTE: This layer is cached independently of Go code changes
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
@@ -43,12 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+# Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
@@ -60,7 +68,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Enable with HELIX_VIDEO_MODE=zerocopy
 #
 # Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-FROM ubuntu:25.10 AS rust-build-env
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
 
 # Install Rust and GStreamer dev packages
@@ -112,7 +120,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #    This fixes modifier key resetting layout when running as nested compositor.
 #
 # Required for ext-image-copy-capture-v1 protocol (Sway 1.11 needs wlroots 0.19)
-FROM ubuntu:25.10 AS wlroots-build
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS wlroots-build
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
@@ -165,7 +173,7 @@ RUN cd wlroots && \
 # ====================================================================
 # Build Sway 1.11 from source against wlroots 0.19.0
 # Required for ext-image-copy-capture-v1 protocol support
-FROM ubuntu:25.10 AS sway-build
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS sway-build
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
@@ -233,7 +241,7 @@ RUN export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH
 # ====================================================================
 # Sway Desktop - Ubuntu 25.10 base with minimal GOW
 # ====================================================================
-FROM ubuntu:25.10
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -524,6 +532,8 @@ RUN apt-get update && apt-get install -y \
     kitty \
     scrot xclip \
     vulkan-tools \
+    # gdb for crash dump analysis (backtraces from Sway bus errors)
+    gdb \
     # GStreamer for video streaming (pipewiresrc → h264 encoding → RTP)
     gstreamer1.0-tools \
     gstreamer1.0-pipewire \
@@ -611,13 +621,17 @@ RUN apt-get update && apt-get install -y \
       "ImportSavedPasswords": false, \
       "ImportSearchEngine": false, \
       "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
+      "PasswordManagerEnabled": true, \
+      "PrivacySandboxPromptEnabled": false, \
+      "PrivacySandboxAdTopicsEnabled": false, \
+      "PrivacySandboxSiteEnabledAdsEnabled": false, \
+      "PrivacySandboxAdMeasurementEnabled": false \
     }' > /etc/opt/chrome/policies/managed/helix.json \
     # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
     && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
     # Create wrapper script with VA-API for hardware video decoding
     && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
-    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
     && chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
@@ -656,13 +670,20 @@ RUN chmod +x /opt/gow/startup-app.sh
 
 # Helix helper scripts
 ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+# Shared scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-# Shared service init scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Docker group init script
 ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

@@ -59,15 +59,34 @@ func getVideoMode(configOverride string) VideoMode {
 }
 
 // getGOPSize returns the configured GOP (Group of Pictures) size.
-// Set via HELIX_GOP_SIZE environment variable. Default is 120 frames (2 seconds at 60fps).
-// Larger GOP = better compression, smaller GOP = faster seek/recovery after packet loss.
+// Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30 seconds at 60fps).
+// Since we use TCP WebSocket (reliable transport), keyframes are mainly for:
+// - Initial connection (new encoder pipeline = fresh keyframe)
+// - Rare encoder state corruption recovery
+// Larger GOP = smoother bandwidth (keyframes are 5-10x larger than P-frames).
 func getGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
-	return 120 // Default: 2 seconds at 60fps
+	return 1800 // Default: 30 seconds at 60fps - TCP is reliable, keyframes mainly for error recovery
+}
+
+// getRenderDevice returns the VA-API render device property string if configured.
+// Set via HELIX_RENDER_NODE environment variable (e.g., /dev/dri/renderD129).
+// On multi-GPU systems (Lambda Labs), this ensures VA-API uses the correct GPU.
+// Returns empty string if not set or if set to "SOFTWARE".
+func getRenderDevice() string {
+	node := os.Getenv("HELIX_RENDER_NODE")
+	if node == "" || node == "SOFTWARE" {
+		return ""
+	}
+	// Validate it looks like a render node path
+	if !strings.HasPrefix(node, "/dev/dri/renderD") {
+		return ""
+	}
+	return node
 }
 
 // Binary message types for streaming protocol (matching frontend websocket-stream.ts)
@@ -137,6 +156,11 @@ type VideoStreamer struct {
 
 	// Video pause control (for screenshot mode switching)
 	videoEnabled atomic.Bool
+
+	// Pipeline latency tracking (appsink callback to WebSocket write)
+	// Measures time frames spend in Go code (channel wait + mutex wait).
+	// Stored as microseconds for precision, accessed atomically from Pong handler.
+	encoderLatencyUs atomic.Int64 // Average pipeline latency in microseconds
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -375,7 +399,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 					bufferType = "dmabuf"
 				}
 
-				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=100",
+				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
 					v.nodeID, captureSource, bufferType)
 				// Add fd property if we have portal FD (required for ScreenCast access)
 				if v.pipeWireFd > 0 {
@@ -473,6 +497,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// https://github.com/games-on-whales/wolf - uses system memory caps
 		// Wolf pipeline: vapostproc add-borders=true ! video/x-raw,format=NV12 ! vah264enc rate-control=cqp
 		// See design/2026-01-12-amd-vaapi-dmabuf-mystery.md for investigation.
+		//
+		// GPU selection: gst-va elements use the VA display from the environment.
+		// We set LIBVA_DRIVER_NAME in detect-render-node.sh to ensure correct GPU.
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API using render device from environment", "device", renderDevice)
+		}
 		parts = append(parts,
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
@@ -485,6 +515,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific, gst-va plugin)
 		// Matches Wolf's "legacy pipeline" - system memory caps, rate-control=cqp
+		// GPU selection: gst-va elements use the VA display from the environment.
+		// We set LIBVA_DRIVER_NAME in detect-render-node.sh to ensure correct GPU.
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API LP using render device from environment", "device", renderDevice)
+		}
 		parts = append(parts,
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
@@ -497,12 +532,19 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	case "vaapi-legacy":
 		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
 		// EXACTLY matches Wolf's approach: system memory caps, rate-control=cqp
+		// Note: gst-vaapi plugin uses GstVaapiDisplay which respects LIBVA_DRIVER_NAME env var.
+		// Unlike gst-va plugin, it doesn't have a render-device property, but we set LIBVA_DRIVER_NAME
+		// in detect-render-node.sh to ensure correct GPU is used.
 		parts = append(parts,
 			"vaapipostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
 				getGOPSize()),
 		)
+		// Log if render device is configured (even though legacy plugin uses env var instead)
+		if renderDevice := getRenderDevice(); renderDevice != "" {
+			slog.Info("[STREAM] VA-API legacy using LIBVA_DRIVER_NAME env var for GPU selection", "device", renderDevice)
+		}
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
@@ -543,10 +585,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 // writeMessage is a thread-safe wrapper for WebSocket writes.
 // gorilla/websocket requires that all writes to the same connection be serialized.
-func (v *VideoStreamer) writeMessage(messageType int, data []byte) error {
+// Returns the wall clock time when the message was actually written (after mutex acquisition).
+func (v *VideoStreamer) writeMessage(messageType int, data []byte) (time.Time, error) {
 	v.wsMu.Lock()
 	defer v.wsMu.Unlock()
-	return v.ws.WriteMessage(messageType, data)
+	writeTime := time.Now() // Capture time after mutex acquired, before actual write
+	err := v.ws.WriteMessage(messageType, data)
+	return writeTime, err
 }
 
 // writeJSON is a thread-safe wrapper for WebSocket JSON writes.
@@ -569,7 +614,8 @@ func (v *VideoStreamer) sendStreamInit() error {
 	binary.BigEndian.PutUint32(msg[8:12], 0) // sample rate
 	msg[12] = 0                              // touch supported
 
-	return v.writeMessage(websocket.BinaryMessage, msg)
+	_, err := v.writeMessage(websocket.BinaryMessage, msg)
+	return err
 }
 
 // connectionCompleteMsg is the JSON structure expected by frontend websocket-stream.ts
@@ -597,8 +643,8 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
 
-	// Latency tracking
-	var frameCount uint64
+	// Latency tracking for logging (resets every 5 seconds)
+	var logFrameCount uint64
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
@@ -617,24 +663,42 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 
 			// Measure WebSocket send time
 			sendStart := time.Now()
-			if err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS); err != nil {
+			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS)
+			if err != nil {
 				v.logger.Error("send frame error", "err", err)
 				return
 			}
 			sendTime := time.Since(sendStart)
 			totalSendTime += sendTime
-			frameCount++
+			logFrameCount++
+
+			// Use actualSendTime from writeMessage (after mutex acquired) for accurate latency
+			// If frame was skipped (video paused), actualSendTime is zero
+			if actualSendTime.IsZero() {
+				continue
+			}
+
+			// Calculate pipeline latency: time from appsink callback to WebSocket write
+			// This measures total encode+pipeline time: PipeWire capture -> GStreamer encode -> channel -> WebSocket
+			// Now that pipewirezerocopysrc uses compositor timestamp (spa_meta_header.pts), this is real encoder latency
+			latencyUs := actualSendTime.Sub(frame.Timestamp).Microseconds()
+			// Store latest value directly (no EMA, never reset)
+			if latencyUs > 0 {
+				v.encoderLatencyUs.Store(latencyUs)
+			}
 
 			// Log latency stats every 5 seconds
-			if time.Since(lastLogTime) >= 5*time.Second && frameCount > 0 {
-				avgSend := totalSendTime / time.Duration(frameCount)
+			if time.Since(lastLogTime) >= 5*time.Second && logFrameCount > 0 {
+				avgSend := totalSendTime / time.Duration(logFrameCount)
+				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				v.logger.Info("VIDEO LATENCY STATS",
-					"frames", frameCount,
+					"frames", logFrameCount,
 					"avg_send_us", avgSend.Microseconds(),
+					"encoder_latency_ms", fmt.Sprintf("%.1f", encoderLatMs),
 					"frame_size_bytes", len(frame.Data),
 					"is_keyframe", frame.IsKeyframe)
-				// Reset counters
-				frameCount = 0
+				// Reset log counters (but keep encoder latency average and totalFrameCount running)
+				logFrameCount = 0
 				totalSendTime = 0
 				lastLogTime = time.Now()
 			}
@@ -645,10 +709,11 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
 // pts is the presentation timestamp in microseconds from GStreamer
-func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) error {
+// Returns the wall clock time when the frame was actually written to the socket (after mutex).
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) (time.Time, error) {
 	// Skip sending if video is paused (screenshot mode)
 	if !v.videoEnabled.Load() {
-		return nil
+		return time.Time{}, nil
 	}
 
 	v.frameCount++
@@ -687,7 +752,7 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
-			if err := v.writeMessage(websocket.PingMessage, nil); err != nil {
+			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
 				v.logger.Debug("ping failed", "err", err)
 				return
 			}
@@ -834,16 +899,26 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 			// Handle Ping/Pong at this level (needs ws access for response)
 			if msgType == StreamMsgPing {
 				// Client sent Ping for RTT measurement - respond with Pong
-				// Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+				// Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
+				// encoderLatencyMs is the average time from PipeWire capture to WebSocket send (encoder pipeline)
 				if len(msg) >= 13 {
-					pong := make([]byte, 21)
+					pong := make([]byte, 23)
 					pong[0] = StreamMsgPong
 					copy(pong[1:13], msg[1:13]) // Echo back seq + clientTime
 					// Add server time (microseconds since epoch)
 					serverTime := uint64(time.Now().UnixMicro())
 					binary.BigEndian.PutUint64(pong[13:21], serverTime)
+					// Add encoder latency (microseconds -> milliseconds, clamped to uint16 range)
+					encoderLatencyUs := streamer.encoderLatencyUs.Load()
+					encoderLatencyMs := encoderLatencyUs / 1000
+					if encoderLatencyMs < 0 {
+						encoderLatencyMs = 0
+					} else if encoderLatencyMs > 65535 {
+						encoderLatencyMs = 65535
+					}
+					binary.BigEndian.PutUint16(pong[21:23], uint16(encoderLatencyMs))
 					// Use streamer's mutex-protected write to avoid concurrent write panic
-					if err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
+					if _, err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
 						logger.Debug("failed to send pong", "err", err)
 					}
 				}

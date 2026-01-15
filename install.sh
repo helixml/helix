@@ -804,12 +804,32 @@ fi
 
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
-    # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
-        return 0
-    else
-        return 1
+    # Method 1: nvidia-smi actually queries the GPU (not just driver presence)
+    # This fails if drivers are installed but no GPU is available
+    if command -v nvidia-smi &> /dev/null; then
+        if nvidia-smi --query-gpu=name --format=csv,noheader &> /dev/null; then
+            return 0
+        fi
     fi
+
+    # Method 2: Check /dev/dri for nvidia driver (works even if nvidia-smi missing)
+    if [ -d "/sys/class/drm" ]; then
+        for node in /dev/dri/renderD*; do
+            if [ -e "$node" ]; then
+                driver=$(readlink "/sys/class/drm/$(basename $node)/device/driver" 2>/dev/null | xargs basename 2>/dev/null)
+                if [ "$driver" = "nvidia" ]; then
+                    return 0
+                fi
+            fi
+        done
+    fi
+
+    # Method 3: Docker already has NVIDIA runtime configured (WSL2 fallback)
+    if $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Function to check for AMD GPU specifically (for Helix Code with ROCm)
@@ -1801,42 +1821,10 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
-        # Auto-detect GPU render node for sandbox based on GPU_VENDOR
-        # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
-
-        # Handle "none" case for software rendering (no GPU available)
-        if [ "$GPU_VENDOR" = "none" ]; then
-            echo "No GPU detected - using software rendering (llvmpipe)"
-        elif [ -d "/sys/class/drm" ]; then
-            # Determine which driver to look for based on GPU_VENDOR
-            case "$GPU_VENDOR" in
-                nvidia)
-                    target_driver="nvidia"
-                    ;;
-                amd)
-                    target_driver="amdgpu"
-                    ;;
-                *)
-                    target_driver=""
-                    ;;
-            esac
-
-            if [ -n "$target_driver" ]; then
-                for render_node in /dev/dri/renderD*; do
-                    if [ -e "$render_node" ]; then
-                        # Check if this render node matches our target driver
-                        node_name=$(basename "$render_node")
-                        driver_link="/sys/class/drm/$node_name/device/driver"
-                        if [ -L "$driver_link" ]; then
-                            driver=$(readlink "$driver_link" | grep -o '[^/]*$')
-                            if [[ "$driver" == "$target_driver" ]]; then
-                                break
-                            fi
-                        fi
-                    fi
-                done
-            fi
-        fi
+        # NOTE: Render node selection is done inside the desktop container at startup.
+        # All /dev/dri/* devices are bind-mounted, and the container detects which
+        # render node matches GPU_VENDOR (handles multi-GPU systems like Lambda Labs
+        # where renderD128 is virtio-gpu and actual GPU is renderD129).
 
         cat << EOF >> "$ENV_FILE"
 

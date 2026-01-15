@@ -498,6 +498,7 @@ impl ExtCaptureState {
                 height: size.height,
                 stride,
                 format: drm_fourcc,
+                pts_ns: 0, // ext-image-copy-capture doesn't provide compositor timestamp
             };
 
             let _ = self.frame_tx.try_send(frame);
@@ -989,7 +990,7 @@ fn run_capture_loop(
     // 1. Check shutdown flag periodically
     // 2. Allow pipewiresrc's keepalive to work (recv_frame_timeout returns Timeout)
     // 3. Handle static screens where no damage events occur
-    let poll_timeout = Duration::from_millis(100); // 10Hz polling
+    let poll_timeout = Duration::from_millis(500); // 2Hz polling (reduced from 10Hz to save bandwidth)
 
     while !shutdown.load(Ordering::SeqCst) && !state.session_stopped {
         // Flush any pending requests
@@ -1008,6 +1009,16 @@ fn run_capture_loop(
                 unsafe { libc::poll(&mut pollfd, 1, poll_timeout.as_millis() as libc::c_int) };
 
             if poll_result > 0 {
+                // Check for connection closed (POLLHUP) or error (POLLERR)
+                // This happens when Sway crashes - detect it before trying to read
+                if pollfd.revents & libc::POLLHUP != 0 || pollfd.revents & libc::POLLERR != 0 {
+                    eprintln!(
+                        "[EXT_IMAGE_COPY] Wayland connection closed (revents=0x{:x})",
+                        pollfd.revents
+                    );
+                    return Err("Wayland connection closed (compositor crashed?)".to_string());
+                }
+
                 // Data available - read events
                 guard.read().map_err(|e| format!("Read failed: {}", e))?;
             } else if poll_result == 0 {

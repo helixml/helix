@@ -24,17 +24,16 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # Go build stage for Helix binaries
 # ====================================================================
 FROM golang:1.24 AS go-build-env
-# Cache buster for Go code changes (passed from build script)
-ARG GO_CODE_HASH=unknown
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+# Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
-    echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # KDE Desktop - Ubuntu 25.10 base for Plasma 6.5

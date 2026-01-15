@@ -137,6 +137,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
+  const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
+  const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
   // Quality mode: video delivery method (hot-switchable without disrupting WebSocket connection)
   // - 'high': 60fps video over WebSocket
   // - 'sse': 60fps video over SSE (lower latency for long connections)
@@ -439,7 +441,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log('[DesktopStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
       // Get streaming bitrate: user-selected > backend config > default
-      let streamingBitrateMbps = 10; // Default: 10 Mbps (conservative for low-bandwidth)
+      // 5 Mbps provides smoother streaming than higher bitrates - lower encoder latency
+      // and more consistent frame pacing outweigh the quality benefits of higher bitrates
+      let streamingBitrateMbps = 5; // Default: 5 Mbps (smoother than higher bitrates)
 
       if (userBitrate !== null) {
         // User explicitly selected a bitrate - use it
@@ -1809,31 +1813,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // Probe bandwidth BEFORE connecting to start at optimal bitrate
-    const probeAndConnect = async () => {
-      hasConnectedRef.current = true;
-
-      // Show connecting overlay so user sees the probe status
-      setIsConnecting(true);
-      console.log('[DesktopStreamViewer] Probing bandwidth before initial connection...');
-      setStatus('Measuring bandwidth...');
-
-      const throughput = await runInitialBandwidthProbe();
-
-      if (throughput > 0) {
-        const optimalBitrate = calculateOptimalBitrate(throughput);
-        console.log(`[DesktopStreamViewer] Initial probe: ${throughput.toFixed(1)} Mbps → starting at ${optimalBitrate} Mbps`);
-        setUserBitrate(optimalBitrate);
-        setRequestedBitrate(optimalBitrate);
-      } else {
-        console.log('[DesktopStreamViewer] Initial probe failed, using default 10 Mbps');
-      }
-
-      console.log('[DesktopStreamViewer] Auto-connecting with sandboxId:', sandboxId);
-      connect();
-    };
-
-    probeAndConnect();
+    // Skip bandwidth probe - 5 Mbps default provides smoother streaming than higher bitrates
+    // Lower encoder latency and more consistent frame pacing outweigh quality benefits
+    hasConnectedRef.current = true;
+    setIsConnecting(true);
+    console.log('[DesktopStreamViewer] Auto-connecting at 5 Mbps (skipping bandwidth probe)');
+    setUserBitrate(5);
+    setRequestedBitrate(5);
+    connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sandboxId, sessionId, isVisible]); // Only trigger on props and visibility, not on function identity changes
 
@@ -2241,64 +2228,68 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       } else {
         // Low frame drift - connection is stable at current bitrate
         congestionCheckCountRef.current = 0; // Reset congestion counter on good sample
-        stableCheckCountRef.current++;
-
-        // Try to increase if stable for a while
-        if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
-          const timeSinceLastChange = now - lastBitrateChangeRef.current;
-
-          if (timeSinceLastChange > INCREASE_COOLDOWN_MS) {
-            const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
-
-            if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
-              // Run bandwidth probe to measure actual throughput
-              // Then jump directly to the highest sustainable bitrate (not just +1 tier)
-              console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing to find optimal bitrate...`);
-
-              // Mark that we're attempting an increase (prevent re-triggering during probe)
-              stableCheckCountRef.current = 0;
-
-              runBandwidthProbe().then((measuredThroughputMbps) => {
-                if (measuredThroughputMbps <= 0) {
-                  console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
-                  lastBitrateChangeRef.current = Date.now();
-                  return;
-                }
-
-                // Calculate max sustainable bitrate with 25% headroom
-                // If we measure 100 Mbps, we can sustain 100/1.25 = 80 Mbps
-                const maxSustainableBitrate = measuredThroughputMbps / 1.25;
-
-                // Find the highest BITRATE_OPTIONS that fits
-                let targetBitrate = currentBitrate;
-                for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
-                  if (BITRATE_OPTIONS[i] <= maxSustainableBitrate && BITRATE_OPTIONS[i] > currentBitrate) {
-                    targetBitrate = BITRATE_OPTIONS[i];
-                    break;
-                  }
-                }
-
-                if (targetBitrate > currentBitrate) {
-                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
-                  console.log(`[AdaptiveBitrate] Recommending upgrade: ${currentBitrate} → ${targetBitrate} Mbps`);
-
-                  // Show recommendation popup instead of auto-switching
-                  setBitrateRecommendation({
-                    type: 'increase',
-                    targetBitrate: targetBitrate,
-                    reason: `Your connection has improved (measured ${measuredThroughputMbps.toFixed(0)} Mbps)`,
-                    measuredThroughput: measuredThroughputMbps,
-                  });
-
-                  lastBitrateChangeRef.current = Date.now();
-                } else {
-                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
-                  lastBitrateChangeRef.current = Date.now();
-                }
-              });
-            }
-          }
-        }
+        // DISABLED: We no longer recommend increasing bitrate even when stable.
+        // Lower bitrates (5 Mbps) provide smoother streaming than higher bitrates -
+        // lower encoder latency and more consistent frame pacing outweigh quality benefits.
+        // Users can manually increase bitrate via the menu if they want higher quality.
+        // stableCheckCountRef.current++;
+        //
+        // // Try to increase if stable for a while
+        // if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
+        //   const timeSinceLastChange = now - lastBitrateChangeRef.current;
+        //
+        //   if (timeSinceLastChange > INCREASE_COOLDOWN_MS) {
+        //     const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
+        //
+        //     if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
+        //       // Run bandwidth probe to measure actual throughput
+        //       // Then jump directly to the highest sustainable bitrate (not just +1 tier)
+        //       console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing to find optimal bitrate...`);
+        //
+        //       // Mark that we're attempting an increase (prevent re-triggering during probe)
+        //       stableCheckCountRef.current = 0;
+        //
+        //       runBandwidthProbe().then((measuredThroughputMbps) => {
+        //         if (measuredThroughputMbps <= 0) {
+        //           console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
+        //           lastBitrateChangeRef.current = Date.now();
+        //           return;
+        //         }
+        //
+        //         // Calculate max sustainable bitrate with 25% headroom
+        //         // If we measure 100 Mbps, we can sustain 100/1.25 = 80 Mbps
+        //         const maxSustainableBitrate = measuredThroughputMbps / 1.25;
+        //
+        //         // Find the highest BITRATE_OPTIONS that fits
+        //         let targetBitrate = currentBitrate;
+        //         for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
+        //           if (BITRATE_OPTIONS[i] <= maxSustainableBitrate && BITRATE_OPTIONS[i] > currentBitrate) {
+        //             targetBitrate = BITRATE_OPTIONS[i];
+        //             break;
+        //           }
+        //         }
+        //
+        //         if (targetBitrate > currentBitrate) {
+        //           console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
+        //           console.log(`[AdaptiveBitrate] Recommending upgrade: ${currentBitrate} → ${targetBitrate} Mbps`);
+        //
+        //           // Show recommendation popup instead of auto-switching
+        //           setBitrateRecommendation({
+        //             type: 'increase',
+        //             targetBitrate: targetBitrate,
+        //             reason: `Your connection has improved (measured ${measuredThroughputMbps.toFixed(0)} Mbps)`,
+        //             measuredThroughput: measuredThroughputMbps,
+        //           });
+        //
+        //           lastBitrateChangeRef.current = Date.now();
+        //         } else {
+        //           console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
+        //           lastBitrateChangeRef.current = Date.now();
+        //         }
+        //       });
+        //     }
+        //   }
+        // }
       }
     };
 
@@ -2518,6 +2509,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [audioEnabled]);
 
+  // Apply debug throttle ratio override to WebSocketStream
+  useEffect(() => {
+    if (streamRef.current instanceof WebSocketStream) {
+      (streamRef.current as WebSocketStream).setThrottleRatio(debugThrottleRatio);
+    }
+  }, [debugThrottleRatio]);
+
   // Poll WebRTC stats when stats overlay or charts are visible
   useEffect(() => {
     if ((!showStats && !showCharts) || !streamRef.current) {
@@ -2560,6 +2558,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             framesDecoded: isForcedLow ? 0 : (isSSE ? sseStats.framesDecoded : wsStats.framesDecoded),
             framesDropped: isForcedLow ? 0 : (isSSE ? sseStats.framesDropped : wsStats.framesDropped),
             rttMs: wsStats.rttMs,                                              // RTT still from WebSocket
+            encoderLatencyMs: wsStats.encoderLatencyMs,                        // Server-side encoder latency
             isHighLatency: wsStats.isHighLatency,                              // High latency flag from WS
             // Batching stats (only for non-SSE mode)
             batchingRatio: isSSE ? 0 : wsStats.batchingRatio,
@@ -2567,7 +2566,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             batchesReceived: isSSE ? 0 : wsStats.batchesReceived,
             // Frame latency and decoder queue (works in both WebSocket and SSE modes)
             frameLatencyMs: isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs,
-            batchingRequested: isSSE ? false : wsStats.batchingRequested,
+            // Adaptive input throttling
+            adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
+            effectiveInputFps: wsStats.effectiveInputFps,
+            isThrottled: wsStats.isThrottled,
             decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
             maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
             framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
@@ -2603,6 +2605,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
         // Update high latency state for warning banner
         setIsHighLatency(wsStats.isHighLatency);
+        // Update throttle state for warning banner
+        setIsThrottled(wsStats.isThrottled);
         // Show orange border for forced low quality mode
         setIsOnFallback(isForcedLow);
 
@@ -3469,6 +3473,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Adaptive Throttle Warning Banner - shown when input rate is reduced due to high latency */}
+      {isThrottled && isConnected && streamingMode === 'websocket' && !shouldPollScreenshots && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            backgroundColor: 'rgba(255, 152, 0, 0.9)',
+            color: 'black',
+            padding: '4px 16px',
+            borderRadius: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+          }}
+        >
+          <Wifi sx={{ fontSize: 16 }} />
+          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+            High latency detected - input rate reduced to {stats?.video?.effectiveInputFps?.toFixed(0) || '?'} Hz
+          </Typography>
+        </Box>
+      )}
+
       {/* Unified Connection Status Overlay - single overlay for all connection states */}
       {/* Suppressed when parent component (ExternalAgentDesktopViewer) is showing its own overlay */}
       {!suppressOverlay && (!isConnected || isConnecting || error || retryCountdown !== null) && (
@@ -3783,21 +3814,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
-                {/* RTT (WebSocket mode) */}
+                {/* Latency metrics (WebSocket mode) */}
                 {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
-                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                    {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
+                      <>
+                        <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
+                        <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
+                      </>
+                    )}
+                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️</span>}
                   </div>
                 )}
-                {/* Batching stats (WebSocket mode) - shows congestion handling */}
-                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                {/* Adaptive input throttling (WebSocket mode) - reduces input rate when RTT is high */}
+                {streamingMode === 'websocket' && stats.video.adaptiveThrottleRatio !== undefined && (
                   <div>
-                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
-                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
-                      : 'OFF'}
-                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
-                    {stats.video.batchingRequested && <span style={{ color: '#ff9800' }}> (requested)</span>}
+                    <strong>Input Throttle:</strong> {(stats.video.adaptiveThrottleRatio * 100).toFixed(0)}%
+                    {' '}({stats.video.effectiveInputFps?.toFixed(0) || 0} Hz)
+                    {stats.video.isThrottled && <span style={{ color: '#ff9800' }}> ⚠️ Reduced due to latency</span>}
                   </div>
                 )}
                 {/* Frame latency (WebSocket and SSE modes) - actual delivery delay based on PTS */}
@@ -3876,6 +3911,31 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               </div>
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
+            {/* Debug: Throttle ratio override */}
+            {streamingMode === 'websocket' && (
+              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                <strong>🔧 Debug: Throttle Override</strong>
+                <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {[null, 1.0, 0.75, 0.5, 0.33, 0.25].map((ratio) => (
+                    <button
+                      key={ratio === null ? 'auto' : ratio}
+                      onClick={() => setDebugThrottleRatio(ratio)}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: '10px',
+                        background: debugThrottleRatio === ratio ? '#4caf50' : 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        borderRadius: 3,
+                        color: 'white',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {ratio === null ? 'Auto' : `${(ratio * 100).toFixed(0)}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Screenshot mode stats */}
             {shouldPollScreenshots && (
               <>

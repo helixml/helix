@@ -31,7 +31,7 @@ export interface StreamSettings {
 export const defaultStreamSettings = (): StreamSettings => ({
   videoSize: '1080p',
   videoSizeCustom: { width: 1920, height: 1080 },
-  bitrate: 20000,
+  bitrate: 5000, // 5 Mbps - lower bitrates provide smoother streaming than higher ones
   packetSize: 1024,
   fps: 60,
   videoSampleQueueSize: 50,  // Increased for 4K60 (was 5, too small for high bitrate)

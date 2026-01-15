@@ -6,6 +6,7 @@ use pipewire::spa::param::ParamType;
 use pipewire::spa::pod::serialize::PodSerializer;
 use pipewire::spa::pod::Pod;
 use pipewire::spa::pod::{ChoiceValue, Object, Property, PropertyFlags, Value};
+use pipewire::spa::sys::{spa_buffer, spa_meta_header, SPA_META_Header};
 use pipewire::spa::utils::{Choice, ChoiceEnum, ChoiceFlags, Fraction, Id, SpaTypes};
 use pipewire::{
     context::Context,
@@ -29,14 +30,17 @@ use std::time::Duration;
 /// Frame received from PipeWire
 pub enum FrameData {
     /// DMA-BUF frame (zero-copy) - directly usable with waylanddisplaycore
-    DmaBuf(Dmabuf),
+    /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
+    DmaBuf { dmabuf: Dmabuf, pts_ns: i64 },
     /// SHM fallback
+    /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
     Shm {
         data: Vec<u8>,
         width: u32,
         height: u32,
         stride: u32,
         format: u32,
+        pts_ns: i64,
     },
 }
 
@@ -248,6 +252,32 @@ fn spa_video_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32
             0x34325241 // AR24 = ARGB8888
         }
     }
+}
+
+/// Extract PTS (presentation timestamp) from PipeWire buffer's spa_meta_header.
+/// The PTS is set by the compositor when the frame was captured.
+/// Returns 0 if no header metadata is present.
+///
+/// # Safety
+/// The buffer pointer must be valid and point to a spa_buffer.
+unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
+    if buffer.is_null() {
+        return 0;
+    }
+    let n_metas = (*buffer).n_metas;
+    if n_metas == 0 {
+        return 0;
+    }
+    let mut meta_ptr = (*buffer).metas;
+    let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
+    while meta_ptr != metas_end {
+        if (*meta_ptr).type_ == SPA_META_Header {
+            let meta_header: &spa_meta_header = &*((*meta_ptr).data as *const spa_meta_header);
+            return meta_header.pts;
+        }
+        meta_ptr = meta_ptr.wrapping_add(1);
+    }
+    0
 }
 
 fn run_pipewire_loop(
@@ -566,55 +596,81 @@ fn run_pipewire_loop(
                 eprintln!("[PIPEWIRE_DEBUG] process callback #{}", pcount);
             }
 
-            if let Some(mut buffer) = stream.dequeue_buffer() {
-                let datas = buffer.datas_mut();
-                if datas.is_empty() {
-                    eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer succeeded but datas is empty!", pcount);
-                    return;
-                }
-
-                let params = video_info.lock().clone();
-                if let Some(frame) = extract_frame(datas, &params) {
-                    let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-
-                    // Log first frame
-                    if !LOGGED_START.swap(true, Ordering::Relaxed) {
-                        tracing::warn!("[PIPEWIRE_FRAME] First frame received from PipeWire ({}x{})",
-                            params.width, params.height);
-                    }
-
-                    // Log every 100th frame or every 5 seconds
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    let last = LAST_LOG.load(Ordering::Relaxed);
-                    if count % 100 == 0 || (now > last + 5) {
-                        LAST_LOG.store(now, Ordering::Relaxed);
-                        tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire", count);
-                    }
-
-                    let _ = frame_tx_process.try_send(frame);
-                } else {
-                    // extract_frame returned None - log why (first 5 times only to avoid spam)
-                    static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                    let fail_count = EXTRACT_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    if fail_count <= 5 {
-                        let first = datas.first();
-                        let data_type = first.map(|d| d.type_());
-                        let chunk_size = first.map(|d| d.chunk().size());
-                        eprintln!("[PIPEWIRE_DEBUG] process #{}: extract_frame returned None! params={}x{} fmt=0x{:x} data_type={:?} chunk_size={:?}",
-                            pcount, params.width, params.height, params.format, data_type, chunk_size);
-                    }
-                }
-            } else {
+            // Use raw buffer access to extract PTS from spa_meta_header
+            // The PTS is set by the compositor when the frame was captured
+            let pw_buffer = unsafe { stream.dequeue_raw_buffer() };
+            if pw_buffer.is_null() {
                 // dequeue_buffer returned None - stream might not be in Streaming state yet
                 static DEQUEUE_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 let fail_count = DEQUEUE_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 if fail_count <= 5 || fail_count % 100 == 0 {
                     eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer returned None (no buffer available)", pcount);
                 }
+                return;
             }
+
+            let spa_buffer = unsafe { (*pw_buffer).buffer };
+            if spa_buffer.is_null() {
+                eprintln!("[PIPEWIRE_DEBUG] process #{}: pw_buffer.buffer is null!", pcount);
+                unsafe { stream.queue_raw_buffer(pw_buffer) };
+                return;
+            }
+
+            // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
+            let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
+
+            // Get datas from spa_buffer
+            let n_datas = unsafe { (*spa_buffer).n_datas };
+            if n_datas == 0 {
+                eprintln!("[PIPEWIRE_DEBUG] process #{}: n_datas is 0!", pcount);
+                unsafe { stream.queue_raw_buffer(pw_buffer) };
+                return;
+            }
+
+            let datas = unsafe {
+                std::slice::from_raw_parts_mut(
+                    (*spa_buffer).datas as *mut pipewire::spa::buffer::Data,
+                    n_datas as usize,
+                )
+            };
+
+            let params = video_info.lock().clone();
+            if let Some(frame) = extract_frame(datas, &params, pts_ns) {
+                let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+
+                // Log first frame with PTS
+                if !LOGGED_START.swap(true, Ordering::Relaxed) {
+                    tracing::warn!("[PIPEWIRE_FRAME] First frame received from PipeWire ({}x{}) pts_ns={}",
+                        params.width, params.height, pts_ns);
+                }
+
+                // Log every 100th frame or every 5 seconds
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let last = LAST_LOG.load(Ordering::Relaxed);
+                if count % 100 == 0 || (now > last + 5) {
+                    LAST_LOG.store(now, Ordering::Relaxed);
+                    tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
+                }
+
+                let _ = frame_tx_process.try_send(frame);
+            } else {
+                // extract_frame returned None - log why (first 5 times only to avoid spam)
+                static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let fail_count = EXTRACT_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if fail_count <= 5 {
+                    let first = datas.first();
+                    let data_type = first.map(|d| d.type_());
+                    let chunk_size = first.map(|d| d.chunk().size());
+                    eprintln!("[PIPEWIRE_DEBUG] process #{}: extract_frame returned None! params={}x{} fmt=0x{:x} data_type={:?} chunk_size={:?}",
+                        pcount, params.width, params.height, params.format, data_type, chunk_size);
+                }
+            }
+
+            // Re-queue the buffer
+            unsafe { stream.queue_raw_buffer(pw_buffer) };
         })
         .register()
         .map_err(|e| format!("Listener: {}", e))?;
@@ -1763,6 +1819,7 @@ fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
 fn extract_frame(
     datas: &mut [pipewire::spa::buffer::Data],
     params: &VideoParams,
+    pts_ns: i64,
 ) -> Option<FrameData> {
     // Get chunk info from first element before we need mutable access
     let (size, stride, data_type, fd, offset) = {
@@ -1858,8 +1915,8 @@ fn extract_frame(
         }
 
         if let Some(dmabuf) = builder.build() {
-            tracing::debug!("DMA-BUF frame: {}x{}", width, height);
-            return Some(FrameData::DmaBuf(dmabuf));
+            tracing::debug!("DMA-BUF frame: {}x{} pts_ns={}", width, height, pts_ns);
+            return Some(FrameData::DmaBuf { dmabuf, pts_ns });
         }
     }
 
@@ -1893,8 +1950,8 @@ fn extract_frame(
             }
 
             eprintln!(
-                "[PIPEWIRE_DEBUG] SHM frame SUCCESS: {}x{} stride={} format=0x{:x}",
-                width, height, stride, params.format
+                "[PIPEWIRE_DEBUG] SHM frame SUCCESS: {}x{} stride={} format=0x{:x} pts_ns={}",
+                width, height, stride, params.format, pts_ns
             );
 
             let data = unsafe { std::slice::from_raw_parts(data_ptr.as_ptr(), size) }.to_vec();
@@ -1904,6 +1961,7 @@ fn extract_frame(
                 height,
                 stride: stride as u32,
                 format: params.format,
+                pts_ns,
             });
         } else {
             // data() returned None - buffer not mapped!

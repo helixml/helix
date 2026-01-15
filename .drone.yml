@@ -76,8 +76,8 @@ steps:
       - apk add --no-cache bash git
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
-      - chmod +x ./desktop/sway-config/test-helix-specs-creation.sh
-      - ./desktop/sway-config/test-helix-specs-creation.sh
+      - chmod +x ./desktop/shared/test-helix-specs-creation.sh
+      - ./desktop/shared/test-helix-specs-creation.sh
     when:
       event:
         - push
@@ -814,7 +814,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -846,7 +846,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
 ---
 kind: pipeline
@@ -859,7 +859,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -892,7 +892,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
 ---
 kind: pipeline
@@ -905,7 +905,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -941,7 +941,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
 ---
 kind: pipeline
@@ -954,7 +954,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -992,7 +992,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1033,7 +1033,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -1071,7 +1071,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1112,7 +1112,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -1142,7 +1142,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
 ---
 kind: pipeline
@@ -1155,7 +1155,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/sway-ubuntu-25.10
+    - feature/sway-crash-recovery
 
 volumes:
   - name: dockersocket
@@ -1185,7 +1185,7 @@ steps:
         - push
       branch:
         - main
-        - feature/sway-ubuntu-25.10
+        - feature/sway-crash-recovery
 
 ---
 # See integration-test/smoke/README.md
@@ -1612,12 +1612,10 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-sway..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_CODE_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
           -t registry.helixml.tech/helix/helix-sway:latest \
           .
@@ -1627,12 +1625,10 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_CODE_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
           -t registry.helixml.tech/helix/helix-ubuntu:latest \
           .

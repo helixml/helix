@@ -172,7 +172,7 @@ impl Default for Settings {
             pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             cuda_device_id: -1,
-            keepalive_time_ms: 100,
+            keepalive_time_ms: 500,
             target_fps: 60,
             capture_source: CaptureSource::PipeWire,
             buffer_type: BufferType::Shm,
@@ -383,7 +383,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                     .blurb("Resend last buffer after this many ms (0=disabled)")
                     .minimum(0)
                     .maximum(60000)
-                    .default_value(100)
+                    .default_value(500)
                     .construct()
                     .build(),
                 glib::ParamSpecUInt::builder("target-fps")
@@ -478,7 +478,9 @@ impl ObjectImpl for PipeWireZeroCopySrc {
         obj.set_live(true);
         obj.set_format(gst::Format::Time);
         obj.set_automatic_eos(false);
-        obj.set_do_timestamp(true);
+        // Don't auto-timestamp - we set PTS explicitly from compositor timestamp
+        // (PipeWire spa_meta_header.pts captured from Mutter/compositor)
+        obj.set_do_timestamp(false);
     }
 }
 
@@ -812,8 +814,8 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             Err(_) => return Err(gst::FlowError::Error),
         };
 
-        let (buffer, actual_format, width, height) = match frame {
-            FrameData::DmaBuf(dmabuf) if state.output_mode == OutputMode::Cuda => {
+        let (mut buffer, actual_format, width, height, pts_ns) = match frame {
+            FrameData::DmaBuf { dmabuf, pts_ns } if state.output_mode == OutputMode::Cuda => {
                 // CUDA path: DmaBuf → EGL → CUDA
                 // === TIMING INSTRUMENTATION ===
                 let t_start = std::time::Instant::now();
@@ -889,9 +891,9 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())
                     .unwrap_or(video_format);
-                (buf, actual_fmt, w, h)
+                (buf, actual_fmt, w, h, pts_ns)
             }
-            FrameData::DmaBuf(dmabuf) => {
+            FrameData::DmaBuf { dmabuf, pts_ns } => {
                 // Should not happen with explicit buffer_type, but handle gracefully
                 let t_start = std::time::Instant::now();
                 let w = dmabuf.width() as u32;
@@ -906,7 +908,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     state.timing.log_and_reset(w, h);
                 }
 
-                (buf, video_format, w, h)
+                (buf, video_format, w, h, pts_ns)
             }
             FrameData::Shm {
                 data,
@@ -914,6 +916,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 height,
                 stride,
                 format,
+                pts_ns,
             } => {
                 let t_start = std::time::Instant::now();
                 let video_format = if format != 0 {
@@ -932,7 +935,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     state.timing.log_and_reset(width, height);
                 }
 
-                (buf, video_format, width, height)
+                (buf, video_format, width, height, pts_ns)
             }
         };
 
@@ -998,6 +1001,15 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
             state.frame_count += 1;
             drop(g);
+        }
+
+        // Set PTS from compositor timestamp (PipeWire spa_meta_header.pts)
+        // This is set by Mutter/compositor when the frame was captured
+        // pts_ns is in nanoseconds, which matches GStreamer's ClockTime unit
+        if pts_ns > 0 {
+            if let Some(buffer_ref) = buffer.get_mut() {
+                buffer_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns as u64));
+            }
         }
 
         Ok(CreateSuccess::NewBuffer(buffer))

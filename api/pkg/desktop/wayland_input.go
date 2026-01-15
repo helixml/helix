@@ -36,6 +36,7 @@ type WaylandInput struct {
 	// The protocol requires calling Modifiers() after modifier key events
 	// to update the compositor's modifier state (XKB modifier masks).
 	modsDepressed uint32 // Currently held modifiers (Shift=1, Ctrl=4, Alt=8, Meta=64)
+
 }
 
 // XKB modifier masks (from linux/input-event-codes.h and xkbcommon)
@@ -362,9 +363,18 @@ func (w *WaylandInput) MouseClick(button int) error {
 }
 
 // MouseWheel sends a scroll event using Wayland axis protocol.
-// deltaY: positive = scroll down, negative = scroll up
-// Uses AxisDiscrete for discrete scroll steps (required by apps like Zed)
-// plus continuous Axis for smooth scrolling support.
+// deltaX/deltaY: values in browser pixels (from frontend WheelEvent).
+//
+// Uses AxisSourceFinger for smooth continuous scrolling. This is critical
+// because Zed ignores wl_pointer.axis events when source is Wheel, but
+// processes them for Finger source (trackpad scrolling).
+//
+// Every scroll event is sent immediately with no accumulation, ensuring
+// small finger movements always result in immediate scroll response.
+//
+// Note: We don't send axis_stop events. They were causing Sway crashes when
+// mixed with other pointer events (assertion failures in wlr_seat), and
+// scrolling works correctly without them.
 func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -373,26 +383,66 @@ func (w *WaylandInput) MouseWheel(deltaX, deltaY float64) error {
 		return nil
 	}
 
+	if deltaX == 0 && deltaY == 0 {
+		return nil
+	}
+
 	now := time.Now()
 
-	// Set axis source to wheel (required for proper scroll handling)
-	w.pointer.AxisSource(virtual_pointer.AxisSourceWheel)
+	// WORKAROUND for wlroots axis_source assertion crash:
+	//
+	// The crash occurs in wlr_seat_pointer_send_axis when axis events have
+	// mismatched sources within a single frame. After Frame() clears the
+	// axis_event struct with {0}, the source field defaults to 0 (WHEEL).
+	//
+	// The wlroots virtual_pointer_axis() function populates delta, time, etc.
+	// but does NOT set the source field. The source is only set by
+	// virtual_pointer_axis_source(), which writes to axis_event[pointer->axis].
+	//
+	// To ensure ALL axis events have source=FINGER, we pre-set the source on
+	// BOTH axis slots before sending any real scroll data. This prevents any
+	// stale WHEEL (0) source from causing a mismatch.
+	//
+	// The zero-delta axis events will pass through the seat's source assertion
+	// check but won't actually scroll anything (the seat skips events with value=0).
 
-	// Send vertical scroll with discrete steps
-	// Discrete value is the number of 120ths of a wheel notch (Linux HID standard)
-	// We calculate discrete from the delta: ~15 units = 1 wheel notch = 120 discrete
+	// Step 1: Pre-initialize BOTH axis sources to FINGER
+	// This ensures no stale WHEEL source can cause assertion failures
+	if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, 0); err != nil {
+		w.logger.Debug("axis pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init vertical failed", "err", err)
+	}
+	if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, 0); err != nil {
+		w.logger.Debug("axis pre-init horizontal failed", "err", err)
+	}
+	if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+		w.logger.Debug("axis source pre-init horizontal failed", "err", err)
+	}
+
+	// Step 2: Send the actual scroll deltas (overwriting the zero deltas above)
+	// We set source again after each Axis to ensure it's set for the correct axis
 	if deltaY != 0 {
-		discrete := int32(deltaY * 8) // Scale to discrete units
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisVertical, deltaY, discrete)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisVertical, deltaY*0.15); err != nil {
+			w.logger.Debug("axis vertical failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source vertical failed", "err", err)
+		}
 	}
 
-	// Send horizontal scroll with discrete steps
 	if deltaX != 0 {
-		discrete := int32(deltaX * 8)
-		w.pointer.AxisDiscrete(now, virtual_pointer.AxisHorizontal, deltaX, discrete)
+		if err := w.pointer.Axis(now, virtual_pointer.AxisHorizontal, deltaX*0.15); err != nil {
+			w.logger.Debug("axis horizontal failed", "err", err)
+		}
+		if err := w.pointer.AxisSource(virtual_pointer.AxisSourceFinger); err != nil {
+			w.logger.Debug("axis source horizontal failed", "err", err)
+		}
 	}
 
-	w.pointer.Frame()
-
+	if err := w.pointer.Frame(); err != nil {
+		w.logger.Debug("frame failed", "err", err)
+	}
 	return nil
 }

@@ -45,7 +45,8 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
   },
   "dns": ["172.17.0.1"],
   "storage-driver": "overlay2",
-  "log-level": "error"
+  "log-level": "error",
+  "insecure-registries": ["registry:5000"]
 }
 DAEMON_JSON
 else
@@ -54,7 +55,8 @@ else
 {
   "dns": ["172.17.0.1"],
   "storage-driver": "overlay2",
-  "log-level": "error"
+  "log-level": "error",
+  "insecure-registries": ["registry:5000"]
 }
 DAEMON_JSON
 fi
@@ -105,10 +107,10 @@ echo "✅ Created /tmp/sockets for docker exec -ti support"
 iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"
 
-# Function to load a desktop image into sandbox's dockerd
-# Supports two modes:
-#   1. Registry pull (preferred): Read .ref file, pull from registry
-#   2. Tarball load (fallback): Load from embedded .tar file
+# Function to ensure a desktop image is available in sandbox's dockerd
+# Supports two sources:
+#   1. Registry pull (production): Read .ref file, pull from registry
+#   2. Already present (development): Image transferred via local registry
 #
 # Registry override: Set HELIX_SANDBOX_REGISTRY to use custom registry
 #   e.g., HELIX_SANDBOX_REGISTRY=internal-registry.corp.example.com
@@ -121,96 +123,68 @@ load_desktop_image() {
     local REQUIRED="${2:-false}"
     local IMAGE_NAME="helix-${NAME}"
     local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
-    local TARBALL="/opt/images/${IMAGE_NAME}.tar"
     local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
-    local LOG_FILE="/tmp/docker-load-${NAME}.log"
 
-    # Read expected version
-    local VERSION="latest"
-    if [ -f "$VERSION_FILE" ]; then
-        VERSION=$(cat "$VERSION_FILE")
+    # Read expected version from .version file
+    if [ ! -f "$VERSION_FILE" ]; then
+        if [ "$REQUIRED" = "true" ]; then
+            echo "⚠️  ${IMAGE_NAME} version file missing: ${VERSION_FILE}"
+            return 1
+        else
+            echo "ℹ️  ${IMAGE_NAME} not configured (no version file)"
+            return 0  # OK for optional images
+        fi
+    fi
+    local VERSION=$(cat "$VERSION_FILE")
+
+    # Check if the EXACT version already exists
+    # We only skip the pull if the specific version tag exists.
+    local EXISTING_ID=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
+    if [ -n "$EXISTING_ID" ]; then
+        echo "✅ ${IMAGE_NAME}:${VERSION} already available (ID: ${EXISTING_ID})"
+        return 0
     fi
 
-    # =========================================================================
-    # Mode 1: Registry pull (if .ref file exists)
-    # =========================================================================
+    # Registry pull (production mode - .ref file points to registry.helixml.tech)
     if [ -f "$REF_FILE" ]; then
         local REGISTRY_REF=$(cat "$REF_FILE")
         echo "📦 ${IMAGE_NAME} registry ref: ${REGISTRY_REF}"
 
         # Support registry override for enterprise deployments
         if [ -n "$HELIX_SANDBOX_REGISTRY" ]; then
-            # Replace registry host in ref
-            # e.g., registry.helixml.tech/helix/helix-sway:v1.2.3 -> internal.corp/helix/helix-sway:v1.2.3
             local ORIGINAL_REF="$REGISTRY_REF"
             REGISTRY_REF=$(echo "$REGISTRY_REF" | sed "s|^[^/]*/|${HELIX_SANDBOX_REGISTRY}/|")
             echo "   Registry override: ${ORIGINAL_REF} -> ${REGISTRY_REF}"
         fi
 
-        # Check if image already exists locally
+        # Check if registry image already exists
         local IMAGE_ID=$(docker images "$REGISTRY_REF" --format '{{.ID}}' 2>/dev/null || echo "")
         if [ -n "$IMAGE_ID" ]; then
             echo "✅ ${REGISTRY_REF} already pulled (ID: ${IMAGE_ID})"
-            # Write the ref to a runtime file for Hydra to use
             echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
             return 0
         fi
 
         # Pull from registry
         echo "🔄 Pulling ${REGISTRY_REF} from registry..."
-        if docker pull "$REGISTRY_REF" 2>&1 | tee "$LOG_FILE"; then
+        if docker pull "$REGISTRY_REF" 2>&1; then
             echo "✅ ${REGISTRY_REF} pulled successfully"
-            # Write the ref to a runtime file for Hydra to use
             echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
-            # Tag as local name for backward compatibility
+            # Tag as local name for Hydra compatibility
             docker tag "$REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
-            docker tag "$REGISTRY_REF" "${IMAGE_NAME}:latest" 2>/dev/null || true
-            echo "📋 Available tags:"
-            docker images --filter "reference=${IMAGE_NAME}*" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
             return 0
         else
-            echo "⚠️  Failed to pull ${REGISTRY_REF} - trying tarball fallback..."
+            echo "⚠️  Failed to pull ${REGISTRY_REF}"
         fi
     fi
 
-    # =========================================================================
-    # Mode 2: Tarball load (fallback)
-    # =========================================================================
-    if [ ! -f "$TARBALL" ]; then
-        if [ "$REQUIRED" = "true" ]; then
-            echo "⚠️  ${IMAGE_NAME} not available (no .ref or .tar file)"
-            echo "   Sandboxes using this desktop type may fail to start"
-        else
-            echo "ℹ️  ${IMAGE_NAME} not available (${NAME^} desktop not configured)"
-        fi
-        return 0
-    fi
-
-    echo "📦 ${IMAGE_NAME} version: ${VERSION} (tarball mode)"
-
-    # Check if versioned image already loaded
-    local CURRENT_ID=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
-    if [ -n "$CURRENT_ID" ]; then
-        echo "✅ ${IMAGE_NAME}:${VERSION} already loaded (ID: $CURRENT_ID) - skipping docker load"
-        return 0
-    fi
-
-    echo "📦 Loading ${IMAGE_NAME}:${VERSION} from tarball..."
-    if docker load -i "$TARBALL" 2>&1 | tee "$LOG_FILE"; then
-        # Verify versioned tag exists after load
-        if docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' | grep -q .; then
-            echo "✅ ${IMAGE_NAME}:${VERSION} loaded successfully"
-        else
-            # Tarball may be from before versioning - tag it now
-            echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${VERSION}"
-            docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
-        fi
-
-        echo "📋 Available tags for ${IMAGE_NAME}:"
-        docker images "${IMAGE_NAME}" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
+    # Image not available
+    if [ "$REQUIRED" = "true" ]; then
+        echo "⚠️  ${IMAGE_NAME} not available"
+        echo "   In development: Run './stack build-${NAME}' to build and transfer"
+        echo "   In production: Check .ref file and registry access"
     else
-        echo "⚠️  Failed to load ${IMAGE_NAME} tarball (may be corrupted or out of memory)"
-        echo "   Container will continue startup - transfer fresh image with './stack build-${NAME}'"
+        echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
     fi
 }
 
