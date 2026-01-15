@@ -110,22 +110,32 @@ func (l *helixRepoLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
 		return nil, transport.ErrRepositoryNotFound
 	}
 
-	// Open the repository using go-git's filesystem storage
-	fs := osfs.New(repo.LocalPath)
-
-	// Check if it's a bare repository or has .git directory
+	// Determine if this is a bare or non-bare repository
+	// Bare repos have objects/ and refs/ directly in the path
+	// Non-bare repos have a .git directory containing these
 	var gitDir string
-	if _, err := os.Stat(filepath.Join(repo.LocalPath, "config")); err == nil {
-		// Bare repository - config is in root
-		gitDir = repo.LocalPath
-	} else if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err == nil {
+
+	// Check for non-bare repository first (most common case)
+	dotGitPath := filepath.Join(repo.LocalPath, ".git")
+	if info, err := os.Stat(dotGitPath); err == nil && info.IsDir() {
 		// Non-bare repository - use .git directory
-		gitDir = filepath.Join(repo.LocalPath, ".git")
-		fs = osfs.New(gitDir)
+		gitDir = dotGitPath
+	} else if _, err := os.Stat(filepath.Join(repo.LocalPath, "objects")); err == nil {
+		// Bare repository - has objects/ directory in root
+		// Additional check: HEAD file should exist in bare repos
+		if _, err := os.Stat(filepath.Join(repo.LocalPath, "HEAD")); err == nil {
+			gitDir = repo.LocalPath
+		} else {
+			log.Error().Str("repo_path", repo.LocalPath).Msg("Invalid bare repository (missing HEAD)")
+			return nil, transport.ErrRepositoryNotFound
+		}
 	} else {
-		log.Error().Str("repo_path", repo.LocalPath).Msg("Not a valid git repository")
+		log.Error().Str("repo_path", repo.LocalPath).Msg("Not a valid git repository (no .git or objects/)")
 		return nil, transport.ErrRepositoryNotFound
 	}
+
+	// Create filesystem for the git directory
+	fs := osfs.New(gitDir)
 
 	log.Debug().
 		Str("repo_id", repoID).
