@@ -514,6 +514,14 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		fmt.Sprintf("GIT_PROJECT_ROOT=%s", repo.LocalPath),
 		"GIT_HTTP_EXPORT_ALL=1", // Allow serving without git-daemon-export-ok file
 
+		// Git tracing - output goes to stderr which we capture
+		// GIT_TRACE=1 shows general git operations
+		// GIT_TRACE_PACKET=1 shows protocol packet data (very verbose)
+		// GIT_TRACE_PACK_ACCESS=1 shows packfile access
+		"GIT_TRACE=2",             // 2 = stderr
+		"GIT_TRACE_PACKET=2",      // Shows what git is reading/writing
+		"GIT_TRACE_PACK_ACCESS=2", // Shows object lookups in packfiles
+
 		// Authentication
 		fmt.Sprintf("REMOTE_USER=%s", s.getUser(r).ID),
 	}
@@ -577,23 +585,36 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 				Msg("Decompressing gzip-encoded git request body")
 		}
 
-		// For receive-pack requests, parse the pushed branches from the git protocol data
-		// The git receive-pack protocol sends ref updates as pkt-lines at the start of the body
-		if strings.HasSuffix(gitPath, "/git-receive-pack") {
-			// Buffer the body so we can parse it and still pass it to git http-backend
+		// Buffer the request body for both receive-pack and upload-pack requests.
+		// This is CRITICAL: passing r.Body directly to cmd.Stdin causes a race condition
+		// where Go's HTTP server may close the request body when we start writing the
+		// response, causing git-http-backend to get EOF on stdin and report
+		// "fatal: the remote end hung up unexpectedly".
+		// By buffering first, we ensure git-http-backend has access to the complete
+		// request body regardless of HTTP response timing.
+		if strings.HasSuffix(gitPath, "/git-receive-pack") || strings.HasSuffix(gitPath, "/git-upload-pack") {
 			bodyBytes, err := io.ReadAll(body)
 			if err != nil {
-				log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to read request body for branch parsing")
+				log.Error().Err(err).Str("repo_id", repoID).Str("git_path", gitPath).Msg("Failed to read request body")
 				http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 				return
 			}
 
-			// Parse pushed branches from the git protocol pkt-lines
-			pushedBranches = parseGitReceivePackRefs(bodyBytes)
 			log.Debug().
 				Str("repo_id", repoID).
-				Strs("pushed_branches", pushedBranches).
-				Msg("Parsed pushed branches from receive-pack request")
+				Str("git_path", gitPath).
+				Int("body_bytes", len(bodyBytes)).
+				Int64("content_length", r.ContentLength).
+				Msg("Buffered git request body")
+
+			// For receive-pack, also parse pushed branches from the git protocol pkt-lines
+			if strings.HasSuffix(gitPath, "/git-receive-pack") {
+				pushedBranches = parseGitReceivePackRefs(bodyBytes)
+				log.Debug().
+					Str("repo_id", repoID).
+					Strs("pushed_branches", pushedBranches).
+					Msg("Parsed pushed branches from receive-pack request")
+			}
 
 			// Use the buffered body for git http-backend
 			body = io.NopCloser(bytes.NewReader(bodyBytes))
