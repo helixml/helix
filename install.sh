@@ -1986,6 +1986,29 @@ CADDYEOF"
         echo "└───────────────────────────────────────────────────────────────────────────"
         echo
         cd "$INSTALL_DIR"
+
+        # Pre-flight check: clean up helix_default network if it exists with wrong labels
+        if docker network inspect helix_default >/dev/null 2>&1; then
+            NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+            if [ "$NETWORK_LABEL" != "default" ]; then
+                echo "Found helix_default network with incorrect labels (not created by Docker Compose)."
+                # Check if any containers are attached
+                ATTACHED=$(docker network inspect helix_default --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs)
+                if [ -z "$ATTACHED" ]; then
+                    echo "No containers attached. Removing network so Docker Compose can recreate it..."
+                    docker network rm helix_default
+                else
+                    echo "Error: Cannot auto-remove network - containers are attached: $ATTACHED"
+                    echo ""
+                    echo "To fix, run:"
+                    echo "  docker stop $ATTACHED"
+                    echo "  docker network rm helix_default"
+                    echo "  ./install.sh $*"
+                    exit 1
+                fi
+            fi
+        fi
+
         if [ "$NEED_SUDO" = "true" ]; then
             sudo docker compose up -d --remove-orphans
         else
@@ -2586,6 +2609,29 @@ EOF
     if [ "$CONTROLPLANE" = true ]; then
         echo "Starting controlplane services first (creates Docker network with correct labels)..."
         cd $INSTALL_DIR
+
+        # Pre-flight check: clean up helix_default network if it exists with wrong labels
+        if docker network inspect helix_default >/dev/null 2>&1; then
+            NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+            if [ "$NETWORK_LABEL" != "default" ]; then
+                echo "Found helix_default network with incorrect labels (not created by Docker Compose)."
+                # Check if any containers are attached
+                ATTACHED=$(docker network inspect helix_default --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs)
+                if [ -z "$ATTACHED" ]; then
+                    echo "No containers attached. Removing network so Docker Compose can recreate it..."
+                    docker network rm helix_default
+                else
+                    echo "Error: Cannot auto-remove network - containers are attached: $ATTACHED"
+                    echo ""
+                    echo "To fix, run:"
+                    echo "  docker stop $ATTACHED"
+                    echo "  docker network rm helix_default"
+                    echo "  ./install.sh $*"
+                    exit 1
+                fi
+            fi
+        fi
+
         if [ "$NEED_SUDO" = "true" ]; then
             sudo docker compose up -d --remove-orphans
         else
