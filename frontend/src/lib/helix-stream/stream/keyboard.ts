@@ -591,10 +591,147 @@ const VK_MAPPINGS: Record<string, number | null> = {
     // Fn: null,
 }
 
+/**
+ * Fallback mappings for event.key values (single characters).
+ * This handles iPad/iOS where event.code is empty for alphanumeric keys
+ * but event.key contains the actual character.
+ */
+const KEY_VALUE_MAPPINGS: Record<string, number> = {
+    // Letters (both lowercase and uppercase map to same VK code)
+    'a': StreamKeys.VK_KEY_A, 'A': StreamKeys.VK_KEY_A,
+    'b': StreamKeys.VK_KEY_B, 'B': StreamKeys.VK_KEY_B,
+    'c': StreamKeys.VK_KEY_C, 'C': StreamKeys.VK_KEY_C,
+    'd': StreamKeys.VK_KEY_D, 'D': StreamKeys.VK_KEY_D,
+    'e': StreamKeys.VK_KEY_E, 'E': StreamKeys.VK_KEY_E,
+    'f': StreamKeys.VK_KEY_F, 'F': StreamKeys.VK_KEY_F,
+    'g': StreamKeys.VK_KEY_G, 'G': StreamKeys.VK_KEY_G,
+    'h': StreamKeys.VK_KEY_H, 'H': StreamKeys.VK_KEY_H,
+    'i': StreamKeys.VK_KEY_I, 'I': StreamKeys.VK_KEY_I,
+    'j': StreamKeys.VK_KEY_J, 'J': StreamKeys.VK_KEY_J,
+    'k': StreamKeys.VK_KEY_K, 'K': StreamKeys.VK_KEY_K,
+    'l': StreamKeys.VK_KEY_L, 'L': StreamKeys.VK_KEY_L,
+    'm': StreamKeys.VK_KEY_M, 'M': StreamKeys.VK_KEY_M,
+    'n': StreamKeys.VK_KEY_N, 'N': StreamKeys.VK_KEY_N,
+    'o': StreamKeys.VK_KEY_O, 'O': StreamKeys.VK_KEY_O,
+    'p': StreamKeys.VK_KEY_P, 'P': StreamKeys.VK_KEY_P,
+    'q': StreamKeys.VK_KEY_Q, 'Q': StreamKeys.VK_KEY_Q,
+    'r': StreamKeys.VK_KEY_R, 'R': StreamKeys.VK_KEY_R,
+    's': StreamKeys.VK_KEY_S, 'S': StreamKeys.VK_KEY_S,
+    't': StreamKeys.VK_KEY_T, 'T': StreamKeys.VK_KEY_T,
+    'u': StreamKeys.VK_KEY_U, 'U': StreamKeys.VK_KEY_U,
+    'v': StreamKeys.VK_KEY_V, 'V': StreamKeys.VK_KEY_V,
+    'w': StreamKeys.VK_KEY_W, 'W': StreamKeys.VK_KEY_W,
+    'x': StreamKeys.VK_KEY_X, 'X': StreamKeys.VK_KEY_X,
+    'y': StreamKeys.VK_KEY_Y, 'Y': StreamKeys.VK_KEY_Y,
+    'z': StreamKeys.VK_KEY_Z, 'Z': StreamKeys.VK_KEY_Z,
+    // Numbers
+    '0': StreamKeys.VK_KEY_0,
+    '1': StreamKeys.VK_KEY_1,
+    '2': StreamKeys.VK_KEY_2,
+    '3': StreamKeys.VK_KEY_3,
+    '4': StreamKeys.VK_KEY_4,
+    '5': StreamKeys.VK_KEY_5,
+    '6': StreamKeys.VK_KEY_6,
+    '7': StreamKeys.VK_KEY_7,
+    '8': StreamKeys.VK_KEY_8,
+    '9': StreamKeys.VK_KEY_9,
+    // Shift+number symbols (US keyboard layout)
+    '!': StreamKeys.VK_KEY_1,
+    '@': StreamKeys.VK_KEY_2,
+    '#': StreamKeys.VK_KEY_3,
+    '$': StreamKeys.VK_KEY_4,
+    '%': StreamKeys.VK_KEY_5,
+    '^': StreamKeys.VK_KEY_6,
+    '&': StreamKeys.VK_KEY_7,
+    '*': StreamKeys.VK_KEY_8,
+    '(': StreamKeys.VK_KEY_9,
+    ')': StreamKeys.VK_KEY_0,
+    // Common punctuation
+    '-': StreamKeys.VK_OEM_MINUS,
+    '_': StreamKeys.VK_OEM_MINUS,
+    '=': StreamKeys.VK_OEM_PLUS,
+    '+': StreamKeys.VK_OEM_PLUS,
+    '[': StreamKeys.VK_OEM_4,
+    '{': StreamKeys.VK_OEM_4,
+    ']': StreamKeys.VK_OEM_6,
+    '}': StreamKeys.VK_OEM_6,
+    '\\': StreamKeys.VK_OEM_5,
+    '|': StreamKeys.VK_OEM_5,
+    ';': StreamKeys.VK_OEM_1,
+    ':': StreamKeys.VK_OEM_1,
+    "'": StreamKeys.VK_OEM_7,
+    '"': StreamKeys.VK_OEM_7,
+    '`': StreamKeys.VK_OEM_3,
+    '~': StreamKeys.VK_OEM_3,
+    ',': StreamKeys.VK_OEM_COMMA,
+    '<': StreamKeys.VK_OEM_COMMA,
+    '.': StreamKeys.VK_OEM_PERIOD,
+    '>': StreamKeys.VK_OEM_PERIOD,
+    '/': StreamKeys.VK_OEM_2,
+    '?': StreamKeys.VK_OEM_2,
+    ' ': StreamKeys.VK_SPACE,
+
+    // === International character support ===
+    // These map accented characters to their base letter keys.
+    // The remote desktop won't receive the accent, but input won't be dropped.
+
+    // French accented characters
+    'é': StreamKeys.VK_KEY_E, 'É': StreamKeys.VK_KEY_E,
+    'è': StreamKeys.VK_KEY_E, 'È': StreamKeys.VK_KEY_E,
+    'ê': StreamKeys.VK_KEY_E, 'Ê': StreamKeys.VK_KEY_E,
+    'ë': StreamKeys.VK_KEY_E, 'Ë': StreamKeys.VK_KEY_E,
+    'à': StreamKeys.VK_KEY_A, 'À': StreamKeys.VK_KEY_A,
+    'â': StreamKeys.VK_KEY_A, 'Â': StreamKeys.VK_KEY_A,
+    'ù': StreamKeys.VK_KEY_U, 'Ù': StreamKeys.VK_KEY_U,
+    'û': StreamKeys.VK_KEY_U, 'Û': StreamKeys.VK_KEY_U,
+    'ü': StreamKeys.VK_KEY_U, 'Ü': StreamKeys.VK_KEY_U,
+    'î': StreamKeys.VK_KEY_I, 'Î': StreamKeys.VK_KEY_I,
+    'ï': StreamKeys.VK_KEY_I, 'Ï': StreamKeys.VK_KEY_I,
+    'ô': StreamKeys.VK_KEY_O, 'Ô': StreamKeys.VK_KEY_O,
+    'ç': StreamKeys.VK_KEY_C, 'Ç': StreamKeys.VK_KEY_C,
+    'œ': StreamKeys.VK_KEY_O, 'Œ': StreamKeys.VK_KEY_O,
+    'æ': StreamKeys.VK_KEY_A, 'Æ': StreamKeys.VK_KEY_A,
+
+    // German special characters
+    'ä': StreamKeys.VK_KEY_A, 'Ä': StreamKeys.VK_KEY_A,
+    'ö': StreamKeys.VK_KEY_O, 'Ö': StreamKeys.VK_KEY_O,
+    'ß': StreamKeys.VK_KEY_S, 'ẞ': StreamKeys.VK_KEY_S,
+
+    // Spanish special characters
+    'ñ': StreamKeys.VK_KEY_N, 'Ñ': StreamKeys.VK_KEY_N,
+    'á': StreamKeys.VK_KEY_A, 'Á': StreamKeys.VK_KEY_A,
+    'í': StreamKeys.VK_KEY_I, 'Í': StreamKeys.VK_KEY_I,
+    'ó': StreamKeys.VK_KEY_O, 'Ó': StreamKeys.VK_KEY_O,
+    'ú': StreamKeys.VK_KEY_U, 'Ú': StreamKeys.VK_KEY_U,
+    '¿': StreamKeys.VK_OEM_2,  // Map to / key
+    '¡': StreamKeys.VK_KEY_1,  // Map to 1 key
+
+    // UK keyboard specifics
+    '£': StreamKeys.VK_KEY_3,  // UK Shift+3
+
+    // Common European symbols
+    '€': StreamKeys.VK_KEY_E,  // Euro on E key in most EU layouts
+    '§': StreamKeys.VK_KEY_S,  // Section sign
+    '°': StreamKeys.VK_KEY_0,  // Degree symbol
+
+    // French AZERTY unshifted number row characters
+    '&': StreamKeys.VK_KEY_7,  // Already covered above but AZERTY has it on 1
+    // Note: French keyboard has these on number keys unshifted:
+    // & é " ' ( - è _ ç à ) =
+    // We've already mapped the accented ones above
+}
+
 export function convertToKey(event: KeyboardEvent): number | null {
+    // First try event.code (physical key location)
     let key = VK_MAPPINGS[event.code] ?? null
     if (key == null) {
+        // Fallback to VK_MAPPINGS with event.key (for named keys like "Escape")
         key = VK_MAPPINGS[event.key] ?? null
+    }
+    if (key == null) {
+        // Final fallback: character-based mapping for iPad/iOS
+        // where event.code is empty but event.key has the character
+        key = KEY_VALUE_MAPPINGS[event.key] ?? null
     }
     return key
 }

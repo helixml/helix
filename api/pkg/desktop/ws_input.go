@@ -96,14 +96,39 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWSKeyboard handles keyboard input messages.
-// Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
-// The keycode is a Linux evdev keycode sent directly by the frontend.
+//
+// Supports three modes:
+//   - subType=0: Evdev keycode [subType:1][isDown:1][modifiers:1][keycode:2 BE]
+//   - subType=2: X11 keysym [subType:1][isDown:1][modifiers:1][keysym:4 BE]
+//   - subType=3: X11 keysym tap [subType:1][modifiers:1][keysym:4 BE] (press+release)
+//
+// Keysym mode is used when event.code is unavailable (iPad/iOS).
+// Keysym tap is used for Android virtual keyboards and swipe typing.
 func (s *Server) handleWSKeyboard(data []byte) {
+	if len(data) < 1 {
+		return
+	}
+
+	subType := data[0]
+	switch subType {
+	case 0:
+		s.handleWSKeyboardKeycode(data)
+	case 2:
+		s.handleWSKeyboardKeysym(data)
+	case 3:
+		s.handleWSKeyboardKeysymTap(data)
+	default:
+		s.logger.Warn("Unknown keyboard subType", "subType", subType)
+	}
+}
+
+// handleWSKeyboardKeycode handles evdev keycode keyboard messages.
+// Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
+func (s *Server) handleWSKeyboardKeycode(data []byte) {
 	if len(data) < 5 {
 		return
 	}
 
-	// subType := data[0] // Always 0 for keyboard, unused
 	isDown := data[1] != 0
 	// modifiers := data[2] // Currently unused, could be used for modifier sync
 	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
@@ -132,6 +157,198 @@ func (s *Server) handleWSKeyboard(data []byte) {
 		}
 		if err != nil {
 			s.logger.Debug("Wayland virtual keyboard failed", "evdev", evdevCode, "err", err)
+		}
+	}
+}
+
+// handleWSKeyboardKeysym handles X11 keysym keyboard messages.
+// Format: [subType:1][isDown:1][modifiers:1][keysym:4 BE]
+//
+// Keysyms provide layout-independent character input, used when
+// event.code is unavailable (iPad/iOS keyboards).
+func (s *Server) handleWSKeyboardKeysym(data []byte) {
+	if len(data) < 7 {
+		return
+	}
+
+	isDown := data[1] != 0
+	// modifiers := data[2] // Currently unused
+	keysym := binary.BigEndian.Uint32(data[3:7])
+
+	if keysym == 0 {
+		return
+	}
+
+	// Try D-Bus RemoteDesktop first (GNOME)
+	// NotifyKeyboardKeysym sends the character directly, independent of layout
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, isDown).Err
+		if err != nil {
+			s.logger.Error("WebSocket keyboard keysym D-Bus call failed", "keysym", keysym, "err", err)
+		}
+		return
+	}
+
+	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
+	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
+	if s.waylandInput != nil {
+		// Try xkbcommon first for layout-aware mapping
+		evdevCode := XKBKeysymToEvdev(keysym)
+		if evdevCode == 0 {
+			// Fall back to static QWERTY mapping
+			evdevCode = keysymToEvdev(keysym)
+		}
+		if evdevCode == 0 {
+			s.logger.Debug("No evdev mapping for keysym", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
+			return
+		}
+		var err error
+		if isDown {
+			err = s.waylandInput.KeyDownEvdev(evdevCode)
+		} else {
+			err = s.waylandInput.KeyUpEvdev(evdevCode)
+		}
+		if err != nil {
+			s.logger.Debug("Wayland virtual keyboard keysym failed", "keysym", keysym, "evdev", evdevCode, "err", err)
+		}
+	}
+}
+
+// Modifier bit flags (matching frontend EvdevModifiers)
+const (
+	ModifierShift = 1 << 0
+	ModifierCtrl  = 1 << 1
+	ModifierAlt   = 1 << 2
+	ModifierMeta  = 1 << 3
+)
+
+// Modifier keysyms (X11)
+const (
+	XK_Shift_L   = 0xffe1
+	XK_Control_L = 0xffe3
+	XK_Alt_L     = 0xffe9
+	XK_Super_L   = 0xffeb
+)
+
+// Modifier evdev keycodes
+const (
+	KEY_LEFTSHIFT = 42
+	KEY_LEFTCTRL  = 29
+	KEY_LEFTALT   = 56
+	KEY_LEFTMETA  = 125
+)
+
+// handleWSKeyboardKeysymTap handles X11 keysym "tap" messages (press + release).
+// Format: [subType:1][modifiers:1][keysym:4 BE]
+//
+// Used for Android virtual keyboards and swipe typing where we only get
+// the final character, not separate key down/up events. The backend
+// synthesizes both key press and release.
+//
+// If modifiers are specified (e.g., Ctrl for deleteWordBackward), the backend
+// sends modifier key down, keysym tap, modifier key up.
+func (s *Server) handleWSKeyboardKeysymTap(data []byte) {
+	if len(data) < 6 {
+		return
+	}
+
+	modifiers := data[1]
+	keysym := binary.BigEndian.Uint32(data[2:6])
+
+	if keysym == 0 {
+		return
+	}
+
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+
+		// Press modifiers first
+		if modifiers&ModifierShift != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Shift_L), true)
+		}
+		if modifiers&ModifierCtrl != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Control_L), true)
+		}
+		if modifiers&ModifierAlt != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Alt_L), true)
+		}
+		if modifiers&ModifierMeta != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Super_L), true)
+		}
+
+		// Key press
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, true).Err
+		if err != nil {
+			s.logger.Error("WebSocket keyboard keysym tap D-Bus call failed (press)", "keysym", keysym, "err", err)
+		}
+		// Key release
+		rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, false)
+
+		// Release modifiers (reverse order)
+		if modifiers&ModifierMeta != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Super_L), false)
+		}
+		if modifiers&ModifierAlt != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Alt_L), false)
+		}
+		if modifiers&ModifierCtrl != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Control_L), false)
+		}
+		if modifiers&ModifierShift != 0 {
+			rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, uint32(XK_Shift_L), false)
+		}
+		return
+	}
+
+	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
+	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
+	if s.waylandInput != nil {
+		// Try xkbcommon first for layout-aware mapping
+		evdevCode := XKBKeysymToEvdev(keysym)
+		if evdevCode == 0 {
+			// Fall back to static QWERTY mapping
+			evdevCode = keysymToEvdev(keysym)
+		}
+		if evdevCode == 0 {
+			s.logger.Debug("No evdev mapping for keysym tap", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
+			return
+		}
+
+		// Press modifiers first
+		if modifiers&ModifierShift != 0 {
+			s.waylandInput.KeyDownEvdev(KEY_LEFTSHIFT)
+		}
+		if modifiers&ModifierCtrl != 0 {
+			s.waylandInput.KeyDownEvdev(KEY_LEFTCTRL)
+		}
+		if modifiers&ModifierAlt != 0 {
+			s.waylandInput.KeyDownEvdev(KEY_LEFTALT)
+		}
+		if modifiers&ModifierMeta != 0 {
+			s.waylandInput.KeyDownEvdev(KEY_LEFTMETA)
+		}
+
+		// Key press
+		if err := s.waylandInput.KeyDownEvdev(evdevCode); err != nil {
+			s.logger.Debug("Wayland virtual keyboard keysym tap failed (press)", "keysym", keysym, "evdev", evdevCode, "err", err)
+		}
+		// Key release
+		s.waylandInput.KeyUpEvdev(evdevCode)
+
+		// Release modifiers (reverse order)
+		if modifiers&ModifierMeta != 0 {
+			s.waylandInput.KeyUpEvdev(KEY_LEFTMETA)
+		}
+		if modifiers&ModifierAlt != 0 {
+			s.waylandInput.KeyUpEvdev(KEY_LEFTALT)
+		}
+		if modifiers&ModifierCtrl != 0 {
+			s.waylandInput.KeyUpEvdev(KEY_LEFTCTRL)
+		}
+		if modifiers&ModifierShift != 0 {
+			s.waylandInput.KeyUpEvdev(KEY_LEFTSHIFT)
 		}
 	}
 }
@@ -480,4 +697,376 @@ func (s *Server) handleWSTouch(data []byte) {
 	if err != nil {
 		s.logger.Error("WebSocket touch D-Bus call failed", "eventType", eventType, "err", err)
 	}
+}
+
+// keysymToEvdev converts an X11 keysym to a Linux evdev keycode.
+// This is a best-effort mapping for Sway/wlroots fallback when GNOME's
+// NotifyKeyboardKeysym is not available.
+//
+// For QWERTY layouts, this maps ASCII characters to their physical key positions.
+// Non-ASCII characters may not map correctly on non-QWERTY layouts.
+//
+// Returns 0 if no mapping exists.
+func keysymToEvdev(keysym uint32) int {
+	// X11 keysym constants
+	const (
+		XK_BackSpace = 0xff08
+		XK_Tab       = 0xff09
+		XK_Return    = 0xff0d
+		XK_Escape    = 0xff1b
+		XK_Delete    = 0xffff
+		XK_Home      = 0xff50
+		XK_Left      = 0xff51
+		XK_Up        = 0xff52
+		XK_Right     = 0xff53
+		XK_Down      = 0xff54
+		XK_Page_Up   = 0xff55
+		XK_Page_Down = 0xff56
+		XK_End       = 0xff57
+		XK_Insert    = 0xff63
+		XK_Num_Lock  = 0xff7f
+		XK_KP_Enter  = 0xff8d
+		XK_KP_0      = 0xffb0
+		XK_F1        = 0xffbe
+		XK_F12       = 0xffc9
+		XK_Shift_L   = 0xffe1
+		XK_Shift_R   = 0xffe2
+		XK_Control_L = 0xffe3
+		XK_Control_R = 0xffe4
+		XK_Caps_Lock = 0xffe5
+		XK_Alt_L     = 0xffe9
+		XK_Alt_R     = 0xffea
+		XK_Super_L   = 0xffeb
+		XK_Super_R   = 0xffec
+	)
+
+	// Linux evdev keycodes
+	const (
+		KEY_ESC       = 1
+		KEY_1         = 2
+		KEY_2         = 3
+		KEY_3         = 4
+		KEY_4         = 5
+		KEY_5         = 6
+		KEY_6         = 7
+		KEY_7         = 8
+		KEY_8         = 9
+		KEY_9         = 10
+		KEY_0         = 11
+		KEY_MINUS     = 12
+		KEY_EQUAL     = 13
+		KEY_BACKSPACE = 14
+		KEY_TAB       = 15
+		KEY_Q         = 16
+		KEY_W         = 17
+		KEY_E         = 18
+		KEY_R         = 19
+		KEY_T         = 20
+		KEY_Y         = 21
+		KEY_U         = 22
+		KEY_I         = 23
+		KEY_O         = 24
+		KEY_P         = 25
+		KEY_LEFTBRACE = 26
+		KEY_RIGHTBRACE = 27
+		KEY_ENTER     = 28
+		KEY_LEFTCTRL  = 29
+		KEY_A         = 30
+		KEY_S         = 31
+		KEY_D         = 32
+		KEY_F         = 33
+		KEY_G         = 34
+		KEY_H         = 35
+		KEY_J         = 36
+		KEY_K         = 37
+		KEY_L         = 38
+		KEY_SEMICOLON = 39
+		KEY_APOSTROPHE = 40
+		KEY_GRAVE     = 41
+		KEY_LEFTSHIFT = 42
+		KEY_BACKSLASH = 43
+		KEY_Z         = 44
+		KEY_X         = 45
+		KEY_C         = 46
+		KEY_V         = 47
+		KEY_B         = 48
+		KEY_N         = 49
+		KEY_M         = 50
+		KEY_COMMA     = 51
+		KEY_DOT       = 52
+		KEY_SLASH     = 53
+		KEY_RIGHTSHIFT = 54
+		KEY_LEFTALT   = 56
+		KEY_SPACE     = 57
+		KEY_CAPSLOCK  = 58
+		KEY_F1        = 59
+		KEY_F12       = 70
+		KEY_NUMLOCK   = 69
+		KEY_HOME      = 102
+		KEY_UP        = 103
+		KEY_PAGEUP    = 104
+		KEY_LEFT      = 105
+		KEY_RIGHT     = 106
+		KEY_END       = 107
+		KEY_DOWN      = 108
+		KEY_PAGEDOWN  = 109
+		KEY_INSERT    = 110
+		KEY_DELETE    = 111
+		KEY_KPENTER   = 96
+		KEY_RIGHTCTRL = 97
+		KEY_RIGHTALT  = 100
+		KEY_LEFTMETA  = 125
+		KEY_RIGHTMETA = 126
+	)
+
+	// Special keys (0xFF00-0xFFFF range)
+	switch keysym {
+	case XK_BackSpace:
+		return KEY_BACKSPACE
+	case XK_Tab:
+		return KEY_TAB
+	case XK_Return:
+		return KEY_ENTER
+	case XK_Escape:
+		return KEY_ESC
+	case XK_Delete:
+		return KEY_DELETE
+	case XK_Home:
+		return KEY_HOME
+	case XK_Left:
+		return KEY_LEFT
+	case XK_Up:
+		return KEY_UP
+	case XK_Right:
+		return KEY_RIGHT
+	case XK_Down:
+		return KEY_DOWN
+	case XK_Page_Up:
+		return KEY_PAGEUP
+	case XK_Page_Down:
+		return KEY_PAGEDOWN
+	case XK_End:
+		return KEY_END
+	case XK_Insert:
+		return KEY_INSERT
+	case XK_Num_Lock:
+		return KEY_NUMLOCK
+	case XK_KP_Enter:
+		return KEY_KPENTER
+	case XK_Shift_L:
+		return KEY_LEFTSHIFT
+	case XK_Shift_R:
+		return KEY_RIGHTSHIFT
+	case XK_Control_L:
+		return KEY_LEFTCTRL
+	case XK_Control_R:
+		return KEY_RIGHTCTRL
+	case XK_Caps_Lock:
+		return KEY_CAPSLOCK
+	case XK_Alt_L:
+		return KEY_LEFTALT
+	case XK_Alt_R:
+		return KEY_RIGHTALT
+	case XK_Super_L:
+		return KEY_LEFTMETA
+	case XK_Super_R:
+		return KEY_RIGHTMETA
+	}
+
+	// Function keys (F1-F12)
+	if keysym >= XK_F1 && keysym <= XK_F12 {
+		return KEY_F1 + int(keysym-XK_F1)
+	}
+
+	// Keypad numbers (0-9)
+	if keysym >= XK_KP_0 && keysym <= XK_KP_0+9 {
+		// KEY_KP0 = 82, KEY_KP1 = 79, KEY_KP2 = 80, ...
+		// KP layout: 7,8,9 / 4,5,6 / 1,2,3 / 0
+		kpNum := int(keysym - XK_KP_0)
+		kpMap := []int{82, 79, 80, 81, 75, 76, 77, 71, 72, 73}
+		return kpMap[kpNum]
+	}
+
+	// Latin-1 ASCII characters (keysym == Unicode code point for 0x20-0x7F)
+	// Map to QWERTY layout physical key positions
+	if keysym >= 0x20 && keysym <= 0x7F {
+		switch keysym {
+		case ' ':
+			return KEY_SPACE
+		// Numbers
+		case '0':
+			return KEY_0
+		case '1':
+			return KEY_1
+		case '2':
+			return KEY_2
+		case '3':
+			return KEY_3
+		case '4':
+			return KEY_4
+		case '5':
+			return KEY_5
+		case '6':
+			return KEY_6
+		case '7':
+			return KEY_7
+		case '8':
+			return KEY_8
+		case '9':
+			return KEY_9
+		// Lowercase letters
+		case 'a':
+			return KEY_A
+		case 'b':
+			return KEY_B
+		case 'c':
+			return KEY_C
+		case 'd':
+			return KEY_D
+		case 'e':
+			return KEY_E
+		case 'f':
+			return KEY_F
+		case 'g':
+			return KEY_G
+		case 'h':
+			return KEY_H
+		case 'i':
+			return KEY_I
+		case 'j':
+			return KEY_J
+		case 'k':
+			return KEY_K
+		case 'l':
+			return KEY_L
+		case 'm':
+			return KEY_M
+		case 'n':
+			return KEY_N
+		case 'o':
+			return KEY_O
+		case 'p':
+			return KEY_P
+		case 'q':
+			return KEY_Q
+		case 'r':
+			return KEY_R
+		case 's':
+			return KEY_S
+		case 't':
+			return KEY_T
+		case 'u':
+			return KEY_U
+		case 'v':
+			return KEY_V
+		case 'w':
+			return KEY_W
+		case 'x':
+			return KEY_X
+		case 'y':
+			return KEY_Y
+		case 'z':
+			return KEY_Z
+		// Uppercase letters (same keys as lowercase)
+		case 'A':
+			return KEY_A
+		case 'B':
+			return KEY_B
+		case 'C':
+			return KEY_C
+		case 'D':
+			return KEY_D
+		case 'E':
+			return KEY_E
+		case 'F':
+			return KEY_F
+		case 'G':
+			return KEY_G
+		case 'H':
+			return KEY_H
+		case 'I':
+			return KEY_I
+		case 'J':
+			return KEY_J
+		case 'K':
+			return KEY_K
+		case 'L':
+			return KEY_L
+		case 'M':
+			return KEY_M
+		case 'N':
+			return KEY_N
+		case 'O':
+			return KEY_O
+		case 'P':
+			return KEY_P
+		case 'Q':
+			return KEY_Q
+		case 'R':
+			return KEY_R
+		case 'S':
+			return KEY_S
+		case 'T':
+			return KEY_T
+		case 'U':
+			return KEY_U
+		case 'V':
+			return KEY_V
+		case 'W':
+			return KEY_W
+		case 'X':
+			return KEY_X
+		case 'Y':
+			return KEY_Y
+		case 'Z':
+			return KEY_Z
+		// Punctuation (QWERTY layout)
+		case '-', '_':
+			return KEY_MINUS
+		case '=', '+':
+			return KEY_EQUAL
+		case '[', '{':
+			return KEY_LEFTBRACE
+		case ']', '}':
+			return KEY_RIGHTBRACE
+		case ';', ':':
+			return KEY_SEMICOLON
+		case '\'', '"':
+			return KEY_APOSTROPHE
+		case '`', '~':
+			return KEY_GRAVE
+		case '\\', '|':
+			return KEY_BACKSLASH
+		case ',', '<':
+			return KEY_COMMA
+		case '.', '>':
+			return KEY_DOT
+		case '/', '?':
+			return KEY_SLASH
+		// Shift+number symbols (QWERTY US layout)
+		case '!':
+			return KEY_1
+		case '@':
+			return KEY_2
+		case '#':
+			return KEY_3
+		case '$':
+			return KEY_4
+		case '%':
+			return KEY_5
+		case '^':
+			return KEY_6
+		case '&':
+			return KEY_7
+		case '*':
+			return KEY_8
+		case '(':
+			return KEY_9
+		case ')':
+			return KEY_0
+		}
+	}
+
+	// No mapping found
+	return 0
 }

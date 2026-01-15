@@ -200,6 +200,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const videoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const VIDEO_START_TIMEOUT_MS = 15000; // 15 seconds to start video after connection
   const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Auto-dismiss timeout for bitrate recommendation banner
+  const bitrateRecommendationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const BITRATE_RECOMMENDATION_DISMISS_MS = 15000; // 15 seconds before auto-dismiss
 
   // STREAM REGISTRY: Track all active streaming connections for debugging
   // This helps catch bugs where we accidentally have multiple streams active
@@ -1884,6 +1887,32 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // SSE mode: do nothing here - SSE setup/hot-switch handles video state
   }, [qualityMode, isConnected, streamingMode]);
 
+  // Auto-dismiss bitrate recommendation after a fixed duration
+  useEffect(() => {
+    if (!bitrateRecommendation) {
+      // Clear any pending timeout when recommendation is dismissed
+      if (bitrateRecommendationTimeoutRef.current) {
+        clearTimeout(bitrateRecommendationTimeoutRef.current);
+        bitrateRecommendationTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    // Set up auto-dismiss timeout
+    bitrateRecommendationTimeoutRef.current = setTimeout(() => {
+      console.log('[DesktopStreamViewer] Auto-dismissing bitrate recommendation after timeout');
+      setBitrateRecommendation(null);
+      bitrateRecommendationTimeoutRef.current = null;
+    }, BITRATE_RECOMMENDATION_DISMISS_MS);
+
+    return () => {
+      if (bitrateRecommendationTimeoutRef.current) {
+        clearTimeout(bitrateRecommendationTimeoutRef.current);
+        bitrateRecommendationTimeoutRef.current = null;
+      }
+    };
+  }, [bitrateRecommendation]);
+
   useEffect(() => {
     // Only poll screenshots when needed
     if (!shouldPollScreenshots || !isConnected || !sessionId) {
@@ -3193,6 +3222,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       event.stopPropagation();
     };
 
+    // Handle beforeinput for Android virtual keyboards and swipe typing
+    // Android sends key="Unidentified" for virtual keyboard presses, but beforeinput
+    // gives us the actual text being inserted. This also handles swipe/gesture typing.
+    const handleBeforeInput = (event: Event) => {
+      // Only process if container is focused
+      if (document.activeElement !== container) {
+        return;
+      }
+
+      const inputEvent = event as InputEvent;
+      const input = getInput();
+      if (input && input.onBeforeInput(inputEvent)) {
+        // Handler consumed the event - prevent default to avoid duplicate input
+        event.preventDefault();
+      }
+    };
+
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
     const handleWindowFocus = () => {
       console.log('[DesktopStreamViewer] Window regained focus - resetting input state to prevent desync');
@@ -3202,11 +3248,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Attach to container, not document (so we only capture when focused)
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('keyup', handleKeyUp);
+    container.addEventListener('beforeinput', handleBeforeInput);
     window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       container.removeEventListener('keydown', handleKeyDown);
       container.removeEventListener('keyup', handleKeyUp);
+      container.removeEventListener('beforeinput', handleBeforeInput);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, [isConnected, resetInputState]);
