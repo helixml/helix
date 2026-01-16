@@ -685,9 +685,14 @@ func getAgentTypeFromApp(app *types.App, startReq types.SessionChatRequest) stri
 		assistant = &app.Config.Helix.Assistants[0]
 	}
 
-	// Use assistant agent type if available, otherwise fall back to request agent type
-	if assistant != nil {
+	// Use assistant agent type if available and non-empty
+	if assistant != nil && assistant.AgentType != "" {
 		return string(assistant.AgentType)
+	}
+
+	// Fall back to app's default agent type
+	if app.Config.Helix.DefaultAgentType != "" {
+		return string(app.Config.Helix.DefaultAgentType)
 	}
 
 	return startReq.AgentType
