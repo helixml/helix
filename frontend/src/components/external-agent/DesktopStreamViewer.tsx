@@ -653,6 +653,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           console.log(`[DesktopStreamViewer] Reconnecting attempt ${data.attempt}`);
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
+        } else if (data.type === 'reconnectAborted') {
+          // WebSocketStream refused to reconnect (this.closed was true unexpectedly)
+          // This shouldn't happen during normal operation - log for debugging
+          console.warn('[DesktopStreamViewer] Reconnect aborted by stream:', data.reason);
+
+          // If we weren't explicitly closing, this is unexpected - try to reconnect ourselves
+          if (!isExplicitlyClosingRef.current) {
+            console.log('[DesktopStreamViewer] Unexpected reconnect abort - will manually reconnect');
+            reconnectRef.current(1000, 'Reconnecting...');
+          } else {
+            // We were explicitly closing, show disconnected state
+            console.log('[DesktopStreamViewer] Reconnect aborted during explicit close');
+            setIsConnecting(false);
+            setStatus('Disconnected');
+          }
         }
         // Cursor events
         else if (data.type === 'cursorImage') {

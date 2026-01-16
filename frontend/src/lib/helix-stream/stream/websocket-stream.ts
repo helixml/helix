@@ -547,6 +547,9 @@ export class WebSocketStream {
     // Don't reconnect if explicitly closed
     if (this.closed) {
       console.log("[WebSocketStream] Not reconnecting - stream was explicitly closed")
+      // Dispatch event so DesktopStreamViewer knows reconnection was skipped
+      // This prevents the UI from getting stuck on "Reconnecting..." forever
+      this.dispatchInfoEvent({ type: "reconnectAborted", reason: "explicitly closed" })
       return
     }
 
@@ -2409,7 +2412,8 @@ export class WebSocketStream {
   }
 
   close() {
-    console.log("[WebSocketStream] Closing")
+    // Log with stack trace to help debug unexpected close() calls
+    console.log("[WebSocketStream] Closing", new Error("close() called from:").stack)
 
     // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true
