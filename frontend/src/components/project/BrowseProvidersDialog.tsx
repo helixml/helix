@@ -45,7 +45,7 @@ import useRouter from '../../hooks/useRouter'
 interface BrowseProvidersDialogProps {
   open: boolean
   onClose: () => void
-  onSelectRepository: (repo: TypesRepositoryInfo, providerType: string) => void
+  onSelectRepository: (repo: TypesRepositoryInfo, providerType: string, oauthConnectionId?: string) => void
   isLinking?: boolean
   // If provided, shows warning that repo will be visible to org members
   organizationName?: string
@@ -344,8 +344,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       })
       onSelectRepository(selectedRepo, providerWithCreds)
     } else {
-      // OAuth-based selection
-      onSelectRepository(selectedRepo, selectedProvider)
+      // OAuth-based selection - pass connection ID
+      console.log("XXX", selectedConnectionId)
+      console.log("XXX", selectedProvider)
+      console.log("XXX", selectedRepo)
+      onSelectRepository(selectedRepo, selectedProvider, selectedConnectionId)
     }
   }
 

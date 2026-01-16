@@ -407,8 +407,8 @@ const Projects: FC = () => {
   }
 
   // Handle repository selection from OAuth browser or PAT flow
-  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerTypeOrCreds: string) => {
-    if (!account.user?.id) return
+  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerTypeOrCreds: string, oauthConnectionId?: string  ) => {
+    if (!account.user?.id) return    
 
     setLinkingFromBrowser(true)
     try {
@@ -488,6 +488,7 @@ const Projects: FC = () => {
         gitlab,
         azure_devops: azureDevOps,
         bitbucket,
+        oauth_connection_id: oauthConnectionId,
       })
 
       // Invalidate and refetch git repositories query
