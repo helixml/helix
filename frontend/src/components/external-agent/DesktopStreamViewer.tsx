@@ -153,13 +153,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Touch input mode: 'direct' (touch-to-click) or 'trackpad' (relative movement like a laptop trackpad)
   // - 'direct': Touch position = cursor position (default for desktop UIs)
-  // - 'trackpad': Drag finger = move cursor relatively, tap = click (better for mobile)
+  // - 'trackpad': Drag finger = move cursor relatively, tap = click, double-tap-drag = drag (better for mobile)
   const [touchMode, setTouchMode] = useState<'direct' | 'trackpad'>('direct');
   // Touch tracking refs for trackpad mode gestures
   const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
   const twoFingerStartYRef = useRef<number | null>(null);
-  // Trackpad mode constant
+  // Double-tap-and-drag gesture detection
+  const lastTapTimeRef = useRef<number>(0);
+  const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
+  // Trackpad mode constants
   const TRACKPAD_CURSOR_SENSITIVITY = 1.5; // Multiplier for cursor movement
+  const DOUBLE_TAP_THRESHOLD_MS = 300; // Max time between taps for double-tap
 
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -902,9 +906,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const input = streamRef.current?.getInput();
     if (input) {
       // Map UI touch mode to StreamInput touchMode
-      // 'direct' → 'touch' (sends direct touch events)
-      // 'trackpad' → 'pointAndDrag' (relative movement with tap-to-click)
-      const streamTouchMode = touchMode === 'trackpad' ? 'pointAndDrag' : 'touch';
+      // 'direct' → 'touch' (sends direct touch events to server)
+      // 'trackpad' → 'mouseRelative' (relative mouse movement, tap=click, two-finger=scroll)
+      // Note: We handle double-tap-drag ourselves in the touch handlers
+      const streamTouchMode = touchMode === 'trackpad' ? 'mouseRelative' : 'touch';
       input.setConfig({ touchMode: streamTouchMode } as any);
       console.log(`[DesktopStreamViewer] Touch mode changed to ${touchMode} (stream: ${streamTouchMode})`);
     }
@@ -2173,15 +2178,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, []);
 
   // Touch event handlers - delegates to StreamInput which handles different touch modes
+  // In trackpad mode, we also handle double-tap-drag gesture for click-and-drag operations
   const handleTouchStart = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
     const handler = getInputHandler();
     const rect = getStreamRect();
     if (!handler) return;
 
-    // In trackpad mode, track touch position for relative movement
+    // In trackpad mode, handle gestures
     if (touchMode === 'trackpad' && event.touches.length === 1) {
       const touch = event.touches[0];
+      const now = Date.now();
       lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
 
       // Initialize cursor at center of stream if this is first touch
@@ -2193,6 +2200,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
         setHasMouseMoved(true);
       }
+
+      // Check for double-tap: if second tap within threshold, start drag mode
+      if (now - lastTapTimeRef.current < DOUBLE_TAP_THRESHOLD_MS && !isDragging) {
+        console.log('[DesktopStreamViewer] Double-tap detected, starting drag mode');
+        setIsDragging(true);
+        // Send mouse button down to start drag
+        handler.sendMouseButton?.(true, 0); // 0 = left button
+      }
     }
 
     // Reset two-finger tracking
@@ -2202,7 +2217,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Delegate to StreamInput for actual input handling
     handler.onTouchStart(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved]);
+  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved, isDragging, DOUBLE_TAP_THRESHOLD_MS]);
 
   const handleTouchMove = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2239,13 +2254,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const rect = getStreamRect();
     if (!handler) return;
 
+    // In trackpad mode, handle end of drag and record tap time for double-tap detection
+    if (touchMode === 'trackpad') {
+      if (isDragging) {
+        console.log('[DesktopStreamViewer] Ending drag mode');
+        // Send mouse button up to end drag
+        handler.sendMouseButton?.(false, 0); // 0 = left button
+        setIsDragging(false);
+      }
+      // Record tap time for double-tap detection
+      lastTapTimeRef.current = Date.now();
+    }
+
     // Delegate to StreamInput for actual input handling
     handler.onTouchEnd(event.nativeEvent, rect);
 
     // Clean up touch tracking
     lastTouchPosRef.current = null;
     twoFingerStartYRef.current = null;
-  }, [getStreamRect, getInputHandler]);
+  }, [getStreamRect, getInputHandler, touchMode, isDragging]);
 
   const handleTouchCancel = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2253,12 +2280,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const rect = getStreamRect();
     if (!handler) return;
 
+    // Cancel any ongoing drag
+    if (touchMode === 'trackpad' && isDragging) {
+      handler.sendMouseButton?.(false, 0);
+      setIsDragging(false);
+    }
+
     handler.onTouchCancel?.(event.nativeEvent, rect);
 
     // Clean up touch tracking
     lastTouchPosRef.current = null;
     twoFingerStartYRef.current = null;
-  }, [getStreamRect, getInputHandler]);
+  }, [getStreamRect, getInputHandler, touchMode, isDragging]);
 
   // Reset all input state - clears stuck modifiers and mouse buttons
   const resetInputState = useCallback(() => {
@@ -3159,58 +3192,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             id="custom-cursor-fallback"
           />
         )
-      )}
-
-      {/* Virtual cursor overlay for trackpad mode */}
-      {/* Shows where the cursor is positioned when using relative touch movement */}
-      {touchMode === 'trackpad' && virtualCursor.visible && (
-        <Box
-          sx={{
-            position: 'absolute',
-            // Position relative to canvas - calculate based on stream rect
-            left: (() => {
-              if (!containerRef.current || !canvasDisplaySize) return virtualCursor.x;
-              const containerRect = containerRef.current.getBoundingClientRect();
-              const canvasLeft = (containerRect.width - canvasDisplaySize.width) / 2;
-              const scaleX = canvasDisplaySize.width / (width || 1920);
-              return canvasLeft + virtualCursor.x * scaleX;
-            })(),
-            top: (() => {
-              if (!containerRef.current || !canvasDisplaySize) return virtualCursor.y;
-              const containerRect = containerRef.current.getBoundingClientRect();
-              const canvasTop = (containerRect.height - canvasDisplaySize.height) / 2;
-              const scaleY = canvasDisplaySize.height / (height || 1080);
-              return canvasTop + virtualCursor.y * scaleY;
-            })(),
-            pointerEvents: 'none',
-            zIndex: 1002,
-            transform: 'translate(-50%, -50%)',
-          }}
-        >
-          {/* Trackpad cursor indicator - circle with crosshair */}
-          <Box
-            sx={{
-              width: 20,
-              height: 20,
-              border: '2px solid #2196f3',
-              borderRadius: '50%',
-              backgroundColor: 'rgba(33, 150, 243, 0.2)',
-              boxShadow: '0 0 8px rgba(33, 150, 243, 0.6), 0 0 4px rgba(33, 150, 243, 0.8)',
-              position: 'relative',
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                width: 4,
-                height: 4,
-                backgroundColor: '#2196f3',
-                borderRadius: '50%',
-                transform: 'translate(-50%, -50%)',
-              },
-            }}
-          />
-        </Box>
       )}
 
       {/* Remote user cursors (Figma-style multi-player) */}
