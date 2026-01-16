@@ -711,6 +711,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/bandwidth-probe", apiServer.getInitialBandwidthProbe).Methods("GET") // Initial probe (no session required)
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
+	authRouter.HandleFunc("/external-agents/{sessionID}/voice", apiServer.sendVoiceInput).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST") // Execute safe commands in sandbox (vkcube, glxgears)

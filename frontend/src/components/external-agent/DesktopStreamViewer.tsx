@@ -165,6 +165,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const TRACKPAD_CURSOR_SENSITIVITY = 1.5; // Multiplier for cursor movement
   const DOUBLE_TAP_THRESHOLD_MS = 300; // Max time between taps for double-tap
 
+  // Voice input state - hold-to-record for speech-to-text
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -877,6 +883,80 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       document.exitFullscreen?.();
     }
   }, [isFullscreen]);
+
+  // Voice input: send audio to backend for transcription
+  const sendAudioForTranscription = useCallback(async (audioBlob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+
+      const token = helixApi.getApiClient().securityData?.token;
+      const response = await fetch(
+        `${helixApi.getBaseUrl()}/api/v1/external-agents/${sessionId}/voice`,
+        {
+          method: 'POST',
+          headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Voice] Transcription failed:', response.status, errorText);
+        return;
+      }
+
+      const result = await response.json();
+      console.log('[Voice] Transcription complete:', result.text);
+    } catch (err) {
+      console.error('[Voice] Transcription error:', err);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [sessionId]);
+
+  // Voice input: start recording
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus',
+      });
+
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach(track => track.stop());
+        await sendAudioForTranscription(audioBlob);
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(100); // Collect data every 100ms
+      setIsRecording(true);
+      console.log('[Voice] Recording started');
+    } catch (err) {
+      console.error('[Voice] Failed to start recording:', err);
+    }
+  }, [sendAudioForTranscription]);
+
+  // Voice input: stop recording
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      console.log('[Voice] Recording stopped');
+    }
+  }, [isRecording]);
 
   // Handle fullscreen events
   useEffect(() => {
@@ -3145,6 +3225,71 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             zIndex: 10, // Above canvas but below UI elements
           }}
         />
+      )}
+
+      {/* Voice input button - hold to record, release to transcribe and type */}
+      {isConnected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 16,
+            right: 16,
+            zIndex: 1100,
+          }}
+        >
+          <Tooltip
+            title={
+              isTranscribing
+                ? 'Transcribing...'
+                : isRecording
+                ? 'Release to stop recording'
+                : 'Hold to record voice input'
+            }
+            arrow
+            placement="left"
+          >
+            <IconButton
+              onMouseDown={startRecording}
+              onMouseUp={stopRecording}
+              onMouseLeave={stopRecording}
+              onTouchStart={startRecording}
+              onTouchEnd={stopRecording}
+              disabled={isTranscribing}
+              sx={{
+                width: 56,
+                height: 56,
+                backgroundColor: isRecording
+                  ? 'error.main'
+                  : isTranscribing
+                  ? 'warning.main'
+                  : 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                boxShadow: 3,
+                transition: 'all 0.2s ease-in-out',
+                transform: isRecording ? 'scale(1.1)' : 'scale(1)',
+                animation: isRecording ? 'pulse 1s infinite' : 'none',
+                '@keyframes pulse': {
+                  '0%': { boxShadow: '0 0 0 0 rgba(244, 67, 54, 0.7)' },
+                  '70%': { boxShadow: '0 0 0 10px rgba(244, 67, 54, 0)' },
+                  '100%': { boxShadow: '0 0 0 0 rgba(244, 67, 54, 0)' },
+                },
+                '&:hover': {
+                  backgroundColor: isRecording
+                    ? 'error.dark'
+                    : isTranscribing
+                    ? 'warning.dark'
+                    : 'rgba(0, 0, 0, 0.85)',
+                },
+              }}
+            >
+              {isTranscribing ? (
+                <CircularProgress size={24} sx={{ color: 'white' }} />
+              ) : (
+                <Mic sx={{ fontSize: 28 }} />
+              )}
+            </IconButton>
+          </Tooltip>
+        </Box>
       )}
 
       {/* Custom cursor - shows local mouse position
