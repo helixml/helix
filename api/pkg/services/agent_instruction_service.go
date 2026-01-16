@@ -93,8 +93,21 @@ Your design has been approved. Implement the code changes now.
 
 1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
-3. **Update tasks.md** - Mark [x] when you start each task, push immediately
+3. **Update tasks.md** - Mark [~] when you START a task, [x] when DONE, push immediately
 4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+
+## CRITICAL: Use tasks.md, NOT Internal To-Do Tools
+
+You may have access to an internal to-do list tool (TodoWrite, todo_write, or similar). **IGNORE IT.**
+
+Your ONLY to-do list is **/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md**.
+
+- Track ALL progress in tasks.md (mark [~] when starting, [x] when done)
+- Update tasks.md as your plan evolves (add new tasks, remove unnecessary ones, reorder)
+- Commit and push to helix-specs after EVERY change to tasks.md
+- The UI reads tasks.md to show progress - internal tools are invisible to users
+
+If you use an internal to-do tool instead of tasks.md, users cannot see your progress.
 
 ## Two Repositories - Don't Confuse Them
 
@@ -106,9 +119,10 @@ Your design has been approved. Implement the code changes now.
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
 
 - [ ] = not started
+- [~] = in progress (currently working on)
 - [x] = done
 
-When you START a task, change [ ] to [x] and push. Don't wait until "really done".
+When you START a task, change [ ] to [~] and push. When DONE, change [~] to [x] and push.
 Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
@@ -120,7 +134,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
-3. For each task in tasks.md: mark [x], push helix-specs, then do the work
+3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
 ## Don't Over-Engineer
