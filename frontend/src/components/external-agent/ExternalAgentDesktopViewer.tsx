@@ -14,6 +14,8 @@ import useSnackbar from '../../hooks/useSnackbar';
 import { useStreaming } from '../../contexts/streaming';
 import { SESSION_TYPE_TEXT } from '../../types';
 import { Api } from '../../api/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
 
 // Hook to track sandbox container state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -109,7 +111,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const streaming = useStreaming();
+  const queryClient = useQueryClient();
+  const { NewInference, setCurrentSessionId } = useStreaming();
   const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
@@ -119,6 +122,14 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Track uploaded file paths to append to prompt input (uses unique key to trigger append)
   const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
   const uploadCountRef = useRef(0);
+
+  // Set current session ID in streaming context when session panel is open
+  // This enables WebSocket updates and proper query invalidation
+  useEffect(() => {
+    if (showSessionPanel && sessionPanelOpen && sessionId) {
+      setCurrentSessionId(sessionId);
+    }
+  }, [showSessionPanel, sessionPanelOpen, sessionId]);
 
   // Handle file upload from drag/drop - append path to prompt input with a unique key
   const handleFileUploaded = useCallback((filePath: string) => {
@@ -209,13 +220,16 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
   const handleSendMessage = useCallback(async (message: string, interrupt?: boolean) => {
-    await streaming.NewInference({
+    await NewInference({
       type: SESSION_TYPE_TEXT,
       message,
       sessionId,
       interrupt: interrupt ?? true,
     });
-  }, [streaming, sessionId]);
+    // Immediately invalidate session query to refresh the interaction list
+    // This ensures the user's message appears right away without waiting for poll
+    queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+  }, [NewInference, sessionId, queryClient]);
 
   // Session panel width
   const SESSION_PANEL_WIDTH = 400;
