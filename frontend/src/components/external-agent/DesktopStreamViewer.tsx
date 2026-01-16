@@ -155,6 +155,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - 'direct': Touch position = cursor position (default for desktop UIs)
   // - 'trackpad': Drag finger = move cursor relatively, tap = click, double-tap-drag = drag (better for mobile)
   const [touchMode, setTouchMode] = useState<'direct' | 'trackpad'>('direct');
+  // Track if device has touch capability (only show touch mode toggle on touch devices)
+  const [hasTouchCapability, setHasTouchCapability] = useState(false);
   // Touch tracking refs for trackpad mode gestures
   const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
   const twoFingerStartYRef = useRef<number | null>(null);
@@ -986,6 +988,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Detect touch capability on mount
+  useEffect(() => {
+    // Check for touch support: touchscreen or coarse pointer (touch/stylus)
+    const hasTouch = 'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.matchMedia('(pointer: coarse)').matches;
+    setHasTouchCapability(hasTouch);
   }, []);
 
   // Load touch mode preference from localStorage on mount
@@ -2639,7 +2650,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
-        cursor: 'none', // Hide native cursor - custom cursor is rendered separately
+        cursor: isConnected ? 'none' : 'default', // Only hide cursor when stream is active
       }}
     >
       {/* Toolbar - always visible so user can reconnect/access controls */}
@@ -2655,7 +2666,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           borderRadius: 1,
           display: 'flex',
           gap: 1,
-          cursor: 'none', // Hide native cursor - custom cursor is rendered separately
+          cursor: 'default', // Show normal cursor in toolbar for usability
         }}
       >
         <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
@@ -2759,30 +2770,32 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        {/* Touch mode toggle: Direct touch ↔ Trackpad mode */}
-        <Tooltip
-          title={
-            touchMode === 'direct'
-              ? 'Direct touch — Tap on screen position. Click for Trackpad mode'
-              : 'Trackpad mode — Drag to move cursor, tap to click. Click for Direct touch'
-          }
-          arrow
-          slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
-        >
-          <IconButton
-            size="small"
-            onClick={() => setTouchMode(prev => prev === 'direct' ? 'trackpad' : 'direct')}
-            sx={{
-              color: touchMode === 'trackpad' ? '#2196f3' : 'white',  // Blue when trackpad mode active
-            }}
+        {/* Touch mode toggle: Direct touch ↔ Trackpad mode (only on touch devices) */}
+        {hasTouchCapability && (
+          <Tooltip
+            title={
+              touchMode === 'direct'
+                ? 'Direct touch — Tap on screen position. Click for Trackpad mode'
+                : 'Trackpad mode — Drag to move cursor, tap to click. Click for Direct touch'
+            }
+            arrow
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
           >
-            {touchMode === 'direct' ? (
-              <TouchApp fontSize="small" />
-            ) : (
-              <PanTool fontSize="small" />
-            )}
-          </IconButton>
-        </Tooltip>
+            <IconButton
+              size="small"
+              onClick={() => setTouchMode(prev => prev === 'direct' ? 'trackpad' : 'direct')}
+              sx={{
+                color: touchMode === 'trackpad' ? '#2196f3' : 'white',  // Blue when trackpad mode active
+              }}
+            >
+              {touchMode === 'direct' ? (
+                <TouchApp fontSize="small" />
+              ) : (
+                <PanTool fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+        )}
         {/* Bitrate selector - hidden in screenshot mode (has its own adaptive quality) */}
         {qualityMode !== 'screenshot' && (
           <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
@@ -3125,7 +3138,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           top: '50%',
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
-          cursor: 'none', // Hide default cursor to prevent double cursor effect
+          cursor: isConnected ? 'none' : 'default', // Hide cursor only when stream active (custom cursor shown)
           // Always visible for input capture
           // In video mode: renders video AND handles input
           // In screenshot mode: transparent but handles input (screenshot overlays on top)

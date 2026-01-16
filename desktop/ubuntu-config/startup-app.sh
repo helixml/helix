@@ -120,6 +120,10 @@ export GTK_IM_MODULE=gtk-im-context-simple
 export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
+# HiDPI cursor support - larger cursors for better streaming quality
+# This matches cursor-size=48 in dconf-settings.ini
+export XCURSOR_SIZE=48
+
 # Display scaling
 # HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by hydra_executor
 # Convert to scale factor: 100→1, 150→1.5, 200→2
