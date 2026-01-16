@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -213,19 +215,28 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		// Get the app to find the code agent assistant
 		specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for code agent config")
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
-		}
-
-		codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
-		if codeAgentConfig == nil {
-			// No zed_external assistant configured - Zed will use built-in agent with defaults
-			// from GenerateZedMCPConfig (language_models routing through Helix proxy)
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("spec_task_id", session.Metadata.SpecTaskID).
-				Str("app_id", specTask.HelixAppID).
-				Msg("No zed_external assistant found - using default Zed agent with Helix proxy")
+			if errors.Is(err, store.ErrNotFound) {
+				// App not found is not fatal - we'll use default Zed agent with Helix proxy
+				log.Warn().
+					Str("session_id", sessionID).
+					Str("spec_task_id", session.Metadata.SpecTaskID).
+					Str("app_id", specTask.HelixAppID).
+					Msg("Code agent app not found - using default Zed agent with Helix proxy")
+			} else {
+				log.Error().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for code agent config")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
+			}
+		} else {
+			codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+			if codeAgentConfig == nil {
+				// No zed_external assistant configured - Zed will use built-in agent with defaults
+				// from GenerateZedMCPConfig (language_models routing through Helix proxy)
+				log.Debug().
+					Str("session_id", sessionID).
+					Str("spec_task_id", session.Metadata.SpecTaskID).
+					Str("app_id", specTask.HelixAppID).
+					Msg("No zed_external assistant found - using default Zed agent with Helix proxy")
+			}
 		}
 	}
 
