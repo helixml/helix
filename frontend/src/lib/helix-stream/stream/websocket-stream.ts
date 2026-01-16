@@ -26,11 +26,22 @@ const WsMessageType = {
   TouchEvent: 0x14,
   ControllerEvent: 0x15,
   ControllerState: 0x16,
+  MicAudio: 0x17,
   ControlMessage: 0x20,
   StreamInit: 0x30,
   StreamError: 0x31,
   Ping: 0x40,
   Pong: 0x41,
+  // Cursor message types (server → client)
+  CursorImage: 0x50,      // Cursor image data when cursor changes
+  CursorVisibility: 0x51, // Cursor show/hide
+  CursorSwitch: 0x52,     // Switch to cached cursor
+  // Multi-user cursor message types (server → all clients)
+  RemoteCursor: 0x53,     // Remote user cursor position
+  RemoteUser: 0x54,       // Remote user joined/left
+  AgentCursor: 0x55,      // AI agent cursor position/action
+  RemoteTouch: 0x56,      // Remote user touch event
+  RemoteGesture: 0x57,    // Remote user gesture event
 } as const
 
 // Exported for reuse in SSE video handling in DesktopStreamViewer.tsx
@@ -90,6 +101,50 @@ export function codecToDisplayName(codec: number | null): string {
 // Event Types
 // ============================================================================
 
+// Cursor image data from server
+export interface CursorImageData {
+  cursorId: number
+  hotspotX: number
+  hotspotY: number
+  width: number
+  height: number
+  imageUrl: string  // data URL or blob URL for the cursor image
+}
+
+// Remote user info for multi-player cursors
+export interface RemoteUserInfo {
+  userId: number
+  userName: string
+  color: string      // Hex color assigned to this user
+  avatarUrl?: string // User's avatar URL if available
+}
+
+// Remote cursor position
+export interface RemoteCursorPosition {
+  userId: number
+  x: number
+  y: number
+}
+
+// AI agent cursor info
+export interface AgentCursorInfo {
+  agentId: number
+  x: number
+  y: number
+  action: 'idle' | 'moving' | 'clicking' | 'typing' | 'scrolling' | 'dragging'
+  visible: boolean
+}
+
+// Remote touch event
+export interface RemoteTouchInfo {
+  userId: number
+  touchId: number
+  eventType: 'start' | 'move' | 'end' | 'cancel'
+  x: number
+  y: number
+  pressure: number
+}
+
 export type WsStreamInfoEvent = CustomEvent<
   | { type: "error"; message: string }
   | { type: "connecting" }
@@ -99,6 +154,16 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "streamInit"; width: number; height: number; fps: number }
   | { type: "connectionComplete"; capabilities: StreamCapabilities }
   | { type: "addDebugLine"; line: string }
+  // Cursor events
+  | { type: "cursorImage"; cursor: CursorImageData }
+  | { type: "cursorVisibility"; visible: boolean; cursorId: number }
+  | { type: "cursorSwitch"; cursorId: number }
+  // Multi-player cursor events
+  | { type: "remoteCursor"; cursor: RemoteCursorPosition }
+  | { type: "remoteUserJoined"; user: RemoteUserInfo }
+  | { type: "remoteUserLeft"; userId: number }
+  | { type: "agentCursor"; agent: AgentCursorInfo }
+  | { type: "remoteTouch"; touch: RemoteTouchInfo }
 >
 export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void
 
@@ -146,6 +211,11 @@ export class WebSocketStream {
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
+
+  // Cursor cache - maps cursor ID to blob URL
+  private cursorCache = new Map<number, CursorImageData>()
+  private currentCursorId: number | null = null
+  private cursorVisible = true
 
   // Frame timing and stats
   private lastFrameTime = 0
@@ -552,6 +622,29 @@ export class WebSocketStream {
       case WsMessageType.Pong:
         this.handlePong(data)
         break
+      // Cursor messages
+      case WsMessageType.CursorImage:
+        this.handleCursorImage(data)
+        break
+      case WsMessageType.CursorVisibility:
+        this.handleCursorVisibility(data)
+        break
+      case WsMessageType.CursorSwitch:
+        this.handleCursorSwitch(data)
+        break
+      // Multi-player cursor messages
+      case WsMessageType.RemoteCursor:
+        this.handleRemoteCursor(data)
+        break
+      case WsMessageType.RemoteUser:
+        this.handleRemoteUser(data)
+        break
+      case WsMessageType.AgentCursor:
+        this.handleAgentCursor(data)
+        break
+      case WsMessageType.RemoteTouch:
+        this.handleRemoteTouch(data)
+        break
       default:
         console.warn("[WebSocketStream] Unknown message type:", msgType)
     }
@@ -850,6 +943,13 @@ export class WebSocketStream {
   // Track audio enabled state to make setAudioEnabled idempotent
   // Audio is disabled by default - user must explicitly enable via toolbar
   private _audioEnabled = false
+
+  // Track mic enabled state to make setMicEnabled idempotent
+  // Mic is disabled by default - user must explicitly enable via toolbar
+  private _micEnabled = false
+  private micStream: MediaStream | null = null
+  private micAudioContext: AudioContext | null = null
+  private micWorklet: AudioWorkletNode | null = null
 
   // Track last video config for decoder recovery
   private lastVideoCodec: WsVideoCodecType | null = null
@@ -2030,6 +2130,21 @@ export class WebSocketStream {
       }
       this.audioContext = null
     }
+
+    // Stop mic capture
+    if (this.micStream) {
+      this.micStream.getTracks().forEach(track => track.stop())
+      this.micStream = null
+    }
+    if (this.micAudioContext) {
+      try {
+        this.micAudioContext.close()
+      } catch (e) {
+        // Ignore
+      }
+      this.micAudioContext = null
+    }
+    this._micEnabled = false
   }
 
   private startHeartbeat() {
@@ -2143,6 +2258,106 @@ export class WebSocketStream {
   }
 
   /**
+   * Enable or disable microphone capture and streaming to the server.
+   * Mic is disabled by default - requires user permission.
+   * @param enabled - true to start mic capture, false to stop
+   */
+  async setMicEnabled(enabled: boolean) {
+    // Idempotent check - don't send duplicate messages
+    if (this._micEnabled === enabled) {
+      console.log(`[WebSocketStream] Mic already ${enabled ? 'enabled' : 'disabled'}, skipping`)
+      return
+    }
+
+    console.log(`[WebSocketStream] Setting mic enabled: ${enabled}`)
+    this._micEnabled = enabled
+
+    if (enabled) {
+      try {
+        // Request microphone access
+        this.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 48000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        })
+
+        // Create AudioContext for processing
+        this.micAudioContext = new AudioContext({ sampleRate: 48000 })
+
+        // Create ScriptProcessorNode for audio capture (AudioWorklet would be better but needs more setup)
+        const source = this.micAudioContext.createMediaStreamSource(this.micStream)
+        const processor = this.micAudioContext.createScriptProcessor(4096, 1, 1)
+
+        processor.onaudioprocess = (e) => {
+          if (!this._micEnabled || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return
+          }
+
+          // Get raw audio samples (Float32Array, -1.0 to 1.0)
+          const inputData = e.inputBuffer.getChannelData(0)
+
+          // Convert to 16-bit signed PCM
+          const pcmData = new Int16Array(inputData.length)
+          for (let i = 0; i < inputData.length; i++) {
+            // Clamp to [-1, 1] and scale to [-32768, 32767]
+            const sample = Math.max(-1, Math.min(1, inputData[i]))
+            pcmData[i] = sample < 0 ? sample * 32768 : sample * 32767
+          }
+
+          // Send to server: type(1) + pcm_data(N)
+          const message = new Uint8Array(1 + pcmData.byteLength)
+          message[0] = WsMessageType.MicAudio
+          message.set(new Uint8Array(pcmData.buffer), 1)
+
+          this.ws.send(message.buffer)
+        }
+
+        source.connect(processor)
+        processor.connect(this.micAudioContext.destination) // Required for onaudioprocess to fire
+
+        console.log("[WebSocketStream] Mic capture started")
+
+      } catch (err) {
+        console.error("[WebSocketStream] Failed to start mic:", err)
+        this._micEnabled = false
+        return
+      }
+    } else {
+      // Stop mic capture
+      if (this.micStream) {
+        this.micStream.getTracks().forEach(track => track.stop())
+        this.micStream = null
+      }
+      if (this.micAudioContext) {
+        try {
+          this.micAudioContext.close()
+        } catch (e) {
+          // Ignore
+        }
+        this.micAudioContext = null
+      }
+      console.log("[WebSocketStream] Mic capture stopped")
+    }
+
+    // Send control message to server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const json = JSON.stringify({ set_mic_enabled: enabled })
+      const encoder = new TextEncoder()
+      const jsonBytes = encoder.encode(json)
+
+      const message = new Uint8Array(1 + jsonBytes.length)
+      message[0] = WsMessageType.ControlMessage
+      message.set(jsonBytes, 1)
+
+      this.ws.send(message.buffer)
+    }
+  }
+
+  /**
    * Public method to force reconnection
    * Resets the attempt counter and initiates a fresh connection
    */
@@ -2229,6 +2444,14 @@ export class WebSocketStream {
     // Clean up decoders
     this.cleanupDecoders()
 
+    // Clean up cursor cache
+    this.cursorCache.forEach((cursor) => {
+      if (cursor.imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(cursor.imageUrl)
+      }
+    })
+    this.cursorCache.clear()
+
     // Close WebSocket
     if (this.ws) {
       try {
@@ -2240,5 +2463,269 @@ export class WebSocketStream {
     }
 
     this.connected = false
+  }
+
+  // ============================================================================
+  // Cursor Message Handlers
+  // ============================================================================
+
+  /**
+   * Handle cursor image message (0x50)
+   * Format: [type:1][cursor_id:4][hotspot_x:2][hotspot_y:2][width:2][height:2][format:1][data_len:4][data:N]
+   */
+  private handleCursorImage(data: Uint8Array) {
+    if (data.length < 18) {
+      console.warn("[WebSocketStream] CursorImage message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1  // Skip message type
+
+    const cursorId = view.getUint32(offset, false)  // Big-endian
+    offset += 4
+    const hotspotX = view.getUint16(offset, false)
+    offset += 2
+    const hotspotY = view.getUint16(offset, false)
+    offset += 2
+    const width = view.getUint16(offset, false)
+    offset += 2
+    const height = view.getUint16(offset, false)
+    offset += 2
+    const format = data[offset]
+    offset += 1
+    const dataLen = view.getUint32(offset, false)
+    offset += 4
+
+    if (data.length < offset + dataLen) {
+      console.warn("[WebSocketStream] CursorImage data truncated")
+      return
+    }
+
+    const imageData = data.slice(offset, offset + dataLen)
+
+    // Create blob URL from image data
+    const mimeType = format === 1 ? 'image/png' : 'image/rgba'
+    const blob = new Blob([imageData], { type: mimeType })
+    const imageUrl = URL.createObjectURL(blob)
+
+    // Revoke old blob URL if this cursor ID already exists
+    const existing = this.cursorCache.get(cursorId)
+    if (existing?.imageUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(existing.imageUrl)
+    }
+
+    const cursorData: CursorImageData = {
+      cursorId,
+      hotspotX,
+      hotspotY,
+      width,
+      height,
+      imageUrl,
+    }
+
+    this.cursorCache.set(cursorId, cursorData)
+    this.currentCursorId = cursorId
+
+    // Emit cursor image event
+    this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData })
+
+    console.debug("[WebSocketStream] Cursor image received:", {
+      cursorId,
+      hotspotX,
+      hotspotY,
+      width,
+      height,
+      format,
+      dataLen,
+    })
+  }
+
+  /**
+   * Handle cursor visibility message (0x51)
+   * Format: [type:1][visible:1][cursor_id:4]
+   */
+  private handleCursorVisibility(data: Uint8Array) {
+    if (data.length < 6) {
+      console.warn("[WebSocketStream] CursorVisibility message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const visible = data[1] !== 0
+    const cursorId = view.getUint32(2, false)
+
+    this.cursorVisible = visible
+    if (visible) {
+      this.currentCursorId = cursorId
+    }
+
+    this.dispatchInfoEvent({ type: "cursorVisibility", visible, cursorId })
+  }
+
+  /**
+   * Handle cursor switch message (0x52)
+   * Format: [type:1][cursor_id:4]
+   */
+  private handleCursorSwitch(data: Uint8Array) {
+    if (data.length < 5) {
+      console.warn("[WebSocketStream] CursorSwitch message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const cursorId = view.getUint32(1, false)
+
+    this.currentCursorId = cursorId
+    this.dispatchInfoEvent({ type: "cursorSwitch", cursorId })
+  }
+
+  /**
+   * Handle remote cursor position message (0x53)
+   * Format: [type:1][user_id:4][x:2][y:2]
+   */
+  private handleRemoteCursor(data: Uint8Array) {
+    if (data.length < 9) {
+      console.warn("[WebSocketStream] RemoteCursor message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const userId = view.getUint32(1, false)
+    const x = view.getUint16(5, false)
+    const y = view.getUint16(7, false)
+
+    this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y } })
+  }
+
+  /**
+   * Handle remote user joined/left message (0x54)
+   * Format: [type:1][user_id:4][event:1][name_len:1][name:N][color:4][avatar_url_len:2][avatar_url:M]
+   */
+  private handleRemoteUser(data: Uint8Array) {
+    if (data.length < 7) {
+      console.warn("[WebSocketStream] RemoteUser message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1
+
+    const userId = view.getUint32(offset, false)
+    offset += 4
+    const event = data[offset]
+    offset += 1
+
+    if (event === 0) {
+      // User left
+      this.dispatchInfoEvent({ type: "remoteUserLeft", userId })
+      return
+    }
+
+    // User joined - parse additional data
+    const nameLen = data[offset]
+    offset += 1
+
+    if (data.length < offset + nameLen + 6) {
+      console.warn("[WebSocketStream] RemoteUser message truncated")
+      return
+    }
+
+    const name = new TextDecoder().decode(data.slice(offset, offset + nameLen))
+    offset += nameLen
+
+    const colorValue = view.getUint32(offset, false)
+    offset += 4
+    const color = '#' + (colorValue & 0xFFFFFF).toString(16).padStart(6, '0')
+
+    const avatarUrlLen = view.getUint16(offset, false)
+    offset += 2
+
+    let avatarUrl: string | undefined
+    if (avatarUrlLen > 0 && data.length >= offset + avatarUrlLen) {
+      avatarUrl = new TextDecoder().decode(data.slice(offset, offset + avatarUrlLen))
+    }
+
+    this.dispatchInfoEvent({
+      type: "remoteUserJoined",
+      user: { userId, userName: name, color, avatarUrl },
+    })
+  }
+
+  /**
+   * Handle AI agent cursor message (0x55)
+   * Format: [type:1][agent_id:4][x:2][y:2][action:1][visible:1]
+   */
+  private handleAgentCursor(data: Uint8Array) {
+    if (data.length < 11) {
+      console.warn("[WebSocketStream] AgentCursor message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const agentId = view.getUint32(1, false)
+    const x = view.getUint16(5, false)
+    const y = view.getUint16(7, false)
+    const actionByte = data[9]
+    const visible = data[10] !== 0
+
+    const actions: AgentCursorInfo['action'][] = ['idle', 'moving', 'clicking', 'typing', 'scrolling', 'dragging']
+    const action = actions[actionByte] || 'idle'
+
+    this.dispatchInfoEvent({
+      type: "agentCursor",
+      agent: { agentId, x, y, action, visible },
+    })
+  }
+
+  /**
+   * Handle remote touch event message (0x56)
+   * Format: [type:1][user_id:4][touch_id:1][event_type:1][x:2][y:2][pressure:1]
+   */
+  private handleRemoteTouch(data: Uint8Array) {
+    if (data.length < 12) {
+      console.warn("[WebSocketStream] RemoteTouch message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const userId = view.getUint32(1, false)
+    const touchId = data[5]
+    const eventTypeByte = data[6]
+    const x = view.getUint16(7, false)
+    const y = view.getUint16(9, false)
+    const pressure = data[11] / 255  // Normalize to 0-1
+
+    const eventTypes: RemoteTouchInfo['eventType'][] = ['start', 'move', 'end', 'cancel']
+    const eventType = eventTypes[eventTypeByte] || 'start'
+
+    this.dispatchInfoEvent({
+      type: "remoteTouch",
+      touch: { userId, touchId, eventType, x, y, pressure },
+    })
+  }
+
+  /**
+   * Get the current cursor data (for UI rendering)
+   */
+  getCurrentCursor(): CursorImageData | null {
+    if (this.currentCursorId === null || !this.cursorVisible) {
+      return null
+    }
+    return this.cursorCache.get(this.currentCursorId) || null
+  }
+
+  /**
+   * Get cached cursor by ID
+   */
+  getCursor(cursorId: number): CursorImageData | null {
+    return this.cursorCache.get(cursorId) || null
+  }
+
+  /**
+   * Check if cursor is visible
+   */
+  isCursorVisible(): boolean {
+    return this.cursorVisible
   }
 }

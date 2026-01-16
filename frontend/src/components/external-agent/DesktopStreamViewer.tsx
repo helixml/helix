@@ -6,6 +6,8 @@ import {
   Refresh,
   VolumeUp,
   VolumeOff,
+  Mic,
+  MicOff,
   BarChart,
   Wifi,
   SignalCellularAlt,
@@ -116,6 +118,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false); // Audio disabled by default - user must enable via toolbar
+  const [micEnabled, setMicEnabled] = useState(false); // Mic disabled by default - user must enable via toolbar
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -3315,6 +3318,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             sx={{ color: audioEnabled ? 'white' : 'grey' }}
           >
             {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={micEnabled ? 'Disable microphone' : 'Enable microphone'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={async () => {
+              const newEnabled = !micEnabled;
+              setMicEnabled(newEnabled);
+              // Send control message to start/stop mic capture and streaming
+              if (streamRef.current instanceof WebSocketStream) {
+                await streamRef.current.setMicEnabled(newEnabled);
+              }
+            }}
+            sx={{ color: micEnabled ? 'white' : 'grey' }}
+          >
+            {micEnabled ? <Mic fontSize="small" /> : <MicOff fontSize="small" />}
           </IconButton>
         </Tooltip>
         <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>

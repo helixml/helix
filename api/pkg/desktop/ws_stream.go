@@ -99,14 +99,25 @@ const (
 	StreamMsgPing        = 0x40
 	StreamMsgPong        = 0x41
 	// Input message types (for reference, handled separately)
-	StreamMsgKeyboard      = 0x10
-	StreamMsgMouseClick    = 0x11
-	StreamMsgMouseAbsolute = 0x12
-	StreamMsgMouseRelative  = 0x13
-	StreamMsgTouch          = 0x14
+	StreamMsgKeyboard        = 0x10
+	StreamMsgMouseClick      = 0x11
+	StreamMsgMouseAbsolute   = 0x12
+	StreamMsgMouseRelative   = 0x13
+	StreamMsgTouch           = 0x14
 	StreamMsgControllerEvent = 0x15
 	StreamMsgControllerState = 0x16
+	StreamMsgMicAudio        = 0x17 // Microphone audio from client
 	StreamMsgControlMessage  = 0x20
+	// Cursor message types (server → client)
+	StreamMsgCursorImage      = 0x50 // Cursor image data when cursor changes
+	StreamMsgCursorVisibility = 0x51 // Cursor show/hide
+	StreamMsgCursorSwitch     = 0x52 // Switch to cached cursor
+	// Multi-user cursor message types (server → all clients)
+	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
+	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
+	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
+	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
+	StreamMsgRemoteGesture= 0x57 // Remote user gesture event
 )
 
 // Video codec types
@@ -173,6 +184,13 @@ type VideoStreamer struct {
 	audioEnabled  atomic.Bool // Controls whether audio streaming is active
 	audioCtx      context.Context
 	audioCancel   context.CancelFunc
+
+	// Microphone streaming (optional, created if mic enabled)
+	micStreamer *MicStreamer
+	micConfig   MicConfig
+	micEnabled  atomic.Bool // Controls whether mic playback is active
+	micCtx      context.Context
+	micCancel   context.CancelFunc
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -186,6 +204,7 @@ func NewVideoStreamer(nodeID uint32, pipeWireFd int, config StreamConfig, ws *we
 		ws:          ws,
 		logger:      logger,
 		audioConfig: DefaultAudioConfig(),
+		micConfig:   DefaultMicConfig(),
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -258,6 +277,9 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Start audio streaming (optional - doesn't fail if audio isn't available)
 	v.startAudioStreaming(ctx)
+
+	// Start mic playback (optional - doesn't fail if mic isn't available)
+	v.startMicStreaming(ctx)
 
 	// Read frames from appsink and send to WebSocket
 	go v.readFramesAndSend(ctx)
@@ -806,6 +828,11 @@ func (v *VideoStreamer) Stop() {
 		v.audioStreamer.Stop()
 	}
 
+	// Stop mic playback
+	if v.micStreamer != nil {
+		v.micStreamer.Stop()
+	}
+
 	// Stop GStreamer pipeline
 	if v.gstPipeline != nil {
 		v.gstPipeline.Stop()
@@ -858,6 +885,57 @@ func (v *VideoStreamer) SetAudioEnabled(enabled bool) {
 			v.audioStreamer.Stop()
 			v.audioStreamer = nil
 		}
+	}
+}
+
+// startMicStreaming initializes mic playback context.
+// This is non-blocking and doesn't fail video streaming if mic fails.
+func (v *VideoStreamer) startMicStreaming(ctx context.Context) {
+	// Mic is disabled by default - user must enable via control message
+	v.micCtx = ctx
+	v.logger.Debug("mic playback ready (disabled by default, enable via control message)")
+}
+
+// SetMicEnabled starts or stops microphone playback.
+// Called via ControlMessage when user toggles mic in UI.
+func (v *VideoStreamer) SetMicEnabled(enabled bool) {
+	if enabled == v.micEnabled.Load() {
+		return // No change
+	}
+
+	v.micEnabled.Store(enabled)
+	v.logger.Info("mic playback", "enabled", enabled)
+
+	if enabled {
+		// Start mic playback
+		v.micStreamer = NewMicStreamer(v.logger, v.micConfig)
+		if v.micStreamer == nil {
+			v.logger.Debug("mic playback not available (CGO disabled)")
+			return
+		}
+		// Create cancellable context for mic
+		var micCtx context.Context
+		micCtx, v.micCancel = context.WithCancel(v.micCtx)
+		if err := v.micStreamer.Start(micCtx); err != nil {
+			v.logger.Warn("failed to start mic playback", "err", err)
+		}
+	} else {
+		// Stop mic playback
+		if v.micCancel != nil {
+			v.micCancel()
+		}
+		if v.micStreamer != nil {
+			v.micStreamer.Stop()
+			v.micStreamer = nil
+		}
+	}
+}
+
+// PushMicAudio pushes microphone audio data to the playback pipeline.
+// Called when we receive mic audio frames from the client.
+func (v *VideoStreamer) PushMicAudio(data []byte) {
+	if v.micStreamer != nil && v.micEnabled.Load() {
+		v.micStreamer.PushAudio(data)
 	}
 }
 
@@ -1000,11 +1078,12 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 				continue
 			}
 
-			// Handle ControlMessage (0x20) for video/audio control
+			// Handle ControlMessage (0x20) for video/audio/mic control
 			if msgType == StreamMsgControlMessage && len(msg) > 1 {
 				var ctrl struct {
 					SetVideoEnabled *bool `json:"set_video_enabled"`
 					SetAudioEnabled *bool `json:"set_audio_enabled"`
+					SetMicEnabled   *bool `json:"set_mic_enabled"`
 				}
 				if err := json.Unmarshal(msg[1:], &ctrl); err == nil {
 					if ctrl.SetVideoEnabled != nil {
@@ -1013,7 +1092,18 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 					if ctrl.SetAudioEnabled != nil {
 						streamer.SetAudioEnabled(*ctrl.SetAudioEnabled)
 					}
+					if ctrl.SetMicEnabled != nil {
+						streamer.SetMicEnabled(*ctrl.SetMicEnabled)
+					}
 				}
+				continue
+			}
+
+			// Handle MicAudio (0x17) - microphone audio from client
+			if msgType == StreamMsgMicAudio && len(msg) > 1 {
+				// Format: type(1) + audio_data(N)
+				// Audio data is raw PCM: 16-bit signed LE, 48kHz, mono
+				streamer.PushMicAudio(msg[1:])
 				continue
 			}
 
