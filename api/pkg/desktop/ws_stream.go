@@ -1239,7 +1239,12 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 
 			// Delegate other messages to input handler
 			if server != nil {
-				server.handleStreamInputMessage(msg)
+				// Pass client ID for multi-player cursor broadcasting
+				clientID := uint32(0)
+				if streamer.sessionClient != nil {
+					clientID = streamer.sessionClient.ID
+				}
+				server.handleStreamInputMessageWithClient(msg, streamer.config.SessionID, clientID)
 			} else {
 				logger.Debug("received input event (no server context)", "type", msgType)
 			}
@@ -1249,7 +1254,14 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 
 // handleStreamInputMessage processes input messages from the combined stream WebSocket.
 // Note: Ping/Pong (0x40/0x41) are handled in the message loop, not here.
+// Deprecated: Use handleStreamInputMessageWithClient for multi-player cursor support.
 func (s *Server) handleStreamInputMessage(data []byte) {
+	s.handleStreamInputMessageWithClient(data, s.config.SessionID, 0)
+}
+
+// handleStreamInputMessageWithClient processes input messages with client context.
+// sessionID and clientID are used for multi-player cursor broadcasting.
+func (s *Server) handleStreamInputMessageWithClient(data []byte, sessionID string, clientID uint32) {
 	if len(data) < 1 {
 		return
 	}
@@ -1265,11 +1277,11 @@ func (s *Server) handleStreamInputMessage(data []byte) {
 	case StreamMsgMouseClick: // 0x11
 		s.handleWSMouseButton(payload)
 	case StreamMsgMouseAbsolute: // 0x12
-		s.handleWSMouseAbsolute(payload)
+		s.handleWSMouseAbsoluteWithClient(payload, sessionID, clientID)
 	case StreamMsgMouseRelative: // 0x13
 		s.handleWSMouseRelative(payload)
 	case StreamMsgTouch: // 0x14
-		s.handleWSTouch(payload)
+		s.handleWSTouchWithClient(payload, sessionID, clientID)
 	case StreamMsgPong: // 0x41
 		// Client responded to our WebSocket ping - no action needed
 	default:

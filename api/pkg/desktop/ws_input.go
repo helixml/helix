@@ -486,7 +486,14 @@ func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
 // handleWSMouseAbsolute handles absolute mouse position messages.
 // Format: [subType:1][x:2 BE int16][y:2 BE int16][refWidth:2 BE int16][refHeight:2 BE int16]
 // subType=1 for absolute position
+// Deprecated: Use handleWSMouseAbsoluteWithClient for multi-player cursor support.
 func (s *Server) handleWSMouseAbsolute(data []byte) {
+	s.handleWSMouseAbsoluteWithClient(data, s.config.SessionID, 0)
+}
+
+// handleWSMouseAbsoluteWithClient handles absolute mouse position with client context.
+// sessionID and clientID are used for multi-player cursor broadcasting.
+func (s *Server) handleWSMouseAbsoluteWithClient(data []byte, sessionID string, clientID uint32) {
 	if len(data) < 9 {
 		return
 	}
@@ -513,17 +520,16 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 		if err != nil {
 			s.logger.Error("WebSocket mouse absolute D-Bus call failed", "err", err)
 		}
-		return
-	}
+		// Continue to broadcast cursor position (don't return early)
+	} else if s.waylandInput != nil {
+		// Fallback to Wayland-native input for Sway/wlroots
+		// WaylandInput converts absolute to relative movement internally
+		//
+		// IMPORTANT: Use LOGICAL dimensions for Sway, not physical!
+		// With scale 2.0, physical 3840x2160 → logical 1920x1080.
+		// The video is captured at physical resolution, so frontend sends physical coords.
+		// We must normalize to 0-1 using physical, then let WaylandInput convert to logical.
 
-	// Fallback to Wayland-native input for Sway/wlroots
-	// WaylandInput converts absolute to relative movement internally
-	//
-	// IMPORTANT: Use LOGICAL dimensions for Sway, not physical!
-	// With scale 2.0, physical 3840x2160 → logical 1920x1080.
-	// The video is captured at physical resolution, so frontend sends physical coords.
-	// We must normalize to 0-1 using physical, then let WaylandInput convert to logical.
-	if s.waylandInput != nil {
 		// Normalize using physical dimensions (what the video is captured at)
 		sw := float64(s.screenWidth)
 		sh := float64(s.screenHeight)
@@ -541,10 +547,10 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 	// Broadcast cursor position to other connected clients for multi-player cursors
 	// Note: This broadcasts the user's mouse position (in screen coords) to all other
 	// clients viewing this session, enabling Figma-style collaborative cursors.
-	if s.config.SessionID != "" {
+	if sessionID != "" {
 		// Use original (unscaled) coordinates for broadcasting since all clients
 		// receive video at the same resolution and scale independently
-		GetSessionRegistry().BroadcastCursorPosition(s.config.SessionID, 0, int32(absX), int32(absY))
+		GetSessionRegistry().BroadcastCursorPosition(sessionID, clientID, int32(absX), int32(absY))
 	}
 }
 
@@ -673,7 +679,14 @@ func (s *Server) handleWSScroll(data []byte, state *wsInputState) {
 // handleWSTouch handles touch input messages.
 // Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
 // x and y are normalized coordinates (0.0-1.0) which we convert to screen coordinates.
+// Deprecated: Use handleWSTouchWithClient for multi-player cursor support.
 func (s *Server) handleWSTouch(data []byte) {
+	s.handleWSTouchWithClient(data, s.config.SessionID, 0)
+}
+
+// handleWSTouchWithClient handles touch events with client context.
+// sessionID and clientID are used for multi-player touch broadcasting.
+func (s *Server) handleWSTouchWithClient(data []byte, sessionID string, clientID uint32) {
 	if len(data) < 10 {
 		return
 	}
@@ -688,33 +701,29 @@ func (s *Server) handleWSTouch(data []byte) {
 	screenX := normX * float64(s.screenWidth)
 	screenY := normY * float64(s.screenHeight)
 
-	if s.conn == nil || s.rdSessionPath == "" {
-		return
-	}
+	if s.conn != nil && s.rdSessionPath != "" {
+		stream := string(s.scStreamPath)
+		if stream != "" {
+			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+			var err error
 
-	stream := string(s.scStreamPath)
-	if stream == "" {
-		return
-	}
+			switch eventType {
+			case 0: // Touch down
+				err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, slot, screenX, screenY).Err
+			case 1: // Touch motion
+				err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, slot, screenX, screenY).Err
+			case 2: // Touch up
+				err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, slot).Err
+			}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	var err error
-
-	switch eventType {
-	case 0: // Touch down
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, slot, screenX, screenY).Err
-	case 1: // Touch motion
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, slot, screenX, screenY).Err
-	case 2: // Touch up
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, slot).Err
-	}
-
-	if err != nil {
-		s.logger.Error("WebSocket touch D-Bus call failed", "eventType", eventType, "err", err)
+			if err != nil {
+				s.logger.Error("WebSocket touch D-Bus call failed", "eventType", eventType, "err", err)
+			}
+		}
 	}
 
 	// Broadcast touch event to other connected clients
-	if s.config.SessionID != "" {
+	if sessionID != "" {
 		var touchEventType TouchEventType
 		switch eventType {
 		case 0:
@@ -726,9 +735,8 @@ func (s *Server) handleWSTouch(data []byte) {
 		default:
 			touchEventType = TouchEventCancel
 		}
-		// Use client ID 0 since we don't track per-client connections here
 		// Pressure is not available from the WebSocket message, default to 1.0
-		GetSessionRegistry().BroadcastTouchEvent(s.config.SessionID, 0, slot, touchEventType, int32(screenX), int32(screenY), 1.0)
+		GetSessionRegistry().BroadcastTouchEvent(sessionID, clientID, slot, touchEventType, int32(screenX), int32(screenY), 1.0)
 	}
 }
 
