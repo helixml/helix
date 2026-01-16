@@ -83,10 +83,11 @@ read_zed_folders() {
         done < "$FOLDERS_FILE"
     fi
 
-    # Fallback to work directory if no folders
+    # If no folders, setup failed - don't start Zed
     if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
-        ZED_FOLDERS=("$WORK_DIR")
-        echo "Opening Zed in work directory (no folders from setup)"
+        echo "ERROR: No folders to open - setup may have failed"
+        echo "Check the setup terminal for errors"
+        exit 1
     else
         echo "Opening Zed with ${#ZED_FOLDERS[@]} folder(s):"
         for folder in "${ZED_FOLDERS[@]}"; do

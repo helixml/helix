@@ -20,6 +20,7 @@ launch_terminal() {
     local working_dir="$2"
     shift 2
     # Remaining args are the command
+    # The script itself has a trap to keep terminal open on exit
     gnome-terminal --title="$title" --geometry=120x40 --working-directory="$working_dir" -- "$@" &
 }
 

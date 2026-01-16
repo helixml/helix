@@ -18,12 +18,50 @@
 #   $HOME/.helix-setup-complete  - Touched when setup is done
 #   $HOME/.helix-zed-folders     - List of folders for Zed to open
 
-# Note: We intentionally do NOT use 'set -e' here because:
-# 1. We want to show error messages to the user
-# 2. We want the terminal to stay open after errors
-# 3. We handle errors explicitly with SETUP_FAILED flag
+# Exit on error - but trap will catch it and keep terminal open
+set -e
 
-SETUP_FAILED=false
+# Trap any exit (success or failure) to show interactive menu
+# This ensures users can see errors and debug
+cleanup_and_prompt() {
+    local exit_code=$?
+    echo ""
+    if [ $exit_code -ne 0 ]; then
+        echo "========================================="
+        echo "❌ Setup failed with exit code $exit_code"
+        echo "========================================="
+        echo ""
+        echo "Check the errors above."
+    fi
+
+    echo ""
+    echo "What would you like to do?"
+    echo "  1) Close this window"
+    echo "  2) Start an interactive shell for debugging"
+    echo ""
+    read -p "Enter choice [1-2]: " choice
+
+    case "$choice" in
+        1)
+            # Disable trap before exiting to avoid infinite loop
+            trap - EXIT
+            exit $exit_code
+            ;;
+        2|*)
+            echo ""
+            echo "Starting interactive shell..."
+            echo "Type 'exit' to close this window."
+            echo ""
+            if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$HOME/work/$HELIX_PRIMARY_REPO_NAME" ]; then
+                cd "$HOME/work/$HELIX_PRIMARY_REPO_NAME"
+            else
+                cd "$HOME/work"
+            fi
+            exec bash
+            ;;
+    esac
+}
+trap cleanup_and_prompt EXIT
 
 echo "========================================="
 echo "Helix Workspace Setup - $(date)"
@@ -168,9 +206,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
         GIT_CLONE_URL="${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}/git/${REPO_ID}"
 
-        if git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
-            echo "    Successfully cloned to $CLONE_DIR"
-        else
+        if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
             echo ""
             echo "    ❌ FAILED to clone $REPO_NAME"
             echo ""
@@ -179,8 +215,10 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
             echo "      - Repository doesn't exist"
             echo "      - Network connectivity issues"
             echo ""
-            SETUP_FAILED=true
+            echo "    The terminal will stay open so you can see this error."
+            exit 1
         fi
+        echo "    ✅ Successfully cloned to $CLONE_DIR"
     done
 
     echo "========================================="
@@ -465,10 +503,16 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# Fallback to work directory if no folders found
+# FAIL if no folders found - don't start Zed with empty workspace
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
-    ZED_FOLDERS+=("$WORK_DIR")
-    echo "  Fallback: ~/work (no repositories cloned)"
+    echo ""
+    echo "❌ ERROR: No repositories were cloned successfully"
+    echo ""
+    echo "Cannot start Zed without a proper workspace."
+    echo "Check the errors above and fix the issue."
+    echo ""
+    echo "The terminal will stay open so you can debug."
+    exit 1
 fi
 
 # Write folders to file for main script to read
@@ -480,6 +524,8 @@ echo ""
 # =========================================
 # Run startup script (if exists)
 # =========================================
+# Note: Startup script failures are NOT fatal - we continue to Zed
+# The user can see the error and fix it
 STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
 if [ -f "$STARTUP_SCRIPT" ]; then
     echo "========================================="
@@ -495,6 +541,7 @@ if [ -f "$STARTUP_SCRIPT" ]; then
     fi
     echo ""
 
+    # Run startup script but don't fail if it errors (user can debug in terminal)
     if bash -i "$STARTUP_SCRIPT"; then
         echo ""
         echo "✅ Startup script completed successfully"
@@ -502,39 +549,18 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         EXIT_CODE=$?
         echo ""
         echo "❌ Startup script failed with exit code $EXIT_CODE"
-        SETUP_FAILED=true
+        echo ""
+        echo "You can debug this in the terminal after Zed starts."
     fi
     echo ""
 fi
 
 # =========================================
-# Signal completion (even if there were errors - Zed should still start)
+# Signal completion - Zed can now start
 # =========================================
 touch "$COMPLETE_SIGNAL"
 
 echo "========================================="
-if [ "$SETUP_FAILED" = true ]; then
-    echo "⚠️  Setup completed with errors"
-    echo "========================================="
-    echo ""
-    echo "Some setup steps failed. Review the errors above."
-    echo "Zed is starting - you can debug issues in this terminal."
-else
-    echo "✅ Setup complete!"
-    echo "========================================="
-    echo ""
-    echo "Zed is starting now."
-fi
-echo ""
-echo "This terminal will remain open for debugging."
-echo "Type 'exit' to close it."
-echo ""
-
-# Stay open with interactive bash shell
-# Go to primary repo if it exists, otherwise work directory
-if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
-    cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
-else
-    cd "$WORK_DIR"
-fi
-exec bash
+echo "✅ Setup complete! Zed is starting..."
+echo "========================================="
+# The EXIT trap will show the interactive menu
