@@ -345,9 +345,6 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       onSelectRepository(selectedRepo, providerWithCreds)
     } else {
       // OAuth-based selection - pass connection ID
-      console.log("XXX", selectedConnectionId)
-      console.log("XXX", selectedProvider)
-      console.log("XXX", selectedRepo)
       onSelectRepository(selectedRepo, selectedProvider, selectedConnectionId)
     }
   }
