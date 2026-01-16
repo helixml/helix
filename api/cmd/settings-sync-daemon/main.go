@@ -163,6 +163,29 @@ func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[str
 	}
 }
 
+// injectLanguageModelAPIKey adds the API token to language_models config.
+// Zed reads api_key from settings.json to authenticate LLM API calls.
+// The token comes from HELIX_API_TOKEN env var (set by Hydra when starting the desktop).
+func (d *SettingsDaemon) injectLanguageModelAPIKey() {
+	if d.apiToken == "" {
+		log.Printf("Warning: HELIX_API_TOKEN not set, language models may not authenticate")
+		return
+	}
+
+	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Inject api_key into each provider's config
+	for provider, config := range languageModels {
+		if providerConfig, ok := config.(map[string]interface{}); ok {
+			providerConfig["api_key"] = d.apiToken
+			log.Printf("Injected api_key into language_models.%s", provider)
+		}
+	}
+}
+
 // injectKoditAuth adds the user's API key to the Kodit context_server's Authorization header.
 // The Kodit MCP server URL is provided by Helix API, but the auth header must use the user's
 // API key (not the runner token) so that the request is authenticated as the user.
@@ -299,11 +322,11 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		"context_servers": config.ContextServers,
 	}
 
-	// Inject user API key into Kodit context_server's Authorization header
+	// Inject API keys before writing settings
 	d.injectKoditAuth()
-
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
+		d.injectLanguageModelAPIKey()
 	}
 	if config.Assistant != nil {
 		d.helixSettings["assistant"] = config.Assistant
@@ -614,8 +637,9 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
 
-		// Inject user API key into Kodit context_server
+		// Inject API keys
 		d.injectKoditAuth()
+		d.injectLanguageModelAPIKey()
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)

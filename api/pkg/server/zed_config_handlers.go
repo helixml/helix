@@ -135,7 +135,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Build language models config
-	// Note: API keys come from environment variables, not settings.json
+	// Note: api_key is injected by settings-sync-daemon from HELIX_API_TOKEN env var
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
 		modelConfig := map[string]interface{}{
