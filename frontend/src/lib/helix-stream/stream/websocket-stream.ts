@@ -325,10 +325,12 @@ export class WebSocketStream {
   private readonly EVENT_LOOP_CHECK_INTERVAL_MS = 100  // Check every 100ms
   private eventLoopCheckTimeoutId: ReturnType<typeof setTimeout> | null = null
 
-  // Unique client identifier for Wolf session matching
-  // The frontend generates this and passes it to BOTH the Helix API (to pre-configure Wolf)
-  // AND here (to send to moonlight-web). This enables immediate lobby attachment.
+  // Unique client identifier for session matching
   private clientUniqueId?: string
+
+  // User info for multi-player presence
+  private userName?: string
+  private avatarUrl?: string
 
   constructor(
     api: Api,
@@ -338,7 +340,9 @@ export class WebSocketStream {
     supportedVideoFormats: VideoCodecSupport,
     viewerScreenSize: [number, number],
     sessionId?: string,
-    clientUniqueId?: string
+    clientUniqueId?: string,
+    userName?: string,
+    avatarUrl?: string
   ) {
     this.api = api
     this.hostId = hostId
@@ -347,6 +351,8 @@ export class WebSocketStream {
     this.supportedVideoFormats = supportedVideoFormats
     this.sessionId = sessionId
     this.clientUniqueId = clientUniqueId
+    this.userName = userName
+    this.avatarUrl = avatarUrl
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
     // Initialize input handler
@@ -456,8 +462,8 @@ export class WebSocketStream {
     // Reset stream state for fresh connection
     this.resetStreamState()
 
-    // Build WebSocket URL - direct endpoint (bypasses Wolf/Moonlight)
-    // Uses /api/v1/external-agents/{sessionId}/ws/stream for direct GStreamer encoding
+    // Build WebSocket URL for direct streaming
+    // Uses /api/v1/external-agents/{sessionId}/ws/stream
     // Auth is handled via cookies (same-origin WebSocket includes cookies automatically)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream`
@@ -692,6 +698,14 @@ export class WebSocketStream {
     // Include video_mode if specified (controls backend capture pipeline)
     if (this.settings.videoMode) {
       initMessage.video_mode = this.settings.videoMode
+    }
+
+    // Include user info for multi-player presence
+    if (this.userName) {
+      initMessage.user_name = this.userName
+    }
+    if (this.avatarUrl) {
+      initMessage.avatar_url = this.avatarUrl
     }
 
     this.ws?.send(JSON.stringify(initMessage))

@@ -46,6 +46,17 @@ export interface FilestoreItem {
   url?: string;
 }
 
+export interface GithubComHelixmlHelixApiPkgServerClientInfo {
+  avatar_url?: string;
+  color?: string;
+  id?: number;
+  last_seen?: string;
+  last_x?: number;
+  last_y?: number;
+  user_id?: string;
+  user_name?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesCommit {
   author?: string;
   email?: string;
@@ -69,6 +80,32 @@ export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
   valid?: boolean;
+}
+
+export enum HydraDevContainerStatus {
+  DevContainerStatusStarting = "starting",
+  DevContainerStatusRunning = "running",
+  DevContainerStatusStopped = "stopped",
+  DevContainerStatusError = "error",
+}
+
+export enum HydraDevContainerType {
+  DevContainerTypeSway = "sway",
+  DevContainerTypeUbuntu = "ubuntu",
+  DevContainerTypeHeadless = "headless",
+}
+
+export interface HydraGPUInfo {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
 }
 
 export interface KoditRepositoryStatusSummaryAttributes {
@@ -512,6 +549,8 @@ export interface OpenaiViolence {
 }
 
 export interface ServerAgentSandboxesDebugResponse {
+  dev_containers?: ServerDevContainerWithClients[];
+  gpus?: HydraGPUInfo[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
 }
@@ -571,6 +610,26 @@ export interface ServerDesignDocument {
   content?: string;
   filename?: string;
   path?: string;
+}
+
+export interface ServerDevContainerWithClients {
+  clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
+  container_id?: string;
+  container_name?: string;
+  /** Container type */
+  container_type?: HydraDevContainerType;
+  /** Desktop environment info (for debug panel) */
+  desktop_version?: string;
+  error?: string;
+  /** nvidia, amd, intel, or "" */
+  gpu_vendor?: string;
+  /** Network info for RevDial/screenshot-server connections */
+  ip_address?: string;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
+  sandbox_id?: string;
+  session_id?: string;
+  status?: HydraDevContainerStatus;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -4881,7 +4940,7 @@ export class HttpClient<SecurityDataType = unknown> {
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
-     * @description Retrieves debug data for agent sandboxes (Hydra-based)
+     * @description Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients
      *
      * @tags Admin
      * @name V1AdminAgentSandboxesDebugList
@@ -5924,6 +5983,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/upload`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Send audio for speech-to-text transcription and type the result at cursor position
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsVoiceCreate
+     * @summary Voice input to desktop
+     * @request POST:/api/v1/external-agents/{sessionID}/voice
+     * @secure
+     */
+    v1ExternalAgentsVoiceCreate: (
+      sessionId: string,
+      data: {
+        /** Audio file (WebM/Opus format) */
+        audio: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/voice`,
         method: "POST",
         body: data,
         secure: true,

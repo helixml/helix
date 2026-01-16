@@ -181,7 +181,6 @@ export class StreamInput {
         }
 
         // Use evdev codes for direct WebSocket mode (Linux backend)
-        // VK codes are only needed for Moonlight/Wolf compatibility
         let key: number | null
         let modifiers: number
         if (this.config.useEvdevCodes) {
@@ -483,7 +482,7 @@ export class StreamInput {
                     `client=(${clientX.toFixed(1)},${clientY.toFixed(1)}) ` +
                     `rect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)} ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) ` +
                     `normalized=(${x.toFixed(4)},${y.toFixed(4)}) ` +
-                    `moonlight=(${(x * 4096).toFixed(0)},${(y * 4096).toFixed(0)} ref=4096x4096) ` +
+                    `scaled=(${(x * 4096).toFixed(0)},${(y * 4096).toFixed(0)} ref=4096x4096) ` +
                     `streamerSize=(${this.streamerSize[0]}x${this.streamerSize[1]})`);
             }
 

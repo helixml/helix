@@ -30,7 +30,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves debug data for agent sandboxes (Hydra-based)",
+                "description": "Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients",
                 "consumes": [
                     "application/json"
                 ],
@@ -1984,6 +1984,74 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/voice": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send audio for speech-to-text transcription and type the result at cursor position",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Voice input to desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Audio file (WebM/Opus format)",
+                        "name": "audio",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transcription result with 'text' and 'status' fields",
+                        "schema": {
+                            "type": "object"
                         }
                     },
                     "401": {
@@ -13115,6 +13183,35 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_helixml_helix_api_pkg_server.ClientInfo": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "last_x": {
+                    "type": "integer"
+                },
+                "last_y": {
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "user_name": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Commit": {
             "type": "object",
             "properties": {
@@ -13170,6 +13267,70 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "hydra.DevContainerStatus": {
+            "type": "string",
+            "enum": [
+                "starting",
+                "running",
+                "stopped",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "DevContainerStatusStarting",
+                "DevContainerStatusRunning",
+                "DevContainerStatusStopped",
+                "DevContainerStatusError"
+            ]
+        },
+        "hydra.DevContainerType": {
+            "type": "string",
+            "enum": [
+                "sway",
+                "ubuntu",
+                "headless"
+            ],
+            "x-enum-comments": {
+                "DevContainerTypeHeadless": "No GUI, just agent (future)",
+                "DevContainerTypeSway": "Sway compositor with Zed",
+                "DevContainerTypeUbuntu": "GNOME with Zed"
+            },
+            "x-enum-varnames": [
+                "DevContainerTypeSway",
+                "DevContainerTypeUbuntu",
+                "DevContainerTypeHeadless"
+            ]
+        },
+        "hydra.GPUInfo": {
+            "type": "object",
+            "properties": {
+                "index": {
+                    "type": "integer"
+                },
+                "memory_free_bytes": {
+                    "type": "integer"
+                },
+                "memory_total_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                },
+                "utilization_percent": {
+                    "description": "GPU core utilization",
+                    "type": "integer"
+                },
+                "vendor": {
+                    "description": "\"nvidia\", \"amd\", \"intel\"",
+                    "type": "string"
                 }
             }
         },
@@ -14071,6 +14232,18 @@ const docTemplate = `{
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
+                "dev_containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.DevContainerWithClients"
+                    }
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/hydra.GPUInfo"
+                    }
+                },
                 "message": {
                     "type": "string"
                 },
@@ -14230,6 +14403,59 @@ const docTemplate = `{
                 },
                 "path": {
                     "type": "string"
+                }
+            }
+        },
+        "server.DevContainerWithClients": {
+            "type": "object",
+            "properties": {
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_helixml_helix_api_pkg_server.ClientInfo"
+                    }
+                },
+                "container_id": {
+                    "type": "string"
+                },
+                "container_name": {
+                    "type": "string"
+                },
+                "container_type": {
+                    "description": "Container type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.DevContainerType"
+                        }
+                    ]
+                },
+                "desktop_version": {
+                    "description": "Desktop environment info (for debug panel)",
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, or \"\"",
+                    "type": "string"
+                },
+                "ip_address": {
+                    "description": "Network info for RevDial/screenshot-server connections",
+                    "type": "string"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE",
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/hydra.DevContainerStatus"
                 }
             }
         },

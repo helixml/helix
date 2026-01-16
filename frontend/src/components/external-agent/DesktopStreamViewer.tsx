@@ -376,9 +376,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
-    // Generate fresh UUID for EVERY connection attempt
-    // This prevents Wolf session ID conflicts when reconnecting to the same Helix session
-    // (Wolf requires unique client_unique_id per connection to avoid stale state corruption)
+    // Generate fresh UUID for EVERY connection attempt to avoid stale state on reconnect
     componentInstanceIdRef.current = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = Math.random() * 16 | 0;
       const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -390,45 +388,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setStatus('Connecting to streaming server...');
 
     try {
-      // Fetch Helix config to determine moonlight-web mode
       const apiClient = helixApi.getApiClient();
-      const configResponse = await apiClient.v1ConfigList();
-      const moonlightWebMode = configResponse.data.moonlight_web_mode || 'single';
 
-      console.log(`[DesktopStreamViewer] Using stream mode: ${moonlightWebMode}`);
-
-      // Determine app ID based on mode
-      // Note: For WebSocket mode (default), app ID is not used - we connect directly to the container
-      // Wolf app IDs were only needed for WebRTC/Moonlight modes which are now removed
+      // App ID is not used for WebSocket mode - we connect directly to the container
       let actualAppId = appId;
 
-      // Get Helix JWT from account context (HttpOnly cookie not readable by JS)
+      // Get Helix JWT from account context
       const helixToken = account.user?.token || '';
 
-      console.log('[DesktopStreamViewer] Auth check:', {
-        hasAccount: !!account,
-        hasUser: !!account.user,
-        hasToken: !!helixToken,
-        tokenLength: helixToken.length,
-      });
-
       if (!helixToken) {
-        console.error('[DesktopStreamViewer] No token available:', { account, user: account.user });
+        console.error('[DesktopStreamViewer] No token available');
         throw new Error('Not authenticated - please log in');
       }
 
-      console.log('[DesktopStreamViewer] Using Helix token for streaming auth');
-
-      // Create API instance directly (don't use getApi() - it caches globally)
-      // Pointing to moonlight-web via Helix proxy at /moonlight
-      // Proxy validates Helix auth via HttpOnly cookie (sent automatically by browser)
-      // and injects moonlight-web credentials
-      console.log('[DesktopStreamViewer] Creating fresh moonlight API instance');
+      // API object for WebSocketStream (credentials used for auth)
       const api = {
-        host_url: `/moonlight`,
-        credentials: helixToken,  // For HTTP fetch requests (Authorization header)
+        host_url: `/api/v1`,
+        credentials: helixToken,
       };
-      console.log('[DesktopStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
       // Get streaming bitrate: user-selected > backend config > default
       // 5 Mbps provides smoother streaming than higher bitrates - lower encoder latency
@@ -503,7 +480,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         streamSettings,
         supportedFormats,
         [width, height],
-        sessionId
+        sessionId,
+        undefined, // clientUniqueId
+        account.user?.name, // userName for multi-player presence
+        undefined // avatarUrl
       );
 
       // Set canvas for WebSocket stream rendering
@@ -686,9 +666,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }
           }
         } else if (data.type === 'cursorPosition') {
-          // Update cursor position (sent with each cursor metadata update from server)
-          setCursorPosition({ x: data.x, y: data.y });
-          // Update hotspot if cursor image exists
+          // DON'T update cursor position from server - use locally tracked position only
+          // Server position creates feedback loop + lag. Local mouse tracking is authoritative.
+          // Only update hotspot from server (for cursor shape accuracy)
           if (cursorImage) {
             setCursorImage(prev => prev ? { ...prev, hotspotX: data.hotspotX, hotspotY: data.hotspotY } : null);
           }
@@ -1236,15 +1216,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // For WebSocket mode (default), we only need sessionId - don't wait for sandboxId
-    // sandboxId was only needed for Wolf/Moonlight WebRTC modes which are now removed
-    // The WebSocketStream connects directly via /api/v1/external-agents/{sessionId}/ws/stream
-    if (sessionId && false /* WebSocket only */ && !sandboxId) {
-      console.log('[DesktopStreamViewer] Waiting for sandboxId to load before connecting...');
-      return;
-    }
-
-    // Skip bandwidth probe - 5 Mbps default provides smoother streaming than higher bitrates
+    // WebSocketStream connects directly via /api/v1/external-agents/{sessionId}/ws/stream
     // Lower encoder latency and more consistent frame pacing outweigh quality benefits
     hasConnectedRef.current = true;
     setIsConnecting(true);
@@ -1294,19 +1266,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // Only apply quality mode changes in websocket streaming mode
-    // WebRTC has its own congestion control and doesn't use qualityMode
-    if (false /* WebSocket only */) {
-      return;
-    }
-
-    // Only control WS video for 'high' and 'low' modes
-    // SSE mode handles its own video enable/disable in the SSE setup effects
+    // Control video streaming based on quality mode
     if (qualityMode === 'screenshot') {
       console.log('[DesktopStreamViewer] Screenshot mode - disabling WS video');
       stream.setVideoEnabled(false);
     } else if (qualityMode === 'video') {
-      console.log('[DesktopStreamViewer] High quality mode - enabling WS video');
+      console.log('[DesktopStreamViewer] Video mode - enabling WS video');
       stream.setVideoEnabled(true);
     }
   }, [qualityMode, isConnected]);
@@ -1488,9 +1453,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, [screenshotUrl]);
 
-  // Note: Adaptive screenshot RTT detection removed - users manually switch to 'low' mode
-  // for screenshot fallback. This simplifies the quality mode to just three options:
-  // high (WS video), sse (SSE video), low (screenshots)
+  // Note: Users manually switch between video and screenshot modes via toolbar toggle
 
   // Adaptive bitrate: reduce based on frame drift, increase based on bandwidth probe
   // Frame drift = how late frames are arriving - reliable indicator of congestion
@@ -1557,15 +1520,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [sessionId]);
 
   useEffect(() => {
-    // Support both WebSocket and SSE modes for adaptive bitrate
     if (!isConnected || !streamRef.current) {
       stableCheckCountRef.current = 0;
-      return;
-    }
-
-    // Only WebSocket streaming mode supports adaptive bitrate (WebRTC has its own congestion control)
-    // Adaptive bitrate works for both 'high' and 'sse' quality modes within WebSocket streaming
-    if (false /* WebSocket only */) {
       return;
     }
 
@@ -1575,6 +1531,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
 
     const CHECK_INTERVAL_MS = 1000;       // Check every second (for congestion detection)
+    const CONNECTION_GRACE_PERIOD_MS = 10000; // Wait 10s after connection before showing recommendations
     const REDUCE_COOLDOWN_MS = 300000;    // Don't show another recommendation within 5 minutes
     const INCREASE_COOLDOWN_MS = 300000;  // Don't show another recommendation within 5 minutes
     const MANUAL_SELECTION_COOLDOWN_MS = 60000;  // Don't auto-reduce within 60s of user manually selecting bitrate
@@ -1584,9 +1541,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const CONGESTION_CHECKS_FOR_REDUCE = 3; // Need 3 consecutive high drift samples before reducing (dampening)
     const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
 
+    // Track when connection started for grace period
+    const connectionStartTime = Date.now();
+
     const checkBandwidth = () => {
       const stream = streamRef.current;
       if (!stream) return;
+
+      // Skip recommendations during initial connection grace period
+      // This prevents false positives during WebSocket handshake and initial buffering
+      if (Date.now() - connectionStartTime < CONNECTION_GRACE_PERIOD_MS) {
+        return;
+      }
 
       // Get frame drift from stream stats (the reliable metric for congestion detection)
       // Frame drift = how late frames are arriving compared to their PTS
@@ -1928,7 +1894,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       event.preventDefault();
       event.stopPropagation();
 
-      // Send scroll via WebSocketStream (bypasses Wolf/Moonlight, goes directly to GNOME/Sway)
+      // Send scroll via WebSocketStream
       const input = streamRef.current && 'getInput' in streamRef.current
         ? (streamRef.current as WebSocketStream).getInput()
         : null;
@@ -1965,10 +1931,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket mode - poll stats from WebSocketStream
-    // SSE video mode also uses WebSocketStream for input and session management
-    if (true /* WebSocket only */) {
-      const pollWsStats = () => {
+    // Poll stats from WebSocketStream
+    const pollWsStats = () => {
         const currentStream = streamRef.current;
         if (!currentStream) return;
 
@@ -2026,10 +1990,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             avgEventLoopLatencyMs: wsStats.avgEventLoopLatencyMs,
           },
           connection: {
-            transport: isForcedLow
+            transport: isScreenshotMode
               ? 'Screenshot + WebSocket Input'
-              : isSSE
-              ? 'SSE Video + WebSocket Input'
               : 'WebSocket Video + Input',
           },
           timestamp: new Date().toISOString(),
@@ -2038,114 +2000,35 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         setIsHighLatency(wsStats.isHighLatency);
         // Update throttle state for warning banner
         setIsThrottled(wsStats.isThrottled);
-        // Show orange border for forced low quality mode
-        setIsOnFallback(isForcedLow);
+        // Show orange border for screenshot mode
+        setIsOnFallback(isScreenshotMode);
 
         // Update chart history (60 seconds of data) - use refs to persist across reconnects
         throughputHistoryRef.current = [...throughputHistoryRef.current, wsStats.totalBitrateMbps].slice(-CHART_HISTORY_LENGTH);
         rttHistoryRef.current = [...rttHistoryRef.current, wsStats.rttMs].slice(-CHART_HISTORY_LENGTH);
         bitrateHistoryRef.current = [...bitrateHistoryRef.current, requestedBitrate].slice(-CHART_HISTORY_LENGTH);
-        // Use SSE frame latency when in SSE mode, WebSocket frame latency otherwise
-        const currentFrameDrift = isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs;
-        frameDriftHistoryRef.current = [...frameDriftHistoryRef.current, currentFrameDrift].slice(-CHART_HISTORY_LENGTH);
+        // Frame drift for charts
+        frameDriftHistoryRef.current = [...frameDriftHistoryRef.current, wsStats.frameLatencyMs].slice(-CHART_HISTORY_LENGTH);
         // Trigger re-render for charts
         if (showCharts) {
           setChartUpdateTrigger(prev => prev + 1);
         }
       };
 
-      // Poll every second
-      const interval = setInterval(pollWsStats, 1000);
-      pollWsStats(); // Initial call
-
-      return () => clearInterval(interval);
-    }
-
-    const pollStats = async () => {
-      const peer = (streamRef.current as any)?.getPeer?.();
-      if (!peer) {
-        console.warn('[Stats] getPeer not available yet');
-        return;
-      }
-
-      try {
-        const statsReport = await peer.getStats();
-        const parsedStats: any = {
-          video: {},
-          connection: {},
-          timestamp: new Date().toISOString(),
-        };
-
-        let codecInfo = 'unknown';
-
-        statsReport.forEach((report: any) => {
-          // Get codec details
-          if (report.type === 'codec' && report.mimeType?.includes('video')) {
-            const profile = report.sdpFmtpLine?.match(/profile-level-id=([0-9a-fA-F]+)/)?.[1];
-            codecInfo = `${report.mimeType}${profile ? ` (${profile})` : ''}`;
-          }
-
-          if (report.type === 'inbound-rtp' && report.kind === 'video') {
-            // Calculate bitrate from delta
-            const now = Date.now();
-            const bytes = report.bytesReceived || 0;
-            let bitrateMbps = 0;
-
-            if (lastBytesRef.current) {
-              const deltaBytes = bytes - lastBytesRef.current.bytes;
-              const deltaTime = (now - lastBytesRef.current.timestamp) / 1000; // seconds
-              if (deltaTime > 0) {
-                bitrateMbps = ((deltaBytes * 8) / 1000000) / deltaTime;
-              }
-            }
-
-            lastBytesRef.current = { bytes, timestamp: now };
-
-            parsedStats.video = {
-              codec: codecInfo,
-              width: report.frameWidth,
-              height: report.frameHeight,
-              fps: report.framesPerSecond?.toFixed(1) || 0,
-              bitrate: bitrateMbps.toFixed(2),
-              packetsLost: report.packetsLost || 0,
-              packetsReceived: report.packetsReceived || 0,
-              framesDecoded: report.framesDecoded || 0,
-              framesDropped: report.framesDropped || 0,
-              jitter: report.jitter ? (report.jitter * 1000).toFixed(2) : 0,
-            };
-          }
-          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-            parsedStats.connection = {
-              rtt: report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(1) : 0,
-              bytesSent: report.bytesSent,
-              bytesReceived: report.bytesReceived,
-            };
-          }
-        });
-
-        setStats(parsedStats);
-      } catch (err) {
-        console.error('[Stats] Failed to get WebRTC stats:', err);
-      }
-    };
-
     // Poll every second
-    const interval = setInterval(pollStats, 1000);
-    pollStats(); // Initial call
+    const interval = setInterval(pollWsStats, 1000);
+    pollWsStats(); // Initial call
 
-    return () => {
-      clearInterval(interval);
-      lastBytesRef.current = null; // Reset for next time
-    };
-  }, [showStats, showCharts, width, height, qualityMode]);
+    return () => clearInterval(interval);
+  }, [showStats, showCharts, width, height, qualityMode, requestedBitrate]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
     // Check if we're in screenshot mode (screenshot overlay is visible)
-    const inScreenshotMode = shouldPollScreenshots && screenshotUrl && true /* WebSocket only */;
+    const inScreenshotMode = shouldPollScreenshots && screenshotUrl;
 
     // In screenshot mode, the img uses containerRef with objectFit: contain
-    // In normal WebSocket mode, use canvas; in WebRTC mode, use video
+    // In video mode, use canvas for rendering
     if (inScreenshotMode) {
       // Screenshot mode: calculate letterboxed content rect within container
       if (!containerRef.current) {
@@ -2176,68 +2059,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return new DOMRect(contentX, contentY, contentWidth, contentHeight);
     }
 
-    // Use appropriate canvas/video element for each mode
-    let element: HTMLCanvasElement | HTMLVideoElement | null = null;
-    if (true /* WebSocket only */) {
-      // Always use canvasRef for WebSocket mode - it's our consistent input surface
-      // (SSE canvas is just for rendering, input goes through the transparent canvasRef)
-      element = canvasRef.current;
-    } else {
-      element = videoRef.current;
-    }
-
-    // If no element, return fallback (but with proper position approximation)
+    // Use canvas for input and rendering
+    const element = canvasRef.current;
     if (!element) {
       return new DOMRect(0, 0, width, height);
     }
 
+    // Canvas is already sized to maintain aspect ratio,
+    // so bounding rect IS the video content area
     const boundingRect = element.getBoundingClientRect();
-
-    // For WebSocket mode: canvas is already sized to maintain aspect ratio,
-    // so bounding rect IS the video content area (no letterboxing)
-    // Note: We don't need streamRef here - the canvas position is correct regardless
-    if (true /* WebSocket only */) {
-      return new DOMRect(
-        boundingRect.x,
-        boundingRect.y,
-        boundingRect.width,
-        boundingRect.height
-      );
-    }
-
-    // For WebRTC mode: video element uses objectFit: contain, so we need to
-    // calculate where the actual video content appears within the element
-    // Use stream's size if available, otherwise fall back to props (which are the intended resolution)
-    const videoSize = streamRef.current?.getStreamerSize() || [width, height];
-    const videoAspect = videoSize[0] / videoSize[1];
-    const boundingRectAspect = boundingRect.width / boundingRect.height;
-
-    let x = boundingRect.x;
-    let y = boundingRect.y;
-    let videoMultiplier;
-
-    if (boundingRectAspect > videoAspect) {
-      videoMultiplier = boundingRect.height / videoSize[1];
-      const boundingRectHalfWidth = boundingRect.width / 2;
-      const videoHalfWidth = videoSize[0] * videoMultiplier / 2;
-      x += boundingRectHalfWidth - videoHalfWidth;
-    } else {
-      videoMultiplier = boundingRect.width / videoSize[0];
-      const boundingRectHalfHeight = boundingRect.height / 2;
-      const videoHalfHeight = videoSize[1] * videoMultiplier / 2;
-      y += boundingRectHalfHeight - videoHalfHeight;
-    }
-
     return new DOMRect(
-      x,
-      y,
-      videoSize[0] * videoMultiplier,
-      videoSize[1] * videoMultiplier
+      boundingRect.x,
+      boundingRect.y,
+      boundingRect.width,
+      boundingRect.height
     );
   }, [width, height, shouldPollScreenshots, screenshotUrl]);
 
-  // Get input handler - always from the main stream
-  // SSE quality mode still uses the same WebSocketStream for input
+  // Get input handler from the WebSocket stream
   const getInputHandler = useCallback(() => {
     // For all modes, get input from the main stream
     if (streamRef.current && 'getInput' in streamRef.current) {
@@ -2489,7 +2328,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Double-Escape to reset stuck modifiers (common workaround for Moonlight caps lock bug)
+      // Double-Escape to reset stuck modifiers
       if (event.code === 'Escape') {
         const now = Date.now();
         if (now - lastEscapeTime < 500) { // 500ms window for double-press
@@ -2800,7 +2639,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
-        cursor: 'default',
+        cursor: 'none', // Hide native cursor - custom cursor is rendered separately
       }}
     >
       {/* Toolbar - always visible so user can reconnect/access controls */}
@@ -2816,6 +2655,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           borderRadius: 1,
           display: 'flex',
           gap: 1,
+          cursor: 'none', // Hide native cursor - custom cursor is rendered separately
         }}
       >
         <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
@@ -2883,9 +2723,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             <Timeline fontSize="small" />
           </IconButton>
         </Tooltip>
-        {/* WebRTC toggle disabled - Wolf/Moonlight removed, may add Pion later */}
-        {/* Quality mode toggle: WS Video (high) → Screenshots (low) */}
-        {/* SSE mode disabled - Wolf/Moonlight removed, may bring back later */}
+        {/* Quality mode toggle: Video → Screenshots */}
         <Tooltip
           title={
             modeSwitchCooldown
@@ -3011,7 +2849,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               onClick={() => {
                 if (bitrateRecommendation.type === 'screenshot') {
                   // Switch to screenshot mode
-                  setQualityMode('low');
+                  setQualityMode('screenshot');
                   addChartEvent('reduce', 'User switched to screenshot mode');
                 } else {
                   // Change bitrate
@@ -3054,10 +2892,68 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             </Button>
           </Tooltip>
         )}
+
+        {/* Presence indicators - connected users + agent */}
+        {isConnected && remoteUsers.size > 0 && (
+          <>
+            <Box sx={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)', mx: 0.5 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {Array.from(remoteUsers.values()).map((user) => (
+                <Tooltip key={user.userId} title={user.userName} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+                  <Box
+                    sx={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      backgroundColor: user.color,
+                      border: user.userId === selfClientId ? '2px solid white' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 10,
+                      fontWeight: 'bold',
+                      color: 'white',
+                      cursor: 'default',
+                    }}
+                  >
+                    {user.avatarUrl ? (
+                      <Box
+                        component="img"
+                        src={user.avatarUrl}
+                        sx={{ width: '100%', height: '100%', borderRadius: '50%' }}
+                      />
+                    ) : (
+                      user.userName.charAt(0).toUpperCase()
+                    )}
+                  </Box>
+                </Tooltip>
+              ))}
+              {/* Agent indicator */}
+              <Tooltip title="AI Agent" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+                <Box
+                  sx={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    backgroundColor: '#00D4FF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 11,
+                    cursor: 'default',
+                    opacity: agentCursor ? 1 : 0.5,
+                  }}
+                >
+                  🤖
+                </Box>
+              </Tooltip>
+            </Box>
+          </>
+        )}
       </Box>
 
       {/* Screenshot Mode / High Latency Warning Banner */}
-      {shouldPollScreenshots && isConnected && true /* WebSocket only */ && (
+      {shouldPollScreenshots && isConnected && (
         <Box
           sx={{
             position: 'absolute',
@@ -3087,7 +2983,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Adaptive Throttle Warning Banner - shown when input rate is reduced due to high latency */}
-      {isThrottled && isConnected && true /* WebSocket only */ && !shouldPollScreenshots && (
+      {isThrottled && isConnected && !shouldPollScreenshots && (
         <Box
           sx={{
             position: 'absolute',
@@ -3230,14 +3126,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
-          // ALWAYS visible in WebSocket streaming mode for input capture
-          // In 'high' mode: renders video AND handles input
-          // In 'sse' mode: invisible (transparent) but handles input (SSE canvas renders on top)
-          // In 'low' mode: invisible (transparent) but handles input (screenshot overlays)
-          display: true /* WebSocket only */ ? 'block' : 'none',
-          // Make transparent in SSE/low modes so overlays are visible, but still captures input
+          // Always visible for input capture
+          // In video mode: renders video AND handles input
+          // In screenshot mode: transparent but handles input (screenshot overlays on top)
+          display: 'block',
+          // Transparent in screenshot mode so overlays are visible, but still captures input
           opacity: qualityMode === 'video' ? 1 : 0,
-          // Higher z-index than SSE canvas so it captures input even when transparent
           zIndex: 20,
         }}
         onClick={() => {
@@ -3624,77 +3518,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       })}
 
       {/* Input Hint - removed since auto-focus handles keyboard input */}
-
-      {/* Presence Indicator - shows connected users + agent (always show when connected) */}
-      {isConnected && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            borderRadius: '20px',
-            padding: '4px 8px',
-            zIndex: 1003,
-          }}
-        >
-          {/* Show all connected users as colored circles */}
-          {Array.from(remoteUsers.values()).map((user) => (
-            <Tooltip key={user.userId} title={user.userName} arrow>
-              <Box
-                sx={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  backgroundColor: user.color,
-                  border: user.userId === selfClientId ? '2px solid white' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 10,
-                  fontWeight: 'bold',
-                  color: 'white',
-                  cursor: 'default',
-                  boxShadow: `0 0 6px ${user.color}`,
-                }}
-              >
-                {user.avatarUrl ? (
-                  <Box
-                    component="img"
-                    src={user.avatarUrl}
-                    sx={{ width: '100%', height: '100%', borderRadius: '50%' }}
-                  />
-                ) : (
-                  user.userName.charAt(0).toUpperCase()
-                )}
-              </Box>
-            </Tooltip>
-          ))}
-          {/* Agent indicator - always show when connected */}
-          <Tooltip title="AI Agent" arrow>
-            <Box
-              sx={{
-                width: 24,
-                height: 24,
-                borderRadius: '50%',
-                backgroundColor: '#00D4FF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 12,
-                cursor: 'default',
-                boxShadow: agentCursor ? '0 0 8px #00D4FF' : 'none',
-                opacity: agentCursor ? 1 : 0.5,
-              }}
-            >
-              🤖
-            </Box>
-          </Tooltip>
-        </Box>
-      )}
+      {/* Presence Indicator - moved to toolbar above */}
 
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'screenshot') && (
@@ -3719,7 +3543,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           </Typography>
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
-            <div><strong>Transport:</strong> {true /* WebSocket only */ ? (qualityMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebSocket (L7)') : 'WebRTC'}</div>
+            <div><strong>Transport:</strong> WebSocket</div>
             {/* Active Connections Registry - shows all active streaming connections */}
             <div>
               <strong>Active:</strong>{' '}
@@ -3746,18 +3570,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                {true /* WebSocket only */ ? (
-                  <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
-                ) : (
-                  <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
-                )}
+                <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
                 <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
                 <div>
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
                 {/* Latency metrics (WebSocket mode) */}
-                {true /* WebSocket only */ && stats.video.rttMs !== undefined && (
+                {stats.video.rttMs !== undefined && (
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
                     {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
@@ -3770,17 +3590,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Adaptive input throttling (WebSocket mode) - reduces input rate when RTT is high */}
-                {true /* WebSocket only */ && stats.video.adaptiveThrottleRatio !== undefined && (
+                {stats.video.adaptiveThrottleRatio !== undefined && (
                   <div>
                     <strong>Input Throttle:</strong> {(stats.video.adaptiveThrottleRatio * 100).toFixed(0)}%
                     {' '}({stats.video.effectiveInputFps?.toFixed(0) || 0} Hz)
                     {stats.video.isThrottled && <span style={{ color: '#ff9800' }}> ⚠️ Reduced due to latency</span>}
                   </div>
                 )}
-                {/* Frame latency (WebSocket and SSE modes) - actual delivery delay based on PTS */}
+                {/* Frame latency - actual delivery delay based on PTS */}
                 {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
                 {/* Hidden in screenshot mode since there's no video stream to measure */}
-                {true /* WebSocket only */ && qualityMode !== 'screenshot' && stats.video.frameLatencyMs !== undefined && (
+                {qualityMode !== 'screenshot' && stats.video.frameLatencyMs !== undefined && (
                   <div>
                     <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
                     {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
@@ -3788,7 +3608,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
-                {true /* WebSocket only */ && stats.video.decodeQueueSize !== undefined && (
+                {stats.video.decodeQueueSize !== undefined && (
                   <div>
                     <strong>Decode Queue:</strong> {stats.video.decodeQueueSize}
                     {stats.video.maxDecodeQueueSize > 3 && (
@@ -3798,7 +3618,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Frames skipped to keyframe (WebSocket mode) - shows when decoder fell behind and skipped ahead */}
-                {true /* WebSocket only */ && stats.video.framesSkippedToKeyframe !== undefined && (
+                {stats.video.framesSkippedToKeyframe !== undefined && (
                   <div>
                     <strong>Skipped to KF:</strong> {stats.video.framesSkippedToKeyframe} frames
                     {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> ⏭️</span>}
@@ -3807,7 +3627,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               </>
             )}
             {/* Input stats (WebSocket mode) - detects TCP send buffer congestion */}
-            {true /* WebSocket only */ && stats?.input && (
+            {stats?.input && (
               <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
                 <strong style={{ color: '#00ff00' }}>⌨️ Input</strong>
                 <div>
@@ -3843,7 +3663,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
             {/* Debug: Throttle ratio override */}
-            {true /* WebSocket only */ && (
+            {(
               <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
                 <strong>🔧 Debug: Throttle Override</strong>
                 <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>

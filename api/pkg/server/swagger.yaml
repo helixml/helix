@@ -52,6 +52,25 @@ definitions:
         description: the URL that can be used to load the object directly
         type: string
     type: object
+  github_com_helixml_helix_api_pkg_server.ClientInfo:
+    properties:
+      avatar_url:
+        type: string
+      color:
+        type: string
+      id:
+        type: integer
+      last_seen:
+        type: string
+      last_x:
+        type: integer
+      last_y:
+        type: integer
+      user_id:
+        type: string
+      user_name:
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Commit:
     properties:
       author:
@@ -91,6 +110,53 @@ definitions:
       valid:
         description: Valid is true if Time is not NULL
         type: boolean
+    type: object
+  hydra.DevContainerStatus:
+    enum:
+    - starting
+    - running
+    - stopped
+    - error
+    type: string
+    x-enum-varnames:
+    - DevContainerStatusStarting
+    - DevContainerStatusRunning
+    - DevContainerStatusStopped
+    - DevContainerStatusError
+  hydra.DevContainerType:
+    enum:
+    - sway
+    - ubuntu
+    - headless
+    type: string
+    x-enum-comments:
+      DevContainerTypeHeadless: No GUI, just agent (future)
+      DevContainerTypeSway: Sway compositor with Zed
+      DevContainerTypeUbuntu: GNOME with Zed
+    x-enum-varnames:
+    - DevContainerTypeSway
+    - DevContainerTypeUbuntu
+    - DevContainerTypeHeadless
+  hydra.GPUInfo:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
     type: object
   kodit.RepositoryStatusSummaryAttributes:
     properties:
@@ -761,6 +827,14 @@ definitions:
     type: object
   server.AgentSandboxesDebugResponse:
     properties:
+      dev_containers:
+        items:
+          $ref: '#/definitions/server.DevContainerWithClients'
+        type: array
+      gpus:
+        items:
+          $ref: '#/definitions/hydra.GPUInfo'
+        type: array
       message:
         type: string
       sandboxes:
@@ -863,6 +937,41 @@ definitions:
         type: string
       path:
         type: string
+    type: object
+  server.DevContainerWithClients:
+    properties:
+      clients:
+        items:
+          $ref: '#/definitions/github_com_helixml_helix_api_pkg_server.ClientInfo'
+        type: array
+      container_id:
+        type: string
+      container_name:
+        type: string
+      container_type:
+        allOf:
+        - $ref: '#/definitions/hydra.DevContainerType'
+        description: Container type
+      desktop_version:
+        description: Desktop environment info (for debug panel)
+        type: string
+      error:
+        type: string
+      gpu_vendor:
+        description: nvidia, amd, intel, or ""
+        type: string
+      ip_address:
+        description: Network info for RevDial/screenshot-server connections
+        type: string
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE
+        type: string
+      sandbox_id:
+        type: string
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/hydra.DevContainerStatus'
     type: object
   server.ForkSampleProjectRequest:
     properties:
@@ -7881,7 +7990,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieves debug data for agent sandboxes (Hydra-based)
+      description: Retrieves debug data for agent sandboxes (Hydra-based) including
+        GPU stats, dev containers, and connected clients
       parameters:
       - description: Sandbox instance ID to query
         in: query
@@ -9146,6 +9256,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload file to sandbox
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/voice:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Send audio for speech-to-text transcription and type the result
+        at cursor position
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Audio file (WebM/Opus format)
+        in: formData
+        name: audio
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transcription result with 'text' and 'status' fields
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Voice input to desktop
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/ws/input:

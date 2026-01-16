@@ -92,7 +92,6 @@ export class Stream {
             : `/host/stream`;
 
         // Build WebSocket URL (browser sends HttpOnly auth cookie automatically)
-        // Include session_id in URL for routing to correct Moonlight Web instance via RevDial
         const queryParams = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
         const wsUrl = `${api.host_url}${wsEndpoint}${queryParams}`;
         const wsLogPrefix = `[WS:${clientUniqueId?.substring(0, 20) || 'no-id'}...]`;
@@ -133,9 +132,7 @@ export class Stream {
                     credentials: this.api.credentials,
                     session_id: finalSessionId,
                     mode: mode,
-                    // KICKOFF APPROACH: Use explicit client_unique_id to trigger Moonlight RESUME
-                    // - If provided: Use it (for external agents - same as kickoff session)
-                    // - If null/undefined: Let moonlight-web assign one (normal browser behavior)
+                    // Client unique ID for session matching
                     client_unique_id: clientUniqueId !== undefined ? clientUniqueId : null,
                     host_id: this.hostId,
                     app_id: this.appId,

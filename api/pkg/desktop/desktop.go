@@ -5,6 +5,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -355,6 +356,7 @@ func (s *Server) httpHandler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+	mux.HandleFunc("/clients", s.handleClients)
 
 	return mux
 }
@@ -402,4 +404,55 @@ func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
 	// Call handleStreamWebSocketInternal directly with our selected nodeID
 	// (handleStreamWebSocketWithServer has its own logic that would override our choice)
 	handleStreamWebSocketInternal(w, r, nodeID, s.logger, s)
+}
+
+// ClientInfo is the JSON response for a connected client (no WebSocket conn exposed)
+type ClientInfo struct {
+	ID        uint32 `json:"id"`
+	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	Color     string `json:"color"`
+	LastX     int32  `json:"last_x"`
+	LastY     int32  `json:"last_y"`
+	LastSeen  string `json:"last_seen"`
+}
+
+// ClientsResponse is the JSON response for the /clients endpoint
+type ClientsResponse struct {
+	SessionID string       `json:"session_id"`
+	Clients   []ClientInfo `json:"clients"`
+}
+
+// handleClients returns the list of connected WebSocket clients for this session.
+// Used by the admin dashboard to show multi-player info.
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := s.config.SessionID
+	clients := GetSessionRegistry().GetConnectedUsers(sessionID)
+
+	response := ClientsResponse{
+		SessionID: sessionID,
+		Clients:   make([]ClientInfo, 0, len(clients)),
+	}
+
+	for _, c := range clients {
+		response.Clients = append(response.Clients, ClientInfo{
+			ID:        c.ID,
+			UserID:    c.UserID,
+			UserName:  c.UserName,
+			AvatarURL: c.AvatarURL,
+			Color:     c.Color,
+			LastX:     c.LastX,
+			LastY:     c.LastY,
+			LastSeen:  c.LastSeen.Format(time.RFC3339),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

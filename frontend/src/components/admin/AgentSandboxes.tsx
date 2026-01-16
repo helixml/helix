@@ -11,924 +11,486 @@ import {
   IconButton,
   Alert,
   CircularProgress,
-  Divider,
   Tooltip,
+  Avatar,
+  AvatarGroup,
+  LinearProgress,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import MemoryIcon from '@mui/icons-material/Memory'
-import VideocamIcon from '@mui/icons-material/Videocam'
-import TimelineIcon from '@mui/icons-material/Timeline'
-import AccountTreeIcon from '@mui/icons-material/AccountTree'
-import CloseIcon from '@mui/icons-material/Close'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import ComputerIcon from '@mui/icons-material/Computer'
+import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
+import PersonIcon from '@mui/icons-material/Person'
+import ThermostatIcon from '@mui/icons-material/Thermostat'
+import { useQuery } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
-import useSnackbar from '../../hooks/useSnackbar'
 
+// Types matching the backend response
+interface GPUInfo {
+  index: number
+  name: string
+  vendor: string
+  memory_total_bytes: number
+  memory_used_bytes: number
+  memory_free_bytes: number
+  utilization_percent: number
+  temperature_celsius: number
+}
 
+interface ClientInfo {
+  id: number
+  user_id: string
+  user_name: string
+  avatar_url?: string
+  color: string
+  last_x: number
+  last_y: number
+  last_seen: string
+}
 
+interface DevContainerWithClients {
+  session_id: string
+  container_id: string
+  container_name: string
+  status: string
+  ip_address?: string
+  container_type: string
+  desktop_version?: string
+  gpu_vendor?: string
+  render_node?: string
+  sandbox_id: string
+  clients?: ClientInfo[]
+}
 
+interface SandboxInstanceInfo {
+  id: string
+  session_id: string
+  status: string
+  container_id?: string
+}
 
-const formatBytes = (bytesStr: string): string => {
-  const bytes = parseInt(bytesStr, 10)
-  if (isNaN(bytes) || bytes === 0) return '0 Bytes'
+interface AgentSandboxesDebugResponse {
+  message: string
+  sandboxes?: SandboxInstanceInfo[]
+  gpus?: GPUInfo[]
+  dev_containers?: DevContainerWithClients[]
+}
+
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
   const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
 }
 
-const truncateName = (name: string, maxLength: number = 20): string => {
-  if (name.length <= maxLength) return name
-  return name.substring(0, maxLength - 3) + '...'
+const getStatusColor = (status: string): 'success' | 'warning' | 'error' | 'default' => {
+  switch (status) {
+    case 'running':
+      return 'success'
+    case 'starting':
+      return 'warning'
+    case 'stopped':
+    case 'error':
+      return 'error'
+    default:
+      return 'default'
+  }
 }
 
-// GStreamer Pipeline Network Visualization Component
-const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = ({ data }) => {
-  // Support both apps and lobbies modes
-  const apps = data.apps || []
-  const lobbies = data.lobbies || []
-  const isAppsMode = data.wolf_mode === 'apps'  // Use explicit wolf_mode field
-  const containers = isAppsMode ? apps : lobbies // Apps or Lobbies
-
-  const sessions = data.sessions || []
-  const webrtcClients = data.moonlight_clients || []  // WebRTC streaming clients (API field retains legacy name)
-  const memoryData = data.memory
-  const containerMemory = isAppsMode ? (memoryData?.apps || []) : (memoryData?.lobbies || [])
-  const clientConnections = memoryData?.clients || []
-
-  // Build connection map: session_id -> container_id (app_id or lobby_id)
-  const connectionMap = new Map<string, string>()
-  clientConnections.forEach((client) => {
-    const containerId = client.app_id || client.lobby_id
-    if (containerId) {
-      connectionMap.set(client.session_id, containerId)
-    }
-  })
-
-  // Layout parameters (3-tier architecture)
-  const svgWidth = 1000
-  const svgHeight = 700  // Increased for 3 layers
-  const containerRadius = 60
-  const sessionRadius = 30
-  const clientRadius = 25
-  const containerY = 120  // Apps/Lobbies at top
-  const sessionY = 350    // Wolf sessions in middle
-  const clientY = 580     // WebRTC streaming clients at bottom
-
-  // Position containers (apps or lobbies) horizontally
-  const containerPositions = new Map<string, { x: number; y: number }>()
-  const containerSpacing = svgWidth / (containers.length + 1)
-  containers.forEach((container, idx) => {
-    const containerId = 'id' in container ? container.id : container.id
-    containerPositions.set(containerId, {
-      x: containerSpacing * (idx + 1),
-      y: containerY,
-    })
-  })
-
-  // Position sessions horizontally
-  // Use session_id + app_id as unique key since same client can connect to multiple apps
-  const sessionPositions = new Map<string, { x: number; y: number }>()
-  const sessionSpacing = svgWidth / (sessions.length + 1)
-  sessions.forEach((session, idx) => {
-    const uniqueKey = `${session.session_id}-${session.app_id}`
-    sessionPositions.set(uniqueKey, {
-      x: sessionSpacing * (idx + 1),
-      y: sessionY,
-    })
-  })
-
-  // Position WebRTC streaming clients horizontally
-  const clientPositions = new Map<string, { x: number; y: number }>()
-  const clientSpacing = svgWidth / (webrtcClients.length + 1)
-  webrtcClients.forEach((client, idx) => {
-    clientPositions.set(client.session_id, {
-      x: clientSpacing * (idx + 1),
-      y: clientY,
-    })
-  })
-
-  // Find memory for each container (app or lobby)
-  const getContainerMemory = (containerId: string): string => {
-    if (isAppsMode) {
-      const mem = containerMemory.find((am: any) => am.app_id === containerId)
-      return mem ? formatBytes(mem.memory_bytes) : '0 B'
-    } else {
-      const mem = containerMemory.find((lm: any) => lm.lobby_id === containerId)
-      return mem ? formatBytes(mem.memory_bytes) : '0 B'
-    }
+const getContainerTypeLabel = (type: string): string => {
+  switch (type) {
+    case 'sway':
+      return 'Sway Desktop'
+    case 'ubuntu':
+      return 'Ubuntu/GNOME'
+    case 'headless':
+      return 'Headless'
+    default:
+      return type
   }
+}
 
-  // Find client count for each container
-  const getContainerClientCount = (containerId: string): number => {
-    if (isAppsMode) {
-      return clientConnections.filter((c) => c.app_id === containerId).length
-    } else {
-      return clientConnections.filter((c) => c.lobby_id === containerId).length
-    }
-  }
-
-  // Get container name
-  const getContainerName = (container: any): string => {
-    return container.title || container.name || container.id
-  }
-
-  // Find session memory
-  const getSessionMemory = (sessionId: string): string => {
-    const client = clientConnections.find((c) => c.session_id === sessionId)
-    return client ? formatBytes(client.memory_bytes) : '0 B'
-  }
+// GPU Stats Card Component
+const GPUStatsCard: FC<{ gpus: GPUInfo[] }> = ({ gpus }) => {
+  if (gpus.length === 0) return null
 
   return (
-    <Card sx={{ height: '100%' }}>
+    <Card>
       <CardHeader
-        avatar={<AccountTreeIcon />}
-        title="Streaming Pipeline Architecture"
-        subheader={`${isAppsMode ? 'Apps (1:1 direct)' : 'Lobbies (interpipe)'} → Streaming Sessions → WebRTC Clients`}
+        avatar={<MemoryIcon />}
+        title="GPU Statistics"
+        subheader={`${gpus.length} GPU${gpus.length > 1 ? 's' : ''} available`}
       />
       <CardContent>
-        <svg width={svgWidth} height={svgHeight} style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-          {/* Draw container-to-session connection lines */}
-          {sessions.map((session) => {
-            // Find Wolf client connection data to get lobby_id (in lobbies mode)
-            const wolfClient = clientConnections.find(c => c.session_id === session.session_id)
+        <Grid container spacing={3}>
+          {gpus.map((gpu) => (
+            <Grid item xs={12} md={6} lg={4} key={gpu.index}>
+              <Paper
+                sx={{
+                  p: 2,
+                  backgroundColor: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                }}
+              >
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  {gpu.name}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                  {gpu.vendor.toUpperCase()} GPU #{gpu.index}
+                </Typography>
 
-            // In lobbies mode, check if session is in a lobby (has lobby_id)
-            // Otherwise, use app_id (Wolf UI or app)
-            const connectedContainerId = wolfClient?.lobby_id || session.app_id
-            if (!connectedContainerId) return null
-
-            const uniqueKey = `${session.session_id}-${session.app_id}`
-            const sessionPos = sessionPositions.get(uniqueKey)
-            const containerPos = containerPositions.get(connectedContainerId)
-            if (!sessionPos || !containerPos) return null
-
-            return (
-              <g key={`connection-${uniqueKey}`}>
-                <line
-                  x1={sessionPos.x}
-                  y1={sessionPos.y - sessionRadius}
-                  x2={containerPos.x}
-                  y2={containerPos.y + containerRadius}
-                  stroke="#00c8ff"
-                  strokeWidth="2"
-                  strokeDasharray="5,5"
-                  opacity="0.6"
-                />
-                <text
-                  x={(sessionPos.x + containerPos.x) / 2}
-                  y={(sessionPos.y + containerPos.y) / 2}
-                  fill="rgba(255,255,255,0.5)"
-                  fontSize="10"
-                  textAnchor="middle"
-                >
-                  {isAppsMode ? 'direct' : 'interpipe'}
-                </text>
-              </g>
-            )
-          })}
-
-          {/* Draw session-to-client connection lines */}
-          {webrtcClients.map((client) => {
-            // Find streaming session for this WebRTC client by matching client_unique_id
-            const matchingSession = sessions.find(s => s.client_unique_id === client.client_unique_id)
-
-            if (!matchingSession) {
-              console.warn(`[Dashboard] No streaming session found for WebRTC client ${client.session_id}`)
-              return null
-            }
-
-            const clientPos = clientPositions.get(client.session_id)
-            const sessionUniqueKey = `${matchingSession.session_id}-${matchingSession.app_id}`
-            const sessionPos = sessionPositions.get(sessionUniqueKey)
-
-            if (!clientPos || !sessionPos) {
-              return null
-            }
-
-            return (
-              <g key={`client-connection-${client.session_id}`}>
-                <line
-                  x1={clientPos.x}
-                  y1={clientPos.y - clientRadius}
-                  x2={sessionPos.x}
-                  y2={sessionPos.y + sessionRadius}
-                  stroke={client.has_websocket ? "#4caf50" : "#ffc107"}
-                  strokeWidth="2"
-                  strokeDasharray={client.has_websocket ? "0" : "5,5"}
-                  opacity="0.7"
-                />
-                <text
-                  x={(clientPos.x + sessionPos.x) / 2}
-                  y={(clientPos.y + sessionPos.y) / 2}
-                  fill="rgba(255,255,255,0.5)"
-                  fontSize="10"
-                  textAnchor="middle"
-                >
-                  {client.has_websocket ? 'WebRTC' : 'headless'}
-                </text>
-              </g>
-            )
-          })}
-
-          {/* Draw containers (apps or lobbies - producer pipelines) */}
-          {containers.map((container) => {
-            const containerId = 'id' in container ? container.id : container.id
-            const containerName = getContainerName(container)
-            const pos = containerPositions.get(containerId)
-            if (!pos) return null
-
-            const clientCount = getContainerClientCount(containerId)
-            const hasClients = clientCount > 0
-
-            return (
-              <g key={`container-${containerId}`}>
-                <Tooltip title={`${isAppsMode ? 'App' : 'Lobby'}: ${containerName}`} arrow>
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={containerRadius}
-                    fill={hasClients ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 193, 7, 0.2)'}
-                    stroke={hasClients ? '#4caf50' : '#ffc107'}
-                    strokeWidth="3"
+                {/* GPU Utilization */}
+                <Box sx={{ mt: 2, mb: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Utilization
+                    </Typography>
+                    <Typography variant="body2" fontWeight="bold">
+                      {gpu.utilization_percent}%
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={gpu.utilization_percent}
+                    color={gpu.utilization_percent > 80 ? 'error' : gpu.utilization_percent > 50 ? 'warning' : 'success'}
+                    sx={{ height: 8, borderRadius: 4 }}
                   />
-                </Tooltip>
-                <text
-                  x={pos.x}
-                  y={pos.y - 10}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="12"
-                  fontWeight="bold"
-                >
-                  {truncateName(containerName, 15)}
-                </text>
-                <text x={pos.x} y={pos.y + 5} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="10">
-                  {getContainerMemory(containerId)}
-                </text>
-                <text x={pos.x} y={pos.y + 20} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="9">
-                  {clientCount} client{clientCount !== 1 ? 's' : ''}
-                </text>
-                {/* Producer pipeline indicator */}
-                {!isAppsMode && (
-                  <>
-                    <rect
-                      x={pos.x - 30}
-                      y={pos.y - containerRadius - 20}
-                      width="60"
-                      height="15"
-                      fill="rgba(103, 58, 183, 0.3)"
-                      stroke="#673ab7"
-                      strokeWidth="1"
-                      rx="3"
-                    />
-                    <text
-                      x={pos.x}
-                      y={pos.y - containerRadius - 9}
-                      textAnchor="middle"
-                      fill="white"
-                      fontSize="8"
-                    >
-                      {isAppsMode ? 'direct pipeline' : 'interpipesink'}
-                    </text>
-                  </>
-                )}
-              </g>
-            )
-          })}
+                </Box>
 
-          {/* Draw sessions (consumer pipelines) */}
-          {sessions.map((session) => {
-            const uniqueKey = `${session.session_id}-${session.app_id}`
-            const pos = sessionPositions.get(uniqueKey)
-            if (!pos) return null
-
-            // In apps mode, session.app_id is the direct connection (no interpipe needed)
-            // In lobbies mode, session.lobby_id shows which lobby the session is connected to
-            const connectedContainerId = isAppsMode ? session.app_id : (session.lobby_id || connectionMap.get(session.session_id))
-            const isOrphaned = !connectedContainerId
-
-            return (
-              <g key={`session-${uniqueKey}`}>
-                <Tooltip title={
-                  `Wolf-UI Session: ${session.session_id.slice(-8)}\n` +
-                  `Client ID: ${session.client_unique_id || 'N/A'}\n` +
-                  `Connected to: ${session.lobby_id ? `Lobby ${session.lobby_id.slice(-8)}` : session.app_id ? `App ${session.app_id}` : 'None (orphaned)'}\n` +
-                  `IP: ${session.client_ip}`
-                } arrow>
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={sessionRadius}
-                    fill={isOrphaned ? 'rgba(244, 67, 54, 0.2)' : 'rgba(33, 150, 243, 0.2)'}
-                    stroke={isOrphaned ? '#f44336' : '#2196f3'}
-                    strokeWidth="2"
+                {/* Memory Usage */}
+                <Box sx={{ mt: 2, mb: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      VRAM
+                    </Typography>
+                    <Typography variant="body2" fontWeight="bold">
+                      {formatBytes(gpu.memory_used_bytes)} / {formatBytes(gpu.memory_total_bytes)}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={(gpu.memory_used_bytes / gpu.memory_total_bytes) * 100}
+                    sx={{ height: 8, borderRadius: 4 }}
                   />
-                </Tooltip>
-                <text
-                  x={pos.x}
-                  y={pos.y - 5}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="10"
-                >
-                  {session.client_unique_id ? session.client_unique_id.slice(-12) : session.session_id.slice(-4)}
-                </text>
-                <text
-                  x={pos.x}
-                  y={pos.y + 8}
-                  textAnchor="middle"
-                  fill="rgba(255,255,255,0.6)"
-                  fontSize="8"
-                >
-                  {getSessionMemory(session.session_id)}
-                </text>
-                {/* Consumer pipeline indicator */}
-                {!isAppsMode && (
-                  <>
-                    <rect
-                      x={pos.x - 30}
-                      y={pos.y + sessionRadius + 5}
-                      width="60"
-                      height="15"
-                      fill="rgba(63, 81, 181, 0.3)"
-                      stroke="#3f51b5"
-                      strokeWidth="1"
-                      rx="3"
-                    />
-                    <text
-                      x={pos.x}
-                      y={pos.y + sessionRadius + 16}
-                      textAnchor="middle"
-                      fill="white"
-                      fontSize="8"
-                    >
-                      {isAppsMode ? 'direct pipeline' : 'interpipesrc'}
-                    </text>
-                  </>
-                )}
-              </g>
-            )
-          })}
+                </Box>
 
-          {/* Draw WebRTC streaming clients (video consumers) */}
-          {webrtcClients.map((client) => {
-            const pos = clientPositions.get(client.session_id)
-            if (!pos) return null
-
-            const hasWebRTC = client.has_websocket
-            const modeColor = client.mode === 'keepalive' ? '#ffc107' : client.mode === 'join' ? '#2196f3' : '#9c27b0'
-            const clientDisplay = client.client_unique_id || client.session_id.slice(-8)
-
-            return (
-              <g key={`client-${client.session_id}`}>
-                <Tooltip title={`Client: ${client.session_id} | Client ID: ${client.client_unique_id || 'default'} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={clientRadius}
-                    fill={hasWebRTC ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 193, 7, 0.2)'}
-                    stroke={hasWebRTC ? '#4caf50' : '#ffc107'}
-                    strokeWidth="2"
+                {/* Temperature */}
+                <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ThermostatIcon
+                    fontSize="small"
+                    color={gpu.temperature_celsius > 80 ? 'error' : gpu.temperature_celsius > 60 ? 'warning' : 'success'}
                   />
-                </Tooltip>
-                <text
-                  x={pos.x}
-                  y={pos.y - 8}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="9"
-                >
-                  {client.mode}
-                </text>
-                {client.client_unique_id && (
-                  <text
-                    x={pos.x}
-                    y={pos.y + 2}
-                    textAnchor="middle"
-                    fill="rgba(255,255,255,0.7)"
-                    fontSize="7"
-                    fontWeight="bold"
-                  >
-                    {client.client_unique_id.slice(-12)}
-                  </text>
-                )}
-                <text
-                  x={pos.x}
-                  y={pos.y + (client.client_unique_id ? 12 : 7)}
-                  textAnchor="middle"
-                  fill="rgba(255,255,255,0.5)"
-                  fontSize="6"
-                >
-                  {hasWebRTC ? 'WebRTC' : 'headless'}
-                </text>
-                {/* Client type indicator */}
-                <rect
-                  x={pos.x - 25}
-                  y={pos.y + clientRadius + 5}
-                  width="50"
-                  height="12"
-                  fill="rgba(156, 39, 176, 0.3)"
-                  stroke="#9c27b0"
-                  strokeWidth="1"
-                  rx="3"
-                />
-                <text
-                  x={pos.x}
-                  y={pos.y + clientRadius + 14}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="7"
-                >
-                  streaming-client
-                </text>
-              </g>
-            )
-          })}
-
-          {/* Legend */}
-          <g transform="translate(20, 20)">
-            <text x="0" y="0" fill="white" fontSize="12" fontWeight="bold">
-              Legend:
-            </text>
-            <circle cx="10" cy="20" r="8" fill="rgba(76, 175, 80, 0.2)" stroke="#4caf50" strokeWidth="2" />
-            <text x="25" y="25" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Active {isAppsMode ? 'App' : 'Lobby'} (has clients)
-            </text>
-            <circle cx="10" cy="40" r="8" fill="rgba(255, 193, 7, 0.2)" stroke="#ffc107" strokeWidth="2" />
-            <text x="25" y="45" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Empty {isAppsMode ? 'App' : 'Lobby'}
-            </text>
-            <circle cx="10" cy="60" r="8" fill="rgba(33, 150, 243, 0.2)" stroke="#2196f3" strokeWidth="2" />
-            <text x="25" y="65" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Connected Session
-            </text>
-            <circle cx="10" cy="80" r="8" fill="rgba(244, 67, 54, 0.2)" stroke="#f44336" strokeWidth="2" />
-            <text x="25" y="85" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Orphaned Session
-            </text>
-            <circle cx="10" cy="100" r="8" fill="rgba(76, 175, 80, 0.2)" stroke="#4caf50" strokeWidth="2" />
-            <text x="25" y="105" fill="rgba(255,255,255,0.8)" fontSize="10">
-              WebRTC Client (active)
-            </text>
-            <circle cx="10" cy="120" r="8" fill="rgba(255, 193, 7, 0.2)" stroke="#ffc107" strokeWidth="2" />
-            <text x="25" y="125" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Headless Client (keepalive)
-            </text>
-          </g>
-        </svg>
-
-        <Box sx={{ mt: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            <strong>3-Tier Architecture:</strong> {isAppsMode
-              ? 'Apps mode - Direct 1:1 connections. Each app has its own GStreamer pipeline directly connected to one Wolf session.'
-              : 'Lobbies mode - Dynamic interpipe switching. Lobbies run interpipesink producers, sessions consume via interpipesrc and can dynamically switch between lobbies.'
-            } Streaming Clients (bottom) connect to sessions via WebRTC (solid green = active WebRTC, dashed yellow = headless keepalive).
-          </Typography>
-        </Box>
+                  <Typography variant="body2">
+                    {gpu.temperature_celsius}°C
+                  </Typography>
+                </Box>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
       </CardContent>
     </Card>
   )
 }
 
+// Dev Container Card Component
+const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ container }) => {
+  const clients = container.clients || []
+
+  return (
+    <Paper
+      sx={{
+        p: 2,
+        backgroundColor: container.status === 'running' ? 'rgba(76, 175, 80, 0.05)' : 'rgba(255,255,255,0.02)',
+        border: '1px solid',
+        borderColor: container.status === 'running' ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255,255,255,0.1)',
+      }}
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DesktopWindowsIcon color="primary" />
+          <Box>
+            <Typography variant="subtitle1" fontWeight="bold">
+              {container.session_id}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {getContainerTypeLabel(container.container_type)}
+            </Typography>
+          </Box>
+        </Box>
+        <Chip
+          label={container.status}
+          size="small"
+          color={getStatusColor(container.status)}
+        />
+      </Box>
+
+      <Grid container spacing={2}>
+        <Grid item xs={6}>
+          <Typography variant="caption" color="text.secondary">
+            Sandbox
+          </Typography>
+          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+            {container.sandbox_id}
+          </Typography>
+        </Grid>
+        <Grid item xs={6}>
+          <Typography variant="caption" color="text.secondary">
+            GPU
+          </Typography>
+          <Typography variant="body2">
+            {container.gpu_vendor ? container.gpu_vendor.toUpperCase() : 'None'}
+          </Typography>
+        </Grid>
+        {container.ip_address && (
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">
+              IP Address
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {container.ip_address}
+            </Typography>
+          </Grid>
+        )}
+        {container.desktop_version && (
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">
+              Version
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {container.desktop_version.slice(0, 8)}
+            </Typography>
+          </Grid>
+        )}
+      </Grid>
+
+      {/* Connected Users */}
+      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <Typography variant="caption" color="text.secondary" gutterBottom display="block">
+          Connected Users ({clients.length})
+        </Typography>
+        {clients.length > 0 ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+            <AvatarGroup max={5}>
+              {clients.map((client) => (
+                <Tooltip
+                  key={client.id}
+                  title={`${client.user_name} (${client.user_id})`}
+                  arrow
+                >
+                  <Avatar
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      bgcolor: client.color,
+                      fontSize: '0.75rem',
+                      border: `2px solid ${client.color}`,
+                    }}
+                    src={client.avatar_url}
+                  >
+                    {client.user_name?.charAt(0)?.toUpperCase() || <PersonIcon fontSize="small" />}
+                  </Avatar>
+                </Tooltip>
+              ))}
+            </AvatarGroup>
+            {clients.map((client) => (
+              <Chip
+                key={client.id}
+                label={client.user_name}
+                size="small"
+                sx={{
+                  backgroundColor: client.color,
+                  color: 'white',
+                  fontWeight: 'bold',
+                }}
+              />
+            ))}
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+            No users connected
+          </Typography>
+        )}
+      </Box>
+    </Paper>
+  )
+}
+
 interface AgentSandboxesProps {
-  selectedSandboxId: string;
+  selectedSandboxId?: string
 }
 
 const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
-  const queryClient = useQueryClient()
-  const snackbar = useSnackbar()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['agent-sandboxes-debug', selectedSandboxId],
+    queryKey: ['agent-sandboxes-debug'],
     queryFn: async () => {
-      if (!selectedSandboxId) return null
-      const response = await apiClient.v1AdminAgentSandboxesDebugList({ wolf_instance_id: selectedSandboxId })
-      return response.data
+      const response = await apiClient.v1AdminAgentSandboxesDebugList({})
+      return response.data as AgentSandboxesDebugResponse
     },
-    enabled: !!selectedSandboxId, // Only fetch when an instance is selected
     refetchInterval: 5000,
   })
 
-  // TODO: Add sandbox-specific mutations when Hydra admin API is implemented
-  // For now, stub out the mutations to prevent build errors
-  const stopLobbyMutation = {
-    mutate: (_lobbyId: string) => {
-      snackbar.info('Lobby management not yet implemented for Hydra')
-    },
-    isPending: false,
-  }
+  const gpus = data?.gpus || []
+  const devContainers = data?.dev_containers || []
+  const sandboxes = data?.sandboxes || []
 
-  const stopSessionMutation = {
-    mutate: (_sessionId: string) => {
-      snackbar.info('Session management not yet implemented for Hydra')
-    },
-    isPending: false,
-  }
+  // Filter by selected sandbox if specified
+  const filteredContainers = selectedSandboxId
+    ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
+    : devContainers
 
-  const memoryData = data?.memory
-  const apps = data?.apps || []
-  const lobbies = data?.lobbies || []
-  const isAppsMode = data?.wolf_mode === 'apps'  // Use explicit wolf_mode field
-  const containers = isAppsMode ? apps : lobbies
-  const sessions = data?.sessions || []
-
-  // Show message if no sandbox selected
-  if (!selectedSandboxId) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="info">
-          Select an agent sandbox from the dropdown above to view its status.
-        </Alert>
-      </Box>
-    )
-  }
+  const runningSandboxes = sandboxes.filter((s) => s.status === 'running').length
+  const runningContainers = devContainers.filter((c) => c.status === 'running').length
+  const totalClients = devContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5">Wolf Streaming Overview</Typography>
+        <Box>
+          <Typography variant="h5">Agent Sandboxes</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Hydra-managed dev containers with WebSocket video streaming
+          </Typography>
+        </Box>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
           {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
         </IconButton>
       </Box>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Monitor Wolf streaming infrastructure: GStreamer pipelines, {isAppsMode ? 'direct connections' : 'interpipe connections'}, memory usage, and
-        real-time streaming sessions
-      </Typography>
-
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error instanceof Error ? error.message : 'Failed to fetch Wolf debugging data'}
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error instanceof Error ? error.message : 'Failed to fetch sandbox data'}
         </Alert>
       )}
 
+      {/* Summary Stats */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+            <Typography variant="h4">{runningSandboxes}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Running Sandboxes
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
+            <Typography variant="h4">{runningContainers}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Dev Containers
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
+            <Typography variant="h4">{totalClients}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Connected Users
+            </Typography>
+          </Paper>
+        </Grid>
+      </Grid>
+
       <Grid container spacing={3}>
-        {/* GPU Stats Panel - Only show if GPU is available */}
-        {data?.gpu_stats?.available && (
+        {/* GPU Stats */}
+        {gpus.length > 0 && (
+          <Grid item xs={12}>
+            <GPUStatsCard gpus={gpus} />
+          </Grid>
+        )}
+
+        {/* Dev Containers */}
+        <Grid item xs={12}>
+          <Card>
+            <CardHeader
+              avatar={<DesktopWindowsIcon />}
+              title="Dev Containers"
+              subheader={`${filteredContainers.length} container${filteredContainers.length !== 1 ? 's' : ''}`}
+            />
+            <CardContent>
+              {filteredContainers.length > 0 ? (
+                <Grid container spacing={2}>
+                  {filteredContainers.map((container) => (
+                    <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
+                      <DevContainerCard container={container} />
+                    </Grid>
+                  ))}
+                </Grid>
+              ) : (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <DesktopWindowsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="body1" color="text.secondary">
+                    No dev containers running
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Start a task to launch a desktop sandbox
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Sandboxes List */}
+        {sandboxes.length > 0 && (
           <Grid item xs={12}>
             <Card>
               <CardHeader
-                avatar={<MemoryIcon />}
-                title="GPU Encoder Stats"
-                subheader={
-                  <>
-                    {data.gpu_stats.gpu_name || 'GPU'}
-                    {data.gstreamer_pipelines && (
-                      <>
-                        {' • '}
-                        {data.gstreamer_pipelines.total_pipelines} GStreamer Pipelines
-                        {' ('}
-                        {data.gstreamer_pipelines.producer_pipelines} producers + {data.gstreamer_pipelines.consumer_pipelines} consumers)
-                      </>
-                    )}
-                    {data.gpu_stats.query_duration_ms > 0 && (
-                      <>
-                        {' • '}
-                        GPU query: {data.gpu_stats.query_duration_ms}ms (cached 2s)
-                      </>
-                    )}
-                  </>
-                }
-                action={
-                  <Chip
-                    label="Available"
-                    color="success"
-                    size="small"
-                  />
-                }
+                avatar={<ComputerIcon />}
+                title="Sandbox Instances"
+                subheader="Registered sandboxes with Hydra"
               />
               <CardContent>
                 <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          NVENC Sessions
-                        </Typography>
-                        <Typography variant="h4">
-                          {data.gpu_stats.encoder_session_count}
-                        </Typography>
-                      </Box>
+                  {sandboxes.map((sandbox) => (
+                    <Grid item xs={12} sm={6} md={4} key={sandbox.id}>
+                      <Paper
+                        sx={{
+                          p: 2,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          backgroundColor:
+                            selectedSandboxId === sandbox.id
+                              ? 'rgba(33, 150, 243, 0.1)'
+                              : 'rgba(255,255,255,0.02)',
+                          border: '1px solid',
+                          borderColor:
+                            selectedSandboxId === sandbox.id
+                              ? 'rgba(33, 150, 243, 0.5)'
+                              : 'rgba(255,255,255,0.1)',
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="subtitle2" sx={{ fontFamily: 'monospace' }}>
+                            {sandbox.id}
+                          </Typography>
+                          {sandbox.container_id && (
+                            <Typography variant="caption" color="text.secondary">
+                              Container: {sandbox.container_id.slice(0, 12)}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Chip
+                          label={sandbox.status}
+                          size="small"
+                          color={getStatusColor(sandbox.status)}
+                        />
+                      </Paper>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          Encoder FPS
-                        </Typography>
-                        <Typography variant="h4">
-                          {data.gpu_stats.encoder_average_fps.toFixed(0)}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          Encoder Latency
-                        </Typography>
-                        <Typography variant="h4">
-                          {data.gpu_stats.encoder_average_latency_us}µs
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          GPU Temperature
-                        </Typography>
-                        <Typography variant="h4">
-                          {data.gpu_stats.temperature_celsius}°C
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          Encoder Utilization
-                        </Typography>
-                        <Typography variant="h6">
-                          {data.gpu_stats.encoder_utilization_percent}%
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          GPU Utilization
-                        </Typography>
-                        <Typography variant="h6">
-                          {data.gpu_stats.gpu_utilization_percent}%
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">
-                          VRAM Usage
-                        </Typography>
-                        <Typography variant="h6">
-                          {data.gpu_stats.memory_used_mb} / {data.gpu_stats.memory_total_mb} MB
-                          ({Math.round((data.gpu_stats.memory_used_mb / data.gpu_stats.memory_total_mb) * 100)}%)
-                        </Typography>
-                      </Box>
-                    </Grid>
-                  </Grid>
+                  ))}
+                </Grid>
               </CardContent>
             </Card>
           </Grid>
         )}
-
-        {/* Pipeline Network Visualization */}
-        {data && (
-          <Grid item xs={12}>
-            <PipelineNetworkVisualization data={data} />
-          </Grid>
-        )}
-
-        {/* Memory Usage Panel */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              avatar={<MemoryIcon />}
-              title="Memory Usage"
-              subheader="Wolf process and GStreamer buffers"
-            />
-            <CardContent>
-              {memoryData ? (
-                <>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Process RSS
-                    </Typography>
-                    <Typography variant="h6">{formatBytes(memoryData.process_rss_bytes)}</Typography>
-                  </Box>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      GStreamer Buffers
-                    </Typography>
-                    <Typography variant="h6">{formatBytes(memoryData.gstreamer_buffer_bytes)}</Typography>
-                  </Box>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Memory
-                    </Typography>
-                    <Typography variant="h6">{formatBytes(memoryData.total_memory_bytes)}</Typography>
-                  </Box>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" gutterBottom>
-                    Per-{isAppsMode ? 'App' : 'Lobby'} Breakdown
-                  </Typography>
-                  {isAppsMode && memoryData.apps && memoryData.apps.length > 0 ? (
-                    memoryData.apps.map((app: any) => (
-                      <Box key={app.app_id} sx={{ mb: 1 }}>
-                        <Typography variant="body2">
-                          {app.app_name}: {formatBytes(app.memory_bytes)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {app.resolution} • {app.client_count} clients
-                        </Typography>
-                      </Box>
-                    ))
-                  ) : !isAppsMode && memoryData.lobbies && memoryData.lobbies.length > 0 ? (
-                    memoryData.lobbies.map((lobby) => (
-                      <Box key={lobby.lobby_id} sx={{ mb: 1 }}>
-                        <Typography variant="body2">
-                          {lobby.lobby_name}: {formatBytes(lobby.memory_bytes)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {lobby.resolution} • {lobby.client_count} clients
-                        </Typography>
-                      </Box>
-                    ))
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      No {isAppsMode ? 'apps' : 'lobbies'} active
-                    </Typography>
-                  )}
-                </>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  Loading memory data...
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Active Apps/Lobbies Panel */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              avatar={<VideocamIcon />}
-              title={`Active ${isAppsMode ? 'Apps' : 'Lobbies'}`}
-              subheader={isAppsMode ? 'Direct GStreamer pipelines (1:1)' : 'Producer pipelines with interpipesink'}
-            />
-            <CardContent>
-              {containers.length > 0 ? (
-                <Box>
-                  {containers.map((container: any) => {
-                    const containerId = container.id
-                    const containerName = container.title || container.name
-                    return (
-                      <Box
-                        key={containerId}
-                        sx={{
-                          mb: 2,
-                          p: 2,
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: 1,
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            <Tooltip title={containerName} placement="top">
-                              <span>{truncateName(containerName)}</span>
-                            </Tooltip>
-                          </Typography>
-                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                            {containerId}
-                          </Typography>
-                        {!isAppsMode && (
-                          <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                            <Chip
-                              label={container.multi_user ? 'Multi-User' : 'Single-User'}
-                              size="small"
-                              color={container.multi_user ? 'success' : 'default'}
-                            />
-                            {container.stop_when_everyone_leaves && (
-                              <Chip label="Auto-Stop" size="small" color="warning" />
-                            )}
-                          </Box>
-                        )}
-                        {!isAppsMode && (
-                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                            GStreamer: interpipesink name="{containerId}_video" | interpipesink name="{containerId}_audio"
-                          </Typography>
-                        )}
-                        </Box>
-                        <Tooltip title="Stop lobby and terminate container">
-                          <IconButton
-                            size="small"
-                            onClick={() => stopLobbyMutation.mutate(containerId)}
-                            disabled={stopLobbyMutation.isPending}
-                            sx={{ color: 'error.main' }}
-                          >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )
-                  })}
-                </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  No active {isAppsMode ? 'apps' : 'lobbies'}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Stream Sessions Panel */}
-        <Grid item xs={12}>
-          <Card>
-            <CardHeader
-              avatar={<TimelineIcon />}
-              title="Stream Sessions"
-              subheader={isAppsMode ? 'Wolf sessions (direct connection)' : 'Consumer pipelines with interpipesrc'}
-            />
-            <CardContent>
-              {sessions.length > 0 ? (
-                <Grid container spacing={2}>
-                  {sessions.map((session) => {
-                    const clientConn = memoryData?.clients.find((c) => c.session_id === session.session_id)
-                    const connectedContainerId = clientConn?.app_id || clientConn?.lobby_id
-                    const connectedContainer = connectedContainerId
-                      ? containers.find((c: any) => c.id === connectedContainerId)
-                      : null
-                    const containerName = connectedContainer ? (connectedContainer.title || connectedContainer.name) : null
-                    const uniqueKey = `${session.session_id}-${session.app_id}`
-
-                    return (
-                      <Grid item xs={12} md={6} key={uniqueKey}>
-                        <Box
-                          sx={{
-                            p: 2,
-                            border: connectedContainer
-                              ? '1px solid rgba(33, 150, 243, 0.5)'
-                              : '1px solid rgba(244, 67, 54, 0.5)',
-                            borderRadius: 1,
-                            backgroundColor: connectedContainer
-                              ? 'rgba(33, 150, 243, 0.05)'
-                              : 'rgba(244, 67, 54, 0.05)',
-                          }}
-                        >
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="subtitle2">{session.session_id}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                IP: {session.client_ip}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              {containerName ? (
-                                <Chip label={`→ ${containerName}`} size="small" color="primary" />
-                              ) : (
-                                <Chip label="Orphaned" size="small" color="error" />
-                              )}
-                              <Tooltip title="Stop streaming session and release GPU memory">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => stopSessionMutation.mutate(session.session_id)}
-                                  disabled={stopSessionMutation.isPending}
-                                  sx={{ color: 'error.main' }}
-                                >
-                                  <CloseIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                            {session.display_mode.width}x{session.display_mode.height}@
-                            {session.display_mode.refresh_rate} •{' '}
-                            {session.display_mode.av1_supported
-                              ? 'AV1'
-                              : session.display_mode.hevc_supported
-                              ? 'HEVC'
-                              : 'H264'}
-                          </Typography>
-                          {!isAppsMode && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}
-                            >
-                              interpipesrc listen-to="{connectedContainerId || session.session_id}_video"
-                            </Typography>
-                          )}
-                          {clientConn && (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                              Memory: {formatBytes(clientConn.memory_bytes)}
-                            </Typography>
-                          )}
-                        </Box>
-                      </Grid>
-                    )
-                  })}
-                </Grid>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  No active streaming sessions
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
       </Grid>
     </Box>
   )
