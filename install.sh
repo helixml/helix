@@ -1693,6 +1693,9 @@ HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
 SERVER_URL=${API_HOST}
+# SANDBOX_API_URL is used by the API when generating Zed config for sandboxes.
+# Uses Docker network hostname since sandboxes run in containers on the same network.
+SANDBOX_API_URL=http://api:8080
 
 # Docker Compose profiles
 COMPOSE_PROFILES=$COMPOSE_PROFILES
@@ -2398,6 +2401,12 @@ TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
+
+# Check if controlplane container is running locally - if so, use Docker network hostname
+if docker ps --format '{{.Image}}' | grep -q 'registry.helixml.tech/helix/controlplane'; then
+    HELIX_API_URL="http://api:8080"
+    echo "Detected controlplane container running. Setting HELIX_API_URL to ${HELIX_API_URL}"
+fi
 EOF
 
     # Conditionally append network check based on whether controlplane is co-located

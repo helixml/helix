@@ -40,7 +40,8 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIURL string `json:"api_url"` // Custom API URL (empty = use default provider URL)
+	APIURL string `json:"api_url"`           // Custom API URL (empty = use default provider URL)
+	APIKey string `json:"api_key,omitempty"` // API key for authentication
 }
 
 type AssistantSettings struct {
@@ -147,10 +148,12 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
-			APIURL: helixAPIURL, // Zed appends /v1/messages
+			APIURL: helixAPIURL,  // Zed appends /v1/messages
+			APIKey: helixToken,   // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
+			APIKey: helixToken,          // Helix token for authentication
 		},
 	}
 
