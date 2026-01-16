@@ -134,6 +134,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [cursorImage, setCursorImage] = useState<CursorImageData | null>(null);
   const [cursorVisible, setCursorVisible] = useState(true);
   // Multi-player cursor state
+  const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
+  const [selfClientId, setSelfClientId] = useState<number | null>(null);
   const [remoteUsers, setRemoteUsers] = useState<Map<number, RemoteUserInfo>>(new Map());
   const [remoteCursors, setRemoteCursors] = useState<Map<number, RemoteCursorPosition>>(new Map());
   const [agentCursor, setAgentCursor] = useState<AgentCursorInfo | null>(null);
@@ -828,6 +830,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         else if (data.type === 'remoteCursor') {
           setRemoteCursors(prev => new Map(prev).set(data.cursor.userId, data.cursor));
         } else if (data.type === 'remoteUserJoined') {
+          // Check if this is ourselves (first user joined with matching name or first message when selfUser is null)
+          if (!selfUser && account.user && data.user.userName === account.user.name) {
+            setSelfUser(data.user);
+            setSelfClientId(data.user.userId);
+          }
           setRemoteUsers(prev => new Map(prev).set(data.user.userId, data.user));
         } else if (data.type === 'remoteUserLeft') {
           setRemoteUsers(prev => {
@@ -841,7 +848,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             return next;
           });
         } else if (data.type === 'agentCursor') {
-          setAgentCursor(data.agent.visible ? data.agent : null);
+          // Always update agent cursor state (visibility handled in render based on lastSeen)
+          setAgentCursor(data.agent);
         } else if (data.type === 'remoteTouch') {
           const touchKey = `${data.touch.userId}-${data.touch.touchId}`;
           if (data.touch.eventType === 'end' || data.touch.eventType === 'cancel') {
@@ -3880,7 +3888,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           When no cursor image: render a circle fallback */}
       {isConnected && hasMouseMoved && cursorVisible && (
         cursorImage ? (
-          // Render actual cursor image from server
+          // Render actual cursor image from server with colored glow
           <Box
             sx={{
               position: 'absolute',
@@ -3893,6 +3901,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               backgroundRepeat: 'no-repeat',
               pointerEvents: 'none',
               zIndex: 1000,
+              // Apply colored glow matching user's presence color
+              filter: selfUser?.color
+                ? `drop-shadow(0 0 3px ${selfUser.color}) drop-shadow(0 0 6px ${selfUser.color}80)`
+                : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
             }}
             id="custom-cursor"
           />
@@ -3906,8 +3918,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               width: 8,
               height: 8,
               borderRadius: '50%',
-              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              backgroundColor: selfUser?.color || 'rgba(255, 255, 255, 0.8)',
               border: '1px solid rgba(0, 0, 0, 0.5)',
+              boxShadow: selfUser?.color ? `0 0 8px ${selfUser.color}` : 'none',
               pointerEvents: 'none',
               zIndex: 1000,
               transform: 'translate(-50%, -50%)',
@@ -3919,6 +3932,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       {/* Remote user cursors (Figma-style multi-player) */}
       {Array.from(remoteCursors.entries()).map(([userId, cursor]) => {
+        // Skip our own cursor (we render it separately)
+        if (userId === selfClientId) return null;
+        // Skip idle cursors (no movement for 30 seconds)
+        const isIdle = Date.now() - cursor.lastSeen > 30000;
+        if (isIdle) return null;
         const user = remoteUsers.get(userId);
         if (!user) return null;
         return (
@@ -3933,13 +3951,34 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'flex-start',
+              transition: 'left 0.1s ease-out, top 0.1s ease-out',
+              willChange: 'left, top',
             }}
           >
-            {/* Colored arrow cursor */}
-            <svg width="24" height="24" style={{ color: user.color }}>
+            {/* Colored arrow cursor with glow */}
+            <svg
+              width="24"
+              height="24"
+              style={{
+                color: user.color,
+                filter: `drop-shadow(0 0 4px ${user.color}) drop-shadow(0 0 8px ${user.color}80)`,
+              }}
+            >
+              <defs>
+                <filter id={`glow-${userId}`} x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
               <path
                 fill="currentColor"
+                stroke="white"
+                strokeWidth="1"
                 d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
+                filter={`url(#glow-${userId})`}
               />
             </svg>
             {/* User name pill */}
@@ -3994,8 +4033,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         );
       })}
 
-      {/* AI Agent cursor */}
-      {agentCursor && (
+      {/* AI Agent cursor - only show if it has been active and not idle for 30s */}
+      {agentCursor && (Date.now() - agentCursor.lastSeen < 30000) && (
         <Box
           sx={{
             position: 'absolute',
@@ -4006,20 +4045,35 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-start',
+            transition: 'left 0.15s ease-out, top 0.15s ease-out',
+            willChange: 'left, top',
           }}
         >
-          {/* Cyan arrow cursor with pulse animation */}
+          {/* Cyan arrow cursor with pulse animation and glow */}
           <svg
             width="24"
             height="24"
             style={{
               color: '#00D4FF',
+              filter: 'drop-shadow(0 0 6px #00D4FF) drop-shadow(0 0 12px #00D4FF80)',
               animation: agentCursor.action !== 'idle' ? 'pulse 0.5s infinite' : 'none',
             }}
           >
+            <defs>
+              <filter id="agent-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
             <path
               fill="currentColor"
+              stroke="white"
+              strokeWidth="1"
               d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
+              filter="url(#agent-glow)"
             />
           </svg>
           {/* Agent name pill with action indicator */}
@@ -4080,6 +4134,77 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       })}
 
       {/* Input Hint - removed since auto-focus handles keyboard input */}
+
+      {/* Presence Indicator - shows connected users + agent (always show when connected) */}
+      {isConnected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            borderRadius: '20px',
+            padding: '4px 8px',
+            zIndex: 1003,
+          }}
+        >
+          {/* Show all connected users as colored circles */}
+          {Array.from(remoteUsers.values()).map((user) => (
+            <Tooltip key={user.userId} title={user.userName} arrow>
+              <Box
+                sx={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  backgroundColor: user.color,
+                  border: user.userId === selfClientId ? '2px solid white' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 10,
+                  fontWeight: 'bold',
+                  color: 'white',
+                  cursor: 'default',
+                  boxShadow: `0 0 6px ${user.color}`,
+                }}
+              >
+                {user.avatarUrl ? (
+                  <Box
+                    component="img"
+                    src={user.avatarUrl}
+                    sx={{ width: '100%', height: '100%', borderRadius: '50%' }}
+                  />
+                ) : (
+                  user.userName.charAt(0).toUpperCase()
+                )}
+              </Box>
+            </Tooltip>
+          ))}
+          {/* Agent indicator - always show when connected */}
+          <Tooltip title="AI Agent" arrow>
+            <Box
+              sx={{
+                width: 24,
+                height: 24,
+                borderRadius: '50%',
+                backgroundColor: '#00D4FF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12,
+                cursor: 'default',
+                boxShadow: agentCursor ? '0 0 8px #00D4FF' : 'none',
+                opacity: agentCursor ? 1 : 0.5,
+              }}
+            >
+              🤖
+            </Box>
+          </Tooltip>
+        </Box>
+      )}
 
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'low') && (

@@ -144,6 +144,10 @@ type StreamConfig struct {
 	// VideoMode overrides the HELIX_VIDEO_MODE env var for this stream
 	// Valid values: "shm", "native", "zerocopy" (default: from env or "shm")
 	VideoMode string `json:"video_mode,omitempty"`
+	// User info for multi-player presence
+	UserID    string `json:"user_id,omitempty"`
+	UserName  string `json:"user_name,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket.
@@ -194,6 +198,9 @@ type VideoStreamer struct {
 
 	// Cursor tracking
 	cursorUpdateCount uint64 // Number of cursor updates sent
+
+	// Multi-player presence
+	sessionClient *ConnectedClient // This client's registration in the session
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -276,6 +283,25 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	// Send ConnectionComplete to signal frontend that connection is ready
 	if err := v.sendConnectionComplete(); err != nil {
 		v.logger.Error("failed to send ConnectionComplete", "err", err)
+	}
+
+	// Register this client in the session for multi-player presence
+	if v.config.SessionID != "" {
+		userName := v.config.UserName
+		if userName == "" {
+			userName = "User"
+		}
+		v.sessionClient = GetSessionRegistry().RegisterClient(
+			v.config.SessionID,
+			v.config.UserID,
+			userName,
+			v.config.AvatarURL,
+			v.ws,
+		)
+		v.logger.Info("registered client for multi-player presence",
+			"clientID", v.sessionClient.ID,
+			"color", v.sessionClient.Color,
+			"userName", userName)
 	}
 
 	// Start audio streaming (optional - doesn't fail if audio isn't available)
@@ -933,6 +959,13 @@ func (v *VideoStreamer) Stop() {
 	// Stop GStreamer pipeline
 	if v.gstPipeline != nil {
 		v.gstPipeline.Stop()
+	}
+
+	// Unregister from session for multi-player presence
+	if v.sessionClient != nil && v.config.SessionID != "" {
+		GetSessionRegistry().UnregisterClient(v.config.SessionID, v.sessionClient.ID)
+		v.logger.Info("unregistered client from multi-player presence",
+			"clientID", v.sessionClient.ID)
 	}
 
 	v.logger.Info("video capture stopped",

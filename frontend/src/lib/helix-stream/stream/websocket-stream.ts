@@ -124,6 +124,8 @@ export interface RemoteCursorPosition {
   userId: number
   x: number
   y: number
+  color?: string
+  lastSeen: number  // Timestamp for idle detection
 }
 
 // AI agent cursor info
@@ -133,6 +135,7 @@ export interface AgentCursorInfo {
   y: number
   action: 'idle' | 'moving' | 'clicking' | 'typing' | 'scrolling' | 'dragging'
   visible: boolean
+  lastSeen: number  // Timestamp for idle detection
 }
 
 // Remote touch event
@@ -2714,22 +2717,37 @@ export class WebSocketStream {
    * Format: [type:1][user_id:4][x:2][y:2]
    */
   private handleRemoteCursor(data: Uint8Array) {
-    if (data.length < 9) {
+    // Format from Go (little-endian):
+    // type(1) + userId(4) + x(4) + y(4) + colorLen(1) + color(N)
+    if (data.length < 14) {
       console.warn("[WebSocketStream] RemoteCursor message too short")
       return
     }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const userId = view.getUint32(1, false)
-    const x = view.getUint16(5, false)
-    const y = view.getUint16(7, false)
+    let offset = 1
 
-    this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y } })
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
+    const x = view.getInt32(offset, true)
+    offset += 4
+    const y = view.getInt32(offset, true)
+    offset += 4
+    const colorLen = data[offset]
+    offset += 1
+
+    let color = "#0D99FF"  // Default blue
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+    }
+
+    this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y, color, lastSeen: Date.now() } })
   }
 
   /**
    * Handle remote user joined/left message (0x54)
-   * Format: [type:1][user_id:4][event:1][name_len:1][name:N][color:4][avatar_url_len:2][avatar_url:M]
+   * Format from Go (little-endian):
+   * type(1) + action(1) + userId(4) + nameLen(1) + name(N) + colorLen(1) + color(N) + avatarLen(2) + avatar(N)
    */
   private handleRemoteUser(data: Uint8Array) {
     if (data.length < 7) {
@@ -2740,45 +2758,64 @@ export class WebSocketStream {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     let offset = 1
 
-    const userId = view.getUint32(offset, false)
-    offset += 4
-    const event = data[offset]
+    const action = data[offset]  // 0x00 = left, 0x01 = joined
     offset += 1
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
 
-    if (event === 0) {
+    if (action === 0x00) {
       // User left
       this.dispatchInfoEvent({ type: "remoteUserLeft", userId })
       return
     }
 
     // User joined - parse additional data
+    if (data.length < offset + 1) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (no nameLen)")
+      return
+    }
+
     const nameLen = data[offset]
     offset += 1
 
-    if (data.length < offset + nameLen + 6) {
-      console.warn("[WebSocketStream] RemoteUser message truncated")
+    if (data.length < offset + nameLen) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (name)")
       return
     }
 
     const name = new TextDecoder().decode(data.slice(offset, offset + nameLen))
     offset += nameLen
 
-    const colorValue = view.getUint32(offset, false)
-    offset += 4
-    const color = '#' + (colorValue & 0xFFFFFF).toString(16).padStart(6, '0')
+    // Parse color (string format now, not uint32)
+    if (data.length < offset + 1) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (no colorLen)")
+      return
+    }
+    const colorLen = data[offset]
+    offset += 1
 
-    const avatarUrlLen = view.getUint16(offset, false)
-    offset += 2
+    let color = "#0D99FF"  // Default blue
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+      offset += colorLen
+    }
 
+    // Parse avatar URL
     let avatarUrl: string | undefined
-    if (avatarUrlLen > 0 && data.length >= offset + avatarUrlLen) {
-      avatarUrl = new TextDecoder().decode(data.slice(offset, offset + avatarUrlLen))
+    if (data.length >= offset + 2) {
+      const avatarUrlLen = view.getUint16(offset, true)  // Little-endian
+      offset += 2
+      if (avatarUrlLen > 0 && data.length >= offset + avatarUrlLen) {
+        avatarUrl = new TextDecoder().decode(data.slice(offset, offset + avatarUrlLen))
+      }
     }
 
     this.dispatchInfoEvent({
       type: "remoteUserJoined",
       user: { userId, userName: name, color, avatarUrl },
     })
+
+    console.debug("[WebSocketStream] Remote user joined:", { userId, name, color, avatarUrl })
   }
 
   /**
@@ -2803,7 +2840,7 @@ export class WebSocketStream {
 
     this.dispatchInfoEvent({
       type: "agentCursor",
-      agent: { agentId, x, y, action, visible },
+      agent: { agentId, x, y, action, visible, lastSeen: Date.now() },
     })
   }
 

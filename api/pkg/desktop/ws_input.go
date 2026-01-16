@@ -537,6 +537,15 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 			s.logger.Debug("Wayland virtual mouse absolute failed", "err", err)
 		}
 	}
+
+	// Broadcast cursor position to other connected clients for multi-player cursors
+	// Note: This broadcasts the user's mouse position (in screen coords) to all other
+	// clients viewing this session, enabling Figma-style collaborative cursors.
+	if s.config.SessionID != "" {
+		// Use original (unscaled) coordinates for broadcasting since all clients
+		// receive video at the same resolution and scale independently
+		GetSessionRegistry().BroadcastCursorPosition(s.config.SessionID, 0, int32(absX), int32(absY))
+	}
 }
 
 // handleWSMouseRelative handles relative mouse movement messages.
