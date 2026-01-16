@@ -170,6 +170,9 @@ type VideoStreamer struct {
 	// Audio streaming (optional, created if audio enabled)
 	audioStreamer *AudioStreamer
 	audioConfig   AudioConfig
+	audioEnabled  atomic.Bool // Controls whether audio streaming is active
+	audioCtx      context.Context
+	audioCancel   context.CancelFunc
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -817,16 +820,44 @@ func (v *VideoStreamer) Stop() {
 // startAudioStreaming initializes and starts audio capture if available.
 // This is non-blocking and doesn't fail video streaming if audio fails.
 func (v *VideoStreamer) startAudioStreaming(ctx context.Context) {
-	// Create audio streamer with shared WebSocket mutex
-	v.audioStreamer = NewAudioStreamer(v.ws, &v.wsMu, v.logger, v.audioConfig)
-	if v.audioStreamer == nil {
-		v.logger.Debug("audio streaming disabled (CGO not available)")
-		return
+	// Audio is disabled by default - user must enable via control message
+	// This avoids autoplay restrictions and unnecessary bandwidth
+	v.audioCtx = ctx
+	v.logger.Debug("audio streaming ready (disabled by default, enable via control message)")
+}
+
+// SetAudioEnabled starts or stops audio streaming.
+// Called via ControlMessage when user toggles audio in UI.
+func (v *VideoStreamer) SetAudioEnabled(enabled bool) {
+	if enabled == v.audioEnabled.Load() {
+		return // No change
 	}
 
-	if err := v.audioStreamer.Start(ctx); err != nil {
-		v.logger.Warn("failed to start audio streaming", "err", err)
-		// Don't fail - audio is optional
+	v.audioEnabled.Store(enabled)
+	v.logger.Info("audio streaming", "enabled", enabled)
+
+	if enabled {
+		// Start audio streaming
+		v.audioStreamer = NewAudioStreamer(v.ws, &v.wsMu, v.logger, v.audioConfig)
+		if v.audioStreamer == nil {
+			v.logger.Debug("audio streaming not available (CGO disabled)")
+			return
+		}
+		// Create cancellable context for audio
+		var audioCtx context.Context
+		audioCtx, v.audioCancel = context.WithCancel(v.audioCtx)
+		if err := v.audioStreamer.Start(audioCtx); err != nil {
+			v.logger.Warn("failed to start audio streaming", "err", err)
+		}
+	} else {
+		// Stop audio streaming
+		if v.audioCancel != nil {
+			v.audioCancel()
+		}
+		if v.audioStreamer != nil {
+			v.audioStreamer.Stop()
+			v.audioStreamer = nil
+		}
 	}
 }
 
@@ -969,13 +1000,19 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 				continue
 			}
 
-			// Handle ControlMessage (0x20) for video pause/resume
+			// Handle ControlMessage (0x20) for video/audio control
 			if msgType == StreamMsgControlMessage && len(msg) > 1 {
 				var ctrl struct {
 					SetVideoEnabled *bool `json:"set_video_enabled"`
+					SetAudioEnabled *bool `json:"set_audio_enabled"`
 				}
-				if err := json.Unmarshal(msg[1:], &ctrl); err == nil && ctrl.SetVideoEnabled != nil {
-					streamer.SetVideoEnabled(*ctrl.SetVideoEnabled)
+				if err := json.Unmarshal(msg[1:], &ctrl); err == nil {
+					if ctrl.SetVideoEnabled != nil {
+						streamer.SetVideoEnabled(*ctrl.SetVideoEnabled)
+					}
+					if ctrl.SetAudioEnabled != nil {
+						streamer.SetAudioEnabled(*ctrl.SetAudioEnabled)
+					}
 				}
 				continue
 			}

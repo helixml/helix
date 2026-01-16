@@ -115,7 +115,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [reconnectClicked, setReconnectClicked] = useState(false); // Immediate feedback when button clicked
   const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(false); // Audio disabled by default - user must enable via toolbar
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -477,7 +477,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       settings.fps = fps;  // Use configured fps from props
       settings.videoSampleQueueSize = 50;  // Queue size for 1080p60 streaming
       settings.audioSampleQueueSize = 20;
-      settings.playAudioLocal = !audioEnabled;
+      settings.playAudioLocal = false; // Audio is controlled via setAudioEnabled control message
 
       // Check for videoMode URL param to switch between capture pipelines
       // Usage: ?videoMode=native or ?videoMode=zerocopy
@@ -845,7 +845,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, streamingMode, sandboxId, onClientIdCalculated, qualityMode, userBitrate]);
+  // NOTE: audioEnabled intentionally not in deps - audio is controlled via setAudioEnabled control message, not reconnection
+  }, [sessionId, hostId, appId, width, height, onConnectionChange, onError, helixApi, account, streamingMode, sandboxId, onClientIdCalculated, qualityMode, userBitrate]);
 
   // Disconnect
   // preserveState: if true, don't reset status/isConnecting (used during planned reconnects)
@@ -3303,7 +3304,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
-            onClick={() => setAudioEnabled(!audioEnabled)}
+            onClick={() => {
+              const newEnabled = !audioEnabled;
+              setAudioEnabled(newEnabled);
+              // Send control message to start/stop audio streaming on the server
+              if (streamRef.current instanceof WebSocketStream) {
+                streamRef.current.setAudioEnabled(newEnabled);
+              }
+            }}
             sx={{ color: audioEnabled ? 'white' : 'grey' }}
           >
             {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}

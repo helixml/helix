@@ -847,6 +847,10 @@ export class WebSocketStream {
   // Track video enabled state to make setVideoEnabled idempotent
   private _videoEnabled = true
 
+  // Track audio enabled state to make setAudioEnabled idempotent
+  // Audio is disabled by default - user must explicitly enable via toolbar
+  private _audioEnabled = false
+
   // Track last video config for decoder recovery
   private lastVideoCodec: WsVideoCodecType | null = null
   private lastVideoWidth = 0
@@ -2093,6 +2097,41 @@ export class WebSocketStream {
     // Send control message to server
     // Format: type(1) + JSON payload
     const json = JSON.stringify({ set_video_enabled: enabled })
+    const encoder = new TextEncoder()
+    const jsonBytes = encoder.encode(json)
+
+    const message = new Uint8Array(1 + jsonBytes.length)
+    message[0] = WsMessageType.ControlMessage
+    message.set(jsonBytes, 1)
+
+    this.ws.send(message.buffer)
+  }
+
+  /**
+   * Enable or disable audio streaming from the server.
+   * Audio is disabled by default to avoid autoplay restrictions and save bandwidth.
+   * @param enabled - true to start audio streaming, false to stop
+   */
+  setAudioEnabled(enabled: boolean) {
+    // Idempotent check - don't send duplicate messages
+    if (this._audioEnabled === enabled) {
+      console.log(`[WebSocketStream] Audio already ${enabled ? 'enabled' : 'disabled'}, skipping`)
+      return
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn("[WebSocketStream] Cannot set audio enabled - WebSocket not connected")
+      // Still update local state so we don't spam when connection is restored
+      this._audioEnabled = enabled
+      return
+    }
+
+    console.log(`[WebSocketStream] Setting audio enabled: ${enabled}`)
+    this._audioEnabled = enabled
+
+    // Send control message to server
+    // Format: type(1) + JSON payload
+    const json = JSON.stringify({ set_audio_enabled: enabled })
     const encoder = new TextEncoder()
     const jsonBytes = encoder.encode(json)
 
