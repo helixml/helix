@@ -156,6 +156,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "addDebugLine"; line: string }
   // Cursor events
   | { type: "cursorImage"; cursor: CursorImageData }
+  | { type: "cursorPosition"; x: number; y: number; hotspotX: number; hotspotY: number }
   | { type: "cursorVisibility"; visible: boolean; cursorId: number }
   | { type: "cursorSwitch"; cursorId: number }
   // Multi-player cursor events
@@ -216,6 +217,8 @@ export class WebSocketStream {
   private cursorCache = new Map<number, CursorImageData>()
   private currentCursorId: number | null = null
   private cursorVisible = true
+  private cursorX = 0  // Current cursor X position from server
+  private cursorY = 0  // Current cursor Y position from server
 
   // Frame timing and stats
   private lastFrameTime = 0
@@ -2474,7 +2477,10 @@ export class WebSocketStream {
    * Format: [type:1][cursor_id:4][hotspot_x:2][hotspot_y:2][width:2][height:2][format:1][data_len:4][data:N]
    */
   private handleCursorImage(data: Uint8Array) {
-    if (data.length < 18) {
+    // Binary format from Go (little-endian):
+    // type(1) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4)
+    // If bitmapSize > 0: format(4) + width(4) + height(4) + stride(4) + pixels...
+    if (data.length < 21) {
       console.warn("[WebSocketStream] CursorImage message too short:", data.length)
       return
     }
@@ -2482,63 +2488,186 @@ export class WebSocketStream {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     let offset = 1  // Skip message type
 
-    const cursorId = view.getUint32(offset, false)  // Big-endian
+    // All values are little-endian from Go
+    const posX = view.getInt32(offset, true)  // Little-endian, signed
     offset += 4
-    const hotspotX = view.getUint16(offset, false)
-    offset += 2
-    const hotspotY = view.getUint16(offset, false)
-    offset += 2
-    const width = view.getUint16(offset, false)
-    offset += 2
-    const height = view.getUint16(offset, false)
-    offset += 2
-    const format = data[offset]
-    offset += 1
-    const dataLen = view.getUint32(offset, false)
+    const posY = view.getInt32(offset, true)
+    offset += 4
+    const hotspotX = view.getInt32(offset, true)
+    offset += 4
+    const hotspotY = view.getInt32(offset, true)
+    offset += 4
+    const bitmapSize = view.getUint32(offset, true)
     offset += 4
 
-    if (data.length < offset + dataLen) {
-      console.warn("[WebSocketStream] CursorImage data truncated")
-      return
+    // Update cursor position
+    this.cursorX = posX
+    this.cursorY = posY
+
+    // If bitmap data is present, update cursor image
+    if (bitmapSize > 0 && data.length >= offset + bitmapSize) {
+      // Bitmap header: format(4) + width(4) + height(4) + stride(4)
+      if (bitmapSize < 16) {
+        console.warn("[WebSocketStream] CursorImage bitmap header too short")
+        return
+      }
+
+      const format = view.getUint32(offset, true)  // DRM fourcc
+      offset += 4
+      const width = view.getUint32(offset, true)
+      offset += 4
+      const height = view.getUint32(offset, true)
+      offset += 4
+      const stride = view.getInt32(offset, true)
+      offset += 4
+
+      const pixelDataSize = bitmapSize - 16
+      if (data.length < offset + pixelDataSize) {
+        console.warn("[WebSocketStream] CursorImage pixel data truncated")
+        return
+      }
+
+      const pixelData = data.slice(offset, offset + pixelDataSize)
+
+      // Convert ARGB8888 raw pixels to PNG via canvas
+      const imageUrl = this.convertCursorBitmapToDataUrl(
+        pixelData, width, height, stride, format
+      )
+
+      if (imageUrl) {
+        // Use a simple cursor ID based on dimensions for caching
+        const cursorId = (width << 16) | height
+
+        // Revoke old blob URL if this cursor ID already exists
+        const existing = this.cursorCache.get(cursorId)
+        if (existing?.imageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(existing.imageUrl)
+        }
+
+        const cursorData: CursorImageData = {
+          cursorId,
+          hotspotX,
+          hotspotY,
+          width,
+          height,
+          imageUrl,
+        }
+
+        this.cursorCache.set(cursorId, cursorData)
+        this.currentCursorId = cursorId
+
+        // Emit cursor image event
+        this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData })
+
+        console.debug("[WebSocketStream] Cursor image received:", {
+          cursorId,
+          hotspotX,
+          hotspotY,
+          width,
+          height,
+          format: format.toString(16),
+        })
+      }
     }
 
-    const imageData = data.slice(offset, offset + dataLen)
-
-    // Create blob URL from image data
-    const mimeType = format === 1 ? 'image/png' : 'image/rgba'
-    const blob = new Blob([imageData], { type: mimeType })
-    const imageUrl = URL.createObjectURL(blob)
-
-    // Revoke old blob URL if this cursor ID already exists
-    const existing = this.cursorCache.get(cursorId)
-    if (existing?.imageUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(existing.imageUrl)
-    }
-
-    const cursorData: CursorImageData = {
-      cursorId,
+    // Always emit cursor position update (even without bitmap)
+    this.dispatchInfoEvent({
+      type: "cursorPosition",
+      x: posX,
+      y: posY,
       hotspotX,
       hotspotY,
-      width,
-      height,
-      imageUrl,
-    }
-
-    this.cursorCache.set(cursorId, cursorData)
-    this.currentCursorId = cursorId
-
-    // Emit cursor image event
-    this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData })
-
-    console.debug("[WebSocketStream] Cursor image received:", {
-      cursorId,
-      hotspotX,
-      hotspotY,
-      width,
-      height,
-      format,
-      dataLen,
     })
+  }
+
+  /**
+   * Convert raw ARGB8888 cursor bitmap to a data URL.
+   * Uses canvas to convert pixel data to PNG.
+   */
+  private convertCursorBitmapToDataUrl(
+    pixelData: Uint8Array,
+    width: number,
+    height: number,
+    stride: number,
+    format: number
+  ): string | null {
+    if (width === 0 || height === 0) return null
+
+    try {
+      // Create an offscreen canvas
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+
+      // Create ImageData
+      const imageData = ctx.createImageData(width, height)
+      const dst = imageData.data
+
+      // Common DRM fourcc codes for cursor formats
+      const DRM_FORMAT_ARGB8888 = 0x34325241  // 'AR24'
+      const DRM_FORMAT_BGRA8888 = 0x34324142  // 'BA24'
+      const DRM_FORMAT_RGBA8888 = 0x34324152  // 'RA24'
+      const DRM_FORMAT_ABGR8888 = 0x34324241  // 'AB24'
+
+      // Convert based on format
+      for (let y = 0; y < height; y++) {
+        const srcRowStart = y * Math.abs(stride)
+        const dstRowStart = y * width * 4
+
+        for (let x = 0; x < width; x++) {
+          const srcIdx = srcRowStart + x * 4
+          const dstIdx = dstRowStart + x * 4
+
+          if (srcIdx + 3 >= pixelData.length) continue
+
+          // Canvas expects RGBA order
+          switch (format) {
+            case DRM_FORMAT_ARGB8888:
+              // ARGB -> RGBA
+              dst[dstIdx + 0] = pixelData[srcIdx + 1]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 2]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 3]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 0]  // A
+              break
+            case DRM_FORMAT_BGRA8888:
+              // BGRA -> RGBA
+              dst[dstIdx + 0] = pixelData[srcIdx + 2]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 0]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]  // A
+              break
+            case DRM_FORMAT_RGBA8888:
+              // RGBA -> RGBA (already correct)
+              dst[dstIdx + 0] = pixelData[srcIdx + 0]
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]
+              dst[dstIdx + 2] = pixelData[srcIdx + 2]
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]
+              break
+            case DRM_FORMAT_ABGR8888:
+              // ABGR -> RGBA
+              dst[dstIdx + 0] = pixelData[srcIdx + 3]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 2]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 1]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 0]  // A
+              break
+            default:
+              // Assume ARGB as default
+              dst[dstIdx + 0] = pixelData[srcIdx + 1]
+              dst[dstIdx + 1] = pixelData[srcIdx + 2]
+              dst[dstIdx + 2] = pixelData[srcIdx + 3]
+              dst[dstIdx + 3] = pixelData[srcIdx + 0]
+          }
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0)
+      return canvas.toDataURL('image/png')
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to convert cursor bitmap:", e)
+      return null
+    }
   }
 
   /**

@@ -499,6 +499,7 @@ impl ExtCaptureState {
                 stride,
                 format: drm_fourcc,
                 pts_ns: 0, // ext-image-copy-capture doesn't provide compositor timestamp
+                cursor: None, // ext-image-copy-capture handles cursor separately (hidden from video)
             };
 
             let _ = self.frame_tx.try_send(frame);

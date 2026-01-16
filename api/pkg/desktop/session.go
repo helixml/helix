@@ -134,7 +134,7 @@ func (s *Server) createSession(ctx context.Context) error {
 	scSession := s.conn.Object(screenCastBus, scSessionPath)
 
 	recordOptions := map[string]dbus.Variant{
-		"cursor-mode": dbus.MakeVariant(uint32(0)), // Hidden - cursor rendered client-side
+		"cursor-mode": dbus.MakeVariant(uint32(2)), // Metadata - cursor sent as PipeWire metadata, not rendered into video
 		// NOTE: Do NOT use is-platform=true here!
 		// While the docs suggest it "bypasses screen sharing optimizations", it actually
 		// forces GNOME to use SHM-only formats instead of DmaBuf with NVIDIA modifiers.
@@ -146,7 +146,7 @@ func (s *Server) createSession(ctx context.Context) error {
 		return fmt.Errorf("RecordMonitor: %w", err)
 	}
 	s.scStreamPath = streamPath
-	s.logger.Info("stream created (cursor hidden for client-side rendering)", "path", streamPath)
+	s.logger.Info("stream created (cursor as metadata for client-side rendering)", "path", streamPath)
 
 	return nil
 }
@@ -251,7 +251,7 @@ func (s *Server) createVideoSession(ctx context.Context) error {
 	// Record the virtual monitor Meta-0
 	scSession := s.conn.Object(screenCastBus, scSessionPath)
 	recordOptions := map[string]dbus.Variant{
-		"cursor-mode": dbus.MakeVariant(uint32(0)), // Hidden - cursor rendered client-side
+		"cursor-mode": dbus.MakeVariant(uint32(2)), // Metadata - cursor sent as PipeWire metadata, not rendered into video
 		// NOTE: Do NOT use is-platform=true here!
 		// While the docs suggest it "bypasses screen sharing optimizations", it actually
 		// forces GNOME to use SHM-only formats instead of DmaBuf with NVIDIA modifiers.
@@ -262,7 +262,7 @@ func (s *Server) createVideoSession(ctx context.Context) error {
 		return fmt.Errorf("video RecordMonitor: %w", err)
 	}
 	s.videoScStreamPath = streamPath
-	s.logger.Info("video stream created (cursor hidden for client-side rendering)", "path", streamPath)
+	s.logger.Info("video stream created (cursor as metadata for client-side rendering)", "path", streamPath)
 
 	// Subscribe to PipeWireStreamAdded signal for this stream
 	if err := s.conn.AddMatchSignal(

@@ -815,7 +815,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         };
 
         let (mut buffer, actual_format, width, height, pts_ns) = match frame {
-            FrameData::DmaBuf { dmabuf, pts_ns } if state.output_mode == OutputMode::Cuda => {
+            FrameData::DmaBuf { dmabuf, pts_ns, cursor: _ } if state.output_mode == OutputMode::Cuda => {
                 // CUDA path: DmaBuf → EGL → CUDA
                 // === TIMING INSTRUMENTATION ===
                 let t_start = std::time::Instant::now();
@@ -893,7 +893,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     .unwrap_or(video_format);
                 (buf, actual_fmt, w, h, pts_ns)
             }
-            FrameData::DmaBuf { dmabuf, pts_ns } => {
+            FrameData::DmaBuf { dmabuf, pts_ns, cursor: _ } => {
                 // Should not happen with explicit buffer_type, but handle gracefully
                 let t_start = std::time::Instant::now();
                 let w = dmabuf.width() as u32;
@@ -917,6 +917,7 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 stride,
                 format,
                 pts_ns,
+                cursor: _,
             } => {
                 let t_start = std::time::Instant::now();
                 let video_format = if format != 0 {

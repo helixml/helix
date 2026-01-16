@@ -191,6 +191,9 @@ type VideoStreamer struct {
 	micEnabled  atomic.Bool // Controls whether mic playback is active
 	micCtx      context.Context
 	micCancel   context.CancelFunc
+
+	// Cursor tracking
+	cursorUpdateCount uint64 // Number of cursor updates sent
 }
 
 // NewVideoStreamer creates a new video streamer
@@ -280,6 +283,9 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Start mic playback (optional - doesn't fail if mic isn't available)
 	v.startMicStreaming(ctx)
+
+	// Start cursor monitoring (reads cursor data from pipewirezerocopysrc)
+	go v.monitorCursor(ctx)
 
 	// Read frames from appsink and send to WebSocket
 	go v.readFramesAndSend(ctx)
@@ -803,6 +809,97 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
 				v.logger.Debug("ping failed", "err", err)
 				return
+			}
+		}
+	}
+}
+
+// monitorCursor monitors the cursor file and sends cursor updates to WebSocket.
+// The cursor file is written by pipewirezerocopysrc when cursor metadata changes.
+func (v *VideoStreamer) monitorCursor(ctx context.Context) {
+	const cursorPath = "/tmp/helix-cursor.bin"
+	const pollInterval = 16 * time.Millisecond // ~60 Hz max
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastModTime time.Time
+	var lastCursorHash uint64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check if file exists and has been modified
+			info, err := os.Stat(cursorPath)
+			if err != nil {
+				continue // File doesn't exist yet
+			}
+
+			modTime := info.ModTime()
+			if modTime == lastModTime {
+				continue // No change
+			}
+			lastModTime = modTime
+
+			// Read cursor file
+			data, err := os.ReadFile(cursorPath)
+			if err != nil || len(data) < 28 {
+				continue
+			}
+
+			// Parse header
+			magic := binary.LittleEndian.Uint32(data[0:4])
+			if magic != 0x43555253 { // "CURS"
+				continue
+			}
+			// version := binary.LittleEndian.Uint32(data[4:8])
+			posX := int32(binary.LittleEndian.Uint32(data[8:12]))
+			posY := int32(binary.LittleEndian.Uint32(data[12:16]))
+			hotspotX := int32(binary.LittleEndian.Uint32(data[16:20]))
+			hotspotY := int32(binary.LittleEndian.Uint32(data[20:24]))
+			bitmapSize := binary.LittleEndian.Uint32(data[24:28])
+
+			// Simple hash to detect actual changes
+			cursorHash := uint64(posX) ^ (uint64(posY) << 16) ^ (uint64(bitmapSize) << 32)
+			if cursorHash == lastCursorHash {
+				continue
+			}
+			lastCursorHash = cursorHash
+
+			// Send cursor position message (StreamMsgCursorImage = 0x50)
+			// Format: type(1) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
+			msgLen := 1 + 4 + 4 + 4 + 4 + 4
+			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
+				msgLen += int(bitmapSize)
+			}
+
+			msg := make([]byte, msgLen)
+			msg[0] = StreamMsgCursorImage
+			binary.LittleEndian.PutUint32(msg[1:5], uint32(posX))
+			binary.LittleEndian.PutUint32(msg[5:9], uint32(posY))
+			binary.LittleEndian.PutUint32(msg[9:13], uint32(hotspotX))
+			binary.LittleEndian.PutUint32(msg[13:17], uint32(hotspotY))
+			binary.LittleEndian.PutUint32(msg[17:21], bitmapSize)
+
+			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
+				copy(msg[21:], data[28:28+bitmapSize])
+			}
+
+			if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
+				v.logger.Debug("cursor message failed", "err", err)
+				return
+			}
+
+			// Log cursor updates periodically (first update and then every 100)
+			v.cursorUpdateCount++
+			if v.cursorUpdateCount == 1 || v.cursorUpdateCount%100 == 0 {
+				v.logger.Info("cursor update",
+					"count", v.cursorUpdateCount,
+					"pos", fmt.Sprintf("(%d,%d)", posX, posY),
+					"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
+					"bitmap_size", bitmapSize)
 			}
 		}
 	}

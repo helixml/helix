@@ -196,9 +196,9 @@ func (s *Server) selectPortalSources(ctx context.Context) error {
 	portalObj := s.conn.Object(portalBus, portalPath)
 	options := map[string]dbus.Variant{
 		"handle_token": dbus.MakeVariant(requestToken),
-		"types":        dbus.MakeVariant(portalSourceMonitor), // Capture monitor
-		"cursor_mode":  dbus.MakeVariant(portalCursorHidden),  // Hidden - cursor rendered client-side
-		"persist_mode": dbus.MakeVariant(uint32(0)),           // Don't persist (session-only)
+		"types":        dbus.MakeVariant(portalSourceMonitor),  // Capture monitor
+		"cursor_mode":  dbus.MakeVariant(portalCursorMetadata), // Metadata - cursor sent as PipeWire metadata, not rendered into video
+		"persist_mode": dbus.MakeVariant(uint32(0)),            // Don't persist (session-only)
 	}
 
 	sessionPath := dbus.ObjectPath(s.portalSessionHandle)
