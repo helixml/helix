@@ -307,10 +307,10 @@ impl ExtCaptureState {
         let source = source_manager.create_source(output, qh, ());
         eprintln!("[EXT_IMAGE_COPY] Created capture source");
 
-        // Create capture session with paint_cursors to include mouse cursor
-        let options = ext_image_copy_capture_manager_v1::Options::PaintCursors;
+        // Create capture session WITHOUT paint_cursors - cursor is rendered client-side
+        let options = ext_image_copy_capture_manager_v1::Options::empty();
         let session = capture_manager.create_session(&source, options, qh, ());
-        eprintln!("[EXT_IMAGE_COPY] Created capture session");
+        eprintln!("[EXT_IMAGE_COPY] Created capture session (cursor hidden for client-side rendering)");
 
         self.source = Some(source);
         self.session = Some(session);

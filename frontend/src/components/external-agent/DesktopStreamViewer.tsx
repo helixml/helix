@@ -25,7 +25,16 @@ import {
 } from '../common/chartStyles';
 // getApi import removed - we create API object directly instead of using cached singleton
 import { Stream } from '../../lib/helix-stream/stream/index';
-import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/helix-stream/stream/websocket-stream';
+import {
+  WebSocketStream,
+  codecToWebCodecsString,
+  codecToDisplayName,
+  CursorImageData,
+  RemoteUserInfo,
+  RemoteCursorPosition,
+  AgentCursorInfo,
+  RemoteTouchInfo,
+} from '../../lib/helix-stream/stream/websocket-stream';
 import { defaultStreamSettings, StreamingMode, VideoMode } from '../../lib/helix-stream/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
@@ -121,6 +130,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [micEnabled, setMicEnabled] = useState(false); // Mic disabled by default - user must enable via toolbar
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
+  // Client-side cursor rendering state
+  const [cursorImage, setCursorImage] = useState<CursorImageData | null>(null);
+  const [cursorVisible, setCursorVisible] = useState(true);
+  // Multi-player cursor state
+  const [remoteUsers, setRemoteUsers] = useState<Map<number, RemoteUserInfo>>(new Map());
+  const [remoteCursors, setRemoteCursors] = useState<Map<number, RemoteCursorPosition>>(new Map());
+  const [agentCursor, setAgentCursor] = useState<AgentCursorInfo | null>(null);
+  const [remoteTouches, setRemoteTouches] = useState<Map<string, RemoteTouchInfo>>(new Map());
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
@@ -785,6 +802,50 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           console.log(`[DesktopStreamViewer] Reconnecting attempt ${data.attempt}`);
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
+        }
+        // Cursor events
+        else if (data.type === 'cursorImage') {
+          setCursorImage(data.cursor);
+        } else if (data.type === 'cursorVisibility') {
+          setCursorVisible(data.visible);
+        } else if (data.type === 'cursorSwitch') {
+          // Switch to a cached cursor - the WebSocketStream has the cache
+          if (stream instanceof WebSocketStream) {
+            const cursor = stream.getCursor(data.cursorId);
+            if (cursor) {
+              setCursorImage(cursor);
+            }
+          }
+        }
+        // Multi-player cursor events
+        else if (data.type === 'remoteCursor') {
+          setRemoteCursors(prev => new Map(prev).set(data.cursor.userId, data.cursor));
+        } else if (data.type === 'remoteUserJoined') {
+          setRemoteUsers(prev => new Map(prev).set(data.user.userId, data.user));
+        } else if (data.type === 'remoteUserLeft') {
+          setRemoteUsers(prev => {
+            const next = new Map(prev);
+            next.delete(data.userId);
+            return next;
+          });
+          setRemoteCursors(prev => {
+            const next = new Map(prev);
+            next.delete(data.userId);
+            return next;
+          });
+        } else if (data.type === 'agentCursor') {
+          setAgentCursor(data.agent.visible ? data.agent : null);
+        } else if (data.type === 'remoteTouch') {
+          const touchKey = `${data.touch.userId}-${data.touch.touchId}`;
+          if (data.touch.eventType === 'end' || data.touch.eventType === 'cancel') {
+            setRemoteTouches(prev => {
+              const next = new Map(prev);
+              next.delete(touchKey);
+              return next;
+            });
+          } else {
+            setRemoteTouches(prev => new Map(prev).set(touchKey, data.touch));
+          }
         }
         });
       }
@@ -3807,25 +3868,209 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         />
       )}
 
-      {/* Custom cursor dot to show local mouse position */}
-      <Box
-        sx={{
-          position: 'absolute',
-          left: cursorPosition.x,
-          top: cursorPosition.y,
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          border: '1px solid rgba(0, 0, 0, 0.5)',
-          pointerEvents: 'none',
-          zIndex: 1000,
-          transform: 'translate(-50%, -50%)',
-          display: isConnected && hasMouseMoved ? 'block' : 'none',
-          transition: 'opacity 0.2s',
-        }}
-        id="custom-cursor"
-      />
+      {/* Custom cursor - shows local mouse position
+          When cursor image is available: render the actual cursor image
+          When no cursor image: render a circle fallback */}
+      {isConnected && hasMouseMoved && cursorVisible && (
+        cursorImage ? (
+          // Render actual cursor image from server
+          <Box
+            sx={{
+              position: 'absolute',
+              left: cursorPosition.x - cursorImage.hotspotX,
+              top: cursorPosition.y - cursorImage.hotspotY,
+              width: cursorImage.width,
+              height: cursorImage.height,
+              backgroundImage: `url(${cursorImage.imageUrl})`,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              pointerEvents: 'none',
+              zIndex: 1000,
+            }}
+            id="custom-cursor"
+          />
+        ) : (
+          // Fallback: circle indicator when no cursor image received
+          <Box
+            sx={{
+              position: 'absolute',
+              left: cursorPosition.x,
+              top: cursorPosition.y,
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(0, 0, 0, 0.5)',
+              pointerEvents: 'none',
+              zIndex: 1000,
+              transform: 'translate(-50%, -50%)',
+            }}
+            id="custom-cursor-fallback"
+          />
+        )
+      )}
+
+      {/* Remote user cursors (Figma-style multi-player) */}
+      {Array.from(remoteCursors.entries()).map(([userId, cursor]) => {
+        const user = remoteUsers.get(userId);
+        if (!user) return null;
+        return (
+          <Box
+            key={`remote-cursor-${userId}`}
+            sx={{
+              position: 'absolute',
+              left: cursor.x,
+              top: cursor.y,
+              pointerEvents: 'none',
+              zIndex: 1001,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+            }}
+          >
+            {/* Colored arrow cursor */}
+            <svg width="24" height="24" style={{ color: user.color }}>
+              <path
+                fill="currentColor"
+                d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
+              />
+            </svg>
+            {/* User name pill */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                backgroundColor: user.color,
+                borderRadius: '12px',
+                padding: '2px 8px 2px 4px',
+                marginLeft: '8px',
+                marginTop: '-4px',
+              }}
+            >
+              {user.avatarUrl ? (
+                <Box
+                  component="img"
+                  src={user.avatarUrl}
+                  sx={{ width: 20, height: 20, borderRadius: '50%' }}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(255,255,255,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    color: 'white',
+                  }}
+                >
+                  {user.userName.charAt(0).toUpperCase()}
+                </Box>
+              )}
+              <Typography
+                sx={{
+                  marginLeft: '4px',
+                  color: 'white',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                }}
+              >
+                {user.userName}
+              </Typography>
+            </Box>
+          </Box>
+        );
+      })}
+
+      {/* AI Agent cursor */}
+      {agentCursor && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: agentCursor.x,
+            top: agentCursor.y,
+            pointerEvents: 'none',
+            zIndex: 1002,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+          }}
+        >
+          {/* Cyan arrow cursor with pulse animation */}
+          <svg
+            width="24"
+            height="24"
+            style={{
+              color: '#00D4FF',
+              animation: agentCursor.action !== 'idle' ? 'pulse 0.5s infinite' : 'none',
+            }}
+          >
+            <path
+              fill="currentColor"
+              d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
+            />
+          </svg>
+          {/* Agent name pill with action indicator */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: '#00D4FF',
+              borderRadius: '12px',
+              padding: '2px 8px 2px 4px',
+              marginLeft: '8px',
+              marginTop: '-4px',
+            }}
+          >
+            <Box sx={{ fontSize: 14, marginRight: '4px' }}>🤖</Box>
+            <Typography
+              sx={{
+                color: 'white',
+                fontSize: 12,
+                fontWeight: 500,
+                textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+              }}
+            >
+              AI Agent
+              {agentCursor.action !== 'idle' && (
+                <Box component="span" sx={{ marginLeft: '4px', fontStyle: 'italic' }}>
+                  {agentCursor.action}...
+                </Box>
+              )}
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+      {/* Remote touch events */}
+      {Array.from(remoteTouches.values()).map((touch) => {
+        const user = remoteUsers.get(touch.userId);
+        const color = user?.color || '#888888';
+        const size = 32 + touch.pressure * 16;
+        return (
+          <Box
+            key={`touch-${touch.userId}-${touch.touchId}`}
+            sx={{
+              position: 'absolute',
+              left: touch.x - size / 2,
+              top: touch.y - size / 2,
+              width: size,
+              height: size,
+              borderRadius: '50%',
+              border: `3px solid ${color}`,
+              backgroundColor: `${color}40`,
+              pointerEvents: 'none',
+              zIndex: 1001,
+              animation: touch.eventType === 'start' ? 'touchStart 0.3s' : 'none',
+            }}
+          />
+        );
+      })}
 
       {/* Input Hint - removed since auto-focus handles keyboard input */}
 
