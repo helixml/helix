@@ -286,3 +286,44 @@ func (c *ConnectedClient) sendMessage(messageType int, data []byte) error {
 	defer c.mu.Unlock()
 	return c.Conn.WriteMessage(messageType, data)
 }
+
+// AgentAction represents the type of action the agent is performing
+type AgentAction byte
+
+const (
+	AgentActionIdle      AgentAction = 0
+	AgentActionMoving    AgentAction = 1
+	AgentActionClicking  AgentAction = 2
+	AgentActionTyping    AgentAction = 3
+	AgentActionScrolling AgentAction = 4
+	AgentActionDragging  AgentAction = 5
+)
+
+// BroadcastAgentCursor sends agent cursor position to all clients in all sessions
+// This is called from the MCP server when the agent performs mouse/keyboard actions
+func (r *SessionRegistry) BroadcastAgentCursor(x, y int32, action AgentAction, visible bool) {
+	// Build AgentCursor message (0x55)
+	// Format: type(1) + agentId(4) + x(2) + y(2) + action(1) + visible(1)
+	msg := make([]byte, 11)
+	msg[0] = StreamMsgAgentCursor
+	binary.LittleEndian.PutUint32(msg[1:5], 1) // Agent ID = 1 (single agent per session)
+	binary.LittleEndian.PutUint16(msg[5:7], uint16(x))
+	binary.LittleEndian.PutUint16(msg[7:9], uint16(y))
+	msg[9] = byte(action)
+	if visible {
+		msg[10] = 1
+	} else {
+		msg[10] = 0
+	}
+
+	// Broadcast to all sessions (typically just one per desktop container)
+	r.sessions.Range(func(sessionID, sessionI any) bool {
+		session := sessionI.(*SessionClients)
+		session.clients.Range(func(key, value any) bool {
+			client := value.(*ConnectedClient)
+			client.sendMessage(websocket.BinaryMessage, msg)
+			return true
+		})
+		return true
+	})
+}

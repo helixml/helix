@@ -291,6 +291,10 @@ func (m *MCPServer) handleTypeText(ctx context.Context, request mcp.CallToolRequ
 
 	m.logger.Info("typing text via MCP", "length", len(text))
 
+	// Broadcast agent cursor as typing (position 0,0 since typing doesn't have coordinates)
+	// The frontend will show the agent as "typing" without moving the cursor
+	GetSessionRegistry().BroadcastAgentCursor(0, 0, AgentActionTyping, true)
+
 	// Use wtype or ydotool for Wayland text input
 	// wtype is preferred for Sway/wlroots compositors
 	cmd := exec.CommandContext(ctx, "wtype", text)
@@ -298,9 +302,13 @@ func (m *MCPServer) handleTypeText(ctx context.Context, request mcp.CallToolRequ
 		// Fall back to ydotool
 		cmd = exec.CommandContext(ctx, "ydotool", "type", "--", text)
 		if err := cmd.Run(); err != nil {
+			GetSessionRegistry().BroadcastAgentCursor(0, 0, AgentActionIdle, true)
 			return mcp.NewToolResultError("failed to type text: " + err.Error()), nil
 		}
 	}
+
+	// Broadcast agent cursor as idle after typing
+	GetSessionRegistry().BroadcastAgentCursor(0, 0, AgentActionIdle, true)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Typed %d characters", len(text))), nil
 }
@@ -324,6 +332,9 @@ func (m *MCPServer) handleMouseClick(ctx context.Context, request mcp.CallToolRe
 
 	m.logger.Info("mouse click via MCP", "x", x, "y", y, "button", button)
 
+	// Broadcast agent cursor position to all connected clients (before action)
+	GetSessionRegistry().BroadcastAgentCursor(int32(x), int32(y), AgentActionClicking, true)
+
 	// Use ydotool for mouse control
 	// First move, then click
 	moveCmd := exec.CommandContext(ctx, "ydotool", "mousemove", "--absolute", "-x", fmt.Sprintf("%.0f", x), "-y", fmt.Sprintf("%.0f", y))
@@ -344,6 +355,9 @@ func (m *MCPServer) handleMouseClick(ctx context.Context, request mcp.CallToolRe
 	if err := clickCmd.Run(); err != nil {
 		return mcp.NewToolResultError("failed to click: " + err.Error()), nil
 	}
+
+	// Broadcast agent cursor as idle after action
+	GetSessionRegistry().BroadcastAgentCursor(int32(x), int32(y), AgentActionIdle, true)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Clicked %s button at (%d, %d)", button, int(x), int(y))), nil
 }
