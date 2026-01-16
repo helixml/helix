@@ -92,6 +92,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
   const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
+  const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
   // Generate unique UUID for this component instance (persists across re-renders)
   // This ensures multiple floating windows get different streaming client IDs
@@ -518,6 +519,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           hasEverConnectedRef.current = true; // Mark first successful connection
           setError(null); // Clear any previous errors on successful connection
           retryAttemptRef.current = 0; // Reset retry counter on successful connection
+          manualReconnectAttemptsRef.current = 0; // Reset manual reconnect counter on successful connection
           setRetryAttemptDisplay(0);
           onConnectionChange?.(true);
 
@@ -633,6 +635,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setStatus(data.stage);
         } else if (data.type === 'disconnected') {
           // WebSocket disconnected
+          // IMPORTANT: Only handle if this event is from the CURRENT stream.
+          // The OLD stream's close event fires asynchronously and may arrive after
+          // a NEW stream has been created. Ignore events from old streams.
+          if (stream !== streamRef.current) {
+            console.log('[DesktopStreamViewer] Ignoring disconnected from old stream');
+            return;
+          }
+
           console.log('[DesktopStreamViewer] Stream disconnected');
           setIsConnected(false);
           onConnectionChange?.(false);
@@ -655,13 +665,30 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
         } else if (data.type === 'reconnectAborted') {
           // WebSocketStream refused to reconnect (this.closed was true unexpectedly)
-          // This shouldn't happen during normal operation - log for debugging
+          // IMPORTANT: Only handle if this event is from the CURRENT stream.
+          // The OLD stream's close event fires asynchronously and may arrive after
+          // a NEW stream has been created. Ignore events from old streams.
+          if (stream !== streamRef.current) {
+            console.log('[DesktopStreamViewer] Ignoring reconnectAborted from old stream');
+            return;
+          }
+
           console.warn('[DesktopStreamViewer] Reconnect aborted by stream:', data.reason);
 
           // If we weren't explicitly closing, this is unexpected - try to reconnect ourselves
-          if (!isExplicitlyClosingRef.current) {
-            console.log('[DesktopStreamViewer] Unexpected reconnect abort - will manually reconnect');
+          // But limit to 3 attempts to prevent infinite loops
+          const MAX_MANUAL_RECONNECT_ATTEMPTS = 3;
+          if (!isExplicitlyClosingRef.current && manualReconnectAttemptsRef.current < MAX_MANUAL_RECONNECT_ATTEMPTS) {
+            manualReconnectAttemptsRef.current++;
+            console.log(`[DesktopStreamViewer] Unexpected reconnect abort - will manually reconnect (attempt ${manualReconnectAttemptsRef.current}/${MAX_MANUAL_RECONNECT_ATTEMPTS})`);
             reconnectRef.current(1000, 'Reconnecting...');
+          } else if (manualReconnectAttemptsRef.current >= MAX_MANUAL_RECONNECT_ATTEMPTS) {
+            // Too many manual reconnect attempts - give up and show error
+            console.error('[DesktopStreamViewer] Max manual reconnect attempts reached, giving up');
+            setError('Connection failed repeatedly. Please refresh the page to try again.');
+            setIsConnecting(false);
+            setStatus('Connection failed');
+            manualReconnectAttemptsRef.current = 0; // Reset for next user-initiated reconnect
           } else {
             // We were explicitly closing, show disconnected state
             console.log('[DesktopStreamViewer] Reconnect aborted during explicit close');
