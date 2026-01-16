@@ -176,31 +176,25 @@ start_zed_helix() {
     # =========================================
     # Step 1: Run workspace setup in terminal (BLOCKS until complete)
     # =========================================
-    echo "Launching workspace setup terminal..."
-    launch_terminal "Helix Workspace Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    # The setup terminal runs:
+    # - Git configuration
+    # - Repository cloning (shows errors if clone fails)
+    # - Branch checkout
+    # - Startup script (if exists)
+    # - Stays open as bash shell for debugging
+    echo "Launching setup terminal..."
+    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
     echo "Setup terminal launched"
 
     wait_for_setup_complete
 
     # =========================================
-    # Step 2: Run user's startup script in background terminal
-    # =========================================
-    STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
-    if [ -f "$STARTUP_SCRIPT" ]; then
-        echo "Launching startup script terminal (background)..."
-        launch_terminal "Project Startup Script" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-run-startup-script.sh"
-        echo "Startup script terminal launched"
-    else
-        echo "No startup script found - skipping"
-    fi
-
-    # =========================================
-    # Step 3: Wait for Zed configuration
+    # Step 2: Wait for Zed configuration
     # =========================================
     wait_for_zed_config
 
     # =========================================
-    # Step 4: Launch Zed
+    # Step 3: Launch Zed
     # =========================================
     read_zed_folders
 

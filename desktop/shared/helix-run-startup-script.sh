@@ -1,17 +1,19 @@
 #!/bin/bash
 #
-# helix-run-startup-script.sh - Run user's project startup script
+# helix-run-startup-script.sh - Run user's project startup script (MANUAL USE ONLY)
+#
+# NOTE: As of 2026-01, this script is no longer launched automatically.
+# The startup script is now run by helix-workspace-setup.sh in the same terminal.
+# This file is kept for manual re-runs if needed.
 #
 # This script runs the user's .helix/startup.sh from the helix-specs worktree.
-# It's launched in a separate terminal in the background so it runs in parallel
-# with Zed starting up.
 #
 # The startup script is typically used for:
 # - Installing dependencies (npm install, pip install, etc.)
 # - Starting development servers
 # - Running builds
 #
-# Usage: Run this in a terminal (kitty or gnome-terminal) in the background
+# Usage: Run manually in a terminal if you need to re-run the startup script
 
 echo "========================================="
 echo "Project Startup Script - $(date)"

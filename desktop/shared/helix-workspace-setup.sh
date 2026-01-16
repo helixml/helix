@@ -18,7 +18,12 @@
 #   $HOME/.helix-setup-complete  - Touched when setup is done
 #   $HOME/.helix-zed-folders     - List of folders for Zed to open
 
-set -e
+# Note: We intentionally do NOT use 'set -e' here because:
+# 1. We want to show error messages to the user
+# 2. We want the terminal to stay open after errors
+# 3. We handle errors explicitly with SETUP_FAILED flag
+
+SETUP_FAILED=false
 
 echo "========================================="
 echo "Helix Workspace Setup - $(date)"
@@ -106,9 +111,10 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     git config --global user.email "$GIT_USER_EMAIL"
     echo "  Git user.email: $GIT_USER_EMAIL"
 else
-    echo "  FATAL: GIT_USER_EMAIL not set"
-    echo "  Enterprise ADO deployments reject commits from non-corporate email addresses"
-    exit 1
+    echo "  ⚠️  WARNING: GIT_USER_EMAIL not set"
+    echo "  Enterprise ADO deployments may reject commits from non-corporate email addresses"
+    echo "  Using fallback email: agent@helix.ml"
+    git config --global user.email "agent@helix.ml"
 fi
 
 # Configure git to use merge commits (not rebase) for concurrent agent work
@@ -165,13 +171,15 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         if git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
             echo "    Successfully cloned to $CLONE_DIR"
         else
-            echo "    Failed to clone $REPO_NAME"
+            echo ""
+            echo "    ❌ FAILED to clone $REPO_NAME"
             echo ""
             echo "    This could be caused by:"
             echo "      - Invalid repository credentials"
             echo "      - Repository doesn't exist"
             echo "      - Network connectivity issues"
             echo ""
+            SETUP_FAILED=true
         fi
     done
 
@@ -470,14 +478,63 @@ echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
 # =========================================
-# Signal completion
+# Run startup script (if exists)
+# =========================================
+STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
+if [ -f "$STARTUP_SCRIPT" ]; then
+    echo "========================================="
+    echo "Running startup script..."
+    echo "========================================="
+    echo "Script: $STARTUP_SCRIPT"
+    echo ""
+
+    # Change to primary repo for running commands
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    if bash -i "$STARTUP_SCRIPT"; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        EXIT_CODE=$?
+        echo ""
+        echo "❌ Startup script failed with exit code $EXIT_CODE"
+        SETUP_FAILED=true
+    fi
+    echo ""
+fi
+
+# =========================================
+# Signal completion (even if there were errors - Zed should still start)
 # =========================================
 touch "$COMPLETE_SIGNAL"
 
 echo "========================================="
-echo "Setup complete!"
-echo "========================================="
+if [ "$SETUP_FAILED" = true ]; then
+    echo "⚠️  Setup completed with errors"
+    echo "========================================="
+    echo ""
+    echo "Some setup steps failed. Review the errors above."
+    echo "Zed is starting - you can debug issues in this terminal."
+else
+    echo "✅ Setup complete!"
+    echo "========================================="
+    echo ""
+    echo "Zed is starting now."
+fi
 echo ""
-echo "Zed is starting now. This terminal will remain open."
-echo "You can run commands here or close this window."
+echo "This terminal will remain open for debugging."
+echo "Type 'exit' to close it."
 echo ""
+
+# Stay open with interactive bash shell
+# Go to primary repo if it exists, otherwise work directory
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+    cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+else
+    cd "$WORK_DIR"
+fi
+exec bash
