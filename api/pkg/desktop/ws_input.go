@@ -712,6 +712,24 @@ func (s *Server) handleWSTouch(data []byte) {
 	if err != nil {
 		s.logger.Error("WebSocket touch D-Bus call failed", "eventType", eventType, "err", err)
 	}
+
+	// Broadcast touch event to other connected clients
+	if s.config.SessionID != "" {
+		var touchEventType TouchEventType
+		switch eventType {
+		case 0:
+			touchEventType = TouchEventStart
+		case 1:
+			touchEventType = TouchEventMove
+		case 2:
+			touchEventType = TouchEventEnd
+		default:
+			touchEventType = TouchEventCancel
+		}
+		// Use client ID 0 since we don't track per-client connections here
+		// Pressure is not available from the WebSocket message, default to 1.0
+		GetSessionRegistry().BroadcastTouchEvent(s.config.SessionID, 0, slot, touchEventType, int32(screenX), int32(screenY), 1.0)
+	}
 }
 
 // keysymToEvdev converts an X11 keysym to a Linux evdev keycode.

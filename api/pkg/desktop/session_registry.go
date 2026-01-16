@@ -299,6 +299,66 @@ const (
 	AgentActionDragging  AgentAction = 5
 )
 
+// TouchEventType represents the type of touch event
+type TouchEventType byte
+
+const (
+	TouchEventStart  TouchEventType = 0
+	TouchEventMove   TouchEventType = 1
+	TouchEventEnd    TouchEventType = 2
+	TouchEventCancel TouchEventType = 3
+)
+
+// BroadcastTouchEvent sends touch event to all other clients in the session
+func (r *SessionRegistry) BroadcastTouchEvent(sessionID string, fromClientID uint32, touchID uint32, eventType TouchEventType, x, y int32, pressure float32) {
+	sessionI, ok := r.sessions.Load(sessionID)
+	if !ok {
+		return
+	}
+	session := sessionI.(*SessionClients)
+
+	// Get sender's color for the touch indicator
+	var color string
+	if clientI, ok := session.clients.Load(fromClientID); ok {
+		color = clientI.(*ConnectedClient).Color
+	}
+
+	// Build RemoteTouch message (0x56)
+	// Format: type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) + color(N)
+	colorBytes := []byte(color)
+	msg := make([]byte, 1+4+4+1+4+4+4+1+len(colorBytes))
+	offset := 0
+
+	msg[offset] = StreamMsgRemoteTouch
+	offset++
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], fromClientID)
+	offset += 4
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], touchID)
+	offset += 4
+	msg[offset] = byte(eventType)
+	offset++
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], uint32(x))
+	offset += 4
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], uint32(y))
+	offset += 4
+	// Encode pressure as fixed-point (multiply by 65535 to fit in uint32)
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], uint32(pressure*65535))
+	offset += 4
+	msg[offset] = byte(len(colorBytes))
+	offset++
+	copy(msg[offset:], colorBytes)
+
+	// Broadcast to all OTHER clients
+	session.clients.Range(func(key, value any) bool {
+		client := value.(*ConnectedClient)
+		if client.ID == fromClientID {
+			return true // Skip sender
+		}
+		client.sendMessage(websocket.BinaryMessage, msg)
+		return true
+	})
+}
+
 // BroadcastAgentCursor sends agent cursor position to all clients in all sessions
 // This is called from the MCP server when the agent performs mouse/keyboard actions
 func (r *SessionRegistry) BroadcastAgentCursor(x, y int32, action AgentAction, visible bool) {

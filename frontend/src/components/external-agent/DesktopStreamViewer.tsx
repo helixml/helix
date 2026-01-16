@@ -24,7 +24,6 @@ import {
   axisLabelStyle,
 } from '../common/chartStyles';
 // getApi import removed - we create API object directly instead of using cached singleton
-import { Stream } from '../../lib/helix-stream/stream/index';
 import {
   WebSocketStream,
   codecToWebCodecsString,
@@ -35,7 +34,7 @@ import {
   AgentCursorInfo,
   RemoteTouchInfo,
 } from '../../lib/helix-stream/stream/websocket-stream';
-import { defaultStreamSettings, StreamingMode, VideoMode } from '../../lib/helix-stream/component/settings_menu';
+import { defaultStreamSettings, VideoMode } from '../../lib/helix-stream/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
@@ -64,11 +63,10 @@ interface DesktopStreamViewerProps {
  * This component provides video streaming from remote desktop sandboxes.
  *
  * Architecture:
- * - Uses WebSocket for direct video streaming
- * - Stream class manages WebSocket connection
+ * - Uses WebSocket for video streaming and input
+ * - WebSocketStream class manages the connection
  * - StreamInput handles mouse/keyboard/gamepad/touch
- * - Direct MediaStream attachment to <video> element
- * - WebRTC and SSE modes available but disabled for now
+ * - Screenshot mode available as low-bandwidth fallback
  */
 const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   sessionId,
@@ -85,25 +83,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   suppressOverlay = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
-  const sseCanvasRef = useRef<HTMLCanvasElement>(null); // Separate canvas for SSE mode (avoids conflicts)
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance (WebSocket or legacy WebRTC)
-  const sseStatsRef = useRef({
-    framesDecoded: 0,
-    framesDropped: 0,
-    lastFrameTime: 0,
-    frameCount: 0,
-    currentFps: 0,
-    width: 0,
-    height: 0,
-    codecString: '',           // Actual codec from init event
-    // Frame latency tracking (arrival time vs expected based on PTS)
-    firstFramePtsUs: null as number | null,
-    firstFrameArrivalTime: null as number | null,
-    currentFrameLatencyMs: 0,
-    frameLatencySamples: [] as number[],
-  }); // SSE-specific stats for the inline decoder
+  const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
   const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
@@ -155,20 +137,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     frameDrift?: number; // Current frame drift for decrease recommendations
     measuredThroughput?: number; // Measured throughput for increase recommendations
   } | null>(null);
-  const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket video transport
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
   const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
-  // Quality mode: video delivery method (hot-switchable without disrupting WebSocket connection)
-  // - 'high': 60fps video over WebSocket
-  // - 'sse': 60fps video over SSE (lower latency for long connections)
-  // - 'low': Screenshot-based (for low bandwidth)
-  // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high'); // Default to WebSocket video (60fps)
-  const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
-  const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
+  // Quality mode: video or screenshot-based fallback
+  // - 'video': 60fps video over WebSocket (default)
+  // - 'screenshot': Screenshot-based polling (for low bandwidth)
+  const [qualityMode, setQualityMode] = useState<'video' | 'screenshot'>('video'); // Default to WebSocket video
+  const [isOnFallback, setIsOnFallback] = useState(false); // True when in screenshot mode
+  const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching
 
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -4111,7 +4090,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Remote touch events */}
       {Array.from(remoteTouches.values()).map((touch) => {
         const user = remoteUsers.get(touch.userId);
-        const color = user?.color || '#888888';
+        // Prefer color from touch event, fall back to user color, then default
+        const color = touch.color || user?.color || '#888888';
         const size = 32 + touch.pressure * 16;
         return (
           <Box

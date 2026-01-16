@@ -146,6 +146,7 @@ export interface RemoteTouchInfo {
   x: number
   y: number
   pressure: number
+  color?: string  // User's assigned color for touch indicator
 }
 
 export type WsStreamInfoEvent = CustomEvent<
@@ -2846,28 +2847,47 @@ export class WebSocketStream {
 
   /**
    * Handle remote touch event message (0x56)
-   * Format: [type:1][user_id:4][touch_id:1][event_type:1][x:2][y:2][pressure:1]
+   * Format from Go (little-endian):
+   * type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) + color(N)
    */
   private handleRemoteTouch(data: Uint8Array) {
-    if (data.length < 12) {
-      console.warn("[WebSocketStream] RemoteTouch message too short")
+    if (data.length < 22) {
+      console.warn("[WebSocketStream] RemoteTouch message too short:", data.length)
       return
     }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const userId = view.getUint32(1, false)
-    const touchId = data[5]
-    const eventTypeByte = data[6]
-    const x = view.getUint16(7, false)
-    const y = view.getUint16(9, false)
-    const pressure = data[11] / 255  // Normalize to 0-1
+    let offset = 1  // Skip message type
+
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
+    const touchId = view.getUint32(offset, true)
+    offset += 4
+    const eventTypeByte = data[offset]
+    offset += 1
+    const x = view.getInt32(offset, true)
+    offset += 4
+    const y = view.getInt32(offset, true)
+    offset += 4
+    // Pressure is stored as fixed-point (value * 65535)
+    const pressureRaw = view.getUint32(offset, true)
+    const pressure = pressureRaw / 65535
+    offset += 4
+
+    // Parse color if present
+    const colorLen = data[offset]
+    offset += 1
+    let color: string | undefined
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+    }
 
     const eventTypes: RemoteTouchInfo['eventType'][] = ['start', 'move', 'end', 'cancel']
     const eventType = eventTypes[eventTypeByte] || 'start'
 
     this.dispatchInfoEvent({
       type: "remoteTouch",
-      touch: { userId, touchId, eventType, x, y, pressure },
+      touch: { userId, touchId, eventType, x, y, pressure, color },
     })
   }
 
