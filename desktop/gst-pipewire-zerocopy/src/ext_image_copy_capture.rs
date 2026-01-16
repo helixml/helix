@@ -48,7 +48,7 @@ use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use wayland_client::{
-    protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool},
+    protocol::{wl_buffer, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
 
@@ -93,6 +93,7 @@ use wayland_protocols::ext::image_capture_source::v1::client::{
     ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1,
 };
 use wayland_protocols::ext::image_copy_capture::v1::client::{
+    ext_image_copy_capture_cursor_session_v1::{self, ExtImageCopyCaptureCursorSessionV1},
     ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
     ext_image_copy_capture_manager_v1::{self, ExtImageCopyCaptureManagerV1},
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
@@ -219,6 +220,27 @@ impl Drop for ShmBuffer {
 unsafe impl Send for ShmBuffer {}
 unsafe impl Sync for ShmBuffer {}
 
+/// Cursor state for client-side rendering
+#[derive(Default)]
+struct CursorState {
+    /// Current cursor position (relative to captured area)
+    position_x: i32,
+    position_y: i32,
+    /// Cursor hotspot (offset from image origin to click point)
+    hotspot_x: i32,
+    hotspot_y: i32,
+    /// Whether cursor is in the captured area
+    in_area: bool,
+    /// Cursor bitmap (when available)
+    bitmap: Option<Vec<u8>>,
+    bitmap_width: u32,
+    bitmap_height: u32,
+    bitmap_stride: i32,
+    bitmap_format: u32,
+    /// Hash of last written cursor data (to avoid redundant writes)
+    last_hash: u64,
+}
+
 /// State for ext-image-copy-capture Wayland client
 struct ExtCaptureState {
     // Wayland globals
@@ -226,11 +248,25 @@ struct ExtCaptureState {
     source_manager: Option<ExtOutputImageCaptureSourceManagerV1>,
     shm: Option<wl_shm::WlShm>,
     outputs: Vec<wl_output::WlOutput>,
+    seat: Option<wl_seat::WlSeat>,
+    pointer: Option<wl_pointer::WlPointer>,
 
     // Capture state
     source: Option<ExtImageCaptureSourceV1>,
     session: Option<ExtImageCopyCaptureSessionV1>,
     current_frame: Option<ExtImageCopyCaptureFrameV1>,
+
+    // Cursor capture state
+    cursor_session: Option<ExtImageCopyCaptureCursorSessionV1>,
+    cursor_capture_session: Option<ExtImageCopyCaptureSessionV1>,
+    cursor_frame: Option<ExtImageCopyCaptureFrameV1>,
+    cursor_buffer: Option<ShmBuffer>,
+    cursor_wl_buffer: Option<WlBufferWrapper>,
+    cursor_state: CursorState,
+    cursor_shm_formats: Vec<ShmFormat>,
+    cursor_buffer_size: Option<BufferSize>,
+    cursor_selected_format: Option<ShmFormat>,
+    cursor_capturing: bool,
 
     // Format negotiation
     shm_formats: Vec<ShmFormat>,
@@ -277,9 +313,23 @@ impl ExtCaptureState {
             source_manager: None,
             shm: None,
             outputs: Vec::new(),
+            seat: None,
+            pointer: None,
             source: None,
             session: None,
             current_frame: None,
+            // Cursor capture state
+            cursor_session: None,
+            cursor_capture_session: None,
+            cursor_frame: None,
+            cursor_buffer: None,
+            cursor_wl_buffer: None,
+            cursor_state: CursorState::default(),
+            cursor_shm_formats: Vec::new(),
+            cursor_buffer_size: None,
+            cursor_selected_format: None,
+            cursor_capturing: false,
+            // Format negotiation
             shm_formats: Vec::new(),
             selected_format: None,
             buffer_size: None,
@@ -316,6 +366,167 @@ impl ExtCaptureState {
         self.session = Some(session);
 
         Ok(())
+    }
+
+    /// Initialize cursor capture session for client-side cursor rendering
+    fn init_cursor_session(&mut self, qh: &QueueHandle<Self>) -> Result<(), String> {
+        let capture_manager = self.capture_manager.as_ref().ok_or("No capture manager")?;
+        let source = self.source.as_ref().ok_or("No capture source")?;
+        let pointer = self.pointer.as_ref().ok_or("No pointer")?;
+
+        // Create cursor capture session
+        let cursor_session = capture_manager.create_pointer_cursor_session(source, pointer, qh, ());
+        eprintln!("[EXT_IMAGE_COPY] Created cursor session for client-side rendering");
+
+        self.cursor_session = Some(cursor_session);
+
+        Ok(())
+    }
+
+    /// Write cursor data to /tmp/helix-cursor.bin for the Go server to read.
+    /// Uses the same binary format as pipewire_stream.rs::write_cursor_to_file().
+    fn write_cursor_file(&mut self) {
+        use std::io::Write;
+
+        // Calculate hash of cursor state to avoid redundant writes
+        let cursor_hash = {
+            let mut h: u64 = self.cursor_state.position_x as u64;
+            h = h.wrapping_mul(31).wrapping_add(self.cursor_state.position_y as u64);
+            h = h.wrapping_mul(31).wrapping_add(self.cursor_state.hotspot_x as u64);
+            h = h.wrapping_mul(31).wrapping_add(self.cursor_state.hotspot_y as u64);
+            h = h.wrapping_mul(31).wrapping_add(self.cursor_state.in_area as u64);
+            if let Some(ref bmp) = self.cursor_state.bitmap {
+                h = h.wrapping_mul(31).wrapping_add(self.cursor_state.bitmap_width as u64);
+                h = h.wrapping_mul(31).wrapping_add(self.cursor_state.bitmap_height as u64);
+                if bmp.len() >= 4 {
+                    h = h.wrapping_mul(31).wrapping_add(
+                        u32::from_le_bytes([bmp[0], bmp[1], bmp[2], bmp[3]]) as u64
+                    );
+                }
+            }
+            h
+        };
+
+        if cursor_hash == self.cursor_state.last_hash {
+            return; // No change
+        }
+        self.cursor_state.last_hash = cursor_hash;
+
+        // Binary format matching pipewire_stream.rs:
+        // Header (28 bytes):
+        //   magic: u32 = 0x43555253 ("CURS")
+        //   version: u32 = 1
+        //   position_x: i32
+        //   position_y: i32
+        //   hotspot_x: i32
+        //   hotspot_y: i32
+        //   bitmap_size: u32 (0 if no bitmap or cursor hidden)
+        // If bitmap_size > 0:
+        //   format: u32 (DRM fourcc)
+        //   width: u32
+        //   height: u32
+        //   stride: i32
+        //   pixel_data: [u8; ...]
+
+        let has_bitmap = self.cursor_state.in_area && self.cursor_state.bitmap.is_some();
+        let bitmap_header_size: usize = if has_bitmap { 16 } else { 0 }; // format + width + height + stride
+        let bitmap_data_size: usize = if has_bitmap {
+            self.cursor_state.bitmap.as_ref().map(|b| b.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let total_size = 28 + bitmap_header_size + bitmap_data_size;
+
+        let mut buf = Vec::with_capacity(total_size);
+
+        // Header
+        buf.extend_from_slice(&0x43555253u32.to_le_bytes()); // magic "CURS"
+        buf.extend_from_slice(&1u32.to_le_bytes()); // version
+
+        // Position (use 0,0 if cursor is outside captured area)
+        if self.cursor_state.in_area {
+            buf.extend_from_slice(&self.cursor_state.position_x.to_le_bytes());
+            buf.extend_from_slice(&self.cursor_state.position_y.to_le_bytes());
+        } else {
+            buf.extend_from_slice(&0i32.to_le_bytes());
+            buf.extend_from_slice(&0i32.to_le_bytes());
+        }
+
+        buf.extend_from_slice(&self.cursor_state.hotspot_x.to_le_bytes());
+        buf.extend_from_slice(&self.cursor_state.hotspot_y.to_le_bytes());
+        buf.extend_from_slice(&((bitmap_header_size + bitmap_data_size) as u32).to_le_bytes());
+
+        // Bitmap (if present and cursor is in area)
+        if has_bitmap {
+            if let Some(ref bmp) = self.cursor_state.bitmap {
+                buf.extend_from_slice(&self.cursor_state.bitmap_format.to_le_bytes());
+                buf.extend_from_slice(&self.cursor_state.bitmap_width.to_le_bytes());
+                buf.extend_from_slice(&self.cursor_state.bitmap_height.to_le_bytes());
+                buf.extend_from_slice(&self.cursor_state.bitmap_stride.to_le_bytes());
+                buf.extend_from_slice(bmp);
+            }
+        }
+
+        // Write atomically: write to temp file, then rename
+        let cursor_path = "/tmp/helix-cursor.bin";
+        let temp_path = "/tmp/helix-cursor.bin.tmp";
+
+        if let Ok(mut file) = std::fs::File::create(temp_path) {
+            if file.write_all(&buf).is_ok() {
+                let _ = std::fs::rename(temp_path, cursor_path);
+            }
+        }
+    }
+
+    /// Request a cursor frame capture
+    fn request_cursor_capture(&mut self, qh: &QueueHandle<Self>) {
+        if self.cursor_capturing || self.shutdown.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let cursor_capture_session = match &self.cursor_capture_session {
+            Some(s) => s,
+            None => return,
+        };
+
+        let frame = cursor_capture_session.create_frame(qh, ());
+        self.cursor_frame = Some(frame);
+        self.cursor_capturing = true;
+
+        // Attach buffer if we have size info
+        if let (Some(ref size), Some(ref format)) = (&self.cursor_buffer_size, &self.cursor_selected_format) {
+            self.prepare_cursor_buffer(size.width, size.height, format.format, qh);
+        }
+    }
+
+    /// Prepare cursor capture buffer
+    fn prepare_cursor_buffer(&mut self, width: u32, height: u32, format: wl_shm::Format, qh: &QueueHandle<Self>) {
+        let bpp = Self::bytes_per_pixel(format);
+        let stride = width * bpp;
+        let size = (stride * height) as usize;
+
+        // Create or reuse buffer
+        if self.cursor_buffer.is_none() || self.cursor_buffer.as_ref().map(|b| b.size) != Some(size) {
+            self.cursor_buffer = ShmBuffer::new(size).ok();
+        }
+
+        let shm_buffer = match &self.cursor_buffer {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Create wl_buffer using the same pattern as screen capture
+        if let Some(shm) = &self.shm {
+            let wl_buf_wrapper = shm_buffer.create_wl_buffer(shm, width, height, stride, format, qh);
+            self.cursor_wl_buffer = Some(wl_buf_wrapper);
+        }
+
+        // Attach and capture
+        if let (Some(frame), Some(ref wl_buf)) = (&self.cursor_frame, &self.cursor_wl_buffer) {
+            frame.attach_buffer(&wl_buf.wl_buffer);
+            frame.damage_buffer(0, 0, width as i32, height as i32);
+            frame.capture();
+        }
     }
 
     /// Select best format from available SHM formats
@@ -549,6 +760,47 @@ impl ExtCaptureState {
             self.request_capture(qh);
         }
     }
+
+    /// Handle cursor frame ready - extract cursor bitmap
+    fn handle_cursor_frame_ready(&mut self, qh: &QueueHandle<Self>) {
+        if let (Some(size), Some(format), Some(cursor_buf)) =
+            (&self.cursor_buffer_size, &self.cursor_selected_format, &self.cursor_buffer)
+        {
+            let data = cursor_buf.copy_to_vec();
+            let drm_fourcc = wl_shm_to_drm_fourcc(format.format);
+            let bpp = Self::bytes_per_pixel(format.format);
+            let stride = (size.width * bpp) as i32;
+
+            // Update cursor state with bitmap
+            self.cursor_state.bitmap = Some(data);
+            self.cursor_state.bitmap_width = size.width;
+            self.cursor_state.bitmap_height = size.height;
+            self.cursor_state.bitmap_stride = stride;
+            self.cursor_state.bitmap_format = drm_fourcc;
+
+            // Write cursor data to file for Go server
+            self.write_cursor_file();
+
+            eprintln!(
+                "[EXT_IMAGE_COPY] Cursor frame captured: {}x{} stride={} format={:?}",
+                size.width, size.height, stride, format.format
+            );
+        }
+
+        // Clean up cursor frame
+        self.cursor_wl_buffer = None;
+        if let Some(frame) = self.cursor_frame.take() {
+            frame.destroy();
+        }
+
+        self.cursor_capturing = false;
+
+        // Request next cursor frame (at lower rate than screen capture)
+        if !self.shutdown.load(Ordering::SeqCst) && self.cursor_state.in_area {
+            // Only capture new cursor bitmap when cursor shape might have changed
+            // We'll request a new frame on next cursor enter or after timeout
+        }
+    }
 }
 
 // Dispatch for wl_registry
@@ -589,6 +841,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for ExtCaptureState {
                     eprintln!("[EXT_IMAGE_COPY] Found wl_shm v{}", version);
                     let shm: wl_shm::WlShm = registry.bind(name, version.min(1), qh, ());
                     state.shm = Some(shm);
+                }
+                "wl_seat" => {
+                    // Only bind the first seat (usually there's only one)
+                    if state.seat.is_none() {
+                        eprintln!("[EXT_IMAGE_COPY] Found wl_seat v{}", version);
+                        let seat: wl_seat::WlSeat = registry.bind(name, version.min(8), qh, ());
+                        state.seat = Some(seat);
+                    }
                 }
                 _ => {}
             }
@@ -637,6 +897,87 @@ impl Dispatch<wl_shm_pool::WlShmPool, ()> for ExtCaptureState {
         _qh: &QueueHandle<Self>,
     ) {
         // No events for wl_shm_pool
+    }
+}
+
+// Dispatch for wl_seat - get pointer capability
+impl Dispatch<wl_seat::WlSeat, ()> for ExtCaptureState {
+    fn event(
+        state: &mut Self,
+        seat: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities { capabilities } = event {
+            let caps = wl_seat::Capability::from_bits_truncate(capabilities.into());
+            if caps.contains(wl_seat::Capability::Pointer) && state.pointer.is_none() {
+                eprintln!("[EXT_IMAGE_COPY] Seat has pointer capability, getting pointer");
+                let pointer = seat.get_pointer(qh, ());
+                state.pointer = Some(pointer);
+            }
+        }
+    }
+}
+
+// Dispatch for wl_pointer - we don't process events, just need the object for cursor session
+impl Dispatch<wl_pointer::WlPointer, ()> for ExtCaptureState {
+    fn event(
+        _state: &mut Self,
+        _pointer: &wl_pointer::WlPointer,
+        _event: wl_pointer::Event,
+        _: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // We don't need to process pointer events - we just use the pointer object
+        // to create cursor capture sessions
+    }
+}
+
+// Dispatch for cursor session - receives enter/leave/position/hotspot events
+impl Dispatch<ExtImageCopyCaptureCursorSessionV1, ()> for ExtCaptureState {
+    fn event(
+        state: &mut Self,
+        cursor_session: &ExtImageCopyCaptureCursorSessionV1,
+        event: ext_image_copy_capture_cursor_session_v1::Event,
+        _: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        match event {
+            ext_image_copy_capture_cursor_session_v1::Event::Enter => {
+                eprintln!("[EXT_IMAGE_COPY] Cursor entered captured area");
+                state.cursor_state.in_area = true;
+                // Request cursor bitmap capture when cursor enters
+                if state.cursor_capture_session.is_none() {
+                    // Get the capture session for cursor bitmap
+                    let capture_session = cursor_session.get_capture_session(qh, ());
+                    state.cursor_capture_session = Some(capture_session);
+                    eprintln!("[EXT_IMAGE_COPY] Created cursor bitmap capture session");
+                } else {
+                    // Already have capture session, request new frame
+                    state.request_cursor_capture(qh);
+                }
+            }
+            ext_image_copy_capture_cursor_session_v1::Event::Leave => {
+                eprintln!("[EXT_IMAGE_COPY] Cursor left captured area");
+                state.cursor_state.in_area = false;
+                state.write_cursor_file();
+            }
+            ext_image_copy_capture_cursor_session_v1::Event::Position { x, y } => {
+                state.cursor_state.position_x = x;
+                state.cursor_state.position_y = y;
+                state.write_cursor_file();
+            }
+            ext_image_copy_capture_cursor_session_v1::Event::Hotspot { x, y } => {
+                state.cursor_state.hotspot_x = x;
+                state.cursor_state.hotspot_y = y;
+                // Hotspot becomes effective after next frame.ready, so we'll write after frame
+            }
+            _ => {}
+        }
     }
 }
 
@@ -698,22 +1039,33 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, ()> for ExtCaptureState {
     }
 }
 
-// Dispatch for ExtImageCopyCaptureSessionV1
+// Dispatch for ExtImageCopyCaptureSessionV1 - handles both screen and cursor capture sessions
 impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
     fn event(
         state: &mut Self,
-        _session: &ExtImageCopyCaptureSessionV1,
+        session: &ExtImageCopyCaptureSessionV1,
         event: ext_image_copy_capture_session_v1::Event,
         _: &(),
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
+        // Check if this is the cursor capture session
+        let is_cursor_session = state
+            .cursor_capture_session
+            .as_ref()
+            .map(|s| s == session)
+            .unwrap_or(false);
+
         match event {
             ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
-                eprintln!("[EXT_IMAGE_COPY] Session buffer size: {}x{}", width, height);
-                // Store initial buffer size hint from session
-                if state.buffer_size.is_none() {
-                    state.buffer_size = Some(BufferSize { width, height });
+                if is_cursor_session {
+                    eprintln!("[EXT_IMAGE_COPY] Cursor session buffer size: {}x{}", width, height);
+                    state.cursor_buffer_size = Some(BufferSize { width, height });
+                } else {
+                    eprintln!("[EXT_IMAGE_COPY] Session buffer size: {}x{}", width, height);
+                    if state.buffer_size.is_none() {
+                        state.buffer_size = Some(BufferSize { width, height });
+                    }
                 }
             }
             ext_image_copy_capture_session_v1::Event::ShmFormat { format } => {
@@ -721,46 +1073,82 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
                     WEnum::Value(f) => (f, f as u32),
                     WEnum::Unknown(v) => (wl_shm::Format::Argb8888, v),
                 };
-                eprintln!(
-                    "[EXT_IMAGE_COPY] Session SHM format: {:?} (0x{:x})",
-                    format_enum, format_raw
-                );
-                state.shm_formats.push(ShmFormat {
-                    format: format_enum,
-                    format_raw,
-                });
+                if is_cursor_session {
+                    eprintln!(
+                        "[EXT_IMAGE_COPY] Cursor session SHM format: {:?} (0x{:x})",
+                        format_enum, format_raw
+                    );
+                    state.cursor_shm_formats.push(ShmFormat {
+                        format: format_enum,
+                        format_raw,
+                    });
+                } else {
+                    eprintln!(
+                        "[EXT_IMAGE_COPY] Session SHM format: {:?} (0x{:x})",
+                        format_enum, format_raw
+                    );
+                    state.shm_formats.push(ShmFormat {
+                        format: format_enum,
+                        format_raw,
+                    });
+                }
             }
             ext_image_copy_capture_session_v1::Event::DmabufDevice { .. } => {
-                eprintln!("[EXT_IMAGE_COPY] Session DMA-BUF device available");
+                if !is_cursor_session {
+                    eprintln!("[EXT_IMAGE_COPY] Session DMA-BUF device available");
+                }
                 // We use SHM for now, but could use DMA-BUF in the future
             }
             ext_image_copy_capture_session_v1::Event::DmabufFormat { .. } => {
                 // DMA-BUF format available
             }
             ext_image_copy_capture_session_v1::Event::Done => {
-                eprintln!("[EXT_IMAGE_COPY] Session format negotiation done");
-                // Select format and start capturing
-                state.select_format();
+                if is_cursor_session {
+                    eprintln!("[EXT_IMAGE_COPY] Cursor session format negotiation done");
+                    // Select format for cursor capture
+                    if let Some(fmt) = state.cursor_shm_formats.first() {
+                        state.cursor_selected_format = Some(fmt.clone());
+                    }
+                    // Start first cursor capture if cursor is in area
+                    if state.cursor_state.in_area {
+                        state.request_cursor_capture(qh);
+                    }
+                } else {
+                    eprintln!("[EXT_IMAGE_COPY] Session format negotiation done");
+                    // Select format and start capturing
+                    state.select_format();
+                }
             }
             ext_image_copy_capture_session_v1::Event::Stopped => {
-                eprintln!("[EXT_IMAGE_COPY] Session stopped");
-                state.session_stopped = true;
+                if is_cursor_session {
+                    eprintln!("[EXT_IMAGE_COPY] Cursor session stopped");
+                } else {
+                    eprintln!("[EXT_IMAGE_COPY] Session stopped");
+                    state.session_stopped = true;
+                }
             }
             _ => {}
         }
     }
 }
 
-// Dispatch for ExtImageCopyCaptureFrameV1
+// Dispatch for ExtImageCopyCaptureFrameV1 - handles both screen and cursor frames
 impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for ExtCaptureState {
     fn event(
         state: &mut Self,
-        _frame: &ExtImageCopyCaptureFrameV1,
+        frame: &ExtImageCopyCaptureFrameV1,
         event: ext_image_copy_capture_frame_v1::Event,
         _: &(),
         _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
+        // Check if this is a cursor frame
+        let is_cursor_frame = state
+            .cursor_frame
+            .as_ref()
+            .map(|f| f == frame)
+            .unwrap_or(false);
+
         match event {
             ext_image_copy_capture_frame_v1::Event::Transform { .. } => {
                 // Transform info
@@ -772,11 +1160,20 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for ExtCaptureState {
                 // Presentation timestamp
             }
             ext_image_copy_capture_frame_v1::Event::Ready => {
-                state.handle_frame_ready(qh);
+                if is_cursor_frame {
+                    state.handle_cursor_frame_ready(qh);
+                } else {
+                    state.handle_frame_ready(qh);
+                }
             }
             ext_image_copy_capture_frame_v1::Event::Failed { reason } => {
-                eprintln!("[EXT_IMAGE_COPY] Frame failed: {:?}", reason);
-                state.handle_frame_failed(qh);
+                if is_cursor_frame {
+                    eprintln!("[EXT_IMAGE_COPY] Cursor frame failed: {:?}", reason);
+                    state.cursor_capturing = false;
+                } else {
+                    eprintln!("[EXT_IMAGE_COPY] Frame failed: {:?}", reason);
+                    state.handle_frame_failed(qh);
+                }
             }
             _ => {}
         }
@@ -965,7 +1362,7 @@ fn run_capture_loop(
         state.outputs.len()
     );
 
-    // Initialize session
+    // Initialize screen capture session
     state
         .init_session(&qh)
         .map_err(|e| format!("Failed to init session: {}", e))?;
@@ -976,9 +1373,30 @@ fn run_capture_loop(
         .map_err(|e| format!("Session roundtrip failed: {}", e))?;
 
     eprintln!(
-        "[EXT_IMAGE_COPY] Session ready, {} formats available",
+        "[EXT_IMAGE_COPY] Screen session ready, {} formats available",
         state.shm_formats.len()
     );
+
+    // Initialize cursor session if we have a pointer
+    // (seat capability events come during the first roundtrip)
+    if state.pointer.is_some() {
+        if let Err(e) = state.init_cursor_session(&qh) {
+            // Cursor session is optional - log warning but continue
+            eprintln!("[EXT_IMAGE_COPY] Warning: cursor session init failed: {}", e);
+        } else {
+            // Roundtrip to get cursor session format events
+            if let Err(e) = event_queue.roundtrip(&mut state) {
+                eprintln!("[EXT_IMAGE_COPY] Cursor session roundtrip failed: {}", e);
+            } else {
+                eprintln!(
+                    "[EXT_IMAGE_COPY] Cursor session ready, {} formats available",
+                    state.cursor_shm_formats.len()
+                );
+            }
+        }
+    } else {
+        eprintln!("[EXT_IMAGE_COPY] No pointer available - cursor session not initialized");
+    }
 
     // Start first capture
     state.request_capture(&qh);
