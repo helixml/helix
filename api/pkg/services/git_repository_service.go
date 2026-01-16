@@ -176,28 +176,29 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 	// Create repository object
 	gitRepo := &types.GitRepository{
-		ID:             repoID,
-		Name:           request.Name,
-		Description:    request.Description,
-		OwnerID:        request.OwnerID,
-		OrganizationID: orgID,
-		ProjectID:      request.ProjectID,
-		RepoType:       request.RepoType,
-		Status:         types.GitRepositoryStatusActive,
-		CloneURL:       s.generateCloneURL(repoID),
-		IsExternal:     isExternal,
-		ExternalURL:    request.ExternalURL,
-		ExternalType:   request.ExternalType,
-		Username:       request.Username,
-		Password:       request.Password,
-		LocalPath:      repoPath,
-		DefaultBranch:  defaultBranch,
-		LastActivity:   time.Now(),
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-		Metadata:       request.Metadata,
-		AzureDevOps:    request.AzureDevOps,
-		KoditIndexing:  request.KoditIndexing,
+		ID:                repoID,
+		Name:              request.Name,
+		Description:       request.Description,
+		OwnerID:           request.OwnerID,
+		OrganizationID:    orgID,
+		ProjectID:         request.ProjectID,
+		RepoType:          request.RepoType,
+		Status:            types.GitRepositoryStatusActive,
+		CloneURL:          s.generateCloneURL(repoID),
+		IsExternal:        isExternal,
+		ExternalURL:       request.ExternalURL,
+		ExternalType:      request.ExternalType,
+		Username:          request.Username,
+		Password:          request.Password,
+		LocalPath:         repoPath,
+		DefaultBranch:     defaultBranch,
+		LastActivity:      time.Now(),
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		Metadata:          request.Metadata,
+		AzureDevOps:       request.AzureDevOps,
+		KoditIndexing:     request.KoditIndexing,
+		OAuthConnectionID: request.OAuthConnectionID,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -225,6 +226,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		log.Info().
 			Str("repo_id", repoID).
 			Str("external_url", gitRepo.ExternalURL).
+			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository...")
 
 		cloneOptions := &git.CloneOptions{

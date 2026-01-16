@@ -154,52 +154,10 @@ const GitRepos: FC = () => {
     } finally {
       setCreating(false)
     }
-  }
-
-  const handleLinkExternalRepo = async () => {
-    if (!externalRepoUrl.trim() || !ownerId) return
-
-    setCreating(true)
-    try {
-      const apiClient = api.getApiClient()
-
-      // Extract repo name from URL if not provided
-      let repoName = externalRepoName.trim()
-      if (!repoName) {
-        // Try to extract from URL (e.g., github.com/org/repo.git -> repo)
-        const match = externalRepoUrl.match(/\/([^\/]+?)(\.git)?$/)
-        repoName = match ? match[1] : 'external-repo'
-      }
-
-      await apiClient.v1GitRepositoriesCreate({
-        name: repoName,
-        description: `External ${externalRepoType} repository`,
-        owner_id: ownerId,
-        repo_type: 'code' as any,
-        default_branch: 'main',
-        is_external: true,
-        external_url: externalRepoUrl,
-        external_type: externalRepoType,
-        kodit_indexing: externalKoditIndexing,
-      })
-
-      // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
-
-      setLinkRepoDialogOpen(false)
-      setExternalRepoName('')
-      setExternalRepoUrl('')
-      setExternalRepoType('github' as TypesExternalRepositoryType)
-      setExternalKoditIndexing(true)
-    } catch (error) {
-      console.error('Failed to link external repository:', error)
-    } finally {
-      setCreating(false)
-    }
-  }
+  }  
 
   // Handle repository selection from OAuth browser
-  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerType: string) => {
+  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerType: string, oauthConnectionId?: string) => {
     if (!ownerId) return
 
     setLinkingFromBrowser(true)
@@ -255,7 +213,7 @@ const GitRepos: FC = () => {
         username: providerCreds.username,
         app_password: providerCreds.pat,
         base_url: providerCreds.bitbucketBaseUrl,
-      } : undefined
+      } : undefined    
 
       await apiClient.v1GitRepositoriesCreate({
         name: repo.name || 'repository',
@@ -271,6 +229,7 @@ const GitRepos: FC = () => {
         gitlab: gitlabSettings,
         azure_devops: azureDevOpsSettings,
         bitbucket: bitbucketSettings,
+        oauth_connection_id: oauthConnectionId,
       })
 
       // Invalidate and refetch git repositories query
