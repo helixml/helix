@@ -1140,6 +1140,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			Updated:       time.Now(),
 			SessionID:     helixSessionID,
 			UserID:        helixSession.Owner,
+			GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
 			Mode:          types.SessionModeInference,
 			PromptMessage: content,
 			State:         types.InteractionStateWaiting,
@@ -1980,6 +1981,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Scheduled:     time.Now(),
 		SessionID:     sessionID,
 		UserID:        session.Owner,
+		GenerationID:  session.GenerationID, // Must match session's generation for query to find it
 		Mode:          types.SessionModeInference,
 		PromptMessage: prompt.Content,
 		State:         types.InteractionStateWaiting,
