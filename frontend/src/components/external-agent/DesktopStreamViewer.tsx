@@ -166,10 +166,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const DOUBLE_TAP_THRESHOLD_MS = 300; // Max time between taps for double-tap
 
   // Voice input state - hold-to-record for speech-to-text
+  // Supports buffering and retry for flaky connections
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [lastTranscription, setLastTranscription] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const lastRecordingRef = useRef<Blob | null>(null); // Buffer for retry
 
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -885,8 +889,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isFullscreen]);
 
   // Voice input: send audio to backend for transcription
-  const sendAudioForTranscription = useCallback(async (audioBlob: Blob) => {
+  // Stores recording in buffer for retry on failure
+  const sendAudioForTranscription = useCallback(async (audioBlob: Blob, isRetry = false) => {
+    // Store recording for potential retry
+    lastRecordingRef.current = audioBlob;
     setIsTranscribing(true);
+    setVoiceError(null);
+
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
@@ -906,20 +915,50 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[Voice] Transcription failed:', response.status, errorText);
+        setVoiceError(`Transcription failed: ${response.status}`);
         return;
       }
 
       const result = await response.json();
+      if (result.status === 'error') {
+        console.error('[Voice] Transcription error:', result.error);
+        setVoiceError(result.error || 'Transcription failed');
+        return;
+      }
+
       console.log('[Voice] Transcription complete:', result.text);
+      setLastTranscription(result.text);
+      setVoiceError(null);
+      // Clear buffer on success
+      lastRecordingRef.current = null;
     } catch (err) {
       console.error('[Voice] Transcription error:', err);
+      setVoiceError(err instanceof Error ? err.message : 'Network error - tap to retry');
     } finally {
       setIsTranscribing(false);
     }
   }, [sessionId]);
 
+  // Voice input: retry last failed recording
+  const retryVoiceRecording = useCallback(() => {
+    if (lastRecordingRef.current) {
+      console.log('[Voice] Retrying last recording');
+      sendAudioForTranscription(lastRecordingRef.current, true);
+    }
+  }, [sendAudioForTranscription]);
+
+  // Voice input: dismiss error
+  const dismissVoiceError = useCallback(() => {
+    setVoiceError(null);
+    lastRecordingRef.current = null;
+  }, []);
+
   // Voice input: start recording
   const startRecording = useCallback(async () => {
+    // Clear previous error when starting new recording
+    setVoiceError(null);
+    setLastTranscription(null);
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, {
@@ -946,6 +985,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log('[Voice] Recording started');
     } catch (err) {
       console.error('[Voice] Failed to start recording:', err);
+      setVoiceError('Microphone access denied');
     }
   }, [sendAudioForTranscription]);
 
@@ -3235,11 +3275,44 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             bottom: 16,
             right: 16,
             zIndex: 1100,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 1,
           }}
         >
+          {/* Error message with retry */}
+          {voiceError && (
+            <Box
+              onClick={lastRecordingRef.current ? retryVoiceRecording : dismissVoiceError}
+              sx={{
+                backgroundColor: 'error.main',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: 2,
+                fontSize: 12,
+                maxWidth: 200,
+                cursor: 'pointer',
+                boxShadow: 3,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                '&:hover': {
+                  backgroundColor: 'error.dark',
+                },
+              }}
+            >
+              <span style={{ flex: 1 }}>
+                {lastRecordingRef.current ? `${voiceError} - tap to retry` : voiceError}
+              </span>
+              <span onClick={(e) => { e.stopPropagation(); dismissVoiceError(); }} style={{ opacity: 0.7 }}>✕</span>
+            </Box>
+          )}
           <Tooltip
             title={
-              isTranscribing
+              voiceError && lastRecordingRef.current
+                ? 'Tap to retry'
+                : isTranscribing
                 ? 'Transcribing...'
                 : isRecording
                 ? 'Release to stop recording'
@@ -3249,16 +3322,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             placement="left"
           >
             <IconButton
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onMouseLeave={stopRecording}
-              onTouchStart={startRecording}
-              onTouchEnd={stopRecording}
+              onMouseDown={voiceError && lastRecordingRef.current ? undefined : startRecording}
+              onMouseUp={voiceError && lastRecordingRef.current ? undefined : stopRecording}
+              onMouseLeave={voiceError && lastRecordingRef.current ? undefined : stopRecording}
+              onTouchStart={voiceError && lastRecordingRef.current ? undefined : startRecording}
+              onTouchEnd={voiceError && lastRecordingRef.current ? undefined : stopRecording}
+              onClick={voiceError && lastRecordingRef.current ? retryVoiceRecording : undefined}
               disabled={isTranscribing}
               sx={{
                 width: 56,
                 height: 56,
-                backgroundColor: isRecording
+                backgroundColor: voiceError
+                  ? 'error.main'
+                  : isRecording
                   ? 'error.main'
                   : isTranscribing
                   ? 'warning.main'
@@ -3274,7 +3350,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   '100%': { boxShadow: '0 0 0 0 rgba(244, 67, 54, 0)' },
                 },
                 '&:hover': {
-                  backgroundColor: isRecording
+                  backgroundColor: voiceError
+                    ? 'error.dark'
+                    : isRecording
                     ? 'error.dark'
                     : isTranscribing
                     ? 'warning.dark'
@@ -3284,6 +3362,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             >
               {isTranscribing ? (
                 <CircularProgress size={24} sx={{ color: 'white' }} />
+              ) : voiceError && lastRecordingRef.current ? (
+                <Refresh sx={{ fontSize: 28 }} />
               ) : (
                 <Mic sx={{ fontSize: 28 }} />
               )}
