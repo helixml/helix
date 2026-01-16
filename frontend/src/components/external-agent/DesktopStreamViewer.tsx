@@ -816,6 +816,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               setCursorImage(cursor);
             }
           }
+        } else if (data.type === 'cursorPosition') {
+          // Update cursor position (sent with each cursor metadata update from server)
+          setCursorPosition({ x: data.x, y: data.y });
+          // Update hotspot if cursor image exists
+          if (cursorImage) {
+            setCursorImage(prev => prev ? { ...prev, hotspotX: data.hotspotX, hotspotY: data.hotspotY } : null);
+          }
         }
         // Multi-player cursor events
         else if (data.type === 'remoteCursor') {
