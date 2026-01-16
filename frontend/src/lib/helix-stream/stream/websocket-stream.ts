@@ -2821,7 +2821,7 @@ export class WebSocketStream {
 
   /**
    * Handle AI agent cursor message (0x55)
-   * Format: [type:1][agent_id:4][x:2][y:2][action:1][visible:1]
+   * Format from Go (little-endian): type(1) + agentId(4) + x(2) + y(2) + action(1) + visible(1)
    */
   private handleAgentCursor(data: Uint8Array) {
     if (data.length < 11) {
@@ -2830,9 +2830,9 @@ export class WebSocketStream {
     }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const agentId = view.getUint32(1, false)
-    const x = view.getUint16(5, false)
-    const y = view.getUint16(7, false)
+    const agentId = view.getUint32(1, true)   // Little-endian
+    const x = view.getUint16(5, true)          // Little-endian
+    const y = view.getUint16(7, true)          // Little-endian
     const actionByte = data[9]
     const visible = data[10] !== 0
 

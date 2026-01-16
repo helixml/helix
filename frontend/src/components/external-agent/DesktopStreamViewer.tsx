@@ -15,6 +15,8 @@ import {
   Stream as StreamIcon,
   Timeline,
   CameraAlt,
+  TouchApp,
+  PanTool,
 } from '@mui/icons-material';
 import { LineChart } from '@mui/x-charts';
 import {
@@ -149,6 +151,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isOnFallback, setIsOnFallback] = useState(false); // True when in screenshot mode
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching
 
+  // Touch input mode: 'direct' (touch-to-click) or 'trackpad' (relative movement like a laptop trackpad)
+  // - 'direct': Touch position = cursor position (default for desktop UIs)
+  // - 'trackpad': Drag finger = move cursor relatively, tap = click (better for mobile)
+  const [touchMode, setTouchMode] = useState<'direct' | 'trackpad'>('direct');
+  // Touch tracking refs for trackpad mode gestures
+  const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
+  const twoFingerStartYRef = useRef<number | null>(null);
+  // Trackpad mode constant
+  const TRACKPAD_CURSOR_SENSITIVITY = 1.5; // Multiplier for cursor movement
+
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -209,21 +221,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // This helps catch bugs where we accidentally have multiple streams active
   //
   // The streaming architecture has these connection types:
-  // - 'websocket-stream': WebSocketStream instance (provides input, optionally video)
+  // - 'websocket-stream': WebSocketStream instance (provides input)
   // - 'websocket-video-enabled': WS video is enabled on the WebSocket stream
-  // - 'sse-video': SSE EventSource for video (used with websocket-stream for input)
   // - 'screenshot-polling': Screenshot HTTP polling for video (used with websocket-stream for input)
-  // - 'webrtc-stream': WebRTC peer connection (provides both input and video)
   //
   // Valid combinations:
-  // - [websocket-stream, websocket-video-enabled] - WebSocket mode, high quality
-  // - [websocket-stream, sse-video] - WebSocket mode, SSE quality
-  // - [websocket-stream, screenshot-polling] - WebSocket mode, low quality
-  // - [webrtc-stream] - WebRTC mode
+  // - [websocket-stream, websocket-video-enabled] - WebSocket video mode
+  // - [websocket-stream, screenshot-polling] - WebSocket + screenshots mode
   //
   type ActiveConnection = {
     id: string;           // Unique ID (timestamp-based)
-    type: 'websocket-stream' | 'websocket-video-enabled' | 'sse-video' | 'screenshot-polling' | 'webrtc-stream';
+    type: 'websocket-stream' | 'websocket-video-enabled' | 'screenshot-polling';
     createdAt: number;    // Timestamp for ordering
   };
   const activeConnectionsRef = useRef<ActiveConnection[]>([]);
@@ -241,18 +249,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Check for invalid combinations
     const hasWebSocket = types.includes('websocket-stream');
-    const hasWebRtc = types.includes('webrtc-stream');
     const hasWsVideo = types.includes('websocket-video-enabled');
-    const hasSseVideo = types.includes('sse-video');
     const hasScreenshot = types.includes('screenshot-polling');
 
-    const videoSourceCount = [hasWsVideo, hasSseVideo, hasScreenshot].filter(Boolean).length;
-
-    // Invalid: both WebSocket and WebRTC active
-    if (hasWebSocket && hasWebRtc) {
-      console.error('[StreamRegistry] INVALID: Both WebSocket and WebRTC streams active!', types);
-      return false;
-    }
+    const videoSourceCount = [hasWsVideo, hasScreenshot].filter(Boolean).length;
 
     // Invalid: multiple video sources
     if (videoSourceCount > 1) {
@@ -261,7 +261,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
 
     // Invalid: video source without transport
-    if ((hasWsVideo || hasSseVideo || hasScreenshot) && !hasWebSocket) {
+    if ((hasWsVideo || hasScreenshot) && !hasWebSocket) {
       console.error('[StreamRegistry] INVALID: Video source without WebSocket transport!', types);
       return false;
     }
@@ -305,9 +305,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Track IDs of current connections for cleanup
   const currentWebSocketStreamIdRef = useRef<string | null>(null);
   const currentWebSocketVideoIdRef = useRef<string | null>(null);
-  const currentSseVideoIdRef = useRef<string | null>(null);
   const currentScreenshotVideoIdRef = useRef<string | null>(null);
-  const currentWebRtcStreamIdRef = useRef<string | null>(null);
 
   // Show clipboard toast notification
   const showClipboardToast = useCallback((message: string, type: 'success' | 'error') => {
@@ -355,37 +353,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       streamRef.current = null;
     }
 
-    // Also clean up any SSE resources from previous connection
-    if (sseEventSourceRef.current) {
-      console.log('[DesktopStreamViewer] Closing existing SSE EventSource before new connection');
-      try {
-        sseEventSourceRef.current.close();
-      } catch (err) {
-        console.warn('[DesktopStreamViewer] Error closing SSE EventSource:', err);
-      }
-      sseEventSourceRef.current = null;
-    }
-    if (sseVideoDecoderRef.current) {
-      console.log('[DesktopStreamViewer] Closing existing SSE decoder before new connection');
-      if (sseVideoDecoderRef.current.state !== 'closed') {
-        try {
-          sseVideoDecoderRef.current.close();
-        } catch (err) {
-          console.warn('[DesktopStreamViewer] Error closing SSE decoder:', err);
-        }
-      }
-      sseVideoDecoderRef.current = null;
-    }
-    sseReceivedFirstKeyframeRef.current = false;
-    hasInitializedSseRef.current = false;
-
     // Clear all connection registrations from previous connection
     clearAllConnections();
     currentWebSocketStreamIdRef.current = null;
     currentWebSocketVideoIdRef.current = null;
-    currentSseVideoIdRef.current = null;
     currentScreenshotVideoIdRef.current = null;
-    currentWebRtcStreamIdRef.current = null;
 
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
@@ -489,147 +461,54 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log('[DesktopStreamViewer] Using videoMode from URL param:', videoModeParam);
       }
 
-      // Detect actual browser codec support
-      // For WebSocket mode: use WebCodecs detection (VideoDecoder.isConfigSupported)
-      // For WebRTC mode: use RTCRtpReceiver detection (default behavior)
-      let supportedFormats;
-      if (streamingMode === 'websocket') {
-        // WebSocket mode uses WebCodecs for decoding - detect actual hardware decoder support
-        console.log('[DesktopStreamViewer] Detecting WebCodecs supported codecs...');
-        supportedFormats = await getWebCodecsSupportedVideoFormats();
-        console.log('[DesktopStreamViewer] WebCodecs supported formats:', supportedFormats);
-      } else {
-        // WebRTC mode - use standard video format detection
-        supportedFormats = getStandardVideoFormats();
-      }
+      // Detect browser codec support using WebCodecs
+      console.log('[DesktopStreamViewer] Detecting WebCodecs supported codecs...');
+      const supportedFormats = await getWebCodecsSupportedVideoFormats();
+      console.log('[DesktopStreamViewer] WebCodecs supported formats:', supportedFormats);
 
-      // Create Stream instance with mode-aware parameters
-      console.log('[DesktopStreamViewer] Creating Stream instance', {
-        mode: moonlightWebMode,
-        streamingMode,
+      // Create WebSocketStream instance
+      console.log('[DesktopStreamViewer] Creating WebSocketStream', {
         hostId,
         actualAppId,
         sessionId,
+        qualityMode,
       });
 
-      let stream: Stream | WebSocketStream;
+      const streamSettings = { ...settings };
 
-      // WebSocket mode: always connect via WebSocket for input
-      // qualityMode determines video source (hot-switched after connect):
-      // - 'high': Video over WebSocket (default)
-      // - 'sse': Video over SSE (hot-switched via useEffect)
-      // - 'low': Screenshot polling (hot-switched via useEffect)
-      if (streamingMode === 'websocket') {
-        // WebSocket mode: direct streaming (bypasses Wolf/Moonlight)
-        console.log('[DesktopStreamViewer] Using direct WebSocket streaming, qualityMode:', qualityMode);
-
-        const streamSettings = { ...settings };
-
-        if (qualityMode === 'low') {
-          console.log('[DesktopStreamViewer] Low mode: WebSocket for input + screenshot overlay');
-        } else if (qualityMode === 'sse') {
-          console.log('[DesktopStreamViewer] SSE mode: WebSocket for input, SSE for video (hot-switched after connect)');
-        } else {
-          console.log('[DesktopStreamViewer] High mode: WebSocket for video and input');
-        }
-
-        stream = new WebSocketStream(
-          api,
-          hostId,
-          actualAppId,
-          streamSettings,
-          supportedFormats,
-          [width, height],
-          sessionId  // Use raw session ID for direct endpoint
-        );
-
-        // Set canvas for WebSocket stream rendering
-        if (canvasRef.current) {
-          if (qualityMode !== 'low') {
-            // Normal mode: stream renders frames to canvas
-            stream.setCanvas(canvasRef.current);
-          } else {
-            // Low/screenshot mode: stream is only used for input, not video rendering
-            // But we still need to set canvas dimensions for proper mouse coordinate mapping
-            // (getStreamRect uses canvas.width/height to calculate aspect ratio)
-            canvasRef.current.width = 1920;
-            canvasRef.current.height = 1080;
-          }
-        }
-      } else if (moonlightWebMode === 'multi') {
-        // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
-        // Connect to persistent streamer via peer endpoint
-        // Include instance ID for multi-tab support
-        const streamerID = `agent-${sessionId}-${componentInstanceIdRef.current}`;
-
-        // Generate a random unique client ID for Wolf session matching
-        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
-        console.log('[DesktopStreamViewer] Generated clientUniqueId for WebRTC multi:', clientUniqueId);
-
-        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
-        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
-        if (sessionId) {
-          console.log('[DesktopStreamViewer] Pre-configuring Wolf pending session for WebRTC multi...');
-          setStatus('Configuring session...');
-          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
-            client_unique_id: clientUniqueId,
-          });
-          console.log('[DesktopStreamViewer] Wolf pre-configured for WebRTC multi:', configResponse.data);
-        }
-
-        stream = new Stream(
-          api,
-          hostId, // Wolf host ID (always 0 for local)
-          actualAppId, // App ID (backend already knows it)
-          settings,
-          supportedFormats,
-          [width, height],
-          "peer", // Peer mode - connects to existing streamer
-          undefined, // No session ID needed
-          streamerID, // Streamer ID - unique per component instance
-          clientUniqueId // Random unique ID for immediate lobby attachment
-        );
+      if (qualityMode === 'screenshot') {
+        console.log('[DesktopStreamViewer] Screenshot mode: WebSocket for input + screenshot overlay');
       } else {
-        // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
-        // Generate a random unique client ID for Wolf session matching
-        // This ID is passed to BOTH the Helix API (to pre-configure Wolf) AND moonlight-web
-        // This enables immediate lobby attachment without auto-join polling
-        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
-        console.log('[DesktopStreamViewer] Generated clientUniqueId for WebRTC:', clientUniqueId);
+        console.log('[DesktopStreamViewer] Video mode: WebSocket for video and input');
+      }
 
-        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
-        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
-        if (sessionId) {
-          console.log('[DesktopStreamViewer] Pre-configuring Wolf pending session for WebRTC...');
-          setStatus('Configuring session...');
-          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
-            client_unique_id: clientUniqueId,
-          });
-          console.log('[DesktopStreamViewer] Wolf pre-configured for WebRTC:', configResponse.data);
+      const stream = new WebSocketStream(
+        api,
+        hostId,
+        actualAppId,
+        streamSettings,
+        supportedFormats,
+        [width, height],
+        sessionId
+      );
+
+      // Set canvas for WebSocket stream rendering
+      if (canvasRef.current) {
+        if (qualityMode !== 'screenshot') {
+          // Video mode: stream renders frames to canvas
+          stream.setCanvas(canvasRef.current);
+        } else {
+          // Screenshot mode: stream is only used for input, not video rendering
+          // But we still need to set canvas dimensions for proper mouse coordinate mapping
+          canvasRef.current.width = 1920;
+          canvasRef.current.height = 1080;
         }
-
-        // Notify parent component of calculated client ID
-        onClientIdCalculated?.(clientUniqueId);
-
-        stream = new Stream(
-          api,
-          hostId, // Wolf host ID (always 0 for local)
-          actualAppId, // Moonlight app ID from Wolf
-          settings,
-          supportedFormats,
-          [width, height],
-          "create", // Create mode - fresh session/streamer (kickoff already terminated)
-          `agent-${sessionId}-${componentInstanceIdRef.current}`, // Unique per component instance
-          undefined, // No streamer ID
-          clientUniqueId // Random unique ID for immediate lobby attachment
-        );
       }
 
       streamRef.current = stream;
 
-      // Listen for stream events (SSE mode uses callbacks instead of addInfoListener)
-      if (streamingMode !== 'sse' && 'addInfoListener' in stream) {
-        stream.addInfoListener((event: any) => {
+      // Listen for stream events
+      stream.addInfoListener((event: any) => {
         const data = event.detail;
 
         if (data.type === 'connected') {
@@ -666,21 +545,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }, VIDEO_START_TIMEOUT_MS);
 
           // Keep overlay visible until video/screenshot actually arrives
-          // - 'high' mode: wait for videoStarted event (first WS keyframe)
-          // - 'sse' mode: wait for first SSE keyframe (handled in SSE decoder)
-          // - 'low' mode: wait for first screenshot (handled in screenshot polling)
-          if (qualityMode === 'low') {
+          // - 'video' mode: wait for videoStarted event (first WS keyframe)
+          // - 'screenshot' mode: wait for first screenshot (handled in screenshot polling)
+          if (qualityMode === 'screenshot') {
             setStatus('Waiting for screenshot...');
             // Mark that we're waiting for first screenshot - this is checked by the
             // screenshot polling effect to know when to hide the loading overlay
             waitingForFirstScreenshotRef.current = true;
             // CRITICAL: Disable video on server when starting in screenshot mode
             // This prevents the server from sending video frames we can't render
-            // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
-            if (stream instanceof WebSocketStream) {
-              console.log('[DesktopStreamViewer] Starting in low mode - disabling WS video');
-              stream.setVideoEnabled(false);
-            }
+            console.log('[DesktopStreamViewer] Starting in screenshot mode - disabling WS video');
+            stream.setVideoEnabled(false);
           } else {
             setStatus('Waiting for video...');
           }
@@ -688,7 +563,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         } else if (data.type === 'videoStarted') {
           // First keyframe received and being decoded - video is now visible
-          // Only relevant for WebSocket video mode ('high')
           console.log('[DesktopStreamViewer] Video started - hiding connecting overlay');
           // Clear video start timeout - video arrived successfully
           if (videoStartTimeoutRef.current) {
@@ -842,16 +716,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
         });
-      }
-
-      // Attach media stream to video element (WebRTC mode only)
-      // WebSocket mode renders directly to canvas via WebCodecs
-      if (streamingMode === 'webrtc' && videoRef.current && stream instanceof Stream) {
-        videoRef.current.srcObject = stream.getMediaStream();
-        videoRef.current.play().catch((err) => {
-          console.warn('Autoplay blocked, user interaction required:', err);
-        });
-      }
 
       setStatus('Stream connected');
     } catch (err: any) {
@@ -904,7 +768,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       onError?.(errorMsg);
     }
   // NOTE: audioEnabled intentionally not in deps - audio is controlled via setAudioEnabled control message, not reconnection
-  }, [sessionId, hostId, appId, width, height, onConnectionChange, onError, helixApi, account, streamingMode, sandboxId, onClientIdCalculated, qualityMode, userBitrate]);
+  }, [sessionId, hostId, appId, width, height, onConnectionChange, onError, helixApi, account, sandboxId, onClientIdCalculated, qualityMode, userBitrate]);
 
   // Disconnect
   // preserveState: if true, don't reset status/isConnecting (used during planned reconnects)
@@ -930,69 +794,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       videoStartTimeoutRef.current = null;
     }
 
-    // Close SSE EventSource if it exists (from hot-switch or initial SSE mode)
-    if (sseEventSourceRef.current) {
-      console.log('[DesktopStreamViewer] Closing SSE EventSource...');
-      try {
-        sseEventSourceRef.current.close();
-        sseEventSourceRef.current = null;
-      } catch (err) {
-        console.warn('[DesktopStreamViewer] Error closing SSE EventSource:', err);
-      }
-    }
-    if (sseVideoDecoderRef.current) {
-      console.log('[DesktopStreamViewer] Closing SSE VideoDecoder...');
-      if (sseVideoDecoderRef.current.state !== 'closed') {
-        try {
-          sseVideoDecoderRef.current.close();
-        } catch (err) {
-          console.warn('[DesktopStreamViewer] Error closing SSE VideoDecoder:', err);
-        }
-      }
-      sseVideoDecoderRef.current = null;
-    }
-    // Also check for legacy SSE EventSource stored on stream object
-    if (streamRef.current && (streamRef.current as any)._sseEventSource) {
-      console.log('[DesktopStreamViewer] Closing legacy SSE EventSource...');
-      try {
-        (streamRef.current as any)._sseEventSource.close();
-        (streamRef.current as any)._sseEventSource = null;
-      } catch (err) {
-        console.warn('[DesktopStreamViewer] Error closing legacy SSE EventSource:', err);
-      }
-    }
-
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        if (streamRef.current instanceof WebSocketStream) {
-          // WebSocketStream (has close() method)
-          console.log('[DesktopStreamViewer] Closing WebSocketStream...');
-          streamRef.current.close();
-        } else {
-          // WebRTC Stream - close WebSocket and RTCPeerConnection
-          console.log('[DesktopStreamViewer] Closing WebSocket and RTCPeerConnection...');
-
-          // Close WebSocket connection if it exists
-          if ((streamRef.current as any).ws) {
-            console.log('[DesktopStreamViewer] Closing WebSocket, readyState:', (streamRef.current as any).ws.readyState);
-            (streamRef.current as any).ws.close();
-          }
-
-          // Close RTCPeerConnection if it exists
-          if ((streamRef.current as any).peer) {
-            console.log('[DesktopStreamViewer] Closing RTCPeerConnection');
-            (streamRef.current as any).peer.close();
-          }
-
-          // Stop all media stream tracks
-          const mediaStream = (streamRef.current as Stream).getMediaStream();
-          if (mediaStream) {
-            const tracks = mediaStream.getTracks();
-            console.log('[DesktopStreamViewer] Stopping', tracks.length, 'media tracks');
-            tracks.forEach((track: MediaStreamTrack) => track.stop());
-          }
-        }
+        console.log('[DesktopStreamViewer] Closing WebSocketStream...');
+        streamRef.current.close();
       } catch (err) {
         console.warn('[DesktopStreamViewer] Error during stream cleanup:', err);
       }
@@ -1001,10 +807,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log('[DesktopStreamViewer] Stream reference cleared');
     } else {
       console.log('[DesktopStreamViewer] No active stream to disconnect');
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
     }
 
     setIsConnected(false);
@@ -1020,9 +822,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     clearAllConnections();
     currentWebSocketStreamIdRef.current = null;
     currentWebSocketVideoIdRef.current = null;
-    currentSseVideoIdRef.current = null;
     currentScreenshotVideoIdRef.current = null;
-    currentWebRtcStreamIdRef.current = null;
 
     console.log('[DesktopStreamViewer] disconnect() completed');
   }, [clearAllConnections]);
@@ -1084,74 +884,38 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Track previous streaming mode for hot-switching
-  const previousStreamingModeRef = useRef<StreamingMode>(streamingMode);
-  const sseEventSourceRef = useRef<EventSource | null>(null);
-  const sseVideoDecoderRef = useRef<VideoDecoder | null>(null);
-  const sseReceivedFirstKeyframeRef = useRef(false);
-  const hasInitializedSseRef = useRef(false); // Track if SSE was initialized for initial connection
-
-  // Handle streaming mode changes - reconnect when switching between websocket and webrtc
-  // Note: SSE video is now controlled by qualityMode, not streamingMode
+  // Load touch mode preference from localStorage on mount
   useEffect(() => {
-    if (previousStreamingModeRef.current === streamingMode) return;
-
-    const prevMode = previousStreamingModeRef.current;
-    const newMode = streamingMode;
-    console.log('[DesktopStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
-    previousStreamingModeRef.current = newMode;
-
-    // CRITICAL: Reset qualityMode to 'high' when switching streaming modes
-    // This prevents state bleeding (e.g., screenshot polling continuing in WebRTC mode)
-    // qualityMode only applies to websocket streaming, so reset it to default when changing protocols
-    if (qualityMode !== 'high') {
-      console.log('[DesktopStreamViewer] Resetting qualityMode to high for streaming mode switch');
-      setQualityMode('high');
-      previousQualityModeRef.current = 'high';
-      setIsOnFallback(false);
+    const savedTouchMode = localStorage.getItem('desktopStreamTouchMode');
+    if (savedTouchMode === 'trackpad' || savedTouchMode === 'direct') {
+      setTouchMode(savedTouchMode);
     }
+  }, []);
 
-    // CRITICAL: Explicitly clean up SSE resources before reconnecting
-    // The disconnect() call inside reconnect may race with qualityMode effects
-    if (sseEventSourceRef.current) {
-      console.log('[DesktopStreamViewer] Closing SSE EventSource for streaming mode switch');
-      sseEventSourceRef.current.close();
-      sseEventSourceRef.current = null;
-    }
-    if (sseVideoDecoderRef.current) {
-      if (sseVideoDecoderRef.current.state !== 'closed') {
-        try {
-          sseVideoDecoderRef.current.close();
-        } catch (err) {
-          console.warn('[DesktopStreamViewer] Error closing SSE decoder:', err);
-        }
-      }
-      sseVideoDecoderRef.current = null;
-    }
-    // Unregister SSE video connection if it was active
-    if (currentSseVideoIdRef.current) {
-      unregisterConnection(currentSseVideoIdRef.current);
-      currentSseVideoIdRef.current = null;
-    }
-    sseReceivedFirstKeyframeRef.current = false;
-    hasInitializedSseRef.current = false;
+  // Save touch mode preference to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('desktopStreamTouchMode', touchMode);
+  }, [touchMode]);
 
-    // Switching between websocket and webrtc requires full reconnect (different protocols)
-    console.log('[DesktopStreamViewer] Full reconnect needed for mode switch');
-    const modeLabel = newMode === 'webrtc' ? 'WebRTC' : 'WebSocket';
-    // Use reconnectRef to get the latest reconnect function (avoids stale closure)
-    reconnectRef.current(1000, `Switching to ${modeLabel}...`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamingMode, sessionId]); // Only trigger on mode/session changes, not on reconnect/isConnected changes
+  // Update input config when touch mode changes
+  useEffect(() => {
+    const input = streamRef.current?.getInput();
+    if (input) {
+      // Map UI touch mode to StreamInput touchMode
+      // 'direct' → 'touch' (sends direct touch events)
+      // 'trackpad' → 'pointAndDrag' (relative movement with tap-to-click)
+      const streamTouchMode = touchMode === 'trackpad' ? 'pointAndDrag' : 'touch';
+      input.setConfig({ touchMode: streamTouchMode } as any);
+      console.log(`[DesktopStreamViewer] Touch mode changed to ${touchMode} (stream: ${streamTouchMode})`);
+    }
+  }, [touchMode]);
 
   // Track previous quality mode for hot-switching
-  const previousQualityModeRef = useRef<'high' | 'sse' | 'low'>(qualityMode);
+  const previousQualityModeRef = useRef<'video' | 'screenshot'>(qualityMode);
 
   // Hot-switch between quality modes without reconnecting
-  // All three modes use the same WebSocket connection for input, just different video delivery:
-  // - 'high': Video over WebSocket
-  // - 'sse': Video over SSE (separate EventSource)
-  // - 'low': Screenshot polling (separate HTTP requests)
+  // - 'video': Video over WebSocket
+  // - 'screenshot': Screenshot polling (separate HTTP requests)
   useEffect(() => {
     if (previousQualityModeRef.current === qualityMode) return;
 
@@ -1161,42 +925,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     previousQualityModeRef.current = newMode;
 
     // Update fallback state immediately for UI feedback
-    setIsOnFallback(newMode === 'low');
+    setIsOnFallback(newMode === 'screenshot');
 
     // Only hot-switch if connected with WebSocket stream
-    if (!isConnected || !streamRef.current || !(streamRef.current instanceof WebSocketStream)) {
-      console.log('[DesktopStreamViewer] Not connected or not WebSocket stream, skipping hot-switch');
+    if (!isConnected || !streamRef.current) {
+      console.log('[DesktopStreamViewer] Not connected, skipping hot-switch');
       return;
     }
 
-    const wsStream = streamRef.current as WebSocketStream;
+    const wsStream = streamRef.current;
 
-    // Step 1: Teardown previous mode's video source
-    if (prevMode === 'sse') {
-      // Close SSE connection
-      console.log('[DesktopStreamViewer] Closing SSE for quality mode switch');
-      if (sseEventSourceRef.current) {
-        sseEventSourceRef.current.close();
-        sseEventSourceRef.current = null;
-      }
-      if (sseVideoDecoderRef.current) {
-        // Only close if not already closed
-        if (sseVideoDecoderRef.current.state !== 'closed') {
-          try {
-            sseVideoDecoderRef.current.close();
-          } catch (err) {
-            console.warn('[SSE Video] Error closing decoder:', err);
-          }
-        }
-        sseVideoDecoderRef.current = null;
-      }
-      // Unregister SSE video connection
-      if (currentSseVideoIdRef.current) {
-        unregisterConnection(currentSseVideoIdRef.current);
-        currentSseVideoIdRef.current = null;
-      }
-    } else if (prevMode === 'high') {
-      // Disable WS video (will be re-enabled if switching back to 'high')
+    // Teardown previous mode
+    if (prevMode === 'video') {
+      // Disable WS video when switching to screenshot mode
       console.log('[DesktopStreamViewer] Disabling WS video for quality mode switch');
       wsStream.setVideoEnabled(false);
       // Unregister WebSocket video connection
@@ -1205,13 +946,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         currentWebSocketVideoIdRef.current = null;
       }
     }
-    // 'low' mode: screenshot polling will auto-stop via shouldPollScreenshots becoming false
-    // (the screenshot polling effect's cleanup will unregister the connection)
+    // 'screenshot' mode: screenshot polling will auto-stop via shouldPollScreenshots becoming false
 
-    // Step 2: Setup new mode's video source
-    if (newMode === 'high') {
+    // Setup new mode
+    if (newMode === 'video') {
       // Enable WS video
-      console.log('[DesktopStreamViewer] Enabling WS video for high mode');
+      console.log('[DesktopStreamViewer] Enabling WS video for video mode');
       // Show loading overlay while waiting for first video frame
       // The videoStarted event will hide it (handler already exists for initial connection)
       setIsConnecting(true);
@@ -1220,514 +960,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       if (canvasRef.current) {
         wsStream.setCanvas(canvasRef.current);
       }
-    } else if (newMode === 'sse') {
-      // CRITICAL: Disable WS video before opening SSE to prevent duplicate video streams
-      // This is redundant if coming from 'high' (already disabled above) but ensures
-      // WS video is definitely off regardless of previous mode
-      console.log('[DesktopStreamViewer] Disabling WS video before SSE setup');
-      // Show loading overlay while waiting for first SSE video frame
-      setIsConnecting(true);
-      setStatus('Switching to SSE stream...');
-      wsStream.setVideoEnabled(false);
-
-      // Defensive cleanup: close any stale SSE resources before opening new ones
-      // This handles edge cases like rapid mode cycling or race conditions
-      if (sseEventSourceRef.current) {
-        console.log('[DesktopStreamViewer] Closing stale SSE EventSource before reopening');
-        sseEventSourceRef.current.close();
-        sseEventSourceRef.current = null;
-      }
-      if (sseVideoDecoderRef.current) {
-        console.log('[DesktopStreamViewer] Closing stale SSE decoder before reopening');
-        if (sseVideoDecoderRef.current.state !== 'closed') {
-          try {
-            sseVideoDecoderRef.current.close();
-          } catch (err) {
-            console.warn('[SSE Video] Error closing stale decoder:', err);
-          }
-        }
-        sseVideoDecoderRef.current = null;
-      }
-
-      // Open SSE connection for video
-      // TODO: SSE mode still uses moonlight path - will need to be updated or removed
-      const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
-      console.log('[DesktopStreamViewer] Opening SSE for video:', sseUrl);
-
-      const eventSource = new EventSource(sseUrl, { withCredentials: true });
-      sseEventSourceRef.current = eventSource;
-      sseReceivedFirstKeyframeRef.current = false;
-
-      // Reset SSE stats
-      sseStatsRef.current = {
-        framesDecoded: 0,
-        framesDropped: 0,
-        lastFrameTime: performance.now(),
-        frameCount: 0,
-        currentFps: 0,
-        width: 0,
-        height: 0,
-        codecString: '',
-        firstFramePtsUs: null,
-        firstFrameArrivalTime: null,
-        currentFrameLatencyMs: 0,
-        frameLatencySamples: [],
-      };
-
-      // Setup SSE decoder using the hot-switch canvas
-      if (sseCanvasRef.current) {
-        const canvas = sseCanvasRef.current;
-        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-
-        eventSource.addEventListener('init', async (e: MessageEvent) => {
-          try {
-            const init = JSON.parse(e.data);
-            console.log('[SSE Video] Init from quality switch:', init);
-
-            if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
-              console.error('[SSE Video] Invalid init data:', init);
-              return;
-            }
-
-            canvas.width = init.width;
-            canvas.height = init.height;
-
-            // Use shared codec utilities from websocket-stream.ts
-            const codecString = codecToWebCodecsString(init.video_codec);
-            console.log(`[SSE Video] Codec: ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
-
-            const decoder = new VideoDecoder({
-              output: (frame: VideoFrame) => {
-                // CRITICAL: Check if this decoder is still the active one
-                // This prevents old decoders from rendering after a new one is created
-                if (sseVideoDecoderRef.current !== decoder) {
-                  frame.close();
-                  return;
-                }
-                if (ctx && canvas.width > 0 && canvas.height > 0) {
-                  ctx.drawImage(frame, 0, 0);
-                }
-                frame.close();
-                sseStatsRef.current.framesDecoded++;
-                sseStatsRef.current.lastFrameTime = performance.now();
-              },
-              error: (err: Error) => {
-                console.error('[SSE Video] Decoder error, will reconnect:', err);
-                // Close SSE resources
-                if (sseEventSourceRef.current) {
-                  sseEventSourceRef.current.close();
-                  sseEventSourceRef.current = null;
-                }
-                if (sseVideoDecoderRef.current && sseVideoDecoderRef.current.state !== 'closed') {
-                  try {
-                    sseVideoDecoderRef.current.close();
-                  } catch (closeErr) {
-                    console.warn('[SSE Video] Error closing decoder after error:', closeErr);
-                  }
-                }
-                sseVideoDecoderRef.current = null;
-                sseReceivedFirstKeyframeRef.current = false;
-                // Unregister SSE video connection
-                if (currentSseVideoIdRef.current) {
-                  unregisterConnection(currentSseVideoIdRef.current);
-                  currentSseVideoIdRef.current = null;
-                }
-                // Reconnect with the same mode (reconnect preserves qualityMode)
-                setTimeout(() => reconnectRef.current(1000), 500);
-              },
-            });
-
-            // Configure decoder with Annex B format for in-band parameter sets
-            const decoderConfig: VideoDecoderConfig = {
-              codec: codecString,
-              codedWidth: init.width,
-              codedHeight: init.height,
-              hardwareAcceleration: 'prefer-hardware',
-            };
-            // Add format hints for H264/HEVC - required for Annex B streams
-            if (codecString.startsWith('avc1')) {
-              // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
-              decoderConfig.avc = { format: 'annexb' };
-            }
-            if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
-              // @ts-ignore - hevc property for Annex B format
-              decoderConfig.hevc = { format: 'annexb' };
-            }
-            decoder.configure(decoderConfig);
-
-            sseVideoDecoderRef.current = decoder;
-            sseStatsRef.current.width = init.width;
-            sseStatsRef.current.height = init.height;
-            sseStatsRef.current.codecString = codecString;
-          } catch (err) {
-            console.error('[SSE Video] Failed to parse init:', err);
-          }
-        });
-
-        eventSource.addEventListener('video', (e: MessageEvent) => {
-          const decoder = sseVideoDecoderRef.current;
-          if (!decoder || decoder.state !== 'configured') return;
-
-          const arrivalTime = performance.now();
-
-          try {
-            const frame = JSON.parse(e.data);
-
-            // Skip delta frames until first keyframe
-            if (!sseReceivedFirstKeyframeRef.current) {
-              if (!frame.keyframe) return;
-              console.log('[SSE Video] First keyframe received - hiding connecting overlay');
-              sseReceivedFirstKeyframeRef.current = true;
-              // Clear video start timeout - video arrived successfully
-              if (videoStartTimeoutRef.current) {
-                clearTimeout(videoStartTimeoutRef.current);
-                videoStartTimeoutRef.current = null;
-              }
-              // Register SSE video connection (unregister any previous)
-              if (currentSseVideoIdRef.current) {
-                unregisterConnection(currentSseVideoIdRef.current);
-              }
-              currentSseVideoIdRef.current = registerConnection('sse-video');
-              // Hide the connecting overlay now that video is visible
-              setIsConnecting(false);
-              setStatus('Streaming active');
-            }
-
-            // Frame latency tracking (same algorithm as WebSocketStream)
-            const ptsUs = frame.pts; // microseconds
-            const stats = sseStatsRef.current;
-            if (stats.firstFramePtsUs === null) {
-              stats.firstFramePtsUs = ptsUs;
-              stats.firstFrameArrivalTime = arrivalTime;
-              stats.currentFrameLatencyMs = 0;
-            } else {
-              const ptsDeltaMs = (ptsUs - stats.firstFramePtsUs) / 1000;
-              const expectedArrivalTime = stats.firstFrameArrivalTime! + ptsDeltaMs;
-              const latencyMs = arrivalTime - expectedArrivalTime;
-              stats.frameLatencySamples.push(latencyMs);
-              if (stats.frameLatencySamples.length > 30) {
-                stats.frameLatencySamples.shift();
-              }
-              stats.currentFrameLatencyMs = stats.frameLatencySamples.reduce((a, b) => a + b, 0) / stats.frameLatencySamples.length;
-            }
-
-            const binaryString = atob(frame.data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-
-            // Debug: Log frame details for first few keyframes to compare with WebSocket
-            if (frame.keyframe && sseStatsRef.current.framesDecoded < 3) {
-              const hexBytes = Array.from(bytes.slice(0, 32))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join(' ');
-              console.log(`[SSE Video] Keyframe #${sseStatsRef.current.framesDecoded + 1}: ${bytes.length} bytes, first 32: ${hexBytes}`);
-              console.log(`[SSE Video] Decoder state: ${decoder.state}, decodeQueueSize: ${decoder.decodeQueueSize}`);
-            }
-
-            const chunk = new EncodedVideoChunk({
-              type: frame.keyframe ? 'key' : 'delta',
-              timestamp: frame.pts,
-              data: bytes,
-            });
-            decoder.decode(chunk);
-          } catch (err) {
-            console.error('[SSE Video] Failed to decode frame:', err);
-          }
-        });
-
-        eventSource.addEventListener('stop', () => {
-          console.log('[SSE Video] Stopped');
-          if (sseVideoDecoderRef.current) {
-            if (sseVideoDecoderRef.current.state !== 'closed') {
-              try {
-                sseVideoDecoderRef.current.close();
-              } catch (err) {
-                console.warn('[SSE Video] Error closing decoder on stop:', err);
-              }
-            }
-            sseVideoDecoderRef.current = null;
-          }
-          // Unregister SSE video connection
-          if (currentSseVideoIdRef.current) {
-            unregisterConnection(currentSseVideoIdRef.current);
-            currentSseVideoIdRef.current = null;
-          }
-        });
-
-        eventSource.onerror = (err) => {
-          console.error('[SSE Video] Error:', err);
-        };
-      }
-    } else if (newMode === 'low') {
-      // CRITICAL: Disable WS video for screenshot mode to prevent video streaming
-      // This is redundant with the video control effect but ensures WS video is definitely off
+    } else if (newMode === 'screenshot') {
+      // Disable WS video for screenshot mode
       console.log('[DesktopStreamViewer] Disabling WS video for screenshot mode');
-      // Show loading overlay while waiting for first screenshot
-      // This prevents a black screen gap between video disappearing and screenshot appearing
       setIsConnecting(true);
       setStatus('Switching to screenshots...');
-      // Mark that we're waiting for first screenshot - this is used by the polling effect
-      // to know when to hide the overlay (more reliable than checking screenshotUrl state)
       waitingForFirstScreenshotRef.current = true;
       wsStream.setVideoEnabled(false);
-      // Screenshot polling will auto-start via shouldPollScreenshots becoming true
     }
   }, [qualityMode, isConnected, sessionId]);
 
-  // Handle initial connection with SSE quality mode
-  // The hot-switch handler above only triggers on qualityMode CHANGES, not initial state
-  // This effect runs once when first connected and sets up SSE if that's the initial mode
-  // NOTE: hasInitializedSseRef is defined earlier (with other SSE refs) for use by streaming mode effect
-  useEffect(() => {
-    // Only run once when first connected with SSE mode
-    if (hasInitializedSseRef.current || !isConnected || qualityMode !== 'sse') {
-      return;
-    }
+  // NOTE: SSE and WebRTC mode code removed - we only support WebSocket video + screenshots
 
-    // Check if we have a WebSocket stream
-    if (!streamRef.current || !(streamRef.current instanceof WebSocketStream)) {
-      return;
-    }
-
-    // Check if SSE was already set up by hot-switch (prevents duplicate EventSource)
-    // This can happen when user switches to SSE mode after connecting in another mode
-    if (sseEventSourceRef.current) {
-      console.log('[DesktopStreamViewer] SSE already initialized by hot-switch, skipping duplicate setup');
-      hasInitializedSseRef.current = true;
-      return;
-    }
-
-    console.log('[DesktopStreamViewer] Initial connection with SSE mode - setting up SSE video');
-    hasInitializedSseRef.current = true;
-
-    const wsStream = streamRef.current as WebSocketStream;
-
-    // Disable WS video
-    wsStream.setVideoEnabled(false);
-
-    // Open SSE connection for video
-    // TODO: SSE mode still uses moonlight path - will need to be updated or removed
-    const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
-    console.log('[DesktopStreamViewer] Opening SSE for initial video:', sseUrl);
-
-    const eventSource = new EventSource(sseUrl, { withCredentials: true });
-    sseEventSourceRef.current = eventSource;
-    sseReceivedFirstKeyframeRef.current = false;
-
-    // Reset SSE stats
-    sseStatsRef.current = {
-      framesDecoded: 0,
-      framesDropped: 0,
-      lastFrameTime: performance.now(),
-      frameCount: 0,
-      currentFps: 0,
-      width: 0,
-      height: 0,
-      codecString: '',
-      firstFramePtsUs: null,
-      firstFrameArrivalTime: null,
-      currentFrameLatencyMs: 0,
-      frameLatencySamples: [],
-    };
-
-    // Setup SSE decoder using the hot-switch canvas
-    if (sseCanvasRef.current) {
-      const canvas = sseCanvasRef.current;
-      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-
-      eventSource.addEventListener('init', async (e: MessageEvent) => {
-        try {
-          const init = JSON.parse(e.data);
-          console.log('[SSE Video] Init from initial setup:', init);
-
-          if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
-            console.error('[SSE Video] Invalid init data:', init);
-            return;
-          }
-
-          canvas.width = init.width;
-          canvas.height = init.height;
-
-          // Use shared codec utilities from websocket-stream.ts
-          const codecString = codecToWebCodecsString(init.video_codec);
-          console.log(`[SSE Video] Codec (initial): ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
-
-          const decoder = new VideoDecoder({
-            output: (frame: VideoFrame) => {
-              // CRITICAL: Check if this decoder is still the active one
-              // This prevents old decoders from rendering after a new one is created
-              if (sseVideoDecoderRef.current !== decoder) {
-                frame.close();
-                return;
-              }
-              if (ctx && canvas.width > 0 && canvas.height > 0) {
-                ctx.drawImage(frame, 0, 0);
-              }
-              frame.close();
-              sseStatsRef.current.framesDecoded++;
-              sseStatsRef.current.lastFrameTime = performance.now();
-            },
-            error: (err: Error) => {
-              console.error('[SSE Video] Decoder error (initial), will reconnect:', err);
-              // Close SSE resources
-              if (sseEventSourceRef.current) {
-                sseEventSourceRef.current.close();
-                sseEventSourceRef.current = null;
-              }
-              if (sseVideoDecoderRef.current && sseVideoDecoderRef.current.state !== 'closed') {
-                try {
-                  sseVideoDecoderRef.current.close();
-                } catch (closeErr) {
-                  console.warn('[SSE Video] Error closing decoder after error:', closeErr);
-                }
-              }
-              sseVideoDecoderRef.current = null;
-              sseReceivedFirstKeyframeRef.current = false;
-              hasInitializedSseRef.current = false; // Allow re-initialization
-              // Unregister SSE video connection
-              if (currentSseVideoIdRef.current) {
-                unregisterConnection(currentSseVideoIdRef.current);
-                currentSseVideoIdRef.current = null;
-              }
-              // Reconnect with the same mode (reconnect preserves qualityMode)
-              setTimeout(() => reconnectRef.current(1000), 500);
-            },
-          });
-
-          // Configure decoder with Annex B format for in-band parameter sets
-          const decoderConfig: VideoDecoderConfig = {
-            codec: codecString,
-            codedWidth: init.width,
-            codedHeight: init.height,
-            hardwareAcceleration: 'prefer-hardware',
-          };
-          // Add format hints for H264/HEVC - required for Annex B streams
-          if (codecString.startsWith('avc1')) {
-            // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
-            decoderConfig.avc = { format: 'annexb' };
-          }
-          if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
-            // @ts-ignore - hevc property for Annex B format
-            decoderConfig.hevc = { format: 'annexb' };
-          }
-          decoder.configure(decoderConfig);
-
-          sseVideoDecoderRef.current = decoder;
-          sseStatsRef.current.width = init.width;
-          sseStatsRef.current.height = init.height;
-          sseStatsRef.current.codecString = codecString;
-        } catch (err) {
-          console.error('[SSE Video] Failed to parse init:', err);
-        }
-      });
-
-      eventSource.addEventListener('video', (e: MessageEvent) => {
-        const decoder = sseVideoDecoderRef.current;
-        if (!decoder || decoder.state !== 'configured') return;
-
-        const arrivalTime = performance.now();
-
-        try {
-          const frame = JSON.parse(e.data);
-
-          // Skip delta frames until first keyframe
-          if (!sseReceivedFirstKeyframeRef.current) {
-            if (!frame.keyframe) return;
-            console.log('[SSE Video] First keyframe received (initial) - hiding connecting overlay');
-            sseReceivedFirstKeyframeRef.current = true;
-            // Clear video start timeout - video arrived successfully
-            if (videoStartTimeoutRef.current) {
-              clearTimeout(videoStartTimeoutRef.current);
-              videoStartTimeoutRef.current = null;
-            }
-            // Register SSE video connection (unregister any previous)
-            if (currentSseVideoIdRef.current) {
-              unregisterConnection(currentSseVideoIdRef.current);
-            }
-            currentSseVideoIdRef.current = registerConnection('sse-video');
-            // Hide the connecting overlay now that video is visible
-            setIsConnecting(false);
-            setStatus('Streaming active');
-          }
-
-          // Frame latency tracking (same algorithm as WebSocketStream)
-          const ptsUs = frame.pts; // microseconds
-          const stats = sseStatsRef.current;
-          if (stats.firstFramePtsUs === null) {
-            stats.firstFramePtsUs = ptsUs;
-            stats.firstFrameArrivalTime = arrivalTime;
-            stats.currentFrameLatencyMs = 0;
-          } else {
-            const ptsDeltaMs = (ptsUs - stats.firstFramePtsUs) / 1000;
-            const expectedArrivalTime = stats.firstFrameArrivalTime! + ptsDeltaMs;
-            const latencyMs = arrivalTime - expectedArrivalTime;
-            stats.frameLatencySamples.push(latencyMs);
-            if (stats.frameLatencySamples.length > 30) {
-              stats.frameLatencySamples.shift();
-            }
-            stats.currentFrameLatencyMs = stats.frameLatencySamples.reduce((a, b) => a + b, 0) / stats.frameLatencySamples.length;
-          }
-
-          const binaryString = atob(frame.data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
-          // Debug: Log frame details for first few keyframes to compare with WebSocket
-          if (frame.keyframe && sseStatsRef.current.framesDecoded < 3) {
-            const hexBytes = Array.from(bytes.slice(0, 32))
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join(' ');
-            console.log(`[SSE Video] Keyframe #${sseStatsRef.current.framesDecoded + 1} (initial): ${bytes.length} bytes, first 32: ${hexBytes}`);
-            console.log(`[SSE Video] Decoder state: ${decoder.state}, decodeQueueSize: ${decoder.decodeQueueSize}`);
-          }
-
-          const chunk = new EncodedVideoChunk({
-            type: frame.keyframe ? 'key' : 'delta',
-            timestamp: frame.pts,
-            data: bytes,
-          });
-          decoder.decode(chunk);
-        } catch (err) {
-          console.error('[SSE Video] Failed to decode frame:', err);
-        }
-      });
-
-      eventSource.addEventListener('stop', () => {
-        console.log('[SSE Video] Stopped (initial)');
-        if (sseVideoDecoderRef.current) {
-          if (sseVideoDecoderRef.current.state !== 'closed') {
-            try {
-              sseVideoDecoderRef.current.close();
-            } catch (err) {
-              console.warn('[SSE Video] Error closing decoder on stop (initial):', err);
-            }
-          }
-          sseVideoDecoderRef.current = null;
-        }
-        // Unregister SSE video connection
-        if (currentSseVideoIdRef.current) {
-          unregisterConnection(currentSseVideoIdRef.current);
-          currentSseVideoIdRef.current = null;
-        }
-      });
-
-      eventSource.onerror = (err) => {
-        console.error('[SSE Video] Error (initial):', err);
-      };
-    }
-  }, [isConnected, qualityMode, sessionId]);
-
-  // Reset SSE initialization flag when connection is lost
-  // This allows SSE to be re-initialized on reconnect
-  useEffect(() => {
-    if (!isConnected) {
-      hasInitializedSseRef.current = false;
-    }
-  }, [isConnected]);
 
   // Track previous user bitrate for reconnection
   // Initialize to a sentinel value (-1) to distinguish "not yet set" from "set to null"
@@ -1870,7 +1114,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // For WebSocket mode (default), we only need sessionId - don't wait for sandboxId
     // sandboxId was only needed for Wolf/Moonlight WebRTC modes which are now removed
     // The WebSocketStream connects directly via /api/v1/external-agents/{sessionId}/ws/stream
-    if (sessionId && streamingMode !== 'websocket' && !sandboxId) {
+    if (sessionId && false /* WebSocket only */ && !sandboxId) {
       console.log('[DesktopStreamViewer] Waiting for sandboxId to load before connecting...');
       return;
     }
@@ -1911,17 +1155,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [isConnecting]);
 
-  // Screenshot polling for low-quality mode (manual screenshot fallback)
+  // Screenshot polling for screenshot mode (low-bandwidth fallback)
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
-  // IMPORTANT: Only poll in websocket mode - not in webrtc mode (qualityMode persists across streaming mode changes)
-  const shouldPollScreenshots = qualityMode === 'low' && streamingMode === 'websocket';
+  const shouldPollScreenshots = qualityMode === 'screenshot';
 
   // Notify server to pause/resume video based on quality mode
-  // - 'high': WS video enabled (main video source)
-  // - 'sse': WS video disabled (SSE is the video source, handled by SSE setup)
-  // - 'low': WS video disabled (screenshots are the video source)
-  // NOTE: This effect only applies to websocket streaming mode
+  // - 'video': WS video enabled (main video source)
+  // - 'screenshot': WS video disabled (screenshots are the video source)
   useEffect(() => {
     const stream = streamRef.current;
     if (!stream || !(stream instanceof WebSocketStream) || !isConnected) {
@@ -1930,21 +1171,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Only apply quality mode changes in websocket streaming mode
     // WebRTC has its own congestion control and doesn't use qualityMode
-    if (streamingMode !== 'websocket') {
+    if (false /* WebSocket only */) {
       return;
     }
 
     // Only control WS video for 'high' and 'low' modes
     // SSE mode handles its own video enable/disable in the SSE setup effects
-    if (qualityMode === 'low') {
+    if (qualityMode === 'screenshot') {
       console.log('[DesktopStreamViewer] Screenshot mode - disabling WS video');
       stream.setVideoEnabled(false);
-    } else if (qualityMode === 'high') {
+    } else if (qualityMode === 'video') {
       console.log('[DesktopStreamViewer] High quality mode - enabling WS video');
       stream.setVideoEnabled(true);
     }
-    // SSE mode: do nothing here - SSE setup/hot-switch handles video state
-  }, [qualityMode, isConnected, streamingMode]);
+  }, [qualityMode, isConnected]);
 
   // Auto-dismiss bitrate recommendation after a fixed duration
   useEffect(() => {
@@ -2200,12 +1440,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Only WebSocket streaming mode supports adaptive bitrate (WebRTC has its own congestion control)
     // Adaptive bitrate works for both 'high' and 'sse' quality modes within WebSocket streaming
-    if (streamingMode !== 'websocket') {
+    if (false /* WebSocket only */) {
       return;
     }
 
     // Screenshot mode doesn't have frame latency metrics
-    if (qualityMode === 'low') {
+    if (qualityMode === 'screenshot') {
       return;
     }
 
@@ -2226,18 +1466,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Get frame drift from stream stats (the reliable metric for congestion detection)
       // Frame drift = how late frames are arriving compared to their PTS
       // Positive = frames arriving late (congestion), Negative = frames arriving early (buffered)
-      let frameDrift = 0;
-
-      if (qualityMode === 'sse') {
-        // SSE mode: get frame latency from SSE stats (video comes via SSE, not WebSocket)
-        frameDrift = sseStatsRef.current.currentFrameLatencyMs;
-      } else if (stream instanceof WebSocketStream) {
-        // WebSocket high mode: get frame latency from WebSocket stats
-        const stats = stream.getStats();
-        frameDrift = stats.frameLatencyMs;
-      } else {
-        return; // Unsupported stream type (WebRTC has its own congestion control)
-      }
+      const stats = stream.getStats();
+      const frameDrift = stats.frameLatencyMs;
 
       const currentBitrate = userBitrate || requestedBitrate;
       const now = Date.now();
@@ -2384,7 +1614,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const intervalId = setInterval(checkBandwidth, CHECK_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [isConnected, streamingMode, qualityMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
+  }, [isConnected, qualityMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
 
 
   // Track container size for canvas aspect ratio calculation
@@ -2464,7 +1694,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Update canvas display size when canvas dimensions change (after first frame is rendered)
   useEffect(() => {
-    if (!containerSize || !canvasRef.current || streamingMode !== 'websocket') return;
+    if (!containerSize || !canvasRef.current || false /* WebSocket only */) return;
 
     const checkCanvasDimensions = () => {
       const canvas = canvasRef.current;
@@ -2499,7 +1729,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     checkCanvasDimensions();
 
     return () => clearInterval(interval);
-  }, [containerSize, streamingMode, isConnected]);
+  }, [containerSize, isConnected]);
 
   // Auto-sync clipboard from remote → local every 2 seconds
   useEffect(() => {
@@ -2575,7 +1805,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Send scroll via WebSocketStream (bypasses Wolf/Moonlight, goes directly to GNOME/Sway)
       const input = streamRef.current && 'getInput' in streamRef.current
-        ? (streamRef.current as WebSocketStream | Stream).getInput()
+        ? (streamRef.current as WebSocketStream).getInput()
         : null;
       input?.onMouseWheel(event);
     };
@@ -2612,55 +1842,43 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // WebSocket mode - poll stats from WebSocketStream
     // SSE video mode also uses WebSocketStream for input and session management
-    if (streamingMode === 'websocket') {
+    if (true /* WebSocket only */) {
       const pollWsStats = () => {
         const currentStream = streamRef.current;
         if (!currentStream) return;
 
         const wsStream = currentStream as WebSocketStream;
         const wsStats = wsStream.getStats();
-        const isForcedLow = qualityMode === 'low';
-
-        // In SSE quality mode, video stats come from SSE decoder, not WebSocket
-        const sseStats = sseStatsRef.current;
-        const isSSE = qualityMode === 'sse';
+        const isScreenshotMode = qualityMode === 'screenshot';
 
         // Determine codec string based on quality mode
-        let codecDisplay: string;
-        if (isForcedLow) {
-          codecDisplay = 'JPEG (Screenshot)';
-        } else if (isSSE) {
-          codecDisplay = `${sseStats.codecString || 'Unknown'} (SSE)`;
-        } else {
-          codecDisplay = `${wsStats.codecString} (WebSocket)`;
-        }
+        const codecDisplay = isScreenshotMode
+          ? 'JPEG (Screenshot)'
+          : `${wsStats.codecString} (WebSocket)`;
 
         setStats({
           video: {
             codec: codecDisplay,
-            width: isForcedLow ? (width || 1920) : (isSSE ? sseStats.width : wsStats.width),
-            height: isForcedLow ? (height || 1080) : (isSSE ? sseStats.height : wsStats.height),
-            fps: isForcedLow ? screenshotFps : (isSSE ? sseStats.currentFps : wsStats.fps),
-            videoPayloadBitrate: (isSSE || isForcedLow) ? 'N/A' : wsStats.videoPayloadBitrateMbps.toFixed(2),
-            totalBitrate: (isSSE || isForcedLow) ? 'N/A' : wsStats.totalBitrateMbps.toFixed(2),
-            framesDecoded: isForcedLow ? 0 : (isSSE ? sseStats.framesDecoded : wsStats.framesDecoded),
-            framesDropped: isForcedLow ? 0 : (isSSE ? sseStats.framesDropped : wsStats.framesDropped),
-            rttMs: wsStats.rttMs,                                              // RTT still from WebSocket
-            encoderLatencyMs: wsStats.encoderLatencyMs,                        // Server-side encoder latency
-            isHighLatency: wsStats.isHighLatency,                              // High latency flag from WS
-            // Batching stats (only for non-SSE mode)
-            batchingRatio: isSSE ? 0 : wsStats.batchingRatio,
-            avgBatchSize: isSSE ? 0 : wsStats.avgBatchSize,
-            batchesReceived: isSSE ? 0 : wsStats.batchesReceived,
-            // Frame latency and decoder queue (works in both WebSocket and SSE modes)
-            frameLatencyMs: isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs,
-            // Adaptive input throttling
+            width: isScreenshotMode ? (width || 1920) : wsStats.width,
+            height: isScreenshotMode ? (height || 1080) : wsStats.height,
+            fps: isScreenshotMode ? screenshotFps : wsStats.fps,
+            videoPayloadBitrate: isScreenshotMode ? 'N/A' : wsStats.videoPayloadBitrateMbps.toFixed(2),
+            totalBitrate: isScreenshotMode ? 'N/A' : wsStats.totalBitrateMbps.toFixed(2),
+            framesDecoded: isScreenshotMode ? 0 : wsStats.framesDecoded,
+            framesDropped: isScreenshotMode ? 0 : wsStats.framesDropped,
+            rttMs: wsStats.rttMs,
+            encoderLatencyMs: wsStats.encoderLatencyMs,
+            isHighLatency: wsStats.isHighLatency,
+            batchingRatio: wsStats.batchingRatio,
+            avgBatchSize: wsStats.avgBatchSize,
+            batchesReceived: wsStats.batchesReceived,
+            frameLatencyMs: wsStats.frameLatencyMs,
             adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
             effectiveInputFps: wsStats.effectiveInputFps,
             isThrottled: wsStats.isThrottled,
-            decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
-            maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
-            framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
+            decodeQueueSize: wsStats.decodeQueueSize,
+            maxDecodeQueueSize: wsStats.maxDecodeQueueSize,
+            framesSkippedToKeyframe: wsStats.framesSkippedToKeyframe,
           },
           // Input buffer stats (detects TCP send buffer congestion)
           input: {
@@ -2794,12 +2012,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats, showCharts, streamingMode, width, height, qualityMode]);
+  }, [showStats, showCharts, width, height, qualityMode]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
     // Check if we're in screenshot mode (screenshot overlay is visible)
-    const inScreenshotMode = shouldPollScreenshots && screenshotUrl && streamingMode === 'websocket';
+    const inScreenshotMode = shouldPollScreenshots && screenshotUrl && true /* WebSocket only */;
 
     // In screenshot mode, the img uses containerRef with objectFit: contain
     // In normal WebSocket mode, use canvas; in WebRTC mode, use video
@@ -2835,7 +2053,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Use appropriate canvas/video element for each mode
     let element: HTMLCanvasElement | HTMLVideoElement | null = null;
-    if (streamingMode === 'websocket') {
+    if (true /* WebSocket only */) {
       // Always use canvasRef for WebSocket mode - it's our consistent input surface
       // (SSE canvas is just for rendering, input goes through the transparent canvasRef)
       element = canvasRef.current;
@@ -2853,7 +2071,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // For WebSocket mode: canvas is already sized to maintain aspect ratio,
     // so bounding rect IS the video content area (no letterboxing)
     // Note: We don't need streamRef here - the canvas position is correct regardless
-    if (streamingMode === 'websocket') {
+    if (true /* WebSocket only */) {
       return new DOMRect(
         boundingRect.x,
         boundingRect.y,
@@ -2891,14 +2109,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       videoSize[0] * videoMultiplier,
       videoSize[1] * videoMultiplier
     );
-  }, [width, height, streamingMode, shouldPollScreenshots, screenshotUrl]);
+  }, [width, height, shouldPollScreenshots, screenshotUrl]);
 
   // Get input handler - always from the main stream
   // SSE quality mode still uses the same WebSocketStream for input
   const getInputHandler = useCallback(() => {
     // For all modes, get input from the main stream
     if (streamRef.current && 'getInput' in streamRef.current) {
-      return (streamRef.current as WebSocketStream | Stream).getInput();
+      return (streamRef.current as WebSocketStream).getInput();
     }
     return null;
   }, []);
@@ -2954,6 +2172,94 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     event.preventDefault();
   }, []);
 
+  // Touch event handlers - delegates to StreamInput which handles different touch modes
+  const handleTouchStart = useCallback((event: React.TouchEvent) => {
+    event.preventDefault();
+    const handler = getInputHandler();
+    const rect = getStreamRect();
+    if (!handler) return;
+
+    // In trackpad mode, track touch position for relative movement
+    if (touchMode === 'trackpad' && event.touches.length === 1) {
+      const touch = event.touches[0];
+      lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+      // Initialize cursor at center of stream if this is first touch
+      if (!hasMouseMoved && containerRef.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        setCursorPosition({
+          x: (rect.x - containerRect.x) + rect.width / 2,
+          y: (rect.y - containerRect.y) + rect.height / 2,
+        });
+        setHasMouseMoved(true);
+      }
+    }
+
+    // Reset two-finger tracking
+    if (event.touches.length === 2) {
+      twoFingerStartYRef.current = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+    }
+
+    // Delegate to StreamInput for actual input handling
+    handler.onTouchStart(event.nativeEvent, rect);
+  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved]);
+
+  const handleTouchMove = useCallback((event: React.TouchEvent) => {
+    event.preventDefault();
+    const handler = getInputHandler();
+    const rect = getStreamRect();
+    if (!handler) return;
+
+    // In trackpad mode, update cursor position based on touch movement delta
+    if (touchMode === 'trackpad' && event.touches.length === 1 && lastTouchPosRef.current && containerRef.current) {
+      const touch = event.touches[0];
+      const dx = (touch.clientX - lastTouchPosRef.current.x) * TRACKPAD_CURSOR_SENSITIVITY;
+      const dy = (touch.clientY - lastTouchPosRef.current.y) * TRACKPAD_CURSOR_SENSITIVITY;
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const streamOffsetX = rect.x - containerRect.x;
+      const streamOffsetY = rect.y - containerRect.y;
+
+      // Update cursor position relatively, clamped to stream bounds
+      setCursorPosition(prev => ({
+        x: Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, prev.x + dx)),
+        y: Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, prev.y + dy)),
+      }));
+
+      lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
+    }
+
+    // Delegate to StreamInput for actual input handling
+    handler.onTouchMove(event.nativeEvent, rect);
+  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY]);
+
+  const handleTouchEnd = useCallback((event: React.TouchEvent) => {
+    event.preventDefault();
+    const handler = getInputHandler();
+    const rect = getStreamRect();
+    if (!handler) return;
+
+    // Delegate to StreamInput for actual input handling
+    handler.onTouchEnd(event.nativeEvent, rect);
+
+    // Clean up touch tracking
+    lastTouchPosRef.current = null;
+    twoFingerStartYRef.current = null;
+  }, [getStreamRect, getInputHandler]);
+
+  const handleTouchCancel = useCallback((event: React.TouchEvent) => {
+    event.preventDefault();
+    const handler = getInputHandler();
+    const rect = getStreamRect();
+    if (!handler) return;
+
+    handler.onTouchCancel?.(event.nativeEvent, rect);
+
+    // Clean up touch tracking
+    lastTouchPosRef.current = null;
+    twoFingerStartYRef.current = null;
+  }, [getStreamRect, getInputHandler]);
+
   // Reset all input state - clears stuck modifiers and mouse buttons
   const resetInputState = useCallback(() => {
     const input = getInputHandler();
@@ -3006,7 +2312,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Helper to get input handler (WebSocketStream handles input for all quality modes)
     const getInput = () => {
       return streamRef.current && 'getInput' in streamRef.current
-        ? (streamRef.current as WebSocketStream | Stream).getInput()
+        ? (streamRef.current as WebSocketStream).getInput()
         : null;
     };
 
@@ -3431,7 +2737,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           title={
             modeSwitchCooldown
               ? 'Please wait...'
-              : qualityMode === 'high'
+              : qualityMode === 'video'
               ? 'Video streaming (60fps) — Click for Screenshot mode'
               : 'Screenshot mode — Click for Video streaming'
           }
@@ -3443,18 +2749,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               size="small"
               disabled={modeSwitchCooldown}
               onClick={() => {
-                // Toggle: high → low → high (SSE disabled for now)
+                // Toggle: video ↔ screenshot
                 setModeSwitchCooldown(true);
-                setQualityMode(prev => prev === 'high' ? 'low' : 'high');
+                setQualityMode(prev => prev === 'video' ? 'screenshot' : 'video');
                 setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
               }}
               sx={{
-                color: qualityMode === 'high'
+                color: qualityMode === 'video'
                   ? '#4caf50'  // Green for video streaming
                   : '#ff9800',  // Orange for screenshot mode
               }}
             >
-              {qualityMode === 'high' ? (
+              {qualityMode === 'video' ? (
                 <Speed fontSize="small" />
               ) : (
                 <CameraAlt fontSize="small" />
@@ -3462,8 +2768,32 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
+        {/* Touch mode toggle: Direct touch ↔ Trackpad mode */}
+        <Tooltip
+          title={
+            touchMode === 'direct'
+              ? 'Direct touch — Tap on screen position. Click for Trackpad mode'
+              : 'Trackpad mode — Drag to move cursor, tap to click. Click for Direct touch'
+          }
+          arrow
+          slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+        >
+          <IconButton
+            size="small"
+            onClick={() => setTouchMode(prev => prev === 'direct' ? 'trackpad' : 'direct')}
+            sx={{
+              color: touchMode === 'trackpad' ? '#2196f3' : 'white',  // Blue when trackpad mode active
+            }}
+          >
+            {touchMode === 'direct' ? (
+              <TouchApp fontSize="small" />
+            ) : (
+              <PanTool fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
         {/* Bitrate selector - hidden in screenshot mode (has its own adaptive quality) */}
-        {qualityMode !== 'low' && (
+        {qualityMode !== 'screenshot' && (
           <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
             <Button
               size="small"
@@ -3574,7 +2904,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       </Box>
 
       {/* Screenshot Mode / High Latency Warning Banner */}
-      {shouldPollScreenshots && isConnected && streamingMode === 'websocket' && (
+      {shouldPollScreenshots && isConnected && true /* WebSocket only */ && (
         <Box
           sx={{
             position: 'absolute',
@@ -3604,7 +2934,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Adaptive Throttle Warning Banner - shown when input rate is reduced due to high latency */}
-      {isThrottled && isConnected && streamingMode === 'websocket' && !shouldPollScreenshots && (
+      {isThrottled && isConnected && true /* WebSocket only */ && !shouldPollScreenshots && (
         <Box
           sx={{
             position: 'absolute',
@@ -3717,56 +3047,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Video Element (WebRTC mode) */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        controls={false}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        onMouseEnter={resetInputState}
-        onContextMenu={handleContextMenu}
-        onCanPlay={() => {
-          // WebRTC mode: hide overlay when video is ready to play
-          if (streamingMode === 'webrtc') {
-            console.log('[DesktopStreamViewer] WebRTC video can play - hiding overlay');
-            // Clear video start timeout - video arrived successfully
-            if (videoStartTimeoutRef.current) {
-              clearTimeout(videoStartTimeoutRef.current);
-              videoStartTimeoutRef.current = null;
-            }
-            // Register WebRTC stream connection (unregister any previous)
-            if (currentWebRtcStreamIdRef.current) {
-              unregisterConnection(currentWebRtcStreamIdRef.current);
-            }
-            currentWebRtcStreamIdRef.current = registerConnection('webrtc-stream');
-            setIsConnecting(false);
-            setStatus('Streaming active');
-          }
-        }}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          backgroundColor: '#000',
-          cursor: 'none', // Hide default cursor to prevent double cursor effect
-          display: streamingMode === 'webrtc' ? 'block' : 'none',
-        }}
-        onClick={() => {
-          // Unmute on first interaction (browser autoplay policy)
-          if (videoRef.current) {
-            videoRef.current.muted = false;
-          }
-          // Focus container for keyboard input
-          if (containerRef.current) {
-            containerRef.current.focus();
-          }
-        }}
-      />
-
-      {/* Canvas Element (WebSocket mode only) - centered with proper aspect ratio */}
+      {/* Canvas Element - centered with proper aspect ratio */}
       <canvas
         ref={canvasRef}
         onMouseDown={(e) => {
@@ -3780,6 +3061,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onMouseMove={handleMouseMove}
         onMouseEnter={resetInputState}
         onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
         style={{
           // Use calculated dimensions to maintain aspect ratio
           // Canvas doesn't support objectFit like video, so we calculate size manually
@@ -3796,9 +3081,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // In 'high' mode: renders video AND handles input
           // In 'sse' mode: invisible (transparent) but handles input (SSE canvas renders on top)
           // In 'low' mode: invisible (transparent) but handles input (screenshot overlays)
-          display: streamingMode === 'websocket' ? 'block' : 'none',
+          display: true /* WebSocket only */ ? 'block' : 'none',
           // Make transparent in SSE/low modes so overlays are visible, but still captures input
-          opacity: qualityMode === 'high' ? 1 : 0,
+          opacity: qualityMode === 'video' ? 1 : 0,
           // Higher z-index than SSE canvas so it captures input even when transparent
           zIndex: 20,
         }}
@@ -3810,42 +3095,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }}
       />
 
-      {/* SSE Canvas Element (SSE mode only) - separate from WebSocket canvas to avoid conflicts */}
-      <canvas
-        ref={sseCanvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        onMouseEnter={resetInputState}
-        onContextMenu={handleContextMenu}
-        style={{
-          // Use calculated dimensions to maintain aspect ratio
-          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
-          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
-          // Center the canvas within the container
-          position: 'absolute',
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: '#000',
-          cursor: 'none',
-          // Visible only in SSE mode AND WebSocket streaming (not WebRTC)
-          // Must check both conditions - qualityMode persists when switching to WebRTC
-          display: streamingMode === 'websocket' && qualityMode === 'sse' ? 'block' : 'none',
-          // Lower z-index than WebSocket canvas so input passes through
-          zIndex: 15,
-        }}
-        onClick={() => {
-          // Focus container for keyboard input
-          if (containerRef.current) {
-            containerRef.current.focus();
-          }
-        }}
-      />
-
-      {/* Screenshot overlay for low-quality mode */}
+      {/* Screenshot overlay for screenshot mode */}
       {/* Shows rapidly-updated screenshots instead of video stream while keeping input working */}
-      {shouldPollScreenshots && screenshotUrl && streamingMode === 'websocket' && (
+      {shouldPollScreenshots && screenshotUrl && (
         <img
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
@@ -3907,6 +3159,58 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             id="custom-cursor-fallback"
           />
         )
+      )}
+
+      {/* Virtual cursor overlay for trackpad mode */}
+      {/* Shows where the cursor is positioned when using relative touch movement */}
+      {touchMode === 'trackpad' && virtualCursor.visible && (
+        <Box
+          sx={{
+            position: 'absolute',
+            // Position relative to canvas - calculate based on stream rect
+            left: (() => {
+              if (!containerRef.current || !canvasDisplaySize) return virtualCursor.x;
+              const containerRect = containerRef.current.getBoundingClientRect();
+              const canvasLeft = (containerRect.width - canvasDisplaySize.width) / 2;
+              const scaleX = canvasDisplaySize.width / (width || 1920);
+              return canvasLeft + virtualCursor.x * scaleX;
+            })(),
+            top: (() => {
+              if (!containerRef.current || !canvasDisplaySize) return virtualCursor.y;
+              const containerRect = containerRef.current.getBoundingClientRect();
+              const canvasTop = (containerRect.height - canvasDisplaySize.height) / 2;
+              const scaleY = canvasDisplaySize.height / (height || 1080);
+              return canvasTop + virtualCursor.y * scaleY;
+            })(),
+            pointerEvents: 'none',
+            zIndex: 1002,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          {/* Trackpad cursor indicator - circle with crosshair */}
+          <Box
+            sx={{
+              width: 20,
+              height: 20,
+              border: '2px solid #2196f3',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(33, 150, 243, 0.2)',
+              boxShadow: '0 0 8px rgba(33, 150, 243, 0.6), 0 0 4px rgba(33, 150, 243, 0.8)',
+              position: 'relative',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                width: 4,
+                height: 4,
+                backgroundColor: '#2196f3',
+                borderRadius: '50%',
+                transform: 'translate(-50%, -50%)',
+              },
+            }}
+          />
+        </Box>
       )}
 
       {/* Remote user cursors (Figma-style multi-player) */}
@@ -4187,7 +3491,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Stats for Nerds Overlay */}
-      {showStats && (stats || qualityMode === 'low') && (
+      {showStats && (stats || qualityMode === 'screenshot') && (
         <Box
           sx={{
             position: 'absolute',
@@ -4209,7 +3513,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           </Typography>
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
-            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? (qualityMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebSocket (L7)') : 'WebRTC'}</div>
+            <div><strong>Transport:</strong> {true /* WebSocket only */ ? (qualityMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebSocket (L7)') : 'WebRTC'}</div>
             {/* Active Connections Registry - shows all active streaming connections */}
             <div>
               <strong>Active:</strong>{' '}
@@ -4236,7 +3540,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                {streamingMode === 'websocket' ? (
+                {true /* WebSocket only */ ? (
                   <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
                 ) : (
                   <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
@@ -4247,7 +3551,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
                 {/* Latency metrics (WebSocket mode) */}
-                {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
+                {true /* WebSocket only */ && stats.video.rttMs !== undefined && (
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
                     {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
@@ -4260,7 +3564,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Adaptive input throttling (WebSocket mode) - reduces input rate when RTT is high */}
-                {streamingMode === 'websocket' && stats.video.adaptiveThrottleRatio !== undefined && (
+                {true /* WebSocket only */ && stats.video.adaptiveThrottleRatio !== undefined && (
                   <div>
                     <strong>Input Throttle:</strong> {(stats.video.adaptiveThrottleRatio * 100).toFixed(0)}%
                     {' '}({stats.video.effectiveInputFps?.toFixed(0) || 0} Hz)
@@ -4270,7 +3574,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 {/* Frame latency (WebSocket and SSE modes) - actual delivery delay based on PTS */}
                 {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
                 {/* Hidden in screenshot mode since there's no video stream to measure */}
-                {streamingMode === 'websocket' && qualityMode !== 'low' && stats.video.frameLatencyMs !== undefined && (
+                {true /* WebSocket only */ && qualityMode !== 'screenshot' && stats.video.frameLatencyMs !== undefined && (
                   <div>
                     <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
                     {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
@@ -4278,7 +3582,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
-                {streamingMode === 'websocket' && stats.video.decodeQueueSize !== undefined && (
+                {true /* WebSocket only */ && stats.video.decodeQueueSize !== undefined && (
                   <div>
                     <strong>Decode Queue:</strong> {stats.video.decodeQueueSize}
                     {stats.video.maxDecodeQueueSize > 3 && (
@@ -4288,27 +3592,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Frames skipped to keyframe (WebSocket mode) - shows when decoder fell behind and skipped ahead */}
-                {streamingMode === 'websocket' && stats.video.framesSkippedToKeyframe !== undefined && (
+                {true /* WebSocket only */ && stats.video.framesSkippedToKeyframe !== undefined && (
                   <div>
                     <strong>Skipped to KF:</strong> {stats.video.framesSkippedToKeyframe} frames
                     {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> ⏭️</span>}
                   </div>
                 )}
-                {/* WebRTC-only stats - not available in WebSocket mode */}
-                {streamingMode === 'webrtc' && (
-                  <>
-                    <div>
-                      <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
-                      {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
-                    </div>
-                    <div><strong>Jitter:</strong> {stats.video.jitter} ms</div>
-                    {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt} ms</div>}
-                  </>
-                )}
               </>
             )}
             {/* Input stats (WebSocket mode) - detects TCP send buffer congestion */}
-            {streamingMode === 'websocket' && stats?.input && (
+            {true /* WebSocket only */ && stats?.input && (
               <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
                 <strong style={{ color: '#00ff00' }}>⌨️ Input</strong>
                 <div>
@@ -4344,7 +3637,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
             {/* Debug: Throttle ratio override */}
-            {streamingMode === 'websocket' && (
+            {true /* WebSocket only */ && (
               <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
                 <strong>🔧 Debug: Throttle Override</strong>
                 <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>

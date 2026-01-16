@@ -131,6 +131,10 @@ func (r *SessionRegistry) BroadcastCursorPosition(sessionID string, fromClientID
 	if clientI, ok := session.clients.Load(fromClientID); ok {
 		color = clientI.(*ConnectedClient).Color
 	}
+	// Default color if client not found (e.g., clientID=0 from shared input server)
+	if color == "" {
+		color = "#0D99FF" // Default blue
+	}
 
 	colorBytes := []byte(color)
 	msg := make([]byte, 1+4+4+4+1+len(colorBytes))
@@ -321,6 +325,10 @@ func (r *SessionRegistry) BroadcastTouchEvent(sessionID string, fromClientID uin
 	var color string
 	if clientI, ok := session.clients.Load(fromClientID); ok {
 		color = clientI.(*ConnectedClient).Color
+	}
+	// Default color if client not found (e.g., clientID=0 from shared input server)
+	if color == "" {
+		color = "#0D99FF" // Default blue
 	}
 
 	// Build RemoteTouch message (0x56)
