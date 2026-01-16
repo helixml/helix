@@ -762,19 +762,25 @@ impl ExtCaptureState {
     }
 
     /// Handle cursor frame ready - extract cursor bitmap
-    fn handle_cursor_frame_ready(&mut self, qh: &QueueHandle<Self>) {
-        if let (Some(size), Some(format), Some(cursor_buf)) =
+    fn handle_cursor_frame_ready(&mut self, _qh: &QueueHandle<Self>) {
+        // Extract values from Option fields first to avoid borrow conflicts
+        let cursor_info = if let (Some(size), Some(format), Some(cursor_buf)) =
             (&self.cursor_buffer_size, &self.cursor_selected_format, &self.cursor_buffer)
         {
             let data = cursor_buf.copy_to_vec();
             let drm_fourcc = wl_shm_to_drm_fourcc(format.format);
             let bpp = Self::bytes_per_pixel(format.format);
             let stride = (size.width * bpp) as i32;
+            Some((data, size.width, size.height, stride, drm_fourcc, format.format))
+        } else {
+            None
+        };
 
-            // Update cursor state with bitmap
+        // Now update cursor state with extracted values (no more immutable borrows active)
+        if let Some((data, width, height, stride, drm_fourcc, wl_format)) = cursor_info {
             self.cursor_state.bitmap = Some(data);
-            self.cursor_state.bitmap_width = size.width;
-            self.cursor_state.bitmap_height = size.height;
+            self.cursor_state.bitmap_width = width;
+            self.cursor_state.bitmap_height = height;
             self.cursor_state.bitmap_stride = stride;
             self.cursor_state.bitmap_format = drm_fourcc;
 
@@ -783,7 +789,7 @@ impl ExtCaptureState {
 
             eprintln!(
                 "[EXT_IMAGE_COPY] Cursor frame captured: {}x{} stride={} format={:?}",
-                size.width, size.height, stride, format.format
+                width, height, stride, wl_format
             );
         }
 
