@@ -212,11 +212,12 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	}
 
 	// Create available_models array with our custom model
-	// Zed expects: [{"name": "model-name", "display_name": "Display Name", "max_tokens": 32768}]
+	// Zed expects: [{"name": "model-name", "display_name": "Display Name", "max_tokens": N, "max_output_tokens": N}]
 	modelEntry := map[string]interface{}{
-		"name":         d.codeAgentConfig.Model,
-		"display_name": d.codeAgentConfig.Model, // Use model name as display name
-		"max_tokens":   131072,                  // Default to 128K context
+		"name":              d.codeAgentConfig.Model,
+		"display_name":      d.codeAgentConfig.Model, // Use model name as display name
+		"max_tokens":        131072,                  // Default to 128K context
+		"max_output_tokens": 16384,                   // Default output limit
 	}
 
 	// Get existing available_models or create new slice
