@@ -809,9 +809,10 @@ type: docker
 name: build-controlplane
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -837,6 +838,11 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 kind: pipeline
