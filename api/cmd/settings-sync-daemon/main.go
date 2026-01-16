@@ -186,6 +186,63 @@ func (d *SettingsDaemon) injectLanguageModelAPIKey() {
 	}
 }
 
+// injectAvailableModels adds the configured model to the provider's available_models list.
+// Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
+// in available_models. Without this, custom models like "helix/qwen3:8b" are rejected.
+func (d *SettingsDaemon) injectAvailableModels() {
+	if d.codeAgentConfig == nil || d.codeAgentConfig.Model == "" {
+		return
+	}
+
+	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Determine which provider to add the model to based on APIType
+	providerName := d.codeAgentConfig.APIType
+	if providerName == "" {
+		providerName = "openai" // Default to OpenAI-compatible
+	}
+
+	providerConfig, ok := languageModels[providerName].(map[string]interface{})
+	if !ok {
+		providerConfig = make(map[string]interface{})
+		languageModels[providerName] = providerConfig
+	}
+
+	// Create available_models array with our custom model
+	// Zed expects: [{"name": "model-name", "display_name": "Display Name", "max_tokens": 32768}]
+	modelEntry := map[string]interface{}{
+		"name":         d.codeAgentConfig.Model,
+		"display_name": d.codeAgentConfig.Model, // Use model name as display name
+		"max_tokens":   131072,                  // Default to 128K context
+	}
+
+	// Get existing available_models or create new slice
+	var availableModels []interface{}
+	if existing, ok := providerConfig["available_models"].([]interface{}); ok {
+		availableModels = existing
+	}
+
+	// Check if model already exists
+	modelExists := false
+	for _, m := range availableModels {
+		if model, ok := m.(map[string]interface{}); ok {
+			if model["name"] == d.codeAgentConfig.Model {
+				modelExists = true
+				break
+			}
+		}
+	}
+
+	if !modelExists {
+		availableModels = append(availableModels, modelEntry)
+		providerConfig["available_models"] = availableModels
+		log.Printf("Added %s to available_models for %s provider", d.codeAgentConfig.Model, providerName)
+	}
+}
+
 // injectKoditAuth adds the user's API key to the Kodit context_server's Authorization header.
 // The Kodit MCP server URL is provided by Helix API, but the auth header must use the user's
 // API key (not the runner token) so that the request is authenticated as the user.
@@ -322,11 +379,12 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		"context_servers": config.ContextServers,
 	}
 
-	// Inject API keys before writing settings
+	// Inject API keys and custom models before writing settings
 	d.injectKoditAuth()
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
 		d.injectLanguageModelAPIKey()
+		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
 	}
 	if config.Assistant != nil {
 		d.helixSettings["assistant"] = config.Assistant
@@ -637,9 +695,10 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
 
-		// Inject API keys
+		// Inject API keys and custom models
 		d.injectKoditAuth()
 		d.injectLanguageModelAPIKey()
+		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)
