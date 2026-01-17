@@ -3066,91 +3066,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Unified Connection Status Overlay - single overlay for all connection states */}
-      {/* Suppressed when parent component (ExternalAgentDesktopViewer) is showing its own overlay */}
-      {!suppressOverlay && (!isConnected || isConnecting || error || retryCountdown !== null) && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            textAlign: 'center',
-            gap: 2,
+      {/* Connection Status Overlay */}
+      {!suppressOverlay && (
+        <ConnectionOverlay
+          isConnected={isConnected}
+          isConnecting={isConnecting}
+          error={error}
+          status={status}
+          retryCountdown={retryCountdown}
+          retryAttemptDisplay={retryAttemptDisplay}
+          reconnectClicked={reconnectClicked}
+          onReconnect={() => {
+            setReconnectClicked(true);
+            reconnect(500, 'Reconnecting...');
           }}
-        >
-          {/* Connecting state - spinner with status message */}
-          {isConnecting && (
-            <Box sx={{ color: 'white' }}>
-              <CircularProgress size={40} sx={{ mb: 2 }} />
-              <Typography variant="body1">{status}</Typography>
-            </Box>
-          )}
-
-          {/* Retry countdown - waiting before retry */}
-          {retryCountdown !== null && !isConnecting && (
-            <Alert severity="warning" sx={{ maxWidth: 400 }}>
-              Stream busy (attempt {retryAttemptDisplay}) - retrying in {retryCountdown} second{retryCountdown !== 1 ? 's' : ''}...
-            </Alert>
-          )}
-
-          {/* Disconnected state - no active connection, no error, not connecting */}
-          {!isConnecting && !isConnected && !error && retryCountdown === null && (
-            <>
-              <Typography variant="h6" sx={{ color: 'white' }}>
-                Disconnected
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
-                {status || 'Connection lost'}
-              </Typography>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => {
-                  setReconnectClicked(true);
-                  reconnect(500, 'Reconnecting...');
-                }}
-                disabled={reconnectClicked}
-                startIcon={reconnectClicked ? <CircularProgress size={20} /> : <Refresh />}
-                sx={{ mt: 2 }}
-              >
-                {reconnectClicked ? 'Reconnecting...' : 'Reconnect Now'}
-              </Button>
-            </>
-          )}
-
-          {/* Error state - show error with reconnect option */}
-          {error && retryCountdown === null && !isConnecting && (
-            <Alert
-              severity="error"
-              sx={{ maxWidth: 400 }}
-              action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  disabled={reconnectClicked}
-                  onClick={() => {
-                    setReconnectClicked(true);
-                    setError(null);
-                    reconnect(500, 'Reconnecting...');
-                  }}
-                  startIcon={reconnectClicked ? <CircularProgress size={14} color="inherit" /> : undefined}
-                >
-                  {reconnectClicked ? 'Reconnecting...' : 'Reconnect'}
-                </Button>
-              }
-            >
-              {error}
-            </Alert>
-          )}
-        </Box>
+          onClearError={() => setError(null)}
+        />
       )}
 
       {/* Canvas Element - centered with proper aspect ratio */}
@@ -3371,247 +3302,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Remote user cursors (Figma-style multi-player) */}
-      {Array.from(remoteCursors.entries()).map(([userId, cursor]) => {
-        // Skip our own cursor (we render it separately)
-        // Use both state and ref - state for normal renders, ref as backup for rapid event sequences
-        if (userId === selfClientId || userId === selfClientIdRef.current) {
-          return null;
-        }
-        // Skip idle cursors (no movement for 30 seconds)
-        const isIdle = Date.now() - cursor.lastSeen > 30000;
-        if (isIdle) {
-          return null;
-        }
-        const user = remoteUsers.get(userId);
-        // Use cursor color as fallback if user info isn't available yet
-        // This happens when remoteUserJoined (0x54) events aren't arriving but remoteCursor (0x53) events are
-        if (!user) {
-          console.warn('[DesktopStreamViewer] Rendering cursor without user info (0x54 not received):', { userId, cursorColor: cursor.color });
-        }
-        const displayColor = user?.color || cursor.color || '#0D99FF';
-        const displayName = user?.userName || `User ${userId}`;
+      <RemoteCursorsOverlay
+        cursors={remoteCursors}
+        users={remoteUsers}
+        selfClientId={selfClientId}
+        selfClientIdRef={selfClientIdRef}
+        canvasDisplaySize={canvasDisplaySize}
+        containerSize={containerSize}
+        streamWidth={width}
+        streamHeight={height}
+      />
 
-        // Scale remote cursor from screen coordinates to container-relative coordinates
-        // cursor.x/y are in screen resolution (e.g., 1920x1080)
-        // Need to scale to displayed canvas size and add offset for centered canvas
-        if (!canvasDisplaySize || !containerSize) return null;
-
-        // Use the configured stream resolution (width/height props) as the source dimensions
-        // This is what we requested from the stream and what the backend uses for cursor coordinates
-        // Don't use canvas.width/height as those default to 300x150 before video renders
-        const streamWidth = width;
-        const streamHeight = height;
-
-        // Calculate scale factors
-        const scaleX = canvasDisplaySize.width / streamWidth;
-        const scaleY = canvasDisplaySize.height / streamHeight;
-
-        // Calculate offset (canvas is centered in container)
-        const offsetX = (containerSize.width - canvasDisplaySize.width) / 2;
-        const offsetY = (containerSize.height - canvasDisplaySize.height) / 2;
-
-        // Transform cursor position
-        const displayX = offsetX + cursor.x * scaleX;
-        const displayY = offsetY + cursor.y * scaleY;
-
-
-        return (
-          <Box
-            key={`remote-cursor-${userId}`}
-            sx={{
-              position: 'absolute',
-              left: displayX,
-              top: displayY,
-              pointerEvents: 'none',
-              zIndex: 1001,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              transition: 'left 0.1s ease-out, top 0.1s ease-out',
-              willChange: 'left, top',
-            }}
-          >
-            {/* Cursor - use actual shape if available, otherwise default arrow */}
-            {cursor.cursorImage ? (
-              <Box
-                component="img"
-                src={cursor.cursorImage.imageUrl}
-                sx={{
-                  width: cursor.cursorImage.width,
-                  height: cursor.cursorImage.height,
-                  marginLeft: `-${cursor.cursorImage.hotspotX}px`,
-                  marginTop: `-${cursor.cursorImage.hotspotY}px`,
-                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
-                  pointerEvents: 'none',
-                }}
-              />
-            ) : (
-              <svg
-                width="24"
-                height="24"
-                style={{
-                  color: displayColor,
-                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
-                }}
-              >
-                <defs>
-                  <filter id={`glow-${userId}`} x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-                    <feMerge>
-                      <feMergeNode in="coloredBlur"/>
-                      <feMergeNode in="SourceGraphic"/>
-                    </feMerge>
-                  </filter>
-                </defs>
-                <path
-                  fill="currentColor"
-                  stroke="white"
-                  strokeWidth="1"
-                  d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
-                  filter={`url(#glow-${userId})`}
-                />
-              </svg>
-            )}
-            {/* User name pill */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: displayColor,
-                borderRadius: '12px',
-                padding: '2px 8px 2px 4px',
-                marginLeft: '8px',
-                marginTop: '-4px',
-              }}
-            >
-              {user?.avatarUrl ? (
-                <Box
-                  component="img"
-                  src={user.avatarUrl}
-                  sx={{ width: 20, height: 20, borderRadius: '50%' }}
-                />
-              ) : (
-                <Box
-                  sx={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    backgroundColor: 'rgba(255,255,255,0.3)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    fontWeight: 'bold',
-                    color: 'white',
-                  }}
-                >
-                  {displayName.charAt(0).toUpperCase()}
-                </Box>
-              )}
-              <Typography
-                sx={{
-                  marginLeft: '4px',
-                  color: 'white',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                }}
-              >
-                {displayName}
-              </Typography>
-            </Box>
-          </Box>
-        );
-      })}
-
-      {/* AI Agent cursor - only show if it has been active and not idle for 30s */}
-      {agentCursor && (Date.now() - agentCursor.lastSeen < 30000) && canvasDisplaySize && containerSize && (() => {
-        // Scale agent cursor from screen coordinates to container-relative coordinates
-        // Use configured stream resolution (width/height props), not canvas dimensions
-        const streamWidth = width;
-        const streamHeight = height;
-
-        const scaleX = canvasDisplaySize.width / streamWidth;
-        const scaleY = canvasDisplaySize.height / streamHeight;
-        const offsetX = (containerSize.width - canvasDisplaySize.width) / 2;
-        const offsetY = (containerSize.height - canvasDisplaySize.height) / 2;
-        const displayX = offsetX + agentCursor.x * scaleX;
-        const displayY = offsetY + agentCursor.y * scaleY;
-
-        return (
-        <Box
-          sx={{
-            position: 'absolute',
-            left: displayX,
-            top: displayY,
-            pointerEvents: 'none',
-            zIndex: 1002,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            transition: 'left 0.15s ease-out, top 0.15s ease-out',
-            willChange: 'left, top',
-          }}
-        >
-          {/* Cyan arrow cursor with pulse animation and glow */}
-          <svg
-            width="24"
-            height="24"
-            style={{
-              color: '#00D4FF',
-              filter: 'drop-shadow(0 0 6px #00D4FF) drop-shadow(0 0 12px #00D4FF80)',
-              animation: agentCursor.action !== 'idle' ? 'pulse 0.5s infinite' : 'none',
-            }}
-          >
-            <defs>
-              <filter id="agent-glow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                <feMerge>
-                  <feMergeNode in="coloredBlur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-            </defs>
-            <path
-              fill="currentColor"
-              stroke="white"
-              strokeWidth="1"
-              d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
-              filter="url(#agent-glow)"
-            />
-          </svg>
-          {/* Agent name pill with action indicator */}
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: '#00D4FF',
-              borderRadius: '12px',
-              padding: '2px 8px 2px 4px',
-              marginLeft: '8px',
-              marginTop: '-4px',
-            }}
-          >
-            <Box sx={{ fontSize: 14, marginRight: '4px' }}>🤖</Box>
-            <Typography
-              sx={{
-                color: 'white',
-                fontSize: 12,
-                fontWeight: 500,
-                textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-              }}
-            >
-              AI Agent
-              {agentCursor.action !== 'idle' && (
-                <Box component="span" sx={{ marginLeft: '4px', fontStyle: 'italic' }}>
-                  {agentCursor.action}...
-                </Box>
-              )}
-            </Typography>
-          </Box>
-        </Box>
-        );
-      })()}
+      {/* AI Agent cursor */}
+      <AgentCursorOverlay
+        agentCursor={agentCursor}
+        canvasDisplaySize={canvasDisplaySize}
+        containerSize={containerSize}
+        streamWidth={width}
+        streamHeight={height}
+      />
 
       {/* Remote touch events */}
       {Array.from(remoteTouches.values()).map((touch) => {
@@ -3659,374 +3368,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'screenshot') && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 60,
-            right: 10,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            color: '#00ff00',
-            padding: 2,
-            borderRadius: 1,
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            zIndex: 1500,
-            minWidth: 300,
-            border: '1px solid rgba(0, 255, 0, 0.3)',
-          }}
-        >
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1, color: '#00ff00' }}>
-            📊 Stats for Nerds
-          </Typography>
-
-          <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
-            <div><strong>Transport:</strong> WebSocket</div>
-            {/* Active Connections Registry - shows all active streaming connections */}
-            <div>
-              <strong>Active:</strong>{' '}
-              {activeConnectionsDisplay.length === 0 ? (
-                <span style={{ color: '#888' }}>none</span>
-              ) : (
-                activeConnectionsDisplay.map((c, i) => (
-                  <span key={c.id}>
-                    {i > 0 && ', '}
-                    <span style={{
-                      color: activeConnectionsDisplay.length > 2 ? '#ff6b6b' : '#00ff00'
-                    }}>
-                      {c.type.replace(/-/g, ' ')}
-                    </span>
-                  </span>
-                ))
-              )}
-              {activeConnectionsDisplay.length > 2 && (
-                <span style={{ color: '#ff6b6b' }}> ⚠️ TOO MANY!</span>
-              )}
-            </div>
-            {stats?.video?.codec && (
-              <>
-                <div><strong>Codec:</strong> {stats.video.codec}</div>
-                <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
-                <div><strong>FPS:</strong> {stats.video.fps}</div>
-                <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
-                <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
-                <div>
-                  <strong>Dropped:</strong> {stats.video.framesDropped} frames
-                  {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
-                </div>
-                {/* Latency metrics (WebSocket mode) */}
-                {stats.video.rttMs !== undefined && (
-                  <div>
-                    <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
-                    {stats.video.encoderLatencyMs !== undefined && stats.video.encoderLatencyMs > 0 && (
-                      <>
-                        <span style={{ color: '#888' }}> | Encoder: {stats.video.encoderLatencyMs.toFixed(0)} ms</span>
-                        <span style={{ color: '#888' }}> | Total: {(stats.video.encoderLatencyMs + stats.video.rttMs).toFixed(0)} ms</span>
-                      </>
-                    )}
-                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️</span>}
-                  </div>
-                )}
-                {/* Adaptive input throttling (WebSocket mode) - reduces input rate when RTT is high */}
-                {stats.video.adaptiveThrottleRatio !== undefined && (
-                  <div>
-                    <strong>Input Throttle:</strong> {(stats.video.adaptiveThrottleRatio * 100).toFixed(0)}%
-                    {' '}({stats.video.effectiveInputFps?.toFixed(0) || 0} Hz)
-                    {stats.video.isThrottled && <span style={{ color: '#ff9800' }}> ⚠️ Reduced due to latency</span>}
-                  </div>
-                )}
-                {/* Frame latency - actual delivery delay based on PTS */}
-                {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
-                {/* Hidden in screenshot mode since there's no video stream to measure */}
-                {qualityMode !== 'screenshot' && stats.video.frameLatencyMs !== undefined && (
-                  <div>
-                    <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
-                    {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
-                    {stats.video.frameLatencyMs < -500 && <span style={{ color: '#4caf50' }}> (buffered)</span>}
-                  </div>
-                )}
-                {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
-                {stats.video.decodeQueueSize !== undefined && (
-                  <div>
-                    <strong>Decode Queue:</strong> {stats.video.decodeQueueSize}
-                    {stats.video.maxDecodeQueueSize > 3 && (
-                      <span style={{ color: '#888' }}> (peak: {stats.video.maxDecodeQueueSize})</span>
-                    )}
-                    {stats.video.decodeQueueSize > 3 && <span style={{ color: '#ff6b6b' }}> ⚠️ Backed up</span>}
-                  </div>
-                )}
-                {/* Frames skipped to keyframe (WebSocket mode) - shows when decoder fell behind and skipped ahead */}
-                {stats.video.framesSkippedToKeyframe !== undefined && (
-                  <div>
-                    <strong>Skipped to KF:</strong> {stats.video.framesSkippedToKeyframe} frames
-                    {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> ⏭️</span>}
-                  </div>
-                )}
-              </>
-            )}
-            {/* Input stats (WebSocket mode) - detects TCP send buffer congestion */}
-            {stats?.input && (
-              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
-                <strong style={{ color: '#00ff00' }}>⌨️ Input</strong>
-                <div>
-                  <strong>Send Buffer:</strong> {stats.input.bufferBytes} bytes
-                  {stats.input.maxBufferBytes > 1000 && (
-                    <span style={{ color: '#888' }}> (peak: {(stats.input.maxBufferBytes / 1024).toFixed(1)}KB)</span>
-                  )}
-                  {stats.input.congested && (
-                    <span style={{ color: '#ff6b6b' }}> ⚠️ Stale {stats.input.bufferStaleMs?.toFixed(0)}ms</span>
-                  )}
-                </div>
-                <div>
-                  <strong>Sent:</strong> {stats.input.inputsSent}
-                  {stats.input.inputsDropped > 0 && (
-                    <span style={{ color: '#ff9800' }}> (skipped: {stats.input.inputsDropped})</span>
-                  )}
-                </div>
-                {stats.input.maxSendMs > 1 && (
-                  <div>
-                    <strong>Send Latency:</strong> {stats.input.avgSendMs.toFixed(2)}ms
-                    <span style={{ color: '#888' }}> (peak: {stats.input.maxSendMs.toFixed(1)}ms)</span>
-                    {stats.input.maxSendMs > 5 && <span style={{ color: '#ff6b6b' }}> ⚠️ Blocking</span>}
-                  </div>
-                )}
-                <div>
-                  <strong>Event Loop:</strong> {stats.input.avgEventLoopLatencyMs?.toFixed(1) || 0}ms
-                  {stats.input.maxEventLoopLatencyMs > 10 && (
-                    <span style={{ color: '#888' }}> (peak: {stats.input.maxEventLoopLatencyMs?.toFixed(0)}ms)</span>
-                  )}
-                  {stats.input.maxEventLoopLatencyMs > 50 && <span style={{ color: '#ff6b6b' }}> ⚠️ Main thread blocked</span>}
-                </div>
-              </div>
-            )}
-            {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
-            {/* Debug: Throttle ratio override */}
-            {(
-              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
-                <strong>🔧 Debug: Throttle Override</strong>
-                <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {[null, 1.0, 0.75, 0.5, 0.33, 0.25].map((ratio) => (
-                    <button
-                      key={ratio === null ? 'auto' : ratio}
-                      onClick={() => setDebugThrottleRatio(ratio)}
-                      style={{
-                        padding: '2px 6px',
-                        fontSize: '10px',
-                        background: debugThrottleRatio === ratio ? '#4caf50' : 'rgba(255,255,255,0.1)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: 3,
-                        color: 'white',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {ratio === null ? 'Auto' : `${(ratio * 100).toFixed(0)}%`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Screenshot mode stats */}
-            {shouldPollScreenshots && (
-              <>
-                <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
-                  <strong style={{ color: '#ff9800' }}>📸 Screenshot Mode</strong>
-                </div>
-                <div><strong>FPS:</strong> {screenshotFps} <span style={{ color: '#888' }}>target: ≥2</span></div>
-                <div>
-                  <strong>JPEG Quality:</strong> {screenshotQuality}%
-                  <span style={{ color: '#888' }}> (adaptive 10-90)</span>
-                </div>
-              </>
-            )}
-          </Box>
-        </Box>
+        <StatsOverlay
+          stats={stats}
+          qualityMode={qualityMode}
+          activeConnections={activeConnectionsDisplay}
+          requestedBitrate={requestedBitrate}
+          debugThrottleRatio={debugThrottleRatio}
+          onDebugThrottleRatioChange={setDebugThrottleRatio}
+          shouldPollScreenshots={shouldPollScreenshots}
+          screenshotFps={screenshotFps}
+          screenshotQuality={screenshotQuality}
+        />
       )}
 
       {/* Adaptive Bitrate Charts Panel */}
-      {showCharts && (() => {
-        // Extract ref values for rendering (refs persist across reconnects)
-        const throughputHistory = throughputHistoryRef.current;
-        const rttHistory = rttHistoryRef.current;
-        const bitrateHistory = bitrateHistoryRef.current;
-        const frameDriftHistory = frameDriftHistoryRef.current;
-
-        return (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 60,
-            left: 10,
-            right: 10,
-            backgroundColor: 'rgba(0, 0, 0, 0.95)',
-            borderRadius: 2,
-            border: '1px solid rgba(0, 255, 0, 0.3)',
-            zIndex: 1500,
-            p: 2,
-            maxHeight: '40%',
-            overflow: 'auto',
-          }}
-        >
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 2, color: '#00ff00' }}>
-            📈 Adaptive Bitrate Charts (60s history)
-          </Typography>
-
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {/* Throughput vs Requested Bitrate Chart */}
-            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
-              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
-                Throughput vs Requested Bitrate (Mbps)
-              </Typography>
-              <Box sx={{ height: 150, ...chartContainerStyles }}>
-                {throughputHistory.length > 1 ? (
-                  <LineChart
-                    xAxis={[{
-                      data: throughputHistory.map((_, i) => i - throughputHistory.length + 1),
-                      label: 'Seconds ago',
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    yAxis={[{
-                      min: 0,
-                      max: Math.max(Math.max(...throughputHistory), Math.max(...bitrateHistory), 10) * 1.2,
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    series={[
-                      {
-                        data: bitrateHistory,
-                        label: 'Requested',
-                        color: '#888',
-                        showMark: false,
-                        curve: 'stepAfter',
-                      },
-                      {
-                        data: throughputHistory,
-                        label: 'Actual',
-                        color: '#00ff00',
-                        showMark: false,
-                        curve: 'linear',
-                        area: true,
-                      },
-                    ]}
-                    height={120}
-                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                    grid={{ horizontal: true, vertical: false }}
-                    sx={darkChartStyles}
-                    slotProps={{ legend: chartLegendProps }}
-                  />
-                ) : (
-                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                    Collecting data...
-                  </Box>
-                )}
-              </Box>
-            </Box>
-
-            {/* RTT Chart */}
-            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
-              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
-                Round-Trip Time (ms) - Spikes indicate congestion
-              </Typography>
-              <Box sx={{ height: 150, ...chartContainerStyles }}>
-                {rttHistory.length > 1 ? (
-                  <LineChart
-                    xAxis={[{
-                      data: rttHistory.map((_, i) => i - rttHistory.length + 1),
-                      label: 'Seconds ago',
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    yAxis={[{
-                      min: 0,
-                      max: Math.max(Math.max(...rttHistory), 100) * 1.2,
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    series={[
-                      {
-                        data: rttHistory.map(() => 150), // Threshold line at 150ms
-                        label: 'High Latency Threshold',
-                        color: '#ff9800',
-                        showMark: false,
-                        curve: 'linear',
-                      },
-                      {
-                        data: rttHistory,
-                        label: 'RTT',
-                        color: rttHistory[rttHistory.length - 1] > 150 ? '#ff6b6b' : '#00c8ff',
-                        showMark: false,
-                        curve: 'linear',
-                        area: true,
-                      },
-                    ]}
-                    height={120}
-                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                    grid={{ horizontal: true, vertical: false }}
-                    sx={darkChartStyles}
-                    slotProps={{ legend: chartLegendProps }}
-                  />
-                ) : (
-                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                    Collecting data...
-                  </Box>
-                )}
-              </Box>
-            </Box>
-
-            {/* Frame Drift Chart - key metric for adaptive bitrate decisions */}
-            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
-              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
-                Frame Drift (ms) - Positive = behind, triggers bitrate reduction
-              </Typography>
-              <Box sx={{ height: 150, ...chartContainerStyles }}>
-                {frameDriftHistory.length > 1 ? (
-                  <LineChart
-                    xAxis={[{
-                      data: frameDriftHistory.map((_, i) => i - frameDriftHistory.length + 1),
-                      label: 'Seconds ago',
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    yAxis={[{
-                      min: Math.min(Math.min(...frameDriftHistory), -100) * 1.2,
-                      max: Math.max(Math.max(...frameDriftHistory), 300) * 1.2,
-                      labelStyle: axisLabelStyle,
-                    }]}
-                    series={[
-                      {
-                        data: frameDriftHistory.map(() => 200), // Threshold line at 200ms
-                        label: 'Reduction Threshold',
-                        color: '#ff6b6b',
-                        showMark: false,
-                        curve: 'linear',
-                      },
-                      {
-                        data: frameDriftHistory.map(() => 0), // Zero line
-                        label: 'On Time',
-                        color: '#4caf50',
-                        showMark: false,
-                        curve: 'linear',
-                      },
-                      {
-                        data: frameDriftHistory,
-                        label: 'Frame Drift',
-                        color: frameDriftHistory[frameDriftHistory.length - 1] > 200 ? '#ff6b6b' : '#00c8ff',
-                        showMark: false,
-                        curve: 'linear',
-                        area: true,
-                      },
-                    ]}
-                    height={120}
-                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                    grid={{ horizontal: true, vertical: false }}
-                    sx={darkChartStyles}
-                    slotProps={{ legend: chartLegendProps }}
-                  />
-                ) : (
-                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                    Collecting data...
-                  </Box>
-                )}
-              </Box>
-            </Box>
-          </Box>
-        </Box>
-        );
-      })()}
+      {showCharts && (
+        <ChartsPanel
+          throughputHistory={throughputHistoryRef.current}
+          rttHistory={rttHistoryRef.current}
+          bitrateHistory={bitrateHistoryRef.current}
+          frameDriftHistory={frameDriftHistoryRef.current}
+        />
+      )}
 
 
       {/* Clipboard Toast Notification */}
