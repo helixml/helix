@@ -138,18 +138,37 @@ static void on_stream_process(void *data) {
     PwCursorClient *client = (PwCursorClient *)data;
     struct pw_buffer *b;
 
+    static int process_count = 0;
+    process_count++;
+    if (process_count <= 5 || process_count % 100 == 0) {
+        fprintf(stderr, "[CURSOR_CLIENT] process callback #%d\n", process_count);
+    }
+
     if ((b = pw_stream_dequeue_buffer(client->stream)) == NULL) {
+        if (process_count <= 5) {
+            fprintf(stderr, "[CURSOR_CLIENT] dequeue_buffer returned NULL\n");
+        }
         return;
     }
 
     CursorInfo info;
     int result = extract_cursor_from_buffer(b->buffer, &info);
 
+    if (process_count <= 5) {
+        fprintf(stderr, "[CURSOR_CLIENT] extract_cursor result=%d id=%u pos=(%d,%d)\n",
+            result, info.id, info.position_x, info.position_y);
+    }
+
     if (result == 0) {
         // Check if cursor changed
         uint64_t hash = cursor_hash(&info);
         if (hash != client->last_cursor_hash) {
             client->last_cursor_hash = hash;
+
+            fprintf(stderr, "[CURSOR_CLIENT] cursor changed: id=%u pos=(%d,%d) hotspot=(%d,%d) bitmap=%ux%u\n",
+                info.id, info.position_x, info.position_y,
+                info.hotspot_x, info.hotspot_y,
+                info.bitmap_width, info.bitmap_height);
 
             // Call callback
             if (client->cursor_callback) {
@@ -170,6 +189,11 @@ static void on_stream_state_changed(void *data, enum pw_stream_state old,
                                      enum pw_stream_state state, const char *error) {
     PwCursorClient *client = (PwCursorClient *)data;
 
+    const char *state_names[] = {"error", "unconnected", "connecting", "paused", "streaming"};
+    const char *old_name = (old >= 0 && old <= 4) ? state_names[old] : "unknown";
+    const char *new_name = (state >= 0 && state <= 4) ? state_names[state] : "unknown";
+    fprintf(stderr, "[CURSOR_CLIENT] state: %s -> %s\n", old_name, new_name);
+
     if (state == PW_STREAM_STATE_ERROR) {
         fprintf(stderr, "[CURSOR_CLIENT] stream error: %s\n", error ? error : "unknown");
         client->running = 0;
@@ -181,55 +205,57 @@ static void on_stream_state_changed(void *data, enum pw_stream_state old,
 static void on_stream_param_changed(void *data, uint32_t id, const struct spa_pod *param) {
     PwCursorClient *client = (PwCursorClient *)data;
 
+    fprintf(stderr, "[CURSOR_CLIENT] param_changed: id=%u has_param=%d\n", id, param != NULL);
+
     if (param == NULL || id != SPA_PARAM_Format) {
         return;
     }
 
     // Handle Format (id=4) - final negotiated format
-    if (id == SPA_PARAM_Format) {
+    fprintf(stderr, "[CURSOR_CLIENT] received Format param, requesting cursor metadata\n");
 
-        // Request cursor metadata and buffer types
-        uint8_t buffer[2048];
-        struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    // Request cursor metadata and buffer types
+    uint8_t buffer[2048];
+    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
 
-        // Request both SHM and DmaBuf buffer types
-        // This matches what gnome-remote-desktop and OBS do
-        uint32_t buffer_types = (1 << SPA_DATA_MemFd) | (1 << SPA_DATA_DmaBuf);
+    // Request both SHM and DmaBuf buffer types
+    // This matches what gnome-remote-desktop and OBS do
+    uint32_t buffer_types = (1 << SPA_DATA_MemFd) | (1 << SPA_DATA_DmaBuf);
 
-        // Cursor metadata size calculation (must match Mutter's CURSOR_META_SIZE macro)
-        // sizeof(spa_meta_cursor) = 28, sizeof(spa_meta_bitmap) = 20
-        #define CURSOR_META_SIZE(w, h) (28 + 20 + (w) * (h) * 4)
+    // Cursor metadata size calculation (must match Mutter's CURSOR_META_SIZE macro)
+    // sizeof(spa_meta_cursor) = 28, sizeof(spa_meta_bitmap) = 20
+    #define CURSOR_META_SIZE(w, h) (28 + 20 + (w) * (h) * 4)
 
-        const struct spa_pod *params[3];
+    const struct spa_pod *params[3];
 
-        // 1. Buffer types param (with 0 terminator for varargs)
-        params[0] = spa_pod_builder_add_object(&b,
-            SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
-            SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(8, 2, 8),
-            SPA_PARAM_BUFFERS_dataType, SPA_POD_Int(buffer_types),
-            0);
+    // 1. Buffer types param (with 0 terminator for varargs)
+    params[0] = spa_pod_builder_add_object(&b,
+        SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+        SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(8, 2, 8),
+        SPA_PARAM_BUFFERS_dataType, SPA_POD_Int(buffer_types),
+        0);
 
-        // 2. Header metadata (grd also requests this)
-        params[1] = spa_pod_builder_add_object(&b,
-            SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-            SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
-            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)),
-            0);
+    // 2. Header metadata (grd also requests this)
+    params[1] = spa_pod_builder_add_object(&b,
+        SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+        SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)),
+        0);
 
-        // 3. Cursor metadata with enough space for cursor bitmap (384x384 to match Mutter)
-        // gnome-remote-desktop uses CURSOR_META_SIZE(384, 384) as default
-        params[2] = spa_pod_builder_add_object(&b,
-            SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-            SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
-            SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
-                CURSOR_META_SIZE(384, 384),  // Default: 384x384 cursor (matches Mutter)
-                CURSOR_META_SIZE(1, 1),      // Min: 1x1 cursor
-                CURSOR_META_SIZE(384, 384)   // Max: 384x384 cursor
-            ),
-            0);
+    // 3. Cursor metadata with enough space for cursor bitmap (384x384 to match Mutter)
+    // gnome-remote-desktop uses CURSOR_META_SIZE(384, 384) as default
+    params[2] = spa_pod_builder_add_object(&b,
+        SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
+        SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
+            CURSOR_META_SIZE(384, 384),  // Default: 384x384 cursor (matches Mutter)
+            CURSOR_META_SIZE(1, 1),      // Min: 1x1 cursor
+            CURSOR_META_SIZE(384, 384)   // Max: 384x384 cursor
+        ),
+        0);
 
-        pw_stream_update_params(client->stream, params, 3);
-    }
+    pw_stream_update_params(client->stream, params, 3);
+    fprintf(stderr, "[CURSOR_CLIENT] update_params called with 3 params (Buffers, Header, Cursor meta)\n");
 }
 
 // Create a new PipeWire cursor client
