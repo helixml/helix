@@ -29,6 +29,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer-plugins-base1.0-dev \
     libgstreamer-plugins-bad1.0-dev \
     libxkbcommon-dev \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libwayland-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 

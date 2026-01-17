@@ -148,6 +148,100 @@ func (s *Server) createSession(ctx context.Context) error {
 	s.scStreamPath = streamPath
 	s.logger.Info("stream created (cursor as metadata for client-side rendering)", "path", streamPath)
 
+	// Create a SEPARATE RemoteDesktop + ScreenCast session for cursor monitoring
+	// GNOME only allows ONE linked ScreenCast per RemoteDesktop, so we need a second RD session
+	// This second RD session is read-only (no input injection) - just for cursor metadata
+	s.logger.Info("creating second RemoteDesktop session for CURSOR monitoring...")
+	var cursorRdSessionPath dbus.ObjectPath
+	if err := rdObj.Call(remoteDesktopIface+".CreateSession", 0).Store(&cursorRdSessionPath); err != nil {
+		s.logger.Warn("failed to create cursor RemoteDesktop session", "err", err)
+		// Non-fatal - cursor monitoring won't work but video will
+	} else {
+		s.logger.Info("cursor RemoteDesktop session created", "path", cursorRdSessionPath)
+
+		// Get session ID for linking
+		cursorRdSession := s.conn.Object(remoteDesktopBus, cursorRdSessionPath)
+		var cursorSessionID string
+		var cursorSessionIDVariant dbus.Variant
+		if err := cursorRdSession.Call("org.freedesktop.DBus.Properties.Get", 0,
+			remoteDesktopSessionIface, "SessionId").Store(&cursorSessionIDVariant); err != nil {
+			// Fallback: Extract from path
+			cursorSessionID = string(cursorRdSessionPath)
+			if idx := strings.LastIndex(cursorSessionID, "/"); idx >= 0 {
+				cursorSessionID = cursorSessionID[idx+1:]
+			}
+		} else {
+			cursorSessionID = cursorSessionIDVariant.Value().(string)
+		}
+
+		// Create linked ScreenCast session for cursor
+		cursorOptions := map[string]dbus.Variant{
+			"remote-desktop-session-id": dbus.MakeVariant(cursorSessionID),
+		}
+		var cursorScSessionPath dbus.ObjectPath
+		if err := scObj.Call(screenCastIface+".CreateSession", 0, cursorOptions).Store(&cursorScSessionPath); err != nil {
+			s.logger.Warn("failed to create cursor linked ScreenCast session", "err", err)
+		} else {
+			s.cursorScSessionPath = cursorScSessionPath
+			s.logger.Info("cursor linked ScreenCast session created", "path", cursorScSessionPath)
+
+			// Record on cursor session with cursor-mode=2
+			cursorScSession := s.conn.Object(screenCastBus, cursorScSessionPath)
+			cursorRecordOptions := map[string]dbus.Variant{
+				"cursor-mode": dbus.MakeVariant(uint32(2)), // Metadata
+			}
+			var cursorStreamPath dbus.ObjectPath
+			if err := cursorScSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", cursorRecordOptions).Store(&cursorStreamPath); err != nil {
+				s.logger.Warn("failed to record on cursor session", "err", err)
+				s.cursorScSessionPath = "" // Clear so we don't try to use it
+			} else {
+				s.cursorScStreamPath = cursorStreamPath
+				s.logger.Info("cursor stream created (cursor as metadata)", "path", cursorStreamPath)
+
+				// Subscribe to cursor stream signal
+				if err := s.conn.AddMatchSignal(
+					dbus.WithMatchObjectPath(cursorStreamPath),
+					dbus.WithMatchInterface(screenCastStreamIface),
+					dbus.WithMatchMember("PipeWireStreamAdded"),
+				); err != nil {
+					s.logger.Warn("failed to add cursor signal match", "err", err)
+				} else {
+					// Start the cursor RemoteDesktop session immediately
+					// (independent of main session - just for cursor monitoring)
+					s.logger.Info("starting cursor RemoteDesktop session...")
+					if err := cursorRdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
+						s.logger.Warn("failed to start cursor RemoteDesktop session", "err", err)
+						s.cursorScStreamPath = "" // Clear so we don't try to use it
+					} else {
+						// Wait for cursor PipeWireStreamAdded signal (with short timeout)
+						cursorSignalChan := make(chan *dbus.Signal, 5)
+						s.conn.Signal(cursorSignalChan)
+						cursorTimeout := time.After(5 * time.Second)
+					cursorWait:
+						for {
+							select {
+							case sig := <-cursorSignalChan:
+								if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" &&
+									sig.Path == cursorStreamPath && len(sig.Body) > 0 {
+									if nodeID, ok := sig.Body[0].(uint32); ok {
+										s.cursorNodeID = nodeID
+										s.logger.Info("cursor PipeWireStreamAdded received",
+											"cursor_node_id", nodeID)
+										break cursorWait
+									}
+								}
+							case <-cursorTimeout:
+								s.logger.Warn("timeout waiting for cursor PipeWireStreamAdded signal")
+								break cursorWait
+							}
+						}
+						s.conn.RemoveSignal(cursorSignalChan)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -377,11 +471,12 @@ func (s *Server) createVideoSession(ctx context.Context) error {
 	}
 }
 
-// startSession starts the session and waits for PipeWire node ID.
+// startSession starts the main session and waits for PipeWire node ID.
+// Note: The cursor session is started separately in createSession.
 func (s *Server) startSession(ctx context.Context) error {
 	s.logger.Info("setting up PipeWireStreamAdded signal handler...")
 
-	// Subscribe to signals
+	// Subscribe to signals for main video stream
 	if err := s.conn.AddMatchSignal(
 		dbus.WithMatchObjectPath(s.scStreamPath),
 		dbus.WithMatchInterface(screenCastStreamIface),
@@ -393,7 +488,7 @@ func (s *Server) startSession(ctx context.Context) error {
 	signalChan := make(chan *dbus.Signal, 10)
 	s.conn.Signal(signalChan)
 
-	// Start the RemoteDesktop session - this also starts the linked ScreenCast
+	// Start the RemoteDesktop session - this also starts the linked ScreenCast session
 	s.logger.Info("starting RemoteDesktop session (linked mode)...")
 	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 	if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
@@ -401,17 +496,18 @@ func (s *Server) startSession(ctx context.Context) error {
 	}
 	s.logger.Info("session started, waiting for PipeWireStreamAdded signal...")
 
-	// Wait for signal with timeout
+	// Wait for video signal with timeout
 	timeout := time.After(10 * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case sig := <-signalChan:
-			if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" && len(sig.Body) > 0 {
+			if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" &&
+				sig.Path == s.scStreamPath && len(sig.Body) > 0 {
 				if nodeID, ok := sig.Body[0].(uint32); ok {
 					s.nodeID = nodeID
-					s.logger.Info("received PipeWireStreamAdded signal", "node_id", nodeID)
+					s.logger.Info("received video PipeWireStreamAdded signal", "node_id", nodeID)
 
 					// Save node ID to file for compatibility
 					if err := os.WriteFile("/tmp/pipewire-node-id", []byte(fmt.Sprintf("%d", nodeID)), 0644); err != nil {
@@ -421,7 +517,7 @@ func (s *Server) startSession(ctx context.Context) error {
 				}
 			}
 		case <-timeout:
-			return fmt.Errorf("timeout waiting for PipeWireStreamAdded signal")
+			return fmt.Errorf("timeout waiting for video PipeWireStreamAdded signal")
 		}
 	}
 }

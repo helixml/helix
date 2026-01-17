@@ -27,39 +27,6 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-/// Cursor data extracted from PipeWire SPA_META_Cursor metadata.
-/// This is sent when cursor-mode=2 (Metadata) in ScreenCast.
-#[derive(Debug, Clone)]
-pub struct CursorData {
-    /// Cursor ID (usually 0 for default cursor)
-    pub id: u32,
-    /// Cursor flags
-    pub flags: u32,
-    /// Cursor position relative to video frame origin (pixels)
-    pub position_x: i32,
-    pub position_y: i32,
-    /// Hotspot offset within the cursor image (pixels)
-    pub hotspot_x: i32,
-    pub hotspot_y: i32,
-    /// Cursor bitmap (None if cursor is invisible or unchanged)
-    pub bitmap: Option<CursorBitmap>,
-}
-
-/// Cursor bitmap image data
-#[derive(Debug, Clone)]
-pub struct CursorBitmap {
-    /// DRM fourcc format (e.g., ARGB8888)
-    pub format: u32,
-    /// Bitmap width in pixels
-    pub width: u32,
-    /// Bitmap height in pixels
-    pub height: u32,
-    /// Stride in bytes
-    pub stride: i32,
-    /// Raw pixel data (ARGB8888 format typically)
-    pub data: Vec<u8>,
-}
-
 /// Frame received from PipeWire
 pub enum FrameData {
     /// DMA-BUF frame (zero-copy) - directly usable with waylanddisplaycore
@@ -67,8 +34,6 @@ pub enum FrameData {
     DmaBuf {
         dmabuf: Dmabuf,
         pts_ns: i64,
-        /// Cursor metadata (only present when cursor-mode=2 Metadata)
-        cursor: Option<CursorData>,
     },
     /// SHM fallback
     /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
@@ -79,8 +44,6 @@ pub enum FrameData {
         stride: u32,
         format: u32,
         pts_ns: i64,
-        /// Cursor metadata (only present when cursor-mode=2 Metadata)
-        cursor: Option<CursorData>,
     },
 }
 
@@ -318,248 +281,6 @@ unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
         meta_ptr = meta_ptr.wrapping_add(1);
     }
     0
-}
-
-/// SPA_META_Cursor type constant (from spa/buffer/meta.h)
-const SPA_META_CURSOR: u32 = 5;
-
-/// Extract cursor metadata from PipeWire buffer's spa_meta_cursor.
-/// This is sent when cursor-mode=2 (Metadata) is set in ScreenCast.
-///
-/// The spa_meta_cursor structure layout (from PipeWire spa/buffer/meta.h):
-/// ```c
-/// struct spa_meta_cursor {
-///     uint32_t id;           // cursor id
-///     uint32_t flags;        // cursor flags
-///     struct spa_point position;  // x, y as int32_t (8 bytes)
-///     struct spa_point hotspot;   // x, y as int32_t (8 bytes)
-///     uint32_t bitmap_offset;    // offset to bitmap (0 = no bitmap)
-/// };  // Total: 28 bytes
-///
-/// struct spa_meta_bitmap {
-///     uint32_t format;       // spa_video_format
-///     struct spa_rectangle size; // width, height as uint32_t (8 bytes)
-///     int32_t stride;
-///     uint32_t offset;       // offset to pixel data
-/// };  // Total: 20 bytes
-/// ```
-///
-/// # Safety
-/// The buffer pointer must be valid and point to a spa_buffer.
-unsafe fn extract_cursor_from_buffer(buffer: *mut spa_buffer) -> Option<CursorData> {
-    if buffer.is_null() {
-        return None;
-    }
-    let n_metas = (*buffer).n_metas;
-    if n_metas == 0 {
-        return None;
-    }
-
-    let mut meta_ptr: *mut spa_meta = (*buffer).metas;
-    let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
-
-    while meta_ptr != metas_end {
-        if (*meta_ptr).type_ == SPA_META_CURSOR {
-            let data_ptr = (*meta_ptr).data as *const u8;
-            let meta_size = (*meta_ptr).size;
-
-            // spa_meta_cursor is 28 bytes minimum
-            if meta_size < 28 {
-                meta_ptr = meta_ptr.wrapping_add(1);
-                continue;
-            }
-
-            // Parse spa_meta_cursor fields
-            // Offsets: id(0), flags(4), position.x(8), position.y(12),
-            //          hotspot.x(16), hotspot.y(20), bitmap_offset(24)
-            let id = *(data_ptr as *const u32);
-            let flags = *(data_ptr.add(4) as *const u32);
-            let position_x = *(data_ptr.add(8) as *const i32);
-            let position_y = *(data_ptr.add(12) as *const i32);
-            let hotspot_x = *(data_ptr.add(16) as *const i32);
-            let hotspot_y = *(data_ptr.add(20) as *const i32);
-            let bitmap_offset = *(data_ptr.add(24) as *const u32);
-
-            // Check if there's a valid bitmap
-            // bitmap_offset >= sizeof(spa_meta_cursor) (28) means there's bitmap data
-            let bitmap = if bitmap_offset >= 28 && (bitmap_offset as usize) + 20 <= meta_size as usize {
-                // spa_meta_bitmap is at data_ptr + bitmap_offset
-                let bitmap_ptr = data_ptr.add(bitmap_offset as usize);
-
-                // Parse spa_meta_bitmap fields
-                // Offsets: format(0), size.width(4), size.height(8), stride(12), offset(16)
-                let format = *(bitmap_ptr as *const u32);
-                let width = *(bitmap_ptr.add(4) as *const u32);
-                let height = *(bitmap_ptr.add(8) as *const u32);
-                let stride = *(bitmap_ptr.add(12) as *const i32);
-                let pixel_offset = *(bitmap_ptr.add(16) as *const u32);
-
-                // Validate format (0 = invalid, no new bitmap)
-                if format == 0 || width == 0 || height == 0 {
-                    None
-                } else {
-                    // Calculate pixel data size and location
-                    let pixel_data_start = bitmap_ptr.add(pixel_offset as usize);
-                    let pixel_data_size = (stride.abs() as u32 * height) as usize;
-
-                    // Bounds check
-                    let total_offset = bitmap_offset as usize + pixel_offset as usize + pixel_data_size;
-                    if total_offset <= meta_size as usize {
-                        // Copy pixel data
-                        let data = std::slice::from_raw_parts(pixel_data_start, pixel_data_size).to_vec();
-
-                        // Convert SPA video format to DRM fourcc for consistency
-                        // SPA formats map to DRM fourcc codes
-                        let drm_format = spa_video_format_to_drm_fourcc_raw(format);
-
-                        Some(CursorBitmap {
-                            format: drm_format,
-                            width,
-                            height,
-                            stride,
-                            data,
-                        })
-                    } else {
-                        eprintln!("[PIPEWIRE_DEBUG] Cursor bitmap bounds check failed: offset {} + size {} > meta_size {}",
-                            bitmap_offset as usize + pixel_offset as usize, pixel_data_size, meta_size);
-                        None
-                    }
-                }
-            } else {
-                // No bitmap or cursor is invisible
-                None
-            };
-
-            // Log cursor metadata (first time and periodically)
-            static CURSOR_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let count = CURSOR_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count == 0 || count % 100 == 0 {
-                eprintln!("[PIPEWIRE_DEBUG] Cursor metadata #{}: pos=({},{}) hotspot=({},{}) bitmap={:?}",
-                    count, position_x, position_y, hotspot_x, hotspot_y,
-                    bitmap.as_ref().map(|b| format!("{}x{} fmt=0x{:x}", b.width, b.height, b.format)));
-            }
-
-            let cursor_data = CursorData {
-                id,
-                flags,
-                position_x,
-                position_y,
-                hotspot_x,
-                hotspot_y,
-                bitmap,
-            };
-
-            // Write cursor data to file for IPC with Go WebSocket handler
-            // Only write when cursor changes (position or bitmap)
-            write_cursor_to_file(&cursor_data);
-
-            return Some(cursor_data);
-        }
-        meta_ptr = meta_ptr.wrapping_add(1);
-    }
-
-    None
-}
-
-/// Write cursor data to a file for IPC with Go WebSocket handler.
-/// Uses atomic write (write to temp, then rename) for consistency.
-/// Only writes when cursor has changed from last write.
-fn write_cursor_to_file(cursor: &CursorData) {
-    use std::io::Write;
-
-    // Track last cursor state to avoid redundant writes
-    static LAST_CURSOR_HASH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-    // Simple hash of cursor state (position + bitmap presence)
-    let cursor_hash = {
-        let mut h: u64 = cursor.position_x as u64;
-        h = h.wrapping_mul(31).wrapping_add(cursor.position_y as u64);
-        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_x as u64);
-        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_y as u64);
-        h = h.wrapping_mul(31).wrapping_add(cursor.id as u64);
-        if let Some(ref bmp) = cursor.bitmap {
-            h = h.wrapping_mul(31).wrapping_add(bmp.width as u64);
-            h = h.wrapping_mul(31).wrapping_add(bmp.height as u64);
-            // Include first few bytes of bitmap for change detection
-            if bmp.data.len() >= 4 {
-                h = h.wrapping_mul(31).wrapping_add(u32::from_le_bytes([bmp.data[0], bmp.data[1], bmp.data[2], bmp.data[3]]) as u64);
-            }
-        }
-        h
-    };
-
-    // Only write if cursor state changed
-    let last_hash = LAST_CURSOR_HASH.swap(cursor_hash, std::sync::atomic::Ordering::Relaxed);
-    if cursor_hash == last_hash {
-        return;
-    }
-
-    // Binary format for cursor data:
-    // Header (28 bytes):
-    //   magic: u32 = 0x43555253 ("CURS")
-    //   version: u32 = 1
-    //   position_x: i32
-    //   position_y: i32
-    //   hotspot_x: i32
-    //   hotspot_y: i32
-    //   bitmap_size: u32 (0 if no bitmap)
-    // If bitmap_size > 0:
-    //   format: u32 (DRM fourcc)
-    //   width: u32
-    //   height: u32
-    //   stride: i32
-    //   pixel_data: [u8; stride * height]
-
-    let bitmap_header_size = if cursor.bitmap.is_some() { 16 } else { 0 }; // format + width + height + stride
-    let bitmap_data_size = cursor.bitmap.as_ref().map(|b| b.data.len()).unwrap_or(0);
-    let total_size = 28 + bitmap_header_size + bitmap_data_size;
-
-    let mut buf = Vec::with_capacity(total_size);
-
-    // Header
-    buf.extend_from_slice(&0x43555253u32.to_le_bytes()); // magic "CURS"
-    buf.extend_from_slice(&1u32.to_le_bytes()); // version
-    buf.extend_from_slice(&cursor.position_x.to_le_bytes());
-    buf.extend_from_slice(&cursor.position_y.to_le_bytes());
-    buf.extend_from_slice(&cursor.hotspot_x.to_le_bytes());
-    buf.extend_from_slice(&cursor.hotspot_y.to_le_bytes());
-    buf.extend_from_slice(&((bitmap_header_size + bitmap_data_size) as u32).to_le_bytes());
-
-    // Bitmap (if present)
-    if let Some(ref bmp) = cursor.bitmap {
-        buf.extend_from_slice(&bmp.format.to_le_bytes());
-        buf.extend_from_slice(&bmp.width.to_le_bytes());
-        buf.extend_from_slice(&bmp.height.to_le_bytes());
-        buf.extend_from_slice(&bmp.stride.to_le_bytes());
-        buf.extend_from_slice(&bmp.data);
-    }
-
-    // Write atomically: write to temp file, then rename
-    let cursor_path = "/tmp/helix-cursor.bin";
-    let temp_path = "/tmp/helix-cursor.bin.tmp";
-
-    if let Ok(mut file) = std::fs::File::create(temp_path) {
-        if file.write_all(&buf).is_ok() {
-            let _ = std::fs::rename(temp_path, cursor_path);
-        }
-    }
-}
-
-/// Convert raw SPA video format ID to DRM fourcc code
-fn spa_video_format_to_drm_fourcc_raw(format: u32) -> u32 {
-    // SPA format enum values from pipewire spa/param/video/format.h
-    // Match the most common cursor formats
-    match format {
-        // ARGB8888 variants (common for cursors with alpha)
-        7 => 0x34325241,  // SPA_VIDEO_FORMAT_ARGB -> AR24
-        8 => 0x34324241,  // SPA_VIDEO_FORMAT_ABGR -> AB24
-        12 => 0x34324142, // SPA_VIDEO_FORMAT_BGRA -> BA24
-        14 => 0x34324152, // SPA_VIDEO_FORMAT_RGBA -> RA24
-        // Other common formats
-        5 => 0x34325842,  // SPA_VIDEO_FORMAT_BGRx -> BX24
-        6 => 0x34325852,  // SPA_VIDEO_FORMAT_RGBx -> RX24
-        _ => format,      // Pass through unknown formats
-    }
 }
 
 fn run_pipewire_loop(
@@ -901,9 +622,6 @@ fn run_pipewire_loop(
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
 
-            // Extract cursor metadata (when cursor-mode=2 Metadata)
-            let cursor = unsafe { extract_cursor_from_buffer(spa_buffer) };
-
             // Get datas from spa_buffer
             let n_datas = unsafe { (*spa_buffer).n_datas };
             if n_datas == 0 {
@@ -920,7 +638,7 @@ fn run_pipewire_loop(
             };
 
             let params = video_info.lock().clone();
-            if let Some(frame) = extract_frame(datas, &params, pts_ns, cursor) {
+            if let Some(frame) = extract_frame(datas, &params, pts_ns) {
                 let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
 
                 // Log first frame with PTS
@@ -1053,7 +771,8 @@ pub fn spa_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32 {
 }
 
 /// Build negotiation params like pipewiresrc does in on_stream_param_changed().
-/// Returns a list of param byte buffers: [VideoCrop, Cursor, Buffers, Header]
+/// Returns a list of param byte buffers: [VideoCrop, Buffers, Header]
+/// Note: Cursor metadata is handled by Go-side clients, not by this plugin.
 ///
 /// NOTE: We do NOT include a Format param here. pipewiresrc doesn't send Format
 /// in update_params - it only sends Buffers + Meta params. Including Format
@@ -1090,7 +809,9 @@ fn build_negotiation_params(
     // Meta types from spa/buffer/meta.h
     const SPA_META_HEADER: u32 = 1; // struct spa_meta_header (24 bytes)
     const SPA_META_VIDEOCROP: u32 = 2; // struct spa_meta_region (16 bytes)
-    const SPA_META_CURSOR: u32 = 5; // struct spa_meta_cursor + bitmap
+    // Note: Cursor metadata (SPA_META_CURSOR) is handled by Go-side PipeWire/Wayland clients,
+    // not by this Rust plugin. This simplifies the architecture - Rust handles video frames,
+    // Go handles cursor position/bitmap extraction.
 
     // Sizes
     const SPA_META_HEADER_SIZE: i32 = 24; // sizeof(struct spa_meta_header)
@@ -1100,12 +821,6 @@ fn build_negotiation_params(
         "[PIPEWIRE_DEBUG] build_negotiation_params: {}x{} use_dmabuf={}",
         width, height, use_dmabuf
     );
-
-    // Cursor meta size: sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + pixels
-    // OBS uses CURSOR_META_SIZE(64, 64) as default = 24 + 20 + 64*64*4 = 16428
-    const CURSOR_META_SIZE_64: i32 = 16428;
-    const CURSOR_META_SIZE_1: i32 = 48; // minimum
-    const CURSOR_META_SIZE_1024: i32 = 4194348; // maximum
 
     // 1. VideoCrop meta (like OBS)
     let videocrop_obj = Object {
@@ -1130,38 +845,7 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
     }
 
-    // 2. Cursor meta with size range (like OBS)
-    let cursor_size_choice = Choice(
-        ChoiceFlags::empty(),
-        ChoiceEnum::Range {
-            default: CURSOR_META_SIZE_64,
-            min: CURSOR_META_SIZE_1,
-            max: CURSOR_META_SIZE_1024,
-        },
-    );
-    let cursor_obj = Object {
-        type_: SpaTypes::ObjectParamMeta.as_raw(),
-        id: ParamType::Meta.as_raw(),
-        properties: vec![
-            Property {
-                key: SPA_PARAM_META_TYPE,
-                flags: PropertyFlags::empty(),
-                value: Value::Id(Id(SPA_META_CURSOR)),
-            },
-            Property {
-                key: SPA_PARAM_META_SIZE,
-                flags: PropertyFlags::empty(),
-                value: Value::Choice(ChoiceValue::Int(cursor_size_choice)),
-            },
-        ],
-    };
-    if let Ok((cursor, _)) =
-        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_obj))
-    {
-        params.push(cursor.into_inner());
-    }
-
-    // 3. Buffers param - ONLY dataType (like gnome-remote-desktop)
+    // 2. Buffers param - ONLY dataType (like gnome-remote-desktop)
     //
     // CRITICAL: gnome-remote-desktop's add_param_buffers_param() ONLY includes dataType:
     //   params[(*n_params)++] = spa_pod_builder_add_object(pod_builder,
@@ -1239,7 +923,7 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
     }
 
-    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Cursor + Buffers[dataType=0x{:x}] + Header) - NO Format",
+    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Buffers[dataType=0x{:x}] + Header) - NO Format",
         params.len(), buffer_types);
     params
 }
@@ -2105,7 +1789,6 @@ fn extract_frame(
     datas: &mut [pipewire::spa::buffer::Data],
     params: &VideoParams,
     pts_ns: i64,
-    cursor: Option<CursorData>,
 ) -> Option<FrameData> {
     // Get chunk info from first element before we need mutable access
     let (size, stride, data_type, fd, offset) = {
@@ -2202,7 +1885,7 @@ fn extract_frame(
 
         if let Some(dmabuf) = builder.build() {
             tracing::debug!("DMA-BUF frame: {}x{} pts_ns={}", width, height, pts_ns);
-            return Some(FrameData::DmaBuf { dmabuf, pts_ns, cursor });
+            return Some(FrameData::DmaBuf { dmabuf, pts_ns });
         }
     }
 
@@ -2248,7 +1931,6 @@ fn extract_frame(
                 stride: stride as u32,
                 format: params.format,
                 pts_ns,
-                cursor,
             });
         } else {
             // data() returned None - buffer not mapped!

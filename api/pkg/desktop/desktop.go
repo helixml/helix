@@ -58,6 +58,15 @@ type Server struct {
 	videoScStreamPath  dbus.ObjectPath
 	videoNodeID        uint32
 
+	// Cursor-only ScreenCast session for cursor monitoring
+	// This is a dedicated session that only the cursor client consumes.
+	// GNOME doesn't allow multiple PipeWire consumers on the same node, so we need
+	// a separate session to monitor cursor without conflicting with the video stream.
+	// This session has cursor-mode=2 (Metadata) for client-side cursor rendering.
+	cursorScSessionPath dbus.ObjectPath
+	cursorScStreamPath  dbus.ObjectPath
+	cursorNodeID        uint32
+
 	// Portal session state (for Sway/wlroots via xdg-desktop-portal-wlr)
 	portalSessionHandle   string // ScreenCast session handle
 	portalRDSessionHandle string // RemoteDesktop session handle (optional)
@@ -243,19 +252,29 @@ func (s *Server) Run(ctx context.Context) error {
 				"cursor_node_id", s.ssNodeID)
 		}
 
+		// 10. Cursor session is already created as part of createSession/startSession
+		// It's a second linked ScreenCast session that gives us our own PipeWire node for cursor
+		if s.cursorNodeID != 0 {
+			s.logger.Info("cursor session ready (linked)",
+				"cursor_node_id", s.cursorNodeID,
+				"video_node_id", s.nodeID)
+		} else {
+			s.logger.Warn("cursor session not available, cursor monitoring disabled")
+		}
+
 		// Mark as running BEFORE starting goroutines that check isRunning()
 		// CRITICAL: This fixes a race condition where input bridge would exit
 		// immediately because s.running was false when the goroutine started.
 		s.running.Store(true)
 
-		// 10. Start input bridge
+		// 11. Start input bridge
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
 
-		// 11. Start session monitor (detects session closure and recreates)
+		// 12. Start session monitor (detects session closure and recreates)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

@@ -78,18 +78,31 @@ const RemoteCursorsOverlay: React.FC<RemoteCursorsOverlayProps> = ({
           >
             {/* Cursor - use actual shape if available, otherwise default arrow */}
             {cursor.cursorImage ? (
-              <Box
-                component="img"
-                src={cursor.cursorImage.imageUrl}
-                sx={{
-                  width: cursor.cursorImage.width,
-                  height: cursor.cursorImage.height,
-                  marginLeft: `-${cursor.cursorImage.hotspotX}px`,
-                  marginTop: `-${cursor.cursorImage.hotspotY}px`,
-                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
-                  pointerEvents: 'none',
-                }}
-              />
+              // Display cursor at standard size (24px) for consistency
+              (() => {
+                const STANDARD_CURSOR_SIZE = 24;
+                const cursorScale = cursor.cursorImage!.width > 0
+                  ? STANDARD_CURSOR_SIZE / cursor.cursorImage!.width
+                  : 1;
+                const scaledWidth = cursor.cursorImage!.width * cursorScale;
+                const scaledHeight = cursor.cursorImage!.height * cursorScale;
+                const scaledHotspotX = cursor.cursorImage!.hotspotX * cursorScale;
+                const scaledHotspotY = cursor.cursorImage!.hotspotY * cursorScale;
+                return (
+                  <Box
+                    component="img"
+                    src={cursor.cursorImage!.imageUrl}
+                    sx={{
+                      width: scaledWidth,
+                      height: scaledHeight,
+                      marginLeft: `-${scaledHotspotX}px`,
+                      marginTop: `-${scaledHotspotY}px`,
+                      filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                );
+              })()
             ) : (
               <svg
                 width="24"

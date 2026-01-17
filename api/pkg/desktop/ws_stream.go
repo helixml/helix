@@ -151,8 +151,9 @@ type StreamConfig struct {
 // VideoStreamer captures video from PipeWire and streams to WebSocket.
 // Uses pipewirezerocopysrc for zero-copy DMA-BUF capture on both GNOME and Sway.
 type VideoStreamer struct {
-	nodeID     uint32
-	pipeWireFd int       // PipeWire FD from portal (required for ScreenCast access)
+	nodeID       uint32
+	cursorNodeID uint32    // Separate node for cursor monitoring (avoids multi-consumer conflict)
+	pipeWireFd   int       // PipeWire FD from portal (required for ScreenCast access)
 	videoMode  VideoMode // Video capture mode (shm, native, zerocopy)
 	config     StreamConfig
 	ws         *websocket.Conn
@@ -203,16 +204,18 @@ type VideoStreamer struct {
 
 // NewVideoStreamer creates a new video streamer
 // pipeWireFd is the FD from OpenPipeWireRemote portal call - required for ScreenCast access
-func NewVideoStreamer(nodeID uint32, pipeWireFd int, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
+// cursorNodeID is an alternative node for cursor monitoring (to avoid multi-consumer conflicts)
+func NewVideoStreamer(nodeID uint32, cursorNodeID uint32, pipeWireFd int, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
-		nodeID:      nodeID,
-		pipeWireFd:  pipeWireFd,
-		videoMode:   getVideoMode(config.VideoMode),
-		config:      config,
-		ws:          ws,
-		logger:      logger,
-		audioConfig: DefaultAudioConfig(),
-		micConfig:   DefaultMicConfig(),
+		nodeID:       nodeID,
+		cursorNodeID: cursorNodeID,
+		pipeWireFd:   pipeWireFd,
+		videoMode:    getVideoMode(config.VideoMode),
+		config:       config,
+		ws:           ws,
+		logger:       logger,
+		audioConfig:  DefaultAudioConfig(),
+		micConfig:    DefaultMicConfig(),
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -839,109 +842,167 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 	}
 }
 
-// monitorCursor monitors the cursor file and sends cursor updates to WebSocket.
-// The cursor file is written by pipewirezerocopysrc when cursor metadata changes.
+// monitorCursor monitors cursor changes and sends updates to WebSocket.
+// Uses Go-native cursor clients (PipeWire for GNOME, Wayland for Sway).
 func (v *VideoStreamer) monitorCursor(ctx context.Context) {
-	const cursorPath = "/tmp/helix-cursor.bin"
-	const pollInterval = 16 * time.Millisecond // ~60 Hz max
+	// Detect compositor to choose cursor source
+	compositor := detectCompositorSimple()
+	v.logger.Info("starting cursor monitoring", "compositor", compositor)
 
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	var lastModTime time.Time
+	// Create cursor update callback
 	var lastCursorHash uint64
+	cursorCallback := func(posX, posY, hotspotX, hotspotY int32, bitmapData []byte) {
+		bitmapSize := uint32(len(bitmapData))
 
-	for {
-		select {
-		case <-ctx.Done():
+		// Hash cursor TYPE (hotspot + bitmap content), NOT position
+		cursorHash := uint64(hotspotX) ^ (uint64(hotspotY) << 8) ^ (uint64(bitmapSize) << 16)
+		if len(bitmapData) >= 8 {
+			cursorHash ^= uint64(binary.LittleEndian.Uint64(bitmapData[0:8])) << 32
+		}
+		if cursorHash == lastCursorHash {
 			return
-		case <-ticker.C:
-			// Check if file exists and has been modified
-			info, err := os.Stat(cursorPath)
-			if err != nil {
-				continue // File doesn't exist yet
-			}
+		}
+		lastCursorHash = cursorHash
 
-			modTime := info.ModTime()
-			if modTime == lastModTime {
-				continue // No change
-			}
-			lastModTime = modTime
+		// Get the last mover for cursor shape attribution
+		lastMoverID := uint32(0)
+		if v.config.SessionID != "" {
+			lastMoverID = GetSessionRegistry().GetLastMover(v.config.SessionID)
+		}
 
-			// Read cursor file
-			data, err := os.ReadFile(cursorPath)
-			if err != nil || len(data) < 28 {
-				continue
-			}
+		// Send cursor message (StreamMsgCursorImage = 0x50)
+		// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
+		msgLen := 1 + 4 + 4 + 4 + 4 + 4 + 4 + int(bitmapSize)
+		msg := make([]byte, msgLen)
+		msg[0] = StreamMsgCursorImage
+		binary.LittleEndian.PutUint32(msg[1:5], lastMoverID)
+		binary.LittleEndian.PutUint32(msg[5:9], uint32(posX))
+		binary.LittleEndian.PutUint32(msg[9:13], uint32(posY))
+		binary.LittleEndian.PutUint32(msg[13:17], uint32(hotspotX))
+		binary.LittleEndian.PutUint32(msg[17:21], uint32(hotspotY))
+		binary.LittleEndian.PutUint32(msg[21:25], bitmapSize)
+		if bitmapSize > 0 {
+			copy(msg[25:], bitmapData)
+		}
 
-			// Parse header
-			magic := binary.LittleEndian.Uint32(data[0:4])
-			if magic != 0x43555253 { // "CURS"
-				continue
-			}
-			// version := binary.LittleEndian.Uint32(data[4:8])
-			posX := int32(binary.LittleEndian.Uint32(data[8:12]))
-			posY := int32(binary.LittleEndian.Uint32(data[12:16]))
-			hotspotX := int32(binary.LittleEndian.Uint32(data[16:20]))
-			hotspotY := int32(binary.LittleEndian.Uint32(data[20:24]))
-			bitmapSize := binary.LittleEndian.Uint32(data[24:28])
+		if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
+			v.logger.Debug("cursor message failed", "err", err)
+			return
+		}
 
-			// Hash cursor TYPE (hotspot + bitmap content), NOT position
-			// This sends bitmap on cursor type transitions but not on every mouse move
-			// Client tracks position locally, so we don't need to send position changes
-			cursorHash := uint64(hotspotX) ^ (uint64(hotspotY) << 8) ^ (uint64(bitmapSize) << 16)
-			// Include first 8 bytes of bitmap for content-based change detection
-			if bitmapSize >= 8 && len(data) >= 36 {
-				cursorHash ^= uint64(binary.LittleEndian.Uint64(data[28:36])) << 32
-			}
-			if cursorHash == lastCursorHash {
-				continue
-			}
-			lastCursorHash = cursorHash
-
-			// Get the last mover for cursor shape attribution
-			// This allows clients to know if the cursor shape change was caused by their movement
-			lastMoverID := uint32(0)
-			if v.config.SessionID != "" {
-				lastMoverID = GetSessionRegistry().GetLastMover(v.config.SessionID)
-			}
-
-			// Send cursor position message (StreamMsgCursorImage = 0x50)
-			// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
-			msgLen := 1 + 4 + 4 + 4 + 4 + 4 + 4
-			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
-				msgLen += int(bitmapSize)
-			}
-
-			msg := make([]byte, msgLen)
-			msg[0] = StreamMsgCursorImage
-			binary.LittleEndian.PutUint32(msg[1:5], lastMoverID)
-			binary.LittleEndian.PutUint32(msg[5:9], uint32(posX))
-			binary.LittleEndian.PutUint32(msg[9:13], uint32(posY))
-			binary.LittleEndian.PutUint32(msg[13:17], uint32(hotspotX))
-			binary.LittleEndian.PutUint32(msg[17:21], uint32(hotspotY))
-			binary.LittleEndian.PutUint32(msg[21:25], bitmapSize)
-
-			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
-				copy(msg[25:], data[28:28+bitmapSize])
-			}
-
-			if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
-				v.logger.Debug("cursor message failed", "err", err)
-				return
-			}
-
-			// Log cursor updates periodically (first update and then every 100)
-			v.cursorUpdateCount++
-			if v.cursorUpdateCount == 1 || v.cursorUpdateCount%100 == 0 {
-				v.logger.Info("cursor update",
-					"count", v.cursorUpdateCount,
-					"pos", fmt.Sprintf("(%d,%d)", posX, posY),
-					"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
-					"bitmap_size", bitmapSize)
-			}
+		v.cursorUpdateCount++
+		if v.cursorUpdateCount == 1 || v.cursorUpdateCount%100 == 0 {
+			v.logger.Info("cursor update",
+				"count", v.cursorUpdateCount,
+				"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
+				"bitmap_size", bitmapSize)
 		}
 	}
+
+	switch compositor {
+	case "gnome":
+		// GNOME uses PipeWire ScreenCast with cursor metadata
+		v.monitorCursorPipeWire(ctx, cursorCallback)
+	case "sway":
+		// Sway uses Wayland ext-image-copy-capture-cursor-session-v1
+		v.monitorCursorWayland(ctx, cursorCallback)
+	default:
+		v.logger.Warn("unknown compositor, cursor monitoring disabled", "compositor", compositor)
+	}
+}
+
+// detectCompositorSimple returns "gnome", "sway", or "unknown"
+func detectCompositorSimple() string {
+	desktop := os.Getenv("XDG_CURRENT_DESKTOP")
+	switch desktop {
+	case "sway", "Sway":
+		return "sway"
+	case "GNOME", "gnome", "ubuntu:GNOME":
+		return "gnome"
+	default:
+		// Check for Sway socket
+		if os.Getenv("SWAYSOCK") != "" {
+			return "sway"
+		}
+		// Default to gnome (most common)
+		return "gnome"
+	}
+}
+
+// cursorCallbackFunc is called when cursor state changes
+type cursorCallbackFunc func(posX, posY, hotspotX, hotspotY int32, bitmapData []byte)
+
+// monitorCursorPipeWire uses Go PipeWire client to read cursor from spa_meta_cursor
+func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback cursorCallbackFunc) {
+	// Create PipeWire cursor client
+	client, err := NewPipeWireCursorClient()
+	if err != nil {
+		v.logger.Error("failed to create PipeWire cursor client", "err", err)
+		return
+	}
+	defer client.Close()
+
+	// Use the dedicated cursor session node for cursor monitoring
+	// This is a standalone ScreenCast session with cursor-mode=2 (Metadata)
+	// that only the cursor client consumes, avoiding multi-consumer conflicts with video
+	cursorNode := v.cursorNodeID
+	if cursorNode == 0 {
+		// Fallback to video node if cursor session wasn't created
+		cursorNode = v.nodeID
+		v.logger.Warn("no dedicated cursor node, falling back to video node", "video_node", v.nodeID)
+	}
+	v.logger.Info("connecting cursor client to PipeWire node", "cursor_node", cursorNode, "video_node", v.nodeID)
+
+	err = client.Connect(cursorNode, func(cursor *CursorData) {
+		callback(
+			cursor.PositionX,
+			cursor.PositionY,
+			cursor.HotspotX,
+			cursor.HotspotY,
+			cursor.BitmapData,
+		)
+	})
+	if err != nil {
+		v.logger.Error("failed to connect PipeWire cursor client", "err", err, "cursorNode", cursorNode)
+		return
+	}
+
+	// Run cursor client
+	client.Run(ctx)
+
+	// Wait for context cancellation
+	<-ctx.Done()
+}
+
+// monitorCursorWayland uses Go Wayland client to read cursor from ext-image-copy-capture
+func (v *VideoStreamer) monitorCursorWayland(ctx context.Context, callback cursorCallbackFunc) {
+	// Create Wayland cursor client
+	client, err := NewWaylandCursorClient()
+	if err != nil {
+		v.logger.Error("failed to create Wayland cursor client", "err", err)
+		return
+	}
+	defer client.Close()
+
+	// Set callback
+	client.SetCallback(func(cursor *WaylandCursorData) {
+		callback(
+			cursor.PositionX,
+			cursor.PositionY,
+			cursor.HotspotX,
+			cursor.HotspotY,
+			cursor.BitmapData,
+		)
+	})
+
+	// Run cursor client
+	if err := client.Run(ctx); err != nil {
+		v.logger.Error("failed to run Wayland cursor client", "err", err)
+		return
+	}
+
+	// Wait for context cancellation
+	<-ctx.Done()
 }
 
 // Stop stops the video capture
@@ -1166,11 +1227,16 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	// Both compositors now use pipewirezerocopysrc for zero-copy DMA-BUF capture.
 	// The portal FD from OpenPipeWireRemote is required for ScreenCast access.
 	pipeWireFd := 0
+	var cursorNodeID uint32
 	if server != nil {
 		pipeWireFd = server.pipeWireFd
+		// Use the dedicated cursor session for cursor monitoring
+		// This is a separate ScreenCast session with cursor-mode=2 (Metadata)
+		// that only the cursor client consumes, avoiding multi-consumer conflicts
+		cursorNodeID = server.cursorNodeID
 	}
-	logger.Info("using pipewirezerocopysrc (zero-copy)", "node_id", nodeID, "pipewire_fd", pipeWireFd)
-	streamer := NewVideoStreamer(nodeID, pipeWireFd, config, ws, logger)
+	logger.Info("using pipewirezerocopysrc (zero-copy)", "video_node", nodeID, "cursor_node", cursorNodeID, "pipewire_fd", pipeWireFd)
+	streamer := NewVideoStreamer(nodeID, cursorNodeID, pipeWireFd, config, ws, logger)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
