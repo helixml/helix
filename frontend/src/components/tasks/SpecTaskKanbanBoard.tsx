@@ -52,6 +52,7 @@ import {
   MenuBook as DesignDocsIcon,
   Stop as StopIcon,
   RocketLaunch as LaunchIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from '@mui/material/styles';
@@ -893,9 +894,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       {/* Header - Linear style */}
       <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'rgba(0, 0, 0, 0.06)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
-            Project Workspace
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
+              Agent Fleet
+            </Typography>
+            <Tooltip title="Each agent has its own desktop. You can watch and pair-program, but the agent owns the session.">
+              <InfoIcon sx={{ fontSize: 16, color: 'text.secondary', cursor: 'help' }} />
+            </Tooltip>
+          </Box>
           {onCreateTask && (
             <Tooltip title="Press Enter">
               <Button

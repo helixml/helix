@@ -676,7 +676,12 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	defer revDialConn.Close()
 
 	// Send HTTP request over RevDial tunnel
-	httpReq, err := http.NewRequest("GET", "http://localhost:9876/screenshot", nil)
+	// Forward query parameters (format, quality, include_cursor) to the desktop container
+	screenshotURL := "http://localhost:9876/screenshot"
+	if req.URL.RawQuery != "" {
+		screenshotURL += "?" + req.URL.RawQuery
+	}
+	httpReq, err := http.NewRequest("GET", screenshotURL, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create screenshot request")
 		http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)

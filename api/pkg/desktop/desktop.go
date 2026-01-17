@@ -39,9 +39,16 @@ type Server struct {
 
 	// Screenshot-dedicated ScreenCast session (separate from video streaming)
 	// This avoids buffer renegotiation conflicts when capturing screenshots
+	// This session has cursor-mode=1 (Embedded) for MCP/agent screenshots
 	ssScSessionPath dbus.ObjectPath
 	ssScStreamPath  dbus.ObjectPath
 	ssNodeID        uint32
+
+	// No-cursor screenshot session for video polling mode
+	// This session has cursor-mode=0 (Hidden) so cursors don't appear in video polling screenshots
+	ssNoCursorScSessionPath dbus.ObjectPath
+	ssNoCursorScStreamPath  dbus.ObjectPath
+	ssNoCursorNodeID        uint32
 
 	// Standalone video streaming ScreenCast session (NOT linked to RemoteDesktop)
 	// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
@@ -212,6 +219,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// 8. Create dedicated screenshot ScreenCast session (separate from video streaming)
 		// This is a THIRD standalone session to avoid buffer renegotiation conflicts
 		// when capturing screenshots while video is streaming.
+		// This session has cursor-mode=1 (Embedded) for MCP/agent screenshots.
 		if err := s.createScreenshotSession(ctx); err != nil {
 			// Non-fatal - fall back to D-Bus Screenshot API
 			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
@@ -222,19 +230,32 @@ func (s *Server) Run(ctx context.Context) error {
 				"video_node_id", s.videoNodeID)
 		}
 
+		// 9. Create no-cursor screenshot session for video polling mode
+		// This is a FOURTH standalone session with cursor-mode=0 (Hidden).
+		// Video polling screenshots use this so the frontend can render its own cursor overlay.
+		if err := s.createNoCursorScreenshotSession(ctx); err != nil {
+			// Non-fatal - fall back to cursor screenshots
+			s.logger.Warn("failed to create no-cursor screenshot session, will use cursor session",
+				"err", err)
+		} else {
+			s.logger.Info("no-cursor screenshot session ready",
+				"no_cursor_node_id", s.ssNoCursorNodeID,
+				"cursor_node_id", s.ssNodeID)
+		}
+
 		// Mark as running BEFORE starting goroutines that check isRunning()
 		// CRITICAL: This fixes a race condition where input bridge would exit
 		// immediately because s.running was false when the goroutine started.
 		s.running.Store(true)
 
-		// 9. Start input bridge
+		// 10. Start input bridge
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
 
-		// 10. Start session monitor (detects session closure and recreates)
+		// 11. Start session monitor (detects session closure and recreates)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

@@ -642,6 +642,36 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
     glib-compile-schemas /usr/share/glib-2.0/schemas/
 
 # ====================================================================
+# Ghostty Terminal - modern GPU-accelerated terminal with blur support
+# ====================================================================
+# Install from mkasberg/ghostty-ubuntu community packages
+# Ghostty provides native background blur which GNOME Terminal lacks
+RUN <<_INSTALL_GHOSTTY
+set -e
+echo "=== Installing Ghostty terminal ==="
+
+# Download and install the deb package for Ubuntu 25.10 (Questing)
+# Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_amd64_25.10.deb
+GHOSTTY_TAG="1.2.3-0-ppa1"
+GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_amd64_25.10.deb"
+wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
+apt-get update
+apt-get install -y /tmp/ghostty.deb
+rm /tmp/ghostty.deb
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== Ghostty installed ==="
+ghostty --version || echo "Ghostty installation check"
+_INSTALL_GHOSTTY
+
+# Ghostty config - translucent blur background
+RUN mkdir -p /home/retro/.config/ghostty && \
+    chown -R retro:retro /home/retro/.config
+COPY desktop/ubuntu-config/ghostty-config /home/retro/.config/ghostty/config
+RUN chown retro:retro /home/retro/.config/ghostty/config
+
+# ====================================================================
 # System-wide dconf defaults (Ubuntu branding)
 # ====================================================================
 # GNOME uses dconf for settings. To set system-wide defaults that apply

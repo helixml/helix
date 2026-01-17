@@ -1027,7 +1027,7 @@ export default function TaskCard({
                 }}
                 fullWidth
               >
-                Start Exploratory Session
+                Open Team Desktop
               </Button>
             </Alert>
           </Box>

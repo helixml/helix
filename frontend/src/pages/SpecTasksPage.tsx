@@ -841,7 +841,7 @@ const SpecTasksPage: FC = () => {
       ] : undefined}
       breadcrumbTitle={project ? undefined : "SpecTasks"}
       orgBreadcrumbs={true}
-      showDrawerButton={false}
+      showDrawerButton={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
           {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
@@ -890,50 +890,52 @@ const SpecTasksPage: FC = () => {
           {/* Project's default agent lozenge */}
           {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
             <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-              <Box
+              <Chip
+                label={appNamesMap[project.default_helix_app_id]}
+                size="small"
                 onClick={() => {
                   if (project.default_helix_app_id) {
                     account.orgNavigate('app', { app_id: project.default_helix_app_id });
                   }
                 }}
                 sx={{
-                  px: 1.5,
-                  py: 0.5,
+                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500,
                   fontSize: '0.75rem',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
                   cursor: 'pointer',
-                  backgroundColor: 'transparent',
-                  borderRadius: 0,
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  },
                 }}
-              >
-                {appNamesMap[project.default_helix_app_id]}
-              </Box>
+              />
             </Tooltip>
           )}
           {!exploratorySessionData ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<ExploreIcon />}
-              onClick={handleStartExploratorySession}
-              disabled={startExploratorySessionMutation.isPending}
-              sx={{ flexShrink: 0 }}
-            >
-              {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
-            </Button>
+            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<ExploreIcon />}
+                onClick={handleStartExploratorySession}
+                disabled={startExploratorySessionMutation.isPending}
+                sx={{ flexShrink: 0 }}
+              >
+                {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Team Desktop'}
+              </Button>
+            </Tooltip>
           ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<Play size={18} />}
-              onClick={handleResumeExploratorySession}
-              disabled={resumeExploratorySessionMutation.isPending}
-              sx={{ flexShrink: 0 }}
-            >
-              {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
-            </Button>
+            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<Play size={18} />}
+                onClick={handleResumeExploratorySession}
+                disabled={resumeExploratorySessionMutation.isPending}
+                sx={{ flexShrink: 0 }}
+              >
+                {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Team Desktop'}
+              </Button>
+            </Tooltip>
           ) : (
             <>
               <Button

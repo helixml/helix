@@ -1,0 +1,27 @@
+# Ghostty Terminal Configuration for Helix Desktop
+# Modern GPU-accelerated terminal with native blur support
+
+# Translucent background with blur effect
+background-opacity = 0.9
+background-blur-radius = 16
+
+# Font settings - use Ghostty's bundled font (JetBrains Mono)
+font-size = 13
+
+# Window appearance
+window-decoration = true
+window-padding-x = 8
+window-padding-y = 8
+
+# Scrollback - match gnome-terminal setting (500k lines)
+scrollback-limit = 500000
+
+# Cursor settings
+cursor-style = block
+cursor-style-blink = false
+
+# Selection
+copy-on-select = clipboard
+
+# Confirm close if there are running processes
+confirm-close-surface = false

@@ -352,7 +352,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
             <Typography variant="subtitle2" sx={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
               {modalConfig.type === 'logs' && 'Model Instance Logs'}
               {modalConfig.type === 'rdp' && 'Remote Desktop'}
-              {modalConfig.type === 'exploratory_session' && 'Exploratory Session'}
+              {modalConfig.type === 'exploratory_session' && 'Team Desktop'}
             </Typography>
             {modalConfig.type === 'logs' && modalConfig.runner && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>

@@ -77,10 +77,10 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
       {/* Header with description */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
-          Project Workspaces
+          Projects
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Each project has a workspace where multiple AI agents can work in parallel to complete tasks.
+          Each project has a fleet of AI agents working in parallel, plus a Team Desktop for manual testing.
         </Typography>
       </Box>
 

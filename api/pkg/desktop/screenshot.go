@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -37,7 +38,14 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data, actualFormat, err := s.captureScreenshot(format, quality)
+	// include_cursor defaults to true for backwards compatibility (MCP/agent screenshots)
+	// Video polling mode should pass include_cursor=false
+	includeCursor := true
+	if ic := r.URL.Query().Get("include_cursor"); ic == "false" || ic == "0" {
+		includeCursor = false
+	}
+
+	data, actualFormat, err := s.captureScreenshotWithCursor(format, quality, includeCursor)
 	if err != nil {
 		s.logger.Error("screenshot capture failed", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -48,27 +56,38 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Write(data)
 
-	s.logger.Info("screenshot captured", "format", actualFormat, "quality", quality, "size", len(data))
+	s.logger.Info("screenshot captured", "format", actualFormat, "quality", quality, "include_cursor", includeCursor, "size", len(data))
 }
 
 // captureScreenshot captures a screenshot using the appropriate method.
-//
-// GNOME: Uses org.gnome.Shell.Screenshot D-Bus API exclusively.
-// Requires gnome-shell to be started with --unsafe-mode flag to allow D-Bus access.
-// See design doc: design/2026-01-05-screenshot-video-pipeline-interference.md
+// This is a convenience wrapper that always includes the cursor.
 func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, error) {
-	// GNOME: Use D-Bus Screenshot API exclusively (no fallbacks)
+	return s.captureScreenshotWithCursor(format, quality, true)
+}
+
+// captureScreenshotWithCursor captures a screenshot with cursor control.
+//
+// GNOME: Uses PipeWire ScreenCast sessions for fast capture.
+// - includeCursor=true uses ssNodeID (cursor-mode=1, Embedded)
+// - includeCursor=false uses ssNoCursorNodeID (cursor-mode=0, Hidden)
+// Falls back to org.gnome.Shell.Screenshot D-Bus API which also supports cursor control.
+//
+// See design doc: design/2026-01-05-screenshot-video-pipeline-interference.md
+func (s *Server) captureScreenshotWithCursor(format string, quality int, includeCursor bool) ([]byte, string, error) {
+	// GNOME: Use PipeWire ScreenCast or D-Bus Screenshot API
 	// gnome-shell must be started with --unsafe-mode to allow D-Bus access
 	if isGNOMEEnvironment() {
-		return s.captureGNOMEScreenshot(format, quality)
+		return s.captureGNOMEScreenshotWithCursor(format, quality, includeCursor)
 	}
 
 	// KDE: use D-Bus API (doesn't conflict with video pipeline)
+	// TODO: Add cursor control for KDE
 	if isKDEEnvironment() {
 		return s.captureKDE(format, quality)
 	}
 
 	// Sway/wlroots: grim (uses wlr-screencopy protocol, no PipeWire conflict)
+	// TODO: Add cursor control for Sway (grim -c flag)
 	if data, actualFormat, err := s.captureGrim(format, quality); err == nil {
 		return data, actualFormat, nil
 	}
@@ -124,8 +143,16 @@ func (s *Server) tryCapturePipeWire(format string, quality int) ([]byte, string,
 	)
 	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.config.XDGRuntimeDir)
 
+	// Use process group to ensure we can kill all child processes on timeout.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	output, err := cmd.CombinedOutput()
+
+	// On timeout, kill the process group to clean up any lingering GStreamer processes
 	if ctx.Err() == context.DeadlineExceeded {
+		if cmd.Process != nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
 		return nil, "", fmt.Errorf("gst-launch timed out after 5 seconds")
 	}
 	if err != nil {
@@ -239,15 +266,30 @@ const (
 )
 
 // captureGNOMEScreenshot captures a screenshot in GNOME environment.
+// This is a convenience wrapper that always includes the cursor.
+func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, string, error) {
+	return s.captureGNOMEScreenshotWithCursor(format, quality, true)
+}
+
+// captureGNOMEScreenshotWithCursor captures a screenshot in GNOME environment with cursor control.
 //
 // Strategy:
-// 1. If we have a dedicated screenshot ScreenCast session (ssNodeID > 0),
-//    use fast PipeWire capture.
+// 1. If we have the appropriate PipeWire ScreenCast session, use fast PipeWire capture:
+//    - includeCursor=true: use ssNodeID (cursor-mode=1, Embedded)
+//    - includeCursor=false: use ssNoCursorNodeID (cursor-mode=0, Hidden)
 // 2. Otherwise, fall back to D-Bus Screenshot API (slower, ~400ms, serialized).
-func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, string, error) {
+func (s *Server) captureGNOMEScreenshotWithCursor(format string, quality int, includeCursor bool) ([]byte, string, error) {
+	// Select the appropriate PipeWire node based on cursor preference
+	var nodeID uint32
+	if includeCursor {
+		nodeID = s.ssNodeID
+	} else {
+		nodeID = s.ssNoCursorNodeID
+	}
+
 	// Fast path: Use dedicated screenshot PipeWire node if available
-	if s.ssNodeID > 0 {
-		return s.captureScreenshotPipeWire(format, quality)
+	if nodeID > 0 {
+		return s.captureScreenshotPipeWireNode(format, quality, nodeID, includeCursor)
 	}
 
 	// Slow path: Fall back to D-Bus Screenshot API
@@ -259,13 +301,29 @@ func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, str
 	s.screenshotMu.Lock()
 	defer s.screenshotMu.Unlock()
 
-	return s.captureShellScreenshotDBus(format, quality)
+	return s.captureShellScreenshotDBusWithCursor(format, quality, includeCursor)
 }
 
-// captureScreenshotPipeWire captures from the dedicated screenshot PipeWire node.
+// captureScreenshotPipeWire captures from the dedicated screenshot PipeWire node (with cursor).
+// This is a convenience wrapper for backwards compatibility.
 func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, string, error) {
+	return s.captureScreenshotPipeWireNode(format, quality, s.ssNodeID, true)
+}
+
+// captureScreenshotPipeWireNode captures from a specified PipeWire node.
+// nodeID: The PipeWire node ID to capture from
+// includeCursor: Whether this capture includes cursor (for logging and fallback behavior)
+//
+// This function serializes PipeWire captures to prevent concurrent access to the same
+// node, which can cause gst-launch to hang. Falls back to D-Bus Screenshot API on failure.
+func (s *Server) captureScreenshotPipeWireNode(format string, quality int, nodeID uint32, includeCursor bool) ([]byte, string, error) {
+	// Serialize PipeWire screenshot captures - concurrent gst-launch calls to the same
+	// PipeWire node can cause hangs due to buffer contention.
+	s.screenshotMu.Lock()
+	defer s.screenshotMu.Unlock()
+
 	startTime := time.Now()
-	s.logger.Debug("capturing via dedicated PipeWire screenshot node", "node_id", s.ssNodeID)
+	s.logger.Debug("capturing via PipeWire screenshot node", "node_id", nodeID, "include_cursor", includeCursor)
 
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
 	defer os.Remove(tmpFile)
@@ -278,14 +336,14 @@ func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, 
 	if format == "jpeg" {
 		// Direct JPEG output - much faster
 		cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q",
-			"pipewiresrc", fmt.Sprintf("path=%d", s.ssNodeID), "num-buffers=1", "do-timestamp=true",
+			"pipewiresrc", fmt.Sprintf("path=%d", nodeID), "num-buffers=1", "do-timestamp=true",
 			"!", "videoconvert",
 			"!", "jpegenc", fmt.Sprintf("quality=%d", quality),
 			"!", "filesink", "location="+tmpFile,
 		)
 	} else {
 		cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q",
-			"pipewiresrc", fmt.Sprintf("path=%d", s.ssNodeID), "num-buffers=1", "do-timestamp=true",
+			"pipewiresrc", fmt.Sprintf("path=%d", nodeID), "num-buffers=1", "do-timestamp=true",
 			"!", "videoconvert",
 			"!", "pngenc",
 			"!", "filesink", "location="+tmpFile,
@@ -293,18 +351,31 @@ func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, 
 	}
 	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.config.XDGRuntimeDir)
 
+	// Use process group to ensure we can kill all child processes on timeout.
+	// GStreamer may spawn additional threads/processes that would leak if we only kill the parent.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	output, err := cmd.CombinedOutput()
+
+	// On timeout, kill the process group to clean up any lingering GStreamer processes
 	if ctx.Err() == context.DeadlineExceeded {
-		return nil, "", fmt.Errorf("gst-launch timed out after 3 seconds")
+		if cmd.Process != nil {
+			// Kill the entire process group (negative PID)
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		s.logger.Warn("PipeWire screenshot timed out, falling back to D-Bus",
+			"timeout", "3s",
+			"include_cursor", includeCursor)
+		// Fall back to D-Bus Screenshot on timeout
+		return s.captureShellScreenshotDBusWithCursor(format, quality, includeCursor)
 	}
 	if err != nil {
 		s.logger.Warn("PipeWire screenshot failed, falling back to D-Bus",
 			"err", err,
-			"output", string(output))
+			"output", string(output),
+			"include_cursor", includeCursor)
 		// Fall back to D-Bus Screenshot
-		s.screenshotMu.Lock()
-		defer s.screenshotMu.Unlock()
-		return s.captureShellScreenshotDBus(format, quality)
+		return s.captureShellScreenshotDBusWithCursor(format, quality, includeCursor)
 	}
 
 	data, err := os.ReadFile(tmpFile)
@@ -319,6 +390,7 @@ func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, 
 	totalTime := time.Since(startTime)
 	s.logger.Info("PipeWire screenshot captured",
 		"format", format,
+		"include_cursor", includeCursor,
 		"total_ms", totalTime.Milliseconds(),
 		"size", len(data))
 
@@ -326,10 +398,17 @@ func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, 
 }
 
 // captureShellScreenshotDBus captures via org.gnome.Shell.Screenshot D-Bus interface.
-// Uses the server's existing D-Bus connection for reliability in headless mode.
+// This is a convenience wrapper that always includes the cursor.
 func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte, string, error) {
+	return s.captureShellScreenshotDBusWithCursor(format, quality, true)
+}
+
+// captureShellScreenshotDBusWithCursor captures via org.gnome.Shell.Screenshot D-Bus interface.
+// Uses the server's existing D-Bus connection for reliability in headless mode.
+// includeCursor controls whether the cursor is rendered into the screenshot.
+func (s *Server) captureShellScreenshotDBusWithCursor(format string, quality int, includeCursor bool) ([]byte, string, error) {
 	startTime := time.Now()
-	s.logger.Debug("capturing via D-Bus org.gnome.Shell.Screenshot")
+	s.logger.Debug("capturing via D-Bus org.gnome.Shell.Screenshot", "include_cursor", includeCursor)
 
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
 	defer os.Remove(tmpFile)
@@ -346,9 +425,9 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 	defer cancel()
 
 	call := obj.CallWithContext(ctx, shellScreenshotIface+".Screenshot", 0,
-		true,    // include_cursor
-		false,   // flash (don't flash screen)
-		tmpFile, // filename
+		includeCursor, // include_cursor
+		false,         // flash (don't flash screen)
+		tmpFile,       // filename
 	)
 
 	if call.Err != nil {
@@ -364,7 +443,7 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 	}
 
 	dbusTime := time.Since(startTime)
-	s.logger.Debug("D-Bus Screenshot succeeded", "filename", filenameUsed, "dbus_ms", dbusTime.Milliseconds())
+	s.logger.Debug("D-Bus Screenshot succeeded", "filename", filenameUsed, "dbus_ms", dbusTime.Milliseconds(), "include_cursor", includeCursor)
 
 	// Read the screenshot file
 	pngData, err := os.ReadFile(filenameUsed)
@@ -391,6 +470,7 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 			"read_ms", (readTime - dbusTime).Milliseconds(),
 			"convert_ms", (totalTime - readTime).Milliseconds(),
 			"total_ms", totalTime.Milliseconds(),
+			"include_cursor", includeCursor,
 			"png_size", len(pngData),
 			"jpeg_size", len(jpegData))
 		return jpegData, "jpeg", nil
@@ -401,6 +481,7 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 		"dbus_ms", dbusTime.Milliseconds(),
 		"read_ms", (readTime - dbusTime).Milliseconds(),
 		"total_ms", totalTime.Milliseconds(),
+		"include_cursor", includeCursor,
 		"png_size", len(pngData))
 	return pngData, "png", nil
 }

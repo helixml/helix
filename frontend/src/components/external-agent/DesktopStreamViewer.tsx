@@ -1392,7 +1392,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       try {
         // Pass quality parameter to screenshot endpoint
-        const endpoint = `/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=${currentQuality}`;
+        // include_cursor=false because the frontend renders its own cursor overlay
+        // based on cursor metadata from the video stream
+        const endpoint = `/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=${currentQuality}&include_cursor=false`;
         const response = await fetch(endpoint);
 
         if (!response.ok) {
@@ -3377,13 +3379,37 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         if (isIdle) return null;
         const user = remoteUsers.get(userId);
         if (!user) return null;
+
+        // Scale remote cursor from screen coordinates to container-relative coordinates
+        // cursor.x/y are in screen resolution (e.g., 1920x1080)
+        // Need to scale to displayed canvas size and add offset for centered canvas
+        if (!canvasDisplaySize || !containerSize) return null;
+
+        // Use the configured stream resolution (width/height props) as the source dimensions
+        // This is what we requested from the stream and what the backend uses for cursor coordinates
+        // Don't use canvas.width/height as those default to 300x150 before video renders
+        const streamWidth = width;
+        const streamHeight = height;
+
+        // Calculate scale factors
+        const scaleX = canvasDisplaySize.width / streamWidth;
+        const scaleY = canvasDisplaySize.height / streamHeight;
+
+        // Calculate offset (canvas is centered in container)
+        const offsetX = (containerSize.width - canvasDisplaySize.width) / 2;
+        const offsetY = (containerSize.height - canvasDisplaySize.height) / 2;
+
+        // Transform cursor position
+        const displayX = offsetX + cursor.x * scaleX;
+        const displayY = offsetY + cursor.y * scaleY;
+
         return (
           <Box
             key={`remote-cursor-${userId}`}
             sx={{
               position: 'absolute',
-              left: cursor.x,
-              top: cursor.y,
+              left: displayX,
+              top: displayY,
               pointerEvents: 'none',
               zIndex: 1001,
               display: 'flex',
@@ -3472,12 +3498,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       })}
 
       {/* AI Agent cursor - only show if it has been active and not idle for 30s */}
-      {agentCursor && (Date.now() - agentCursor.lastSeen < 30000) && (
+      {agentCursor && (Date.now() - agentCursor.lastSeen < 30000) && canvasDisplaySize && containerSize && (() => {
+        // Scale agent cursor from screen coordinates to container-relative coordinates
+        // Use configured stream resolution (width/height props), not canvas dimensions
+        const streamWidth = width;
+        const streamHeight = height;
+
+        const scaleX = canvasDisplaySize.width / streamWidth;
+        const scaleY = canvasDisplaySize.height / streamHeight;
+        const offsetX = (containerSize.width - canvasDisplaySize.width) / 2;
+        const offsetY = (containerSize.height - canvasDisplaySize.height) / 2;
+        const displayX = offsetX + agentCursor.x * scaleX;
+        const displayY = offsetY + agentCursor.y * scaleY;
+
+        return (
         <Box
           sx={{
             position: 'absolute',
-            left: agentCursor.x,
-            top: agentCursor.y,
+            left: displayX,
+            top: displayY,
             pointerEvents: 'none',
             zIndex: 1002,
             display: 'flex',
@@ -3544,7 +3583,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             </Typography>
           </Box>
         </Box>
-      )}
+        );
+      })()}
 
       {/* Remote touch events */}
       {Array.from(remoteTouches.values()).map((touch) => {
@@ -3552,13 +3592,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Prefer color from touch event, fall back to user color, then default
         const color = touch.color || user?.color || '#888888';
         const size = 32 + touch.pressure * 16;
+
+        // Scale remote touch from screen coordinates to container-relative coordinates
+        // Use configured stream resolution (width/height props), not canvas dimensions
+        if (!canvasDisplaySize || !containerSize) return null;
+
+        const streamWidth = width;
+        const streamHeight = height;
+
+        const scaleX = canvasDisplaySize.width / streamWidth;
+        const scaleY = canvasDisplaySize.height / streamHeight;
+        const offsetX = (containerSize.width - canvasDisplaySize.width) / 2;
+        const offsetY = (containerSize.height - canvasDisplaySize.height) / 2;
+        const displayX = offsetX + touch.x * scaleX;
+        const displayY = offsetY + touch.y * scaleY;
+
         return (
           <Box
             key={`touch-${touch.userId}-${touch.touchId}`}
             sx={{
               position: 'absolute',
-              left: touch.x - size / 2,
-              top: touch.y - size / 2,
+              left: displayX - size / 2,
+              top: displayY - size / 2,
               width: size,
               height: size,
               borderRadius: '50%',

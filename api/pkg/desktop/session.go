@@ -221,6 +221,77 @@ func (s *Server) createScreenshotSession(ctx context.Context) error {
 	}
 }
 
+// createNoCursorScreenshotSession creates a standalone ScreenCast session for no-cursor screenshots.
+// This is used for video polling mode where we don't want cursors in the screenshots
+// (the frontend renders its own cursor overlay based on cursor metadata).
+// Unlike the regular screenshot session, this uses cursor-mode=0 (Hidden).
+func (s *Server) createNoCursorScreenshotSession(ctx context.Context) error {
+	s.logger.Info("creating standalone ScreenCast session for no-cursor screenshots...")
+
+	scObj := s.conn.Object(screenCastBus, screenCastPath)
+
+	// Create standalone session (no remote-desktop-session-id = not linked)
+	var scSessionPath dbus.ObjectPath
+	if err := scObj.Call(screenCastIface+".CreateSession", 0, map[string]dbus.Variant{}).Store(&scSessionPath); err != nil {
+		return fmt.Errorf("create no-cursor screenshot ScreenCast session: %w", err)
+	}
+	s.ssNoCursorScSessionPath = scSessionPath
+	s.logger.Info("no-cursor screenshot ScreenCast session created", "path", scSessionPath)
+
+	// Record the virtual monitor Meta-0 with cursor HIDDEN
+	scSession := s.conn.Object(screenCastBus, scSessionPath)
+	recordOptions := map[string]dbus.Variant{
+		"cursor-mode": dbus.MakeVariant(uint32(0)), // Hidden - no cursor in output
+	}
+
+	var streamPath dbus.ObjectPath
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+		return fmt.Errorf("no-cursor screenshot RecordMonitor: %w", err)
+	}
+	s.ssNoCursorScStreamPath = streamPath
+	s.logger.Info("no-cursor screenshot stream created", "path", streamPath)
+
+	// Subscribe to PipeWireStreamAdded signal for this stream
+	if err := s.conn.AddMatchSignal(
+		dbus.WithMatchObjectPath(s.ssNoCursorScStreamPath),
+		dbus.WithMatchInterface(screenCastStreamIface),
+		dbus.WithMatchMember("PipeWireStreamAdded"),
+	); err != nil {
+		return fmt.Errorf("add no-cursor screenshot signal match: %w", err)
+	}
+
+	signalChan := make(chan *dbus.Signal, 10)
+	s.conn.Signal(signalChan)
+
+	// Start the standalone ScreenCast session
+	s.logger.Info("starting no-cursor screenshot ScreenCast session...")
+	if err := scSession.Call(screenCastSessionIface+".Start", 0).Err; err != nil {
+		return fmt.Errorf("start no-cursor screenshot ScreenCast session: %w", err)
+	}
+
+	// Wait for PipeWire node ID
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case sig := <-signalChan:
+			if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" &&
+				sig.Path == s.ssNoCursorScStreamPath && len(sig.Body) > 0 {
+				if nodeID, ok := sig.Body[0].(uint32); ok {
+					s.ssNoCursorNodeID = nodeID
+					s.logger.Info("no-cursor screenshot PipeWireStreamAdded signal received",
+						"node_id", nodeID,
+						"cursor_screenshot_node_id", s.ssNodeID)
+					return nil
+				}
+			}
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for no-cursor screenshot PipeWireStreamAdded signal")
+		}
+	}
+}
+
 // createVideoSession creates a standalone ScreenCast session for video streaming.
 // CRITICAL: This is NOT linked to RemoteDesktop on purpose!
 //
@@ -437,6 +508,9 @@ func (s *Server) monitorSession(ctx context.Context) {
 						"node_id", s.nodeID)
 				}
 			}
+
+			// Also check screenshot sessions - these can die independently
+			s.checkScreenshotSessionHealth(ctx)
 		}
 	}
 }
@@ -464,5 +538,67 @@ func (s *Server) handleSessionClosed(ctx context.Context) {
 	}
 
 	s.logger.Info("session recreated successfully", "new_node_id", s.nodeID)
+}
+
+// checkScreenshotSessionHealth checks if screenshot sessions are still valid.
+// If a screenshot session has died, recreate it. This prevents gst-launch from
+// hanging on stale PipeWire node IDs.
+func (s *Server) checkScreenshotSessionHealth(ctx context.Context) {
+	// Check screenshot session with cursor (ssScSessionPath)
+	if s.ssScSessionPath != "" {
+		ssSession := s.conn.Object(screenCastBus, s.ssScSessionPath)
+		if err := ssSession.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+			s.logger.Warn("screenshot session health check failed, recreating",
+				"err", err,
+				"path", s.ssScSessionPath)
+			s.ssScSessionPath = ""
+			s.ssScStreamPath = ""
+			s.ssNodeID = 0
+
+			if err := s.createScreenshotSession(ctx); err != nil {
+				s.logger.Error("failed to recreate screenshot session", "err", err)
+			} else {
+				s.logger.Info("screenshot session recreated", "node_id", s.ssNodeID)
+			}
+		}
+	}
+
+	// Check no-cursor screenshot session (ssNoCursorScSessionPath)
+	if s.ssNoCursorScSessionPath != "" {
+		ssNoCursorSession := s.conn.Object(screenCastBus, s.ssNoCursorScSessionPath)
+		if err := ssNoCursorSession.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+			s.logger.Warn("no-cursor screenshot session health check failed, recreating",
+				"err", err,
+				"path", s.ssNoCursorScSessionPath)
+			s.ssNoCursorScSessionPath = ""
+			s.ssNoCursorScStreamPath = ""
+			s.ssNoCursorNodeID = 0
+
+			if err := s.createNoCursorScreenshotSession(ctx); err != nil {
+				s.logger.Error("failed to recreate no-cursor screenshot session", "err", err)
+			} else {
+				s.logger.Info("no-cursor screenshot session recreated", "node_id", s.ssNoCursorNodeID)
+			}
+		}
+	}
+
+	// Check standalone video session (videoScSessionPath)
+	if s.videoScSessionPath != "" {
+		videoSession := s.conn.Object(screenCastBus, s.videoScSessionPath)
+		if err := videoSession.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+			s.logger.Warn("video session health check failed, recreating",
+				"err", err,
+				"path", s.videoScSessionPath)
+			s.videoScSessionPath = ""
+			s.videoScStreamPath = ""
+			s.videoNodeID = 0
+
+			if err := s.createVideoSession(ctx); err != nil {
+				s.logger.Error("failed to recreate video session", "err", err)
+			} else {
+				s.logger.Info("video session recreated", "node_id", s.videoNodeID)
+			}
+		}
+	}
 }
 
