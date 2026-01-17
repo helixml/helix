@@ -3,6 +3,8 @@
 // Package desktop provides xkbcommon integration for keysym to keycode conversion.
 // This enables proper keyboard input on Sway/wlroots compositors that don't support
 // direct keysym injection like GNOME RemoteDesktop does.
+//
+// The keymap is dynamically updated when Sway's keyboard layout changes.
 package desktop
 
 /*
@@ -52,8 +54,14 @@ static int build_keysym_to_keycode_table(
 import "C"
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
 	"os"
+	"os/exec"
+	"strings"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -64,101 +72,277 @@ type KeysymMapping struct {
 }
 
 var (
-	xkbOnce       sync.Once
-	keysymTable   map[uint32]KeysymMapping
-	xkbInitErr    error
-	xkbAvailable  bool
+	xkbMu           sync.RWMutex
+	keysymTable     map[uint32]KeysymMapping
+	xkbAvailable    bool
+	xkbInitialized  bool
+	currentLayout   string // Track current layout to detect changes
+	layoutPollStop  chan struct{}
+	layoutPollOnce  sync.Once
 )
 
-// initXKB initializes the xkbcommon keymap and builds the reverse lookup table.
-// It reads the keymap from XKB_DEFAULT_* environment variables.
-func initXKB() {
-	xkbOnce.Do(func() {
-		keysymTable = make(map[uint32]KeysymMapping)
+// swayInput represents a Sway input device from swaymsg -t get_inputs
+type swayInput struct {
+	Identifier          string `json:"identifier"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	XkbActiveLayoutName string `json:"xkb_active_layout_name"`
+	XkbLayoutNames      []string `json:"xkb_layout_names"`
+}
 
-		// Create xkb context
-		ctx := C.xkb_context_new(C.XKB_CONTEXT_NO_FLAGS)
-		if ctx == nil {
-			xkbInitErr = nil // Not an error, just no xkbcommon
-			return
-		}
-		defer C.xkb_context_unref(ctx)
+// getSwayKeyboardLayout queries Sway for the current keyboard layout
+func getSwayKeyboardLayout() string {
+	// Check if we're running under Sway
+	if os.Getenv("SWAYSOCK") == "" {
+		return ""
+	}
 
-		// Get keymap from environment variables (XKB_DEFAULT_RULES, XKB_DEFAULT_LAYOUT, etc.)
-		// These are standard environment variables that Wayland compositors set
-		var names C.struct_xkb_rule_names
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-		// Read from environment or use defaults
-		if rules := os.Getenv("XKB_DEFAULT_RULES"); rules != "" {
-			cRules := C.CString(rules)
-			defer C.free(unsafe.Pointer(cRules))
-			names.rules = cRules
-		}
-		if model := os.Getenv("XKB_DEFAULT_MODEL"); model != "" {
-			cModel := C.CString(model)
-			defer C.free(unsafe.Pointer(cModel))
-			names.model = cModel
-		}
-		if layout := os.Getenv("XKB_DEFAULT_LAYOUT"); layout != "" {
-			cLayout := C.CString(layout)
-			defer C.free(unsafe.Pointer(cLayout))
-			names.layout = cLayout
-		}
-		if variant := os.Getenv("XKB_DEFAULT_VARIANT"); variant != "" {
-			cVariant := C.CString(variant)
-			defer C.free(unsafe.Pointer(cVariant))
-			names.variant = cVariant
-		}
-		if options := os.Getenv("XKB_DEFAULT_OPTIONS"); options != "" {
-			cOptions := C.CString(options)
-			defer C.free(unsafe.Pointer(cOptions))
-			names.options = cOptions
-		}
+	cmd := exec.CommandContext(ctx, "swaymsg", "-t", "get_inputs")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
 
-		// Create keymap from the rule names (or defaults if not set)
-		keymap := C.xkb_keymap_new_from_names(ctx, &names, C.XKB_KEYMAP_COMPILE_NO_FLAGS)
+	var inputs []swayInput
+	if err := json.Unmarshal(output, &inputs); err != nil {
+		return ""
+	}
+
+	// Find the first keyboard and return its active layout
+	for _, input := range inputs {
+		if input.Type == "keyboard" && input.XkbActiveLayoutName != "" {
+			return input.XkbActiveLayoutName
+		}
+	}
+
+	return ""
+}
+
+// layoutNameToXkbLayout converts Sway's layout name to xkbcommon layout string
+// Sway reports names like "English (US)", "German", etc.
+// We need to convert to xkb layout codes like "us", "de", etc.
+func layoutNameToXkbLayout(name string) string {
+	name = strings.ToLower(name)
+
+	// Common mappings
+	switch {
+	case strings.Contains(name, "english") && strings.Contains(name, "us"):
+		return "us"
+	case strings.Contains(name, "english") && strings.Contains(name, "uk"):
+		return "gb"
+	case strings.Contains(name, "german"):
+		return "de"
+	case strings.Contains(name, "french"):
+		return "fr"
+	case strings.Contains(name, "spanish"):
+		return "es"
+	case strings.Contains(name, "italian"):
+		return "it"
+	case strings.Contains(name, "portuguese"):
+		return "pt"
+	case strings.Contains(name, "russian"):
+		return "ru"
+	case strings.Contains(name, "japanese"):
+		return "jp"
+	case strings.Contains(name, "korean"):
+		return "kr"
+	case strings.Contains(name, "chinese"):
+		return "cn"
+	case strings.Contains(name, "arabic"):
+		return "ara"
+	case strings.Contains(name, "hebrew"):
+		return "il"
+	case strings.Contains(name, "polish"):
+		return "pl"
+	case strings.Contains(name, "dutch"):
+		return "nl"
+	case strings.Contains(name, "swedish"):
+		return "se"
+	case strings.Contains(name, "norwegian"):
+		return "no"
+	case strings.Contains(name, "danish"):
+		return "dk"
+	case strings.Contains(name, "finnish"):
+		return "fi"
+	case strings.Contains(name, "czech"):
+		return "cz"
+	case strings.Contains(name, "hungarian"):
+		return "hu"
+	case strings.Contains(name, "greek"):
+		return "gr"
+	case strings.Contains(name, "turkish"):
+		return "tr"
+	case strings.Contains(name, "dvorak"):
+		return "us(dvorak)"
+	case strings.Contains(name, "colemak"):
+		return "us(colemak)"
+	default:
+		// Try to use the first word as the layout code
+		parts := strings.Fields(name)
+		if len(parts) > 0 {
+			return parts[0]
+		}
+		return "us" // Default fallback
+	}
+}
+
+// buildKeymapForLayout builds the keysym table for a specific layout
+func buildKeymapForLayout(layout string) (map[uint32]KeysymMapping, bool) {
+	table := make(map[uint32]KeysymMapping)
+
+	// Create xkb context
+	ctx := C.xkb_context_new(C.XKB_CONTEXT_NO_FLAGS)
+	if ctx == nil {
+		return nil, false
+	}
+	defer C.xkb_context_unref(ctx)
+
+	// Set up rule names with the specified layout
+	var names C.struct_xkb_rule_names
+
+	if layout != "" {
+		cLayout := C.CString(layout)
+		defer C.free(unsafe.Pointer(cLayout))
+		names.layout = cLayout
+	}
+
+	// Create keymap
+	keymap := C.xkb_keymap_new_from_names(ctx, &names, C.XKB_KEYMAP_COMPILE_NO_FLAGS)
+	if keymap == nil {
+		// Fall back to default
+		keymap = C.xkb_keymap_new_from_names(ctx, nil, C.XKB_KEYMAP_COMPILE_NO_FLAGS)
 		if keymap == nil {
-			// Fall back to default US QWERTY
-			keymap = C.xkb_keymap_new_from_names(ctx, nil, C.XKB_KEYMAP_COMPILE_NO_FLAGS)
-			if keymap == nil {
-				xkbInitErr = nil // Not an error, just no keymap
-				return
+			return nil, false
+		}
+	}
+	defer C.xkb_keymap_unref(keymap)
+
+	// Build the reverse lookup table
+	const maxEntries = 8192
+	keysyms := make([]C.uint32_t, maxEntries)
+	keycodes := make([]C.uint32_t, maxEntries)
+	needsShift := make([]C.uint8_t, maxEntries)
+
+	count := C.build_keysym_to_keycode_table(
+		keymap,
+		(*C.uint32_t)(unsafe.Pointer(&keysyms[0])),
+		(*C.uint32_t)(unsafe.Pointer(&keycodes[0])),
+		(*C.uint8_t)(unsafe.Pointer(&needsShift[0])),
+		C.int(maxEntries),
+	)
+
+	// Populate the Go map
+	for i := 0; i < int(count); i++ {
+		ks := uint32(keysyms[i])
+		kc := int(keycodes[i])
+		shift := needsShift[i] != 0
+
+		// Only add if not already present, or if this one doesn't need shift
+		if existing, ok := table[ks]; !ok || (!shift && existing.NeedsShift) {
+			table[ks] = KeysymMapping{
+				EvdevCode:  kc,
+				NeedsShift: shift,
 			}
 		}
-		defer C.xkb_keymap_unref(keymap)
+	}
 
-		// Build the reverse lookup table
-		const maxEntries = 8192 // Should be enough for most keymaps
-		keysyms := make([]C.uint32_t, maxEntries)
-		keycodes := make([]C.uint32_t, maxEntries)
-		needsShift := make([]C.uint8_t, maxEntries)
+	return table, true
+}
 
-		count := C.build_keysym_to_keycode_table(
-			keymap,
-			(*C.uint32_t)(unsafe.Pointer(&keysyms[0])),
-			(*C.uint32_t)(unsafe.Pointer(&keycodes[0])),
-			(*C.uint8_t)(unsafe.Pointer(&needsShift[0])),
-			C.int(maxEntries),
-		)
+// initXKB initializes the xkbcommon keymap.
+func initXKB() {
+	xkbMu.Lock()
+	defer xkbMu.Unlock()
 
-		// Populate the Go map
-		// For duplicate keysyms, prefer the one without shift (level 0)
-		for i := 0; i < int(count); i++ {
-			ks := uint32(keysyms[i])
-			kc := int(keycodes[i])
-			shift := needsShift[i] != 0
+	if xkbInitialized {
+		return
+	}
 
-			// Only add if not already present, or if this one doesn't need shift
-			if existing, ok := keysymTable[ks]; !ok || (!shift && existing.NeedsShift) {
-				keysymTable[ks] = KeysymMapping{
-					EvdevCode:  kc,
-					NeedsShift: shift,
+	// Check if we're on Sway
+	isSway := os.Getenv("SWAYSOCK") != ""
+
+	var layout string
+	if isSway {
+		// Get layout from Sway
+		swayLayout := getSwayKeyboardLayout()
+		if swayLayout != "" {
+			layout = layoutNameToXkbLayout(swayLayout)
+			currentLayout = swayLayout
+			slog.Debug("detected Sway keyboard layout", "sway_name", swayLayout, "xkb_layout", layout)
+		}
+	} else {
+		// Use environment variables for non-Sway (GNOME uses keysyms directly anyway)
+		layout = os.Getenv("XKB_DEFAULT_LAYOUT")
+	}
+
+	table, ok := buildKeymapForLayout(layout)
+	if ok {
+		keysymTable = table
+		xkbAvailable = true
+		slog.Debug("built XKB keymap", "layout", layout, "entries", len(table))
+	}
+
+	xkbInitialized = true
+
+	// Start layout polling for Sway
+	if isSway {
+		startLayoutPolling()
+	}
+}
+
+// startLayoutPolling starts a background goroutine that polls for layout changes
+func startLayoutPolling() {
+	layoutPollOnce.Do(func() {
+		layoutPollStop = make(chan struct{})
+		go pollLayoutChanges()
+	})
+}
+
+// pollLayoutChanges periodically checks if Sway's keyboard layout has changed
+func pollLayoutChanges() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-layoutPollStop:
+			return
+		case <-ticker.C:
+			newLayout := getSwayKeyboardLayout()
+			if newLayout == "" {
+				continue
+			}
+
+			xkbMu.RLock()
+			changed := newLayout != currentLayout
+			xkbMu.RUnlock()
+
+			if changed {
+				xkbLayout := layoutNameToXkbLayout(newLayout)
+				slog.Info("Sway keyboard layout changed, rebuilding keymap",
+					"old", currentLayout, "new", newLayout, "xkb_layout", xkbLayout)
+
+				table, ok := buildKeymapForLayout(xkbLayout)
+				if ok {
+					xkbMu.Lock()
+					keysymTable = table
+					currentLayout = newLayout
+					xkbMu.Unlock()
+					slog.Debug("rebuilt XKB keymap", "layout", xkbLayout, "entries", len(table))
 				}
 			}
 		}
+	}
+}
 
-		xkbAvailable = true
-	})
+// StopXKBPolling stops the layout polling goroutine
+func StopXKBPolling() {
+	if layoutPollStop != nil {
+		close(layoutPollStop)
+	}
 }
 
 // XKBKeysymToEvdev converts an X11 keysym to a Linux evdev keycode using xkbcommon.
@@ -166,6 +350,9 @@ func initXKB() {
 // Returns 0 if no mapping exists.
 func XKBKeysymToEvdev(keysym uint32) int {
 	initXKB()
+
+	xkbMu.RLock()
+	defer xkbMu.RUnlock()
 
 	if !xkbAvailable {
 		return 0
@@ -183,6 +370,9 @@ func XKBKeysymToEvdev(keysym uint32) int {
 func XKBKeysymNeedsShift(keysym uint32) bool {
 	initXKB()
 
+	xkbMu.RLock()
+	defer xkbMu.RUnlock()
+
 	if !xkbAvailable {
 		return false
 	}
@@ -197,5 +387,15 @@ func XKBKeysymNeedsShift(keysym uint32) bool {
 // IsXKBAvailable returns true if xkbcommon was successfully initialized.
 func IsXKBAvailable() bool {
 	initXKB()
+	xkbMu.RLock()
+	defer xkbMu.RUnlock()
 	return xkbAvailable
+}
+
+// GetCurrentLayout returns the current keyboard layout being used
+func GetCurrentLayout() string {
+	initXKB()
+	xkbMu.RLock()
+	defer xkbMu.RUnlock()
+	return currentLayout
 }

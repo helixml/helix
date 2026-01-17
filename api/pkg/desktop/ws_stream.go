@@ -117,7 +117,7 @@ const (
 	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
 	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
 	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
-	StreamMsgRemoteGesture= 0x57 // Remote user gesture event
+	StreamMsgRemoteGesture = 0x57 // Remote user gesture event
 )
 
 // Video codec types

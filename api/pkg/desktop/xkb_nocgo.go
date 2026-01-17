@@ -19,3 +19,11 @@ func XKBKeysymNeedsShift(keysym uint32) bool {
 func IsXKBAvailable() bool {
 	return false
 }
+
+// StopXKBPolling is a no-op when CGO is disabled.
+func StopXKBPolling() {}
+
+// GetCurrentLayout returns empty string when CGO is disabled.
+func GetCurrentLayout() string {
+	return ""
+}
