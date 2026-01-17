@@ -10220,57 +10220,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/from-demo": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a new SpecTask with a demo repository",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Create SpecTask from demo repo",
-                "parameters": [
-                    {
-                        "description": "Demo task request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreateSpecTaskFromDemoRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTask"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/from-prompt": {
             "post": {
                 "description": "Create a new task from a simple description and start spec generation",
@@ -14008,30 +13957,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "client_unique_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.CreateSpecTaskFromDemoRequest": {
-            "type": "object",
-            "required": [
-                "demo_repo",
-                "prompt"
-            ],
-            "properties": {
-                "demo_repo": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "priority": {
-                    "type": "string"
-                },
-                "prompt": {
-                    "type": "string"
-                },
-                "type": {
                     "type": "string"
                 }
             }

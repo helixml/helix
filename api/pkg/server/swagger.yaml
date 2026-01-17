@@ -814,22 +814,6 @@ definitions:
       client_unique_id:
         type: string
     type: object
-  server.CreateSpecTaskFromDemoRequest:
-    properties:
-      demo_repo:
-        type: string
-      organization_id:
-        type: string
-      priority:
-        type: string
-      prompt:
-        type: string
-      type:
-        type: string
-    required:
-    - demo_repo
-    - prompt
-    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -15176,38 +15160,6 @@ paths:
       summary: Update board settings for spec tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/from-demo:
-    post:
-      consumes:
-      - application/json
-      description: Create a new SpecTask with a demo repository
-      parameters:
-      - description: Demo task request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSpecTaskFromDemoRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SpecTask'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Create SpecTask from demo repo
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/from-prompt:
     post:
       consumes:
