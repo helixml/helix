@@ -9,7 +9,7 @@ import { Api } from "../api"
 import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
-import { WsVideoCodec, codecToWebCodecsString } from "./codecs"
+import { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
 import {
   WsMessageType,
   CursorImageData,
