@@ -86,8 +86,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, move to done and instruct agent to merge
-	switch {
-	case repo.AzureDevOps != nil:
+	if s.shouldOpenPullRequest(repo) {
 		// External repo: move to pull_request status, await merge via polling
 		specTask.Status = types.TaskStatusPullRequest
 
@@ -134,17 +133,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		}
 
 		// Construct PR URL for ADO repos
-		if updatedTask.PullRequestID != "" {
-			updatedTask.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, updatedTask.PullRequestID)
-		}
+		updatedTask.PullRequestURL = services.GetPullRequestURL(repo, updatedTask.PullRequestID)
 
 		writeResponse(w, updatedTask, http.StatusOK)
 		return
-	default:
-		// Internal repo: move straight to done
-		specTask.Status = types.TaskStatusDone
-		specTask.CompletedAt = &now
 	}
+
+	// Internal repo or external repo with no PRs automation implemented
+
+	specTask.Status = types.TaskStatusDone
+	specTask.CompletedAt = &now
 
 	// Updating spec task
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
@@ -175,6 +173,21 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
+}
+
+func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
+	switch {
+	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.OAuthConnectionID != "":
+		// Github OAuth connection ID set
+		return true
+	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "":
+		// Github PRs implemented
+		return true
+	case repo.AzureDevOps != nil:
+		// ADO PRs implemented
+		return true
+	}
+	return false
 }
 
 // stopAgentSession - stop the agent session for a spec task

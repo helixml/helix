@@ -102,7 +102,7 @@ type SpecTask struct {
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
 	PullRequestID  string `json:"pull_request_id"`
-	PullRequestURL string `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
+	PullRequestURL string `json:"pull_request_url,omitempty"` // Computed field, not stored
 
 	// Agent activity tracking (computed from session/activity data, not stored)
 	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
