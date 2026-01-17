@@ -122,7 +122,12 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	storeConfig.Schema = fmt.Sprintf("test_oauth_%s", suite.testID)
 	suite.logger.Info().Str("schema", storeConfig.Schema).Msg("Using unique database schema for test isolation")
 
-	suite.store, err = store.NewPostgresStore(storeConfig)
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		return fmt.Errorf("failed to create in-memory pubsub: %w", err)
+	}
+
+	suite.store, err = store.NewPostgresStore(storeConfig, ps)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}
