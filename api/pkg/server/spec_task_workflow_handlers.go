@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -101,15 +102,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message := `Your implementation has been approved! Please push your changes now to open a Pull Request.
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Str("planning_session_id", specTask.PlanningSessionID).
+					Msg("Failed to send PR instruction to agent via WebSocket")
+			}
 
-If you have uncommitted changes, commit them first. If all changes are already committed, you can push an empty commit:
-git commit --allow-empty -m "chore: open pull request for review"
-git push origin ` + specTask.BranchName + `
-
-This will open a Pull Request in the external repository for code review.`
-
-			_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 			if err != nil {
 				log.Error().
 					Err(err).
