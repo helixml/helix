@@ -2,14 +2,20 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
+
+func newTaskSpecSubject(projectID string) string {
+	return fmt.Sprintf("spec-task.%s", projectID)
+}
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
@@ -31,6 +37,8 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("project_id", task.ProjectID).
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
+
+	s.notifyTaskUpdates(ctx, task)
 
 	return nil
 }
@@ -77,6 +85,8 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
+
+	s.notifyTaskUpdates(ctx, task)
 
 	return nil
 }
@@ -133,4 +143,77 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	}
 
 	return tasks, nil
+}
+
+// SubscribeForTasks subscribes to task updates with optional filtering by status and project.
+// Returns a subscription that receives task updates matching the filter criteria.
+// Supports multiple concurrent subscribers in a broadcast style.
+func (s *PostgresStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error) {
+	if filter.ProjectID == "" {
+		filter.ProjectID = "*"
+	}
+
+	subject := newTaskSpecSubject(filter.ProjectID)
+
+	sub, err := s.pubsub.Subscribe(ctx, subject, func(payload []byte) error {
+		var task types.SpecTask
+
+		err := json.Unmarshal(payload, &task)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal task: %w", err)
+		}
+		if !filter.Matches(&task) {
+			return nil
+		}
+
+		return handler(&task)
+	})
+
+	return sub, err
+}
+
+func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, task *types.SpecTask) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	message, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task: %w", err)
+	}
+
+	if task.ProjectID == "" {
+		task.ProjectID = "*"
+	}
+
+	return s.pubsub.Publish(ctx, newTaskSpecSubject(task.ProjectID), message)
+}
+
+type SpecTaskSubscriptionFilter struct {
+	Statuses  []types.SpecTaskStatus
+	ProjectID string
+}
+
+func (f *SpecTaskSubscriptionFilter) Matches(task *types.SpecTask) bool {
+	if f == nil {
+		return true
+	}
+
+	if f.ProjectID != "" && task.ProjectID != f.ProjectID {
+		return false
+	}
+
+	if len(f.Statuses) > 0 {
+		for _, status := range f.Statuses {
+			if task.Status == status {
+				return true
+			}
+		}
+		return false
+	}
+
+	return true
+}
+
+type SpecTaskSubscription interface {
+	Unsubscribe()
 }

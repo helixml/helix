@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	license "github.com/helixml/helix/api/pkg/license"
+	pubsub "github.com/helixml/helix/api/pkg/pubsub"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -4367,6 +4368,21 @@ func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string
 func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
+}
+
+// SubscribeForTasks mocks base method.
+func (m *MockStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(*types.SpecTask) error) (pubsub.Subscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubscribeForTasks", ctx, filter, handler)
+	ret0, _ := ret[0].(pubsub.Subscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SubscribeForTasks indicates an expected call of SubscribeForTasks.
+func (mr *MockStoreMockRecorder) SubscribeForTasks(ctx, filter, handler any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeForTasks", reflect.TypeOf((*MockStore)(nil).SubscribeForTasks), ctx, filter, handler)
 }
 
 // SyncPromptHistory mocks base method.

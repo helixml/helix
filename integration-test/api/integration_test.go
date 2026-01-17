@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -139,7 +140,13 @@ func getStoreClient() (*store.PostgresStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := store.NewPostgresStore(cfg.Store)
+
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create in-memory pubsub: %w", err)
+	}
+
+	store, err := store.NewPostgresStore(cfg.Store, ps)
 	if err != nil {
 		return nil, err
 	}

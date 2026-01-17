@@ -82,7 +82,7 @@ const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
                 <Chip
                   icon={<StarIcon />}
                   label="Primary"
-                  color="primary"
+                  color="secondary"
                   size="small"
                 />
               ) : (

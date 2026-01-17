@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/license"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -425,6 +426,7 @@ type Store interface {
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
 
 	// spec-driven task work sessions
 	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
