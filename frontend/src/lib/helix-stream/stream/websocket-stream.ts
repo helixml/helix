@@ -42,6 +42,7 @@ const WsMessageType = {
   AgentCursor: 0x55,      // AI agent cursor position/action
   RemoteTouch: 0x56,      // Remote user touch event
   RemoteGesture: 0x57,    // Remote user gesture event
+  SelfId: 0x58,           // Server tells client their own clientId
 } as const
 
 // Exported for reuse in SSE video handling in DesktopStreamViewer.tsx
@@ -126,6 +127,7 @@ export interface RemoteCursorPosition {
   y: number
   color?: string
   lastSeen: number  // Timestamp for idle detection
+  cursorImage?: CursorImageData  // Cursor shape for this remote user
 }
 
 // AI agent cursor info
@@ -159,7 +161,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "connectionComplete"; capabilities: StreamCapabilities }
   | { type: "addDebugLine"; line: string }
   // Cursor events
-  | { type: "cursorImage"; cursor: CursorImageData }
+  | { type: "cursorImage"; cursor: CursorImageData; lastMoverID?: number }
   | { type: "cursorPosition"; x: number; y: number; hotspotX: number; hotspotY: number }
   | { type: "cursorVisibility"; visible: boolean; cursorId: number }
   | { type: "cursorSwitch"; cursorId: number }
@@ -169,6 +171,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "remoteUserLeft"; userId: number }
   | { type: "agentCursor"; agent: AgentCursorInfo }
   | { type: "remoteTouch"; touch: RemoteTouchInfo }
+  | { type: "selfId"; clientId: number }
 >
 export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void
 
@@ -587,9 +590,21 @@ export class WebSocketStream {
     this.dispatchInfoEvent({ type: "error", message: "WebSocket error" })
   }
 
+  private messageCount = 0
   private async onMessage(event: MessageEvent) {
     // Update heartbeat timestamp on any message
     this.lastMessageTime = Date.now()
+    this.messageCount++
+
+    // Log first 20 messages to debug startup sequence
+    if (this.messageCount <= 20) {
+      if (event.data instanceof ArrayBuffer) {
+        const preview = new Uint8Array(event.data)
+        console.log(`[WebSocketStream] Startup msg #${this.messageCount}: binary, type=0x${preview[0]?.toString(16)}, len=${preview.length}`)
+      } else {
+        console.log(`[WebSocketStream] Startup msg #${this.messageCount}: text, len=${(event.data as string).length}`)
+      }
+    }
 
     if (!(event.data instanceof ArrayBuffer)) {
       // JSON control message (text frame) - track string length as bytes
@@ -611,6 +626,11 @@ export class WebSocketStream {
     this.totalBytesReceived += data.length
 
     const msgType = data[0]
+
+    // Debug: log non-video message types to track RemoteCursor (0x53) arrival
+    if (msgType !== WsMessageType.VideoFrame && msgType !== WsMessageType.VideoBatch && msgType !== WsMessageType.AudioFrame && msgType !== WsMessageType.Pong) {
+      console.log("[WebSocketStream] Binary msg received, type=0x" + msgType.toString(16), "len=" + data.length)
+    }
 
     switch (msgType) {
       case WsMessageType.VideoFrame:
@@ -653,7 +673,12 @@ export class WebSocketStream {
         this.handleRemoteCursor(data)
         break
       case WsMessageType.RemoteUser:
-        this.handleRemoteUser(data)
+        console.log("[MULTIPLAYER_DEBUG] RemoteUser case matched")
+        try {
+          this.handleRemoteUser(data)
+        } catch (e) {
+          console.error("[MULTIPLAYER_DEBUG] Error in handleRemoteUser:", e)
+        }
         break
       case WsMessageType.AgentCursor:
         this.handleAgentCursor(data)
@@ -661,8 +686,16 @@ export class WebSocketStream {
       case WsMessageType.RemoteTouch:
         this.handleRemoteTouch(data)
         break
+      case WsMessageType.SelfId:
+        console.log("[MULTIPLAYER_DEBUG] SelfId case matched")
+        try {
+          this.handleSelfId(data)
+        } catch (e) {
+          console.error("[MULTIPLAYER_DEBUG] Error in handleSelfId:", e)
+        }
+        break
       default:
-        console.warn("[WebSocketStream] Unknown message type:", msgType)
+        console.warn("[MULTIPLAYER_DEBUG] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
     }
   }
 
@@ -671,7 +704,9 @@ export class WebSocketStream {
     // This tells the server which codecs the browser can decode
     const supportBits = createSupportedVideoFormatsBits(this.supportedVideoFormats)
 
-    console.log('[WebSocketStream] Sending init with supported formats:', {
+    console.log('[WebSocketStream] Sending init:', {
+      session_id: this.sessionId,
+      user_name: this.userName,
       bits: supportBits,
       formats: this.supportedVideoFormats,
     })
@@ -2500,9 +2535,10 @@ export class WebSocketStream {
    */
   private handleCursorImage(data: Uint8Array) {
     // Binary format from Go (little-endian):
-    // type(1) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4)
+    // type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4)
     // If bitmapSize > 0: format(4) + width(4) + height(4) + stride(4) + pixels...
-    if (data.length < 21) {
+
+    if (data.length < 25) {
       console.warn("[WebSocketStream] CursorImage message too short:", data.length)
       return
     }
@@ -2511,6 +2547,9 @@ export class WebSocketStream {
     let offset = 1  // Skip message type
 
     // All values are little-endian from Go
+    // lastMoverID indicates which client caused this cursor shape change
+    const lastMoverID = view.getUint32(offset, true)
+    offset += 4
     const posX = view.getInt32(offset, true)  // Little-endian, signed
     offset += 4
     const posY = view.getInt32(offset, true)
@@ -2578,8 +2617,9 @@ export class WebSocketStream {
         this.cursorCache.set(cursorId, cursorData)
         this.currentCursorId = cursorId
 
-        // Emit cursor image event
-        this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData })
+        // Emit cursor image event with lastMoverID for multi-player filtering
+        // Only the client that moved the cursor should update its cursor shape
+        this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData, lastMoverID })
 
         console.debug("[WebSocketStream] Cursor image received:", {
           cursorId,
@@ -2588,6 +2628,7 @@ export class WebSocketStream {
           width,
           height,
           format: format.toString(16),
+          lastMoverID,
         })
       }
     }
@@ -2760,6 +2801,7 @@ export class WebSocketStream {
       color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
     }
 
+    console.log("[MULTIPLAYER_DEBUG] RemoteCursor received", { userId, x, y, color })
     this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y, color, lastSeen: Date.now() } })
   }
 
@@ -2784,6 +2826,7 @@ export class WebSocketStream {
 
     if (action === 0x00) {
       // User left
+      console.log("[WebSocketStream] Remote user left:", { userId })
       this.dispatchInfoEvent({ type: "remoteUserLeft", userId })
       return
     }
@@ -2834,7 +2877,25 @@ export class WebSocketStream {
       user: { userId, userName: name, color, avatarUrl },
     })
 
-    console.debug("[WebSocketStream] Remote user joined:", { userId, name, color, avatarUrl })
+    console.log("[MULTIPLAYER_DEBUG] Remote user joined:", { userId, name, color, avatarUrl })
+  }
+
+  /**
+   * Handle self ID message (0x58)
+   * Server tells client their assigned clientId
+   * Format: type(1) + clientId(4)
+   */
+  private handleSelfId(data: Uint8Array) {
+    if (data.length < 5) {
+      console.warn("[WebSocketStream] SelfId message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const clientId = view.getUint32(1, true)  // Little-endian
+
+    console.log("[MULTIPLAYER_DEBUG] SelfId received:", { clientId })
+    this.dispatchInfoEvent({ type: "selfId", clientId })
   }
 
   /**

@@ -121,6 +121,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Multi-player cursor state
   const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
   const [selfClientId, setSelfClientId] = useState<number | null>(null);
+  // Ref to track selfClientId synchronously (avoids stale closure in event handlers)
+  const selfClientIdRef = useRef<number | null>(null);
   const [remoteUsers, setRemoteUsers] = useState<Map<number, RemoteUserInfo>>(new Map());
   const [remoteCursors, setRemoteCursors] = useState<Map<number, RemoteCursorPosition>>(new Map());
   const [agentCursor, setAgentCursor] = useState<AgentCursorInfo | null>(null);
@@ -698,15 +700,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
         // Cursor events
         else if (data.type === 'cursorImage') {
-          // Only update cursor shape if it was caused by our own movement
-          // This prevents other users' movements from changing our cursor shape
-          // If selfClientId is not set yet (initial connection), accept all updates
-          // If lastMoverID is 0 (single-user mode or no tracking), accept all updates
-          const isOurMovement = !selfClientId || !data.lastMoverID || data.lastMoverID === selfClientId;
-          if (isOurMovement) {
-            setCursorImage(data.cursor);
+          // Attribute cursor shape to the user who caused it
+          // Use ref to avoid stale closure issues
+          const currentSelfId = selfClientIdRef.current;
+          const lastMover = data.lastMoverID;
+
+          // If lastMover is set and it's NOT us, update the remote user's cursor
+          // This takes priority - even if we don't know our own ID yet
+          if (lastMover && lastMover !== currentSelfId) {
+            // Another user caused the cursor shape change - update their remote cursor
+            console.log('[CURSOR_SHAPE] Remote user cursor change:', { lastMover, currentSelfId, hasImage: !!data.cursor?.imageUrl });
+            setRemoteCursors(prev => {
+              const existing = prev.get(lastMover);
+              if (existing) {
+                console.log('[CURSOR_SHAPE] Updated remote cursor:', lastMover);
+                return new Map(prev).set(lastMover, { ...existing, cursorImage: data.cursor });
+              }
+              console.warn('[CURSOR_SHAPE] Remote cursor not in map:', lastMover, 'keys:', Array.from(prev.keys()));
+              return prev;
+            });
           } else {
-            console.debug('[DesktopStreamViewer] Ignoring cursor shape from other user:', data.lastMoverID, 'self:', selfClientId);
+            // It's our movement, or no tracking info (single-user mode) - update local cursor
+            setCursorImage(data.cursor);
           }
         } else if (data.type === 'cursorVisibility') {
           setCursorVisible(data.visible);
@@ -728,25 +743,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
         // Multi-player cursor events
         else if (data.type === 'remoteCursor') {
-          console.log('[DesktopStreamViewer] Adding remote cursor to map:', data.cursor.userId, 'selfClientId:', selfClientId);
           setRemoteCursors(prev => {
-            const next = new Map(prev).set(data.cursor.userId, data.cursor);
-            console.log('[DesktopStreamViewer] remoteCursors map now has:', Array.from(next.keys()));
-            return next;
+            const existing = prev.get(data.cursor.userId);
+            // Merge with existing to preserve cursorImage (set by CursorImage events)
+            const updated = {
+              ...existing,       // Preserve cursorImage if it exists
+              ...data.cursor,    // Update position, color, lastSeen
+            };
+            return new Map(prev).set(data.cursor.userId, updated);
           });
         } else if (data.type === 'remoteUserJoined') {
-          console.log('[DesktopStreamViewer] remoteUserJoined:', {
+          // Use ref to check selfClientId (avoids stale closure - ref was set synchronously by selfId event)
+          const currentSelfClientId = selfClientIdRef.current;
+          const isThisMe = data.user.userId === currentSelfClientId;
+          console.log('[MULTIPLAYER_DEBUG] DesktopStreamViewer remoteUserJoined:', {
             userId: data.user.userId,
             userName: data.user.userName,
-            accountName: account.user?.name,
-            selfUser: selfUser?.userId,
-            willSetSelf: !selfUser && account.user && data.user.userName === account.user.name
+            selfClientIdRef: currentSelfClientId,
+            isThisMe
           });
-          // Check if this is ourselves (first user joined with matching name or first message when selfUser is null)
-          if (!selfUser && account.user && data.user.userName === account.user.name) {
-            console.log('[DesktopStreamViewer] Setting selfClientId to:', data.user.userId);
+          // Check if this is ourselves using the clientId from SelfId message (reliable)
+          if (isThisMe) {
+            console.log('[MULTIPLAYER_DEBUG] This is our own user info, setting selfUser');
             setSelfUser(data.user);
-            setSelfClientId(data.user.userId);
           }
           setRemoteUsers(prev => new Map(prev).set(data.user.userId, data.user));
         } else if (data.type === 'remoteUserLeft') {
@@ -776,7 +795,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         } else if (data.type === 'selfId') {
           // Server tells us our assigned clientId
-          console.log('[DesktopStreamViewer] Received selfId:', data.clientId);
+          // Update ref synchronously to avoid stale closure issues in subsequent event handlers
+          selfClientIdRef.current = data.clientId;
+          console.log('[MULTIPLAYER_DEBUG] DesktopStreamViewer received selfId:', data.clientId, 'ref updated synchronously');
           setSelfClientId(data.clientId);
         }
         });
@@ -947,29 +968,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setVoiceError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
+      // Convert Blob to File for the API client
+      const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
 
-      const token = helixApi.getApiClient().securityData?.token;
-      const response = await fetch(
-        `${helixApi.getBaseUrl()}/api/v1/external-agents/${sessionId}/voice`,
-        {
-          method: 'POST',
-          headers: {
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-          body: formData,
-        }
+      const response = await helixApi.getApiClient().v1ExternalAgentsVoiceCreate(
+        sessionId,
+        { audio: audioFile }
       );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[Voice] Transcription failed:', response.status, errorText);
-        setVoiceError(`Transcription failed: ${response.status}`);
-        return;
-      }
-
-      const result = await response.json();
+      const result = response.data as { text?: string; status?: string; error?: string };
       if (result.status === 'error') {
         console.error('[Voice] Transcription error:', result.error);
         setVoiceError(result.error || 'Transcription failed');
@@ -977,13 +984,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       console.log('[Voice] Transcription complete:', result.text);
-      setLastTranscription(result.text);
+      setLastTranscription(result.text || null);
       setVoiceError(null);
       // Clear buffer on success
       lastRecordingRef.current = null;
-    } catch (err) {
+    } catch (err: any) {
       console.error('[Voice] Transcription error:', err);
-      setVoiceError(err instanceof Error ? err.message : 'Network error - tap to retry');
+      const errorMessage = err?.response?.data?.error || err?.message || 'Network error - tap to retry';
+      setVoiceError(errorMessage);
     } finally {
       setIsTranscribing(false);
     }
@@ -3401,7 +3409,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Remote user cursors (Figma-style multi-player) */}
       {Array.from(remoteCursors.entries()).map(([userId, cursor]) => {
         // Skip our own cursor (we render it separately)
-        if (userId === selfClientId) {
+        // Use both state and ref - state for normal renders, ref as backup for rapid event sequences
+        if (userId === selfClientId || userId === selfClientIdRef.current) {
           return null;
         }
         // Skip idle cursors (no movement for 30 seconds)
@@ -3410,9 +3419,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           return null;
         }
         const user = remoteUsers.get(userId);
+        // Use cursor color as fallback if user info isn't available yet
+        // This happens when remoteUserJoined (0x54) events aren't arriving but remoteCursor (0x53) events are
         if (!user) {
-          return null;
+          console.warn('[DesktopStreamViewer] Rendering cursor without user info (0x54 not received):', { userId, cursorColor: cursor.color });
         }
+        const displayColor = user?.color || cursor.color || '#0D99FF';
+        const displayName = user?.userName || `User ${userId}`;
 
         // Scale remote cursor from screen coordinates to container-relative coordinates
         // cursor.x/y are in screen resolution (e.g., 1920x1080)
@@ -3437,6 +3450,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const displayX = offsetX + cursor.x * scaleX;
         const displayY = offsetY + cursor.y * scaleY;
 
+
         return (
           <Box
             key={`remote-cursor-${userId}`}
@@ -3453,45 +3467,60 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               willChange: 'left, top',
             }}
           >
-            {/* Colored arrow cursor with glow */}
-            <svg
-              width="24"
-              height="24"
-              style={{
-                color: user.color,
-                filter: `drop-shadow(0 0 4px ${user.color}) drop-shadow(0 0 8px ${user.color}80)`,
-              }}
-            >
-              <defs>
-                <filter id={`glow-${userId}`} x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-                  <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              <path
-                fill="currentColor"
-                stroke="white"
-                strokeWidth="1"
-                d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
-                filter={`url(#glow-${userId})`}
+            {/* Cursor - use actual shape if available, otherwise default arrow */}
+            {cursor.cursorImage ? (
+              <Box
+                component="img"
+                src={cursor.cursorImage.imageUrl}
+                sx={{
+                  width: cursor.cursorImage.width,
+                  height: cursor.cursorImage.height,
+                  marginLeft: `-${cursor.cursorImage.hotspotX}px`,
+                  marginTop: `-${cursor.cursorImage.hotspotY}px`,
+                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
+                  pointerEvents: 'none',
+                }}
               />
-            </svg>
+            ) : (
+              <svg
+                width="24"
+                height="24"
+                style={{
+                  color: displayColor,
+                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
+                }}
+              >
+                <defs>
+                  <filter id={`glow-${userId}`} x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                <path
+                  fill="currentColor"
+                  stroke="white"
+                  strokeWidth="1"
+                  d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
+                  filter={`url(#glow-${userId})`}
+                />
+              </svg>
+            )}
             {/* User name pill */}
             <Box
               sx={{
                 display: 'flex',
                 alignItems: 'center',
-                backgroundColor: user.color,
+                backgroundColor: displayColor,
                 borderRadius: '12px',
                 padding: '2px 8px 2px 4px',
                 marginLeft: '8px',
                 marginTop: '-4px',
               }}
             >
-              {user.avatarUrl ? (
+              {user?.avatarUrl ? (
                 <Box
                   component="img"
                   src={user.avatarUrl}
@@ -3512,7 +3541,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                     color: 'white',
                   }}
                 >
-                  {user.userName.charAt(0).toUpperCase()}
+                  {displayName.charAt(0).toUpperCase()}
                 </Box>
               )}
               <Typography
@@ -3524,7 +3553,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   textShadow: '0 1px 2px rgba(0,0,0,0.3)',
                 }}
               >
-                {user.userName}
+                {displayName}
               </Typography>
             </Box>
           </Box>

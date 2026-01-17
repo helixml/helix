@@ -103,7 +103,14 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 - No `setTimeout` for async — use events/promises
 - Extract components when files exceed 500 lines
 - No `type="number"` inputs — use text + parseInt
-- **useEffect dependency arrays**: Never include context values like `streaming`, `api`, `snackbar`, etc. — they don't need to be dependencies. Use refs for one-time async actions.
+- **useEffect/useCallback dependency arrays**: ONLY include primitive data values that actually change. NEVER include:
+  - Context values (`streaming`, `api`, `snackbar`, `helixApi`, `account`, etc.)
+  - Functions (they're stable references from hooks)
+  - Refs (they're mutable and don't trigger re-renders)
+  - Objects from hooks (use specific primitive properties instead)
+
+  **Correct**: `[sessionId]` or `[sessionId, projectId]`
+  **WRONG**: `[sessionId, helixApi]` or `[sessionId, snackbar]`
 
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)

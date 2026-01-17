@@ -80,7 +80,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           Projects
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Each project has a fleet of AI agents working in parallel, plus a Team Desktop for manual testing.
+          Each project has a workspace where both a Fleet of Agents work in parallel and a Team Desktop is available for manual testing.
         </Typography>
       </Box>
 
@@ -207,7 +207,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                   )}
                 </CardContent>
                 <CardActions>
-                  
+
                 </CardActions>
               </Card>
             </Grid>

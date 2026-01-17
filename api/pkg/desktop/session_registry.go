@@ -3,6 +3,7 @@ package desktop
 
 import (
 	"encoding/binary"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,7 +38,7 @@ type ConnectedClient struct {
 	LastX     int32           // Last known cursor X position
 	LastY     int32           // Last known cursor Y position
 	LastSeen  time.Time       // Last activity timestamp
-	mu        sync.Mutex      // Protects writes to connection
+	wsMu      *sync.Mutex     // Shared mutex for WebSocket writes (from VideoStreamer)
 }
 
 // SessionRegistry manages connected clients for all sessions
@@ -51,6 +52,8 @@ type SessionClients struct {
 	clients   sync.Map // map[clientID]*ConnectedClient
 	colorIdx  int      // Next color index to assign
 	colorLock sync.Mutex
+	// lastMoverID tracks which client last moved the mouse (for cursor shape attribution)
+	lastMoverID atomic.Uint32
 }
 
 // Global session registry
@@ -61,8 +64,13 @@ func GetSessionRegistry() *SessionRegistry {
 	return globalRegistry
 }
 
-// RegisterClient adds a new client to a session and returns assigned client ID
-func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, avatarURL string, conn *websocket.Conn) *ConnectedClient {
+// RegisterClient adds a new client to a session and returns assigned client ID.
+// The wsMu mutex is shared with the VideoStreamer to serialize all WebSocket writes.
+func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, avatarURL string, conn *websocket.Conn, wsMu *sync.Mutex) *ConnectedClient {
+	slog.Info("[MULTIPLAYER] RegisterClient called",
+		"sessionID", sessionID,
+		"userID", userID,
+		"userName", userName)
 	// Get or create session
 	sessionI, _ := r.sessions.LoadOrStore(sessionID, &SessionClients{})
 	session := sessionI.(*SessionClients)
@@ -83,9 +91,13 @@ func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, ava
 		Color:     color,
 		Conn:      conn,
 		LastSeen:  time.Now(),
+		wsMu:      wsMu,
 	}
 
 	session.clients.Store(clientID, client)
+
+	// Send this client their own ID first (so they know who they are)
+	r.sendSelfId(client)
 
 	// Broadcast user joined to all other clients
 	r.broadcastUserJoined(sessionID, client)
@@ -94,6 +106,24 @@ func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, ava
 	r.sendExistingUsers(sessionID, client)
 
 	return client
+}
+
+// sendSelfId tells the client their assigned clientId
+// This is sent immediately after registration so the client knows their own ID
+// Format: type(1) + clientId(4)
+func (r *SessionRegistry) sendSelfId(client *ConnectedClient) {
+	msg := make([]byte, 5)
+	msg[0] = StreamMsgSelfId
+	binary.LittleEndian.PutUint32(msg[1:5], client.ID)
+
+	if err := client.sendMessage(websocket.BinaryMessage, msg); err != nil {
+		slog.Error("[MULTIPLAYER] sendSelfId: failed to send",
+			"clientID", client.ID,
+			"err", err)
+	} else {
+		slog.Info("[MULTIPLAYER] sendSelfId: sent to client",
+			"clientID", client.ID)
+	}
 }
 
 // UnregisterClient removes a client from a session
@@ -109,13 +139,27 @@ func (r *SessionRegistry) UnregisterClient(sessionID string, clientID uint32) {
 	r.broadcastUserLeft(sessionID, clientID)
 }
 
+// broadcastCursorMissCount tracks how many times session was not found
+var broadcastCursorMissCount atomic.Uint32
+// broadcastCursorSuccessCount tracks successful broadcasts
+var broadcastCursorSuccessCount atomic.Uint32
+
 // BroadcastCursorPosition sends cursor position to all other clients in the session
 func (r *SessionRegistry) BroadcastCursorPosition(sessionID string, fromClientID uint32, x, y int32) {
 	sessionI, ok := r.sessions.Load(sessionID)
 	if !ok {
+		// Log only first 5 times to avoid spam
+		if broadcastCursorMissCount.Add(1) <= 5 {
+			slog.Warn("[MULTIPLAYER] BroadcastCursorPosition: session not found",
+				"sessionID", sessionID,
+				"fromClientID", fromClientID)
+		}
 		return
 	}
 	session := sessionI.(*SessionClients)
+
+	// Record this client as the last mover (for cursor shape attribution)
+	session.lastMoverID.Store(fromClientID)
 
 	// Update sender's position
 	if clientI, ok := session.clients.Load(fromClientID); ok {
@@ -146,14 +190,36 @@ func (r *SessionRegistry) BroadcastCursorPosition(sessionID string, fromClientID
 	copy(msg[14:], colorBytes)
 
 	// Broadcast to all OTHER clients
+	sentCount := 0
 	session.clients.Range(func(key, value any) bool {
 		client := value.(*ConnectedClient)
 		if client.ID == fromClientID {
 			return true // Skip sender
 		}
 		client.sendMessage(websocket.BinaryMessage, msg)
+		sentCount++
 		return true
 	})
+	// Log every 100 broadcasts to help debug multi-player issues
+	count := broadcastCursorSuccessCount.Add(1)
+	if count <= 10 || count%100 == 0 {
+		slog.Info("[MULTIPLAYER] BroadcastCursorPosition",
+			"sessionID", sessionID,
+			"fromClientID", fromClientID,
+			"sentTo", sentCount,
+			"totalBroadcasts", count)
+	}
+}
+
+// GetLastMover returns the clientID of the client that last moved the mouse in this session.
+// Returns 0 if no movement has been recorded yet.
+func (r *SessionRegistry) GetLastMover(sessionID string) uint32 {
+	sessionI, ok := r.sessions.Load(sessionID)
+	if !ok {
+		return 0
+	}
+	session := sessionI.(*SessionClients)
+	return session.lastMoverID.Load()
 }
 
 // GetConnectedUsers returns all connected users in a session (including self)
@@ -209,11 +275,24 @@ func (r *SessionRegistry) broadcastUserJoined(sessionID string, newClient *Conne
 	copy(msg[offset:], avatarBytes)
 
 	// Broadcast to all clients (including new client, so they know their own info)
+	sentCount := 0
 	session.clients.Range(func(key, value any) bool {
 		client := value.(*ConnectedClient)
-		client.sendMessage(websocket.BinaryMessage, msg)
+		if err := client.sendMessage(websocket.BinaryMessage, msg); err != nil {
+			slog.Error("[MULTIPLAYER] broadcastUserJoined: failed to send",
+				"targetClientID", client.ID,
+				"newClientID", newClient.ID,
+				"err", err)
+		} else {
+			sentCount++
+		}
 		return true
 	})
+	slog.Info("[MULTIPLAYER] broadcastUserJoined",
+		"sessionID", sessionID,
+		"newClientID", newClient.ID,
+		"userName", newClient.UserName,
+		"sentTo", sentCount)
 }
 
 // sendExistingUsers sends all existing users to a new client
@@ -257,7 +336,17 @@ func (r *SessionRegistry) sendExistingUsers(sessionID string, newClient *Connect
 		offset += 2
 		copy(msg[offset:], avatarBytes)
 
-		newClient.sendMessage(websocket.BinaryMessage, msg)
+		if err := newClient.sendMessage(websocket.BinaryMessage, msg); err != nil {
+			slog.Error("[MULTIPLAYER] sendExistingUsers: failed to send",
+				"newClientID", newClient.ID,
+				"existingClientID", existingClient.ID,
+				"err", err)
+		} else {
+			slog.Info("[MULTIPLAYER] sendExistingUsers: sent existing user to new client",
+				"newClientID", newClient.ID,
+				"existingClientID", existingClient.ID,
+				"existingUserName", existingClient.UserName)
+		}
 		return true
 	})
 }
@@ -286,8 +375,10 @@ func (r *SessionRegistry) broadcastUserLeft(sessionID string, leftClientID uint3
 
 // sendMessage safely sends a message to a client's WebSocket
 func (c *ConnectedClient) sendMessage(messageType int, data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.wsMu != nil {
+		c.wsMu.Lock()
+		defer c.wsMu.Unlock()
+	}
 	return c.Conn.WriteMessage(messageType, data)
 }
 

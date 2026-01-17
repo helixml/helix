@@ -113,11 +113,12 @@ const (
 	StreamMsgCursorVisibility = 0x51 // Cursor show/hide
 	StreamMsgCursorSwitch     = 0x52 // Switch to cached cursor
 	// Multi-user cursor message types (server → all clients)
-	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
-	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
-	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
-	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
+	StreamMsgRemoteCursor  = 0x53 // Remote user cursor position
+	StreamMsgRemoteUser    = 0x54 // Remote user joined/left
+	StreamMsgAgentCursor   = 0x55 // AI agent cursor position/action
+	StreamMsgRemoteTouch   = 0x56 // Remote user touch event
 	StreamMsgRemoteGesture = 0x57 // Remote user gesture event
+	StreamMsgSelfId        = 0x58 // Tell client their own clientId
 )
 
 // Video codec types
@@ -297,6 +298,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 			userName,
 			v.config.AvatarURL,
 			v.ws,
+			&v.wsMu, // Share mutex to prevent concurrent WebSocket writes
 		)
 		v.logger.Info("registered client for multi-player presence",
 			"clientID", v.sessionClient.ID,
@@ -894,23 +896,31 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 			}
 			lastCursorHash = cursorHash
 
+			// Get the last mover for cursor shape attribution
+			// This allows clients to know if the cursor shape change was caused by their movement
+			lastMoverID := uint32(0)
+			if v.config.SessionID != "" {
+				lastMoverID = GetSessionRegistry().GetLastMover(v.config.SessionID)
+			}
+
 			// Send cursor position message (StreamMsgCursorImage = 0x50)
-			// Format: type(1) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
-			msgLen := 1 + 4 + 4 + 4 + 4 + 4
+			// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
+			msgLen := 1 + 4 + 4 + 4 + 4 + 4 + 4
 			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
 				msgLen += int(bitmapSize)
 			}
 
 			msg := make([]byte, msgLen)
 			msg[0] = StreamMsgCursorImage
-			binary.LittleEndian.PutUint32(msg[1:5], uint32(posX))
-			binary.LittleEndian.PutUint32(msg[5:9], uint32(posY))
-			binary.LittleEndian.PutUint32(msg[9:13], uint32(hotspotX))
-			binary.LittleEndian.PutUint32(msg[13:17], uint32(hotspotY))
-			binary.LittleEndian.PutUint32(msg[17:21], bitmapSize)
+			binary.LittleEndian.PutUint32(msg[1:5], lastMoverID)
+			binary.LittleEndian.PutUint32(msg[5:9], uint32(posX))
+			binary.LittleEndian.PutUint32(msg[9:13], uint32(posY))
+			binary.LittleEndian.PutUint32(msg[13:17], uint32(hotspotX))
+			binary.LittleEndian.PutUint32(msg[17:21], uint32(hotspotY))
+			binary.LittleEndian.PutUint32(msg[21:25], bitmapSize)
 
 			if bitmapSize > 0 && len(data) >= 28+int(bitmapSize) {
-				copy(msg[21:], data[28:28+bitmapSize])
+				copy(msg[25:], data[28:28+bitmapSize])
 			}
 
 			if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
@@ -1145,6 +1155,8 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		"height", config.Height,
 		"fps", config.FPS,
 		"bitrate", config.Bitrate,
+		"session_id", config.SessionID,
+		"user_name", config.UserName,
 	)
 
 	// Create video streamer - unified path for both GNOME and Sway
