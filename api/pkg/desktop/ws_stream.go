@@ -109,16 +109,13 @@ const (
 	StreamMsgMicAudio        = 0x17 // Microphone audio from client
 	StreamMsgControlMessage  = 0x20
 	// Cursor message types (server → client)
-	StreamMsgCursorImage      = 0x50 // Cursor image data when cursor changes
-	StreamMsgCursorVisibility = 0x51 // Cursor show/hide
-	StreamMsgCursorSwitch     = 0x52 // Switch to cached cursor
+	StreamMsgCursorImage = 0x50 // Cursor image data when cursor changes
 	// Multi-user cursor message types (server → all clients)
-	StreamMsgRemoteCursor  = 0x53 // Remote user cursor position
-	StreamMsgRemoteUser    = 0x54 // Remote user joined/left
-	StreamMsgAgentCursor   = 0x55 // AI agent cursor position/action
-	StreamMsgRemoteTouch   = 0x56 // Remote user touch event
-	StreamMsgRemoteGesture = 0x57 // Remote user gesture event
-	StreamMsgSelfId        = 0x58 // Tell client their own clientId
+	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
+	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
+	StreamMsgAgentCursor  = 0x55 // AI agent cursor position/action
+	StreamMsgRemoteTouch  = 0x56 // Remote user touch event
+	StreamMsgSelfId       = 0x58 // Tell client their own clientId
 )
 
 // Video codec types

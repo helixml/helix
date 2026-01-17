@@ -302,12 +302,13 @@ func (s *Server) transcribeWithCLI(wavPath string) (string, error) {
 		return "", fmt.Errorf("whisper model not found")
 	}
 
-	// Run whisper CLI
+	// Run whisper CLI (whisper.cpp)
+	// whisper.cpp outputs transcription to stdout
 	cmd := exec.Command("whisper",
-		"--model", modelPath,
-		"--output-txt",
-		"--output-dir", os.TempDir(),
-		wavPath,
+		"-m", modelPath,
+		"-f", wavPath,
+		"-nt",  // No timestamps
+		"-np",  // No progress output
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -317,17 +318,8 @@ func (s *Server) transcribeWithCLI(wavPath string) (string, error) {
 		return "", fmt.Errorf("whisper CLI failed: %s", stderr.String())
 	}
 
-	// Read output txt file (whisper writes to --output-dir with input basename)
-	baseName := filepath.Base(strings.TrimSuffix(wavPath, ".wav"))
-	txtPath := filepath.Join(os.TempDir(), baseName+".txt")
-	defer os.Remove(txtPath)
-
-	text, err := os.ReadFile(txtPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read whisper output: %w", err)
-	}
-
-	return strings.TrimSpace(string(text)), nil
+	// whisper.cpp outputs transcription directly to stdout
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // typeAndRespond types the transcribed text and sends the response.

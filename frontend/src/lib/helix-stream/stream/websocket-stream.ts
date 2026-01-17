@@ -34,14 +34,11 @@ const WsMessageType = {
   Pong: 0x41,
   // Cursor message types (server → client)
   CursorImage: 0x50,      // Cursor image data when cursor changes
-  CursorVisibility: 0x51, // Cursor show/hide
-  CursorSwitch: 0x52,     // Switch to cached cursor
   // Multi-user cursor message types (server → all clients)
   RemoteCursor: 0x53,     // Remote user cursor position
   RemoteUser: 0x54,       // Remote user joined/left
   AgentCursor: 0x55,      // AI agent cursor position/action
   RemoteTouch: 0x56,      // Remote user touch event
-  RemoteGesture: 0x57,    // Remote user gesture event
   SelfId: 0x58,           // Server tells client their own clientId
 } as const
 
@@ -163,8 +160,6 @@ export type WsStreamInfoEvent = CustomEvent<
   // Cursor events
   | { type: "cursorImage"; cursor: CursorImageData; lastMoverID?: number }
   | { type: "cursorPosition"; x: number; y: number; hotspotX: number; hotspotY: number }
-  | { type: "cursorVisibility"; visible: boolean; cursorId: number }
-  | { type: "cursorSwitch"; cursorId: number }
   // Multi-player cursor events
   | { type: "remoteCursor"; cursor: RemoteCursorPosition }
   | { type: "remoteUserJoined"; user: RemoteUserInfo }
@@ -220,10 +215,8 @@ export class WebSocketStream {
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
-  // Cursor cache - maps cursor ID to blob URL
+  // Cursor cache - maps cursor ID to blob URL (for revoking old blob URLs)
   private cursorCache = new Map<number, CursorImageData>()
-  private currentCursorId: number | null = null
-  private cursorVisible = true
   private cursorX = 0  // Current cursor X position from server
   private cursorY = 0  // Current cursor Y position from server
 
@@ -661,12 +654,6 @@ export class WebSocketStream {
       // Cursor messages
       case WsMessageType.CursorImage:
         this.handleCursorImage(data)
-        break
-      case WsMessageType.CursorVisibility:
-        this.handleCursorVisibility(data)
-        break
-      case WsMessageType.CursorSwitch:
-        this.handleCursorSwitch(data)
         break
       // Multi-player cursor messages
       case WsMessageType.RemoteCursor:
@@ -2615,7 +2602,6 @@ export class WebSocketStream {
         }
 
         this.cursorCache.set(cursorId, cursorData)
-        this.currentCursorId = cursorId
 
         // Emit cursor image event with lastMoverID for multi-player filtering
         // Only the client that moved the cursor should update its cursor shape
@@ -2734,45 +2720,6 @@ export class WebSocketStream {
   }
 
   /**
-   * Handle cursor visibility message (0x51)
-   * Format: [type:1][visible:1][cursor_id:4]
-   */
-  private handleCursorVisibility(data: Uint8Array) {
-    if (data.length < 6) {
-      console.warn("[WebSocketStream] CursorVisibility message too short")
-      return
-    }
-
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const visible = data[1] !== 0
-    const cursorId = view.getUint32(2, false)
-
-    this.cursorVisible = visible
-    if (visible) {
-      this.currentCursorId = cursorId
-    }
-
-    this.dispatchInfoEvent({ type: "cursorVisibility", visible, cursorId })
-  }
-
-  /**
-   * Handle cursor switch message (0x52)
-   * Format: [type:1][cursor_id:4]
-   */
-  private handleCursorSwitch(data: Uint8Array) {
-    if (data.length < 5) {
-      console.warn("[WebSocketStream] CursorSwitch message too short")
-      return
-    }
-
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const cursorId = view.getUint32(1, false)
-
-    this.currentCursorId = cursorId
-    this.dispatchInfoEvent({ type: "cursorSwitch", cursorId })
-  }
-
-  /**
    * Handle remote cursor position message (0x53)
    * Format: [type:1][user_id:4][x:2][y:2]
    */
@@ -2811,8 +2758,10 @@ export class WebSocketStream {
    * type(1) + action(1) + userId(4) + nameLen(1) + name(N) + colorLen(1) + color(N) + avatarLen(2) + avatar(N)
    */
   private handleRemoteUser(data: Uint8Array) {
-    if (data.length < 7) {
-      console.warn("[WebSocketStream] RemoteUser message too short")
+    // Minimum 6 bytes: type(1) + action(1) + userId(4)
+    // "left" messages are exactly 6 bytes, "joined" messages are longer
+    if (data.length < 6) {
+      console.warn("[WebSocketStream] RemoteUser message too short:", data.length)
       return
     }
 
@@ -2930,7 +2879,8 @@ export class WebSocketStream {
    * type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) + color(N)
    */
   private handleRemoteTouch(data: Uint8Array) {
-    if (data.length < 22) {
+    // Minimum: type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) = 23 bytes
+    if (data.length < 23) {
       console.warn("[WebSocketStream] RemoteTouch message too short:", data.length)
       return
     }
@@ -2970,27 +2920,4 @@ export class WebSocketStream {
     })
   }
 
-  /**
-   * Get the current cursor data (for UI rendering)
-   */
-  getCurrentCursor(): CursorImageData | null {
-    if (this.currentCursorId === null || !this.cursorVisible) {
-      return null
-    }
-    return this.cursorCache.get(this.currentCursorId) || null
-  }
-
-  /**
-   * Get cached cursor by ID
-   */
-  getCursor(cursorId: number): CursorImageData | null {
-    return this.cursorCache.get(cursorId) || null
-  }
-
-  /**
-   * Check if cursor is visible
-   */
-  isCursorVisible(): boolean {
-    return this.cursorVisible
-  }
 }

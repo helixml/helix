@@ -723,16 +723,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // It's our movement, or no tracking info (single-user mode) - update local cursor
             setCursorImage(data.cursor);
           }
-        } else if (data.type === 'cursorVisibility') {
-          setCursorVisible(data.visible);
-        } else if (data.type === 'cursorSwitch') {
-          // Switch to a cached cursor - the WebSocketStream has the cache
-          if (stream instanceof WebSocketStream) {
-            const cursor = stream.getCursor(data.cursorId);
-            if (cursor) {
-              setCursorImage(cursor);
-            }
-          }
         } else if (data.type === 'cursorPosition') {
           // DON'T update cursor position from server - use locally tracked position only
           // Server position creates feedback loop + lag. Local mouse tracking is authoritative.
