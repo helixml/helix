@@ -886,8 +886,14 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 			hotspotY := int32(binary.LittleEndian.Uint32(data[20:24]))
 			bitmapSize := binary.LittleEndian.Uint32(data[24:28])
 
-			// Simple hash to detect actual changes
-			cursorHash := uint64(posX) ^ (uint64(posY) << 16) ^ (uint64(bitmapSize) << 32)
+			// Hash cursor TYPE (hotspot + bitmap content), NOT position
+			// This sends bitmap on cursor type transitions but not on every mouse move
+			// Client tracks position locally, so we don't need to send position changes
+			cursorHash := uint64(hotspotX) ^ (uint64(hotspotY) << 8) ^ (uint64(bitmapSize) << 16)
+			// Include first 8 bytes of bitmap for content-based change detection
+			if bitmapSize >= 8 && len(data) >= 36 {
+				cursorHash ^= uint64(binary.LittleEndian.Uint64(data[28:36])) << 32
+			}
 			if cursorHash == lastCursorHash {
 				continue
 			}
