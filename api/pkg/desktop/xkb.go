@@ -59,7 +59,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -83,18 +82,26 @@ var (
 
 // swayInput represents a Sway input device from swaymsg -t get_inputs
 type swayInput struct {
-	Identifier          string `json:"identifier"`
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	XkbActiveLayoutName string `json:"xkb_active_layout_name"`
-	XkbLayoutNames      []string `json:"xkb_layout_names"`
+	Identifier           string   `json:"identifier"`
+	Name                 string   `json:"name"`
+	Type                 string   `json:"type"`
+	XkbActiveLayoutIndex int      `json:"xkb_active_layout_index"`
+	XkbActiveLayoutName  string   `json:"xkb_active_layout_name"`
+	XkbLayoutNames       []string `json:"xkb_layout_names"`
+}
+
+// swayLayoutInfo contains both the human-readable layout name and the XKB layout code
+type swayLayoutInfo struct {
+	name      string // Human-readable name like "English (US)" - used for change detection
+	xkbLayout string // XKB layout code like "us" - used for building keymap
 }
 
 // getSwayKeyboardLayout queries Sway for the current keyboard layout
-func getSwayKeyboardLayout() string {
+// Returns both the layout name (for change detection) and the XKB layout code (for xkbcommon)
+func getSwayKeyboardLayout() swayLayoutInfo {
 	// Check if we're running under Sway
 	if os.Getenv("SWAYSOCK") == "" {
-		return ""
+		return swayLayoutInfo{}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -103,90 +110,29 @@ func getSwayKeyboardLayout() string {
 	cmd := exec.CommandContext(ctx, "swaymsg", "-t", "get_inputs")
 	output, err := cmd.Output()
 	if err != nil {
-		return ""
+		return swayLayoutInfo{}
 	}
 
 	var inputs []swayInput
 	if err := json.Unmarshal(output, &inputs); err != nil {
-		return ""
+		return swayLayoutInfo{}
 	}
 
-	// Find the first keyboard and return its active layout
+	// Find the first keyboard and return its layout info
 	for _, input := range inputs {
 		if input.Type == "keyboard" && input.XkbActiveLayoutName != "" {
-			return input.XkbActiveLayoutName
+			info := swayLayoutInfo{
+				name: input.XkbActiveLayoutName,
+			}
+			// Use the XKB layout code directly from xkb_layout_names if available
+			if input.XkbActiveLayoutIndex >= 0 && input.XkbActiveLayoutIndex < len(input.XkbLayoutNames) {
+				info.xkbLayout = input.XkbLayoutNames[input.XkbActiveLayoutIndex]
+			}
+			return info
 		}
 	}
 
-	return ""
-}
-
-// layoutNameToXkbLayout converts Sway's layout name to xkbcommon layout string
-// Sway reports names like "English (US)", "German", etc.
-// We need to convert to xkb layout codes like "us", "de", etc.
-func layoutNameToXkbLayout(name string) string {
-	name = strings.ToLower(name)
-
-	// Common mappings
-	switch {
-	case strings.Contains(name, "english") && strings.Contains(name, "us"):
-		return "us"
-	case strings.Contains(name, "english") && strings.Contains(name, "uk"):
-		return "gb"
-	case strings.Contains(name, "german"):
-		return "de"
-	case strings.Contains(name, "french"):
-		return "fr"
-	case strings.Contains(name, "spanish"):
-		return "es"
-	case strings.Contains(name, "italian"):
-		return "it"
-	case strings.Contains(name, "portuguese"):
-		return "pt"
-	case strings.Contains(name, "russian"):
-		return "ru"
-	case strings.Contains(name, "japanese"):
-		return "jp"
-	case strings.Contains(name, "korean"):
-		return "kr"
-	case strings.Contains(name, "chinese"):
-		return "cn"
-	case strings.Contains(name, "arabic"):
-		return "ara"
-	case strings.Contains(name, "hebrew"):
-		return "il"
-	case strings.Contains(name, "polish"):
-		return "pl"
-	case strings.Contains(name, "dutch"):
-		return "nl"
-	case strings.Contains(name, "swedish"):
-		return "se"
-	case strings.Contains(name, "norwegian"):
-		return "no"
-	case strings.Contains(name, "danish"):
-		return "dk"
-	case strings.Contains(name, "finnish"):
-		return "fi"
-	case strings.Contains(name, "czech"):
-		return "cz"
-	case strings.Contains(name, "hungarian"):
-		return "hu"
-	case strings.Contains(name, "greek"):
-		return "gr"
-	case strings.Contains(name, "turkish"):
-		return "tr"
-	case strings.Contains(name, "dvorak"):
-		return "us(dvorak)"
-	case strings.Contains(name, "colemak"):
-		return "us(colemak)"
-	default:
-		// Try to use the first word as the layout code
-		parts := strings.Fields(name)
-		if len(parts) > 0 {
-			return parts[0]
-		}
-		return "us" // Default fallback
-	}
+	return swayLayoutInfo{}
 }
 
 // buildKeymapForLayout builds the keysym table for a specific layout
@@ -266,12 +212,12 @@ func initXKB() {
 
 	var layout string
 	if isSway {
-		// Get layout from Sway
-		swayLayout := getSwayKeyboardLayout()
-		if swayLayout != "" {
-			layout = layoutNameToXkbLayout(swayLayout)
-			currentLayout = swayLayout
-			slog.Debug("detected Sway keyboard layout", "sway_name", swayLayout, "xkb_layout", layout)
+		// Get layout from Sway - uses xkb_layout_names directly, no name mapping needed
+		layoutInfo := getSwayKeyboardLayout()
+		if layoutInfo.name != "" {
+			layout = layoutInfo.xkbLayout
+			currentLayout = layoutInfo.name
+			slog.Debug("detected Sway keyboard layout", "sway_name", layoutInfo.name, "xkb_layout", layout)
 		}
 	} else {
 		// Use environment variables for non-Sway (GNOME uses keysyms directly anyway)
@@ -311,27 +257,26 @@ func pollLayoutChanges() {
 		case <-layoutPollStop:
 			return
 		case <-ticker.C:
-			newLayout := getSwayKeyboardLayout()
-			if newLayout == "" {
+			layoutInfo := getSwayKeyboardLayout()
+			if layoutInfo.name == "" {
 				continue
 			}
 
 			xkbMu.RLock()
-			changed := newLayout != currentLayout
+			changed := layoutInfo.name != currentLayout
 			xkbMu.RUnlock()
 
 			if changed {
-				xkbLayout := layoutNameToXkbLayout(newLayout)
 				slog.Info("Sway keyboard layout changed, rebuilding keymap",
-					"old", currentLayout, "new", newLayout, "xkb_layout", xkbLayout)
+					"old", currentLayout, "new", layoutInfo.name, "xkb_layout", layoutInfo.xkbLayout)
 
-				table, ok := buildKeymapForLayout(xkbLayout)
+				table, ok := buildKeymapForLayout(layoutInfo.xkbLayout)
 				if ok {
 					xkbMu.Lock()
 					keysymTable = table
-					currentLayout = newLayout
+					currentLayout = layoutInfo.name
 					xkbMu.Unlock()
-					slog.Debug("rebuilt XKB keymap", "layout", xkbLayout, "entries", len(table))
+					slog.Debug("rebuilt XKB keymap", "layout", layoutInfo.xkbLayout, "entries", len(table))
 				}
 			}
 		}
