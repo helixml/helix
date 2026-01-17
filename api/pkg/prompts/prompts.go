@@ -2,7 +2,6 @@ package prompts
 
 import (
 	"bytes"
-	"strings"
 	"text/template"
 
 	"github.com/helixml/helix/api/pkg/prompts/templates"
@@ -18,36 +17,6 @@ type BackgroundKnowledge struct {
 	Content     string
 	DocumentID  string
 	Source      string // source of the document (URL)
-}
-
-type Prompt struct {
-	Name     string `yaml:"name"`
-	Template string `yaml:"template"`
-}
-
-type PromptConfig struct {
-	Prompts []Prompt `yaml:"prompts"`
-}
-
-// this prompt is applied as the system prompt for a session that has been fine-tuned on some documents
-func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (string, error) {
-	tmplData := struct {
-		DocumentIDs   string
-		DocumentGroup string
-		DocumentCount int
-	}{
-		DocumentIDs:   strings.Join(documentIDs, ","),
-		DocumentGroup: documentGroupID,
-		DocumentCount: len(documentIDs),
-	}
-	tmpl := template.Must(template.New("TextFinetuneSystemPrompt").Parse(templates.FinetuningTemplate))
-
-	var buf bytes.Buffer
-	err := tmpl.Execute(&buf, tmplData)
-	if err != nil {
-		return "", err
-	}
-	return buf.String(), nil
 }
 
 // this prompt is applied before the user prompt is forwarded to the LLM

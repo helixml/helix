@@ -32,10 +32,11 @@ import {
   RadioButtonUnchecked as UncheckedIcon,  
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material'
 import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
-import { useTaskProgress, useUpdateSpecTask } from '../../services/specTaskService'
+import { useTaskProgress, useUpdateSpecTask, useDeleteSpecTask } from '../../services/specTaskService'
 import { TypesSpecTaskStatus } from '../../api/api'
 import UsagePulseChart from './UsagePulseChart'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
@@ -480,6 +481,7 @@ export default function TaskCard({
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
   const updateSpecTask = useUpdateSpecTask()
+  const deleteSpecTask = useDeleteSpecTask()
 
   // Ref for Start Planning button to enable keyboard focus
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
@@ -564,6 +566,7 @@ export default function TaskCard({
   }
 
   const accentColor = getPhaseAccent(task.phase)
+  const isArchived = task.archived ?? false
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
@@ -579,16 +582,17 @@ export default function TaskCard({
       onClick={handleCardClick}
       sx={{
         mb: 1.5,
-        backgroundColor: 'background.paper',
+        backgroundColor: isArchived ? 'rgba(156, 163, 175, 0.08)' : 'background.paper',
         cursor: 'pointer',
-        border: '1px solid',
-        borderColor: 'rgba(0, 0, 0, 0.08)',
-        borderLeft: `3px solid ${accentColor}`,
+        border: isArchived ? '1px dashed' : '1px solid',
+        borderColor: isArchived ? 'rgba(156, 163, 175, 0.4)' : 'rgba(0, 0, 0, 0.08)',
+        borderLeft: `3px ${isArchived ? 'dashed' : 'solid'} ${isArchived ? 'rgba(156, 163, 175, 0.5)' : accentColor}`,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',
+        opacity: isArchived ? 0.7 : 1,
         '&:hover': {
-          borderColor: 'rgba(0, 0, 0, 0.12)',
-          backgroundColor: 'rgba(0, 0, 0, 0.01)',
+          borderColor: isArchived ? 'rgba(156, 163, 175, 0.5)' : 'rgba(0, 0, 0, 0.12)',
+          backgroundColor: isArchived ? 'rgba(156, 163, 175, 0.12)' : 'rgba(0, 0, 0, 0.01)',
         },
       }}
     >
@@ -689,6 +693,23 @@ export default function TaskCard({
             >
               <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
+            <Tooltip title={task.archived ? '' : 'Task must be archived first'} placement="left">
+              <span>
+                <MenuItem
+                  disabled={!task.archived || deleteSpecTask.isPending}
+                  onClick={() => {
+                    setMenuAnchorEl(null)
+                    if (task.id) {
+                      deleteSpecTask.mutate(task.id)
+                    }
+                  }}
+                >
+                  <ListItemText sx={{ color: task.archived ? 'error.main' : 'text.disabled' }}>
+                    {deleteSpecTask.isPending ? 'Deleting...' : 'Delete'}
+                  </ListItemText>
+                </MenuItem>
+              </span>
+            </Tooltip>
           </Menu>
         </Box>
 
@@ -799,28 +820,32 @@ export default function TaskCard({
                 </Typography>
               </Box>
             )}
-            <Button
-              ref={startPlanningButtonRef}
-              size="small"
-              variant="contained"
-              color="warning"
-              startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
-              onClick={handleStartPlanning}
-              disabled={isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
-              fullWidth
-            >
-              {task.planningStatus === 'queued'
-                ? 'Queued'
-                : isStartingPlanning
-                ? 'Starting...'
-                : task.metadata?.error
-                ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
-                : isPlanningFull
-                ? 'Planning Full'
-                : task.just_do_it_mode
-                ? 'Just Do It'
-                : 'Start Planning'}
-            </Button>
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ width: '100%' }}>
+                <Button
+                  ref={startPlanningButtonRef}
+                  size="small"
+                  variant="contained"
+                  color="warning"
+                  startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
+                  onClick={handleStartPlanning}
+                  disabled={isArchived || isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
+                  fullWidth
+                >
+                  {task.planningStatus === 'queued'
+                    ? 'Queued'
+                    : isStartingPlanning
+                    ? 'Starting...'
+                    : task.metadata?.error
+                    ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
+                    : isPlanningFull
+                    ? 'Planning Full'
+                    : task.just_do_it_mode
+                    ? 'Just Do It'
+                    : 'Start Planning'}
+                </Button>
+              </span>
+            </Tooltip>
             {isPlanningFull && (
               <Typography
                 variant="caption"
@@ -835,20 +860,24 @@ export default function TaskCard({
         {/* Review phase - only show button if design docs have been pushed */}
         {task.phase === 'review' && task.design_docs_pushed_at && onReviewDocs && (
           <Box sx={{ mt: 1.5 }}>
-            <Button
-              size="small"
-              variant="contained"
-              color="info"
-              startIcon={task.status === 'spec_approved' ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                onReviewDocs(task)
-              }}
-              disabled={task.status === 'spec_approved'}
-              fullWidth
-            >
-              {task.status === 'spec_approved' ? 'Queued' : 'Review Spec'}
-            </Button>
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ width: '100%', display: 'block' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="info"
+                  startIcon={task.status === 'spec_approved' ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onReviewDocs(task)
+                  }}
+                  disabled={isArchived || task.status === 'spec_approved'}
+                  fullWidth
+                >
+                  {task.status === 'spec_approved' ? 'Queued' : 'Review Spec'}
+                </Button>
+              </span>
+            </Tooltip>
           </Box>
         )}
 
@@ -856,40 +885,47 @@ export default function TaskCard({
         {task.status === 'implementation' && (
           <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', gap: 1 }}>              
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                disabled={isArchiving}
-                startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (onArchiveTask) {
-                    // Parent handles the async operation and manages isArchiving state
-                    onArchiveTask(task, true)
-                  }
-                }}
-                sx={{ flex: 1 }}
-              >
-                {isArchiving ? 'Rejecting...' : 'Reject'}
-              </Button>
+              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+                <span style={{ flex: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    disabled={isArchived || isArchiving}
+                    startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (onArchiveTask) {
+                        onArchiveTask(task, true)
+                      }
+                    }}
+                    fullWidth
+                  >
+                    {isArchiving ? 'Rejecting...' : 'Reject'}
+                  </Button>
+                </span>
+              </Tooltip>
 
-              <Button
-                size="small"
-                variant="contained"
-                color="success"
-                startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  approveImplementationMutation.mutate()
-                }}
-                disabled={approveImplementationMutation.isPending}
-                sx={{ flex: 1 }}
-              >
-                {approveImplementationMutation.isPending
-                  ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
-                  : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
-              </Button>
+              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+                <span style={{ flex: 1 }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      approveImplementationMutation.mutate()
+                    }}
+                    disabled={isArchived || approveImplementationMutation.isPending}
+                    fullWidth
+                  >
+                    {approveImplementationMutation.isPending
+                      ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
+                      : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
+                  </Button>
+                </span>
+              </Tooltip>
             </Box>
           </Box>
         )}
@@ -897,48 +933,61 @@ export default function TaskCard({
         {/* Implementation review phase */}
         {task.status === 'implementation_review' && (
           <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Button
-              size="small"
-              variant="contained"
-              color="secondary"
-              startIcon={<ViewIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                console.log('[TaskCard] Review Implementation clicked', { onTaskClick: !!onTaskClick, taskId: task.id })
-                if (onTaskClick) onTaskClick(task)
-              }}
-              fullWidth
-            >
-              Review Implementation
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              color="success"
-              startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                approveImplementationMutation.mutate()
-              }}
-              disabled={approveImplementationMutation.isPending}
-              fullWidth
-            >
-              {approveImplementationMutation.isPending ? 'Approving...' : 'Approve Implementation'}
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={stopAgentMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <StopIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                stopAgentMutation.mutate()
-              }}
-              disabled={stopAgentMutation.isPending}
-              fullWidth
-            >
-              {stopAgentMutation.isPending ? 'Stopping...' : 'Stop Agent'}
-            </Button>
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ width: '100%', display: 'block' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<ViewIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    console.log('[TaskCard] Review Implementation clicked', { onTaskClick: !!onTaskClick, taskId: task.id })
+                    if (onTaskClick) onTaskClick(task)
+                  }}
+                  disabled={isArchived}
+                  fullWidth
+                >
+                  Review Implementation
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ width: '100%', display: 'block' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    approveImplementationMutation.mutate()
+                  }}
+                  disabled={isArchived || approveImplementationMutation.isPending}
+                  fullWidth
+                >
+                  {approveImplementationMutation.isPending ? 'Approving...' : 'Approve Implementation'}
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ width: '100%', display: 'block' }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={stopAgentMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <StopIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    stopAgentMutation.mutate()
+                  }}
+                  disabled={isArchived || stopAgentMutation.isPending}
+                  fullWidth
+                >
+                  {stopAgentMutation.isPending ? 'Stopping...' : 'Stop Agent'}
+                </Button>
+              </span>
+            </Tooltip>
           </Box>
         )}
 
@@ -947,20 +996,25 @@ export default function TaskCard({
           <Box sx={{ mt: 1.5 }}>
             {task.pull_request_url ? (
               <>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<LaunchIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    window.open(task.pull_request_url, '_blank')
-                  }}
-                  fullWidth
-                  sx={{ mb: 1 }}
-                >
-                  View Pull Request
-                </Button>
+                <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+                  <span style={{ width: '100%', display: 'block' }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      startIcon={<LaunchIcon />}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        window.open(task.pull_request_url, '_blank')
+                      }}
+                      disabled={isArchived}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                    >
+                      View Pull Request
+                    </Button>
+                  </span>
+                </Tooltip>
                 <Typography
                   variant="caption"
                   sx={{
@@ -1015,20 +1069,24 @@ export default function TaskCard({
               <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
                 Merged to main! Test the feature:
               </Typography>
-              <Button
-                size="small"
-                variant="outlined"
-                color="success"
-                startIcon={<LaunchIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  // TODO: Start exploratory session on main branch
-                  console.log('Start exploratory session for', task.id)
-                }}
-                fullWidth
-              >
-                Start Exploratory Session
-              </Button>
+              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+                <span style={{ width: '100%', display: 'block' }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="success"
+                    startIcon={<LaunchIcon />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      console.log('Start exploratory session for', task.id)
+                    }}
+                    disabled={isArchived}
+                    fullWidth
+                  >
+                    Start Exploratory Session
+                  </Button>
+                </span>
+              </Tooltip>
             </Alert>
           </Box>
         )}

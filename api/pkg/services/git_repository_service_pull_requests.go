@@ -12,7 +12,10 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/types"
+
+	gh "github.com/google/go-github/v57/github"
 	"github.com/rs/zerolog/log"
+	gl "github.com/xanzy/go-gitlab"
 )
 
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
@@ -102,6 +105,19 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 	}
 }
 
+func pullRequestStateFromAzureDevOps(state string) types.PullRequestState {
+	switch state {
+	case "open":
+		return types.PullRequestStateOpen
+	case "abandoned":
+		return types.PullRequestStateClosed
+	case "completed":
+		return types.PullRequestStateMerged
+	default:
+		return types.PullRequestStateUnknown
+	}
+}
+
 func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
 	client, err := s.getAzureDevOpsClient(ctx, repo)
 	if err != nil {
@@ -142,7 +158,7 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, 
 		}
 
 		if gitPR.Status != nil {
-			pr.State = string(*gitPR.Status)
+			pr.State = pullRequestStateFromAzureDevOps(string(*gitPR.Status))
 		}
 
 		if gitPR.SourceRefName != nil {
@@ -253,7 +269,7 @@ func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, re
 	}
 
 	if adoPR.Status != nil {
-		pr.State = string(*adoPR.Status)
+		pr.State = pullRequestStateFromAzureDevOps(string(*adoPR.Status))
 	}
 
 	if adoPR.SourceRefName != nil {
@@ -455,7 +471,7 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 			Number:       ghPR.GetNumber(),
 			Title:        ghPR.GetTitle(),
 			Description:  ghPR.GetBody(),
-			State:        ghPR.GetState(),
+			State:        pullRequestStateFromGitHub(ghPR),
 			SourceBranch: ghPR.GetHead().GetRef(),
 			TargetBranch: ghPR.GetBase().GetRef(),
 			URL:          ghPR.GetHTMLURL(),
@@ -500,7 +516,7 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 		Number:       ghPR.GetNumber(),
 		Title:        ghPR.GetTitle(),
 		Description:  ghPR.GetBody(),
-		State:        ghPR.GetState(),
+		State:        pullRequestStateFromGitHub(ghPR),
 		SourceBranch: ghPR.GetHead().GetRef(),
 		TargetBranch: ghPR.GetBase().GetRef(),
 		URL:          ghPR.GetHTMLURL(),
@@ -519,6 +535,22 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 	}
 
 	return pr, nil
+}
+
+func pullRequestStateFromGitHub(ghPR *gh.PullRequest) types.PullRequestState {
+	if ghPR.GetMerged() {
+		return types.PullRequestStateMerged
+	}
+
+	if ghPR.GetState() == "closed" {
+		return types.PullRequestStateClosed
+	}
+
+	if ghPR.GetState() == "open" {
+		return types.PullRequestStateOpen
+	}
+
+	return types.PullRequestStateUnknown
 }
 
 // GitLab Merge Request Operations
@@ -619,7 +651,7 @@ func (s *GitRepositoryService) listGitLabMergeRequests(ctx context.Context, repo
 			Number:       glMR.IID,
 			Title:        glMR.Title,
 			Description:  glMR.Description,
-			State:        glMR.State,
+			State:        pullRequestStateFromGitLab(glMR),
 			SourceBranch: glMR.SourceBranch,
 			TargetBranch: glMR.TargetBranch,
 			URL:          glMR.WebURL,
@@ -643,6 +675,20 @@ func (s *GitRepositoryService) listGitLabMergeRequests(ctx context.Context, repo
 	return prs, nil
 }
 
+// Ref: https://docs.gitlab.com/api/merge_requests/
+func pullRequestStateFromGitLab(glMR *gl.MergeRequest) types.PullRequestState {
+	switch glMR.State {
+	case "opened", "locked":
+		return types.PullRequestStateOpen
+	case "closed":
+		return types.PullRequestStateClosed
+	case "merged":
+		return types.PullRequestStateMerged
+	default:
+		return types.PullRequestStateUnknown
+	}
+}
+
 func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int) (*types.PullRequest, error) {
 	client, err := s.getGitLabClient(ctx, repo)
 	if err != nil {
@@ -664,7 +710,7 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 		Number:       glMR.IID,
 		Title:        glMR.Title,
 		Description:  glMR.Description,
-		State:        glMR.State,
+		State:        pullRequestStateFromGitLab(glMR),
 		SourceBranch: glMR.SourceBranch,
 		TargetBranch: glMR.TargetBranch,
 		URL:          glMR.WebURL,
@@ -763,7 +809,7 @@ func (s *GitRepositoryService) listBitbucketPullRequests(ctx context.Context, re
 			Number:       bbPR.ID,
 			Title:        bbPR.Title,
 			Description:  bbPR.Description,
-			State:        bbPR.State,
+			State:        types.PullRequestStateUnknown,
 			SourceBranch: bbPR.SourceBranch,
 			TargetBranch: bbPR.TargetBranch,
 			Author:       bbPR.Author,
@@ -799,7 +845,7 @@ func (s *GitRepositoryService) getBitbucketPullRequest(ctx context.Context, repo
 		Number:       bbPR.ID,
 		Title:        bbPR.Title,
 		Description:  bbPR.Description,
-		State:        bbPR.State,
+		State:        types.PullRequestStateUnknown,
 		SourceBranch: bbPR.SourceBranch,
 		TargetBranch: bbPR.TargetBranch,
 		Author:       bbPR.Author,

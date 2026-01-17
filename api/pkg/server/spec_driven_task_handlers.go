@@ -667,6 +667,64 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(task)
 }
 
+// deleteSpecTask godoc
+// @Summary Delete a spec task
+// @Description Delete a spec task
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param taskId path string true "Task ID"
+// @Success 204 {object} types.SpecTask
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/{taskId} [delete]
+// @Security BearerAuth
+func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID := vars["taskId"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing task
+	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to archive task in the project
+	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// It must be archived to be deleted
+	if !task.Archived {
+		http.Error(w, "task is not archived, please archive it before deleting", http.StatusBadRequest)
+		return
+	}
+
+	// Delete the task
+	err = s.Store.DeleteSpecTask(r.Context(), taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to delete SpecTask")
+		http.Error(w, fmt.Sprintf("failed to delete SpecTask: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // archiveSpecTask godoc
 // @Summary Archive or unarchive a spec task
 // @Description Archive a spec task to hide it from the main view, or unarchive to restore it

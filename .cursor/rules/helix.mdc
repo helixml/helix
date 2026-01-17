@@ -40,3 +40,18 @@ if toolsPlanner, ok := t.planner.(interface {
 // ✅ CORRECT: Add to interface first
 t.planner.GetTokenForApp(ctx, user, provider)
 ```
+
+
+## Defining prompts for agents
+
+All prompts should be defined in the `prompts` package that are sent to external (zed, claude, etc.) agents and functions need to be written with expected parameters, for example:
+
+```
+func ImplementationApprovedPushInstruction(branchName string) (string, error) {
+  ... construct the prompt here...
+}
+```
+
+
+Do not add natural language strings that are sent to agents in random places like HTTP handlers, etc. 
+

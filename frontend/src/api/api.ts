@@ -3048,11 +3048,18 @@ export interface TypesPullRequest {
   id?: string;
   number?: number;
   source_branch?: string;
-  state?: string;
+  state?: TypesPullRequestState;
   target_branch?: string;
   title?: string;
   updated_at?: string;
   url?: string;
+}
+
+export enum TypesPullRequestState {
+  PullRequestStateOpen = "open",
+  PullRequestStateClosed = "closed",
+  PullRequestStateMerged = "merged",
+  PullRequestStateUnknown = "unknown",
 }
 
 export interface TypesPullResponse {
@@ -9890,6 +9897,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a spec task
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksDelete
+     * @summary Delete a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}
+     * @secure
+     */
+    v1SpecTasksDelete: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

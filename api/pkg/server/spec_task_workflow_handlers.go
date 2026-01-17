@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -85,8 +86,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, move to done and instruct agent to merge
-	switch {
-	case repo.AzureDevOps != nil:
+	if s.shouldOpenPullRequest(repo) {
 		// External repo: move to pull_request status, await merge via polling
 		specTask.Status = types.TaskStatusPullRequest
 
@@ -101,15 +101,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message := `Your implementation has been approved! Please push your changes now to open a Pull Request.
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Str("planning_session_id", specTask.PlanningSessionID).
+					Msg("Failed to send PR instruction to agent via WebSocket")
+			}
 
-If you have uncommitted changes, commit them first. If all changes are already committed, you can push an empty commit:
-git commit --allow-empty -m "chore: open pull request for review"
-git push origin ` + specTask.BranchName + `
-
-This will open a Pull Request in the external repository for code review.`
-
-			_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -132,17 +133,16 @@ This will open a Pull Request in the external repository for code review.`
 		}
 
 		// Construct PR URL for ADO repos
-		if updatedTask.PullRequestID != "" {
-			updatedTask.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, updatedTask.PullRequestID)
-		}
+		updatedTask.PullRequestURL = services.GetPullRequestURL(repo, updatedTask.PullRequestID)
 
 		writeResponse(w, updatedTask, http.StatusOK)
 		return
-	default:
-		// Internal repo: move straight to done
-		specTask.Status = types.TaskStatusDone
-		specTask.CompletedAt = &now
 	}
+
+	// Internal repo or external repo with no PRs automation implemented
+
+	specTask.Status = types.TaskStatusDone
+	specTask.CompletedAt = &now
 
 	// Updating spec task
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
@@ -173,6 +173,21 @@ This will open a Pull Request in the external repository for code review.`
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
+}
+
+func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
+	switch {
+	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.OAuthConnectionID != "":
+		// Github OAuth connection ID set
+		return true
+	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "":
+		// Github PRs implemented
+		return true
+	case repo.AzureDevOps != nil:
+		// ADO PRs implemented
+		return true
+	}
+	return false
 }
 
 // stopAgentSession - stop the agent session for a spec task

@@ -1452,6 +1452,20 @@ func (mr *MockStoreMockRecorder) DeleteSlot(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSlot", reflect.TypeOf((*MockStore)(nil).DeleteSlot), ctx, id)
 }
 
+// DeleteSpecTask mocks base method.
+func (m *MockStore) DeleteSpecTask(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSpecTask", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSpecTask indicates an expected call of DeleteSpecTask.
+func (mr *MockStoreMockRecorder) DeleteSpecTask(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSpecTask", reflect.TypeOf((*MockStore)(nil).DeleteSpecTask), ctx, id)
+}
+
 // DeleteSpecTaskDesignReview mocks base method.
 func (m *MockStore) DeleteSpecTaskDesignReview(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()

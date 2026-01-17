@@ -238,9 +238,21 @@ export function useCloneTask() {
       return response.data;
     },
     onSuccess: (data, { taskId }) => {
-      // Invalidate clone groups for the source task
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cloneGroups(taskId) });
-      // Invalidate spec tasks list to show new cloned tasks
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
+  });
+}
+
+export function useDeleteSpecTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      await api.getApiClient().v1SpecTasksDelete(taskId);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
     },
   });
@@ -304,7 +316,8 @@ const specTaskService = {
   useUpdateSpecTask,
   useApproveSpecTask,
   useSendZedEvent,
-  useCloneTask,  
+  useCloneTask,
+  useDeleteSpecTask,  
 
   // Helper functions
   getSessionStatusColor,
