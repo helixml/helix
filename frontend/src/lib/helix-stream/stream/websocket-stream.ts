@@ -128,6 +128,8 @@ export class WebSocketStream {
   private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
   private streamConnectedTime: number | null = null   // When stream connected (for warmup)
   private readonly FRAME_DRIFT_WARMUP_MS = 10000      // Wait 10s before establishing baseline
+  private baselineSamples: Array<{ pts: number; arrival: number }> = [] // Frames for baseline averaging
+  private readonly BASELINE_SAMPLE_COUNT = 5          // Average 5 frames for baseline (works at low FPS)
 
   // Decoder queue monitoring - tracks if decoder is backing up (for stats display)
   // When queue is high AND we receive a keyframe, we flush and skip to the keyframe
@@ -647,6 +649,7 @@ export class WebSocketStream {
     this.firstFrameArrivalTime = null
     this.frameLatencySamples = []
     this.currentFrameLatencyMs = 0
+    this.baselineSamples = [] // Clear baseline samples for new stream
     // Restart warmup period for frame drift baseline
     this.streamConnectedTime = performance.now()
 
@@ -930,12 +933,25 @@ export class WebSocketStream {
     } else if (!warmupElapsed) {
       // Still in warmup period - skip baseline establishment
       // This prevents bogus drift calculations from stream initialization delays
+    } else if (this.baselineSamples.length < this.BASELINE_SAMPLE_COUNT) {
+      // Collecting samples for baseline averaging
+      this.baselineSamples.push({ pts: ptsUsNum, arrival: arrivalTime })
+
+      if (this.baselineSamples.length >= this.BASELINE_SAMPLE_COUNT) {
+        // We have enough samples - use the last one as baseline
+        // By the Nth frame after warmup, the stream should be fully stable
+        // Using last sample avoids any remaining transients from warmup edge
+        const last = this.baselineSamples[this.baselineSamples.length - 1]
+        this.firstFramePtsUs = last.pts
+        this.firstFrameArrivalTime = last.arrival
+        this.currentFrameLatencyMs = 0
+        console.log(`[WebSocketStream] Frame drift baseline established (after ${this.BASELINE_SAMPLE_COUNT} stable frames)`)
+      }
     } else if (this.firstFramePtsUs === null || this.firstFramePtsUs <= 0) {
-      // Warmup complete, first valid frame: establish baseline
+      // Fallback: shouldn't reach here, but establish baseline if needed
       this.firstFramePtsUs = ptsUsNum
       this.firstFrameArrivalTime = arrivalTime
       this.currentFrameLatencyMs = 0
-      console.log(`[WebSocketStream] Frame drift baseline established after ${this.FRAME_DRIFT_WARMUP_MS}ms warmup`)
     } else {
       // Calculate expected arrival time based on PTS delta from first frame
       const ptsDeltaMs = (ptsUsNum - this.firstFramePtsUs) / 1000
