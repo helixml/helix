@@ -180,7 +180,6 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 // as it will block the whole orchestration loop. It first needs to change task status and then
 // start the goroutine if needed for long running commands.
 func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.SpecTask) error {
-	log.Info().Str("task_id", task.ID).Str("status", task.Status.String()).Msg("Processing task")
 	// State machine for task workflow
 	switch task.Status {
 	case types.TaskStatusBacklog:
