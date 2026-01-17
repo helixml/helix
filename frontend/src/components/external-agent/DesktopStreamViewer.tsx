@@ -1524,11 +1524,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Note: Users manually switch between video and screenshot modes via toolbar toggle
 
-  // Adaptive bitrate: reduce based on frame drift, increase based on bandwidth probe
-  // Frame drift = how late frames are arriving - reliable indicator of congestion
+  // Adaptive bitrate: reduce based on RTT, increase based on bandwidth probe
+  // RTT = ping/pong round-trip time - simple and reliable indicator of network latency
   // Bandwidth probe = active test before increasing to verify headroom exists
-  const stableCheckCountRef = useRef(0); // Count of checks with low frame drift
-  const congestionCheckCountRef = useRef(0); // Count of consecutive checks with high frame drift (dampening)
+  const stableCheckCountRef = useRef(0); // Count of checks with low RTT
+  const congestionCheckCountRef = useRef(0); // Count of consecutive checks with high RTT (dampening)
   const lastBitrateChangeRef = useRef(0);
   const bandwidthProbeInProgressRef = useRef(false); // Prevent concurrent probes
 
@@ -1608,9 +1608,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const MANUAL_SELECTION_COOLDOWN_MS = 60000;  // Don't auto-reduce within 60s of user manually selecting bitrate
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
-    const STABLE_CHECKS_FOR_INCREASE = 300; // Need 5 minutes of low frame drift before running bandwidth probe
-    const CONGESTION_CHECKS_FOR_REDUCE = 3; // Need 3 consecutive high drift samples before reducing (dampening)
-    const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
+    const STABLE_CHECKS_FOR_INCREASE = 300; // Need 5 minutes of low RTT before running bandwidth probe
+    const CONGESTION_CHECKS_FOR_REDUCE = 30; // Need 30 consecutive high RTT samples (30s) before reducing
+    const RTT_THRESHOLD = 500;    // Reduce if RTT exceeds 500ms (severe latency)
+    // Using RTT (ping/pong) instead of frame drift - simpler and more reliable
 
     // Track when connection started for grace period
     const connectionStartTime = Date.now();
@@ -1625,11 +1626,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Get frame drift from stream stats (the reliable metric for congestion detection)
-      // Frame drift = how late frames are arriving compared to their PTS
-      // Positive = frames arriving late (congestion), Negative = frames arriving early (buffered)
+      // Get RTT from stream stats (simple ping/pong measurement)
       const stats = stream.getStats();
-      const frameDrift = stats.frameLatencyMs;
+      const rtt = stats.rttMs;
 
       const currentBitrate = userBitrate || requestedBitrate;
       const now = Date.now();
@@ -1641,15 +1640,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't make any bitrate changes during cooldown
       }
 
-      // Frame drift congestion detection:
-      // - Positive drift means frames are arriving late (we're falling behind)
-      // - This is a reliable indicator of network congestion or encoder overload
-      // - Unlike throughput, this isn't affected by H.264 compression efficiency
-      const congestionDetected = frameDrift > FRAME_DRIFT_THRESHOLD;
+      // RTT-based congestion detection:
+      // - High RTT indicates network latency/congestion
+      // - Simple and reliable - just measures ping/pong round-trip time
+      // - No complicated PTS calculations that can have edge cases
+      const congestionDetected = rtt > RTT_THRESHOLD;
 
-      // Reduce bitrate on sustained high frame drift (dampening prevents single-spike reductions)
+      // Reduce bitrate on sustained high RTT (dampening prevents single-spike reductions)
       if (congestionDetected && currentBitrate > MIN_BITRATE) {
-        // Increment congestion counter - require multiple consecutive high drift samples
+        // Increment congestion counter - require multiple consecutive high RTT samples
         congestionCheckCountRef.current++;
         stableCheckCountRef.current = 0; // Reset stable counter on any congestion
 
@@ -1662,14 +1661,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
             if (currentIndex > 0) {
               const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
-              console.log(`[AdaptiveBitrate] Sustained high frame drift (${congestionCheckCountRef.current} samples, ${frameDrift.toFixed(0)}ms), recommending: ${currentBitrate} -> ${newBitrate} Mbps`);
+              console.log(`[AdaptiveBitrate] Sustained high RTT (${congestionCheckCountRef.current} samples, ${rtt.toFixed(0)}ms), recommending: ${currentBitrate} -> ${newBitrate} Mbps`);
 
               // Show recommendation popup instead of auto-switching
               setBitrateRecommendation({
                 type: 'decrease',
                 targetBitrate: newBitrate,
-                reason: `Your connection is experiencing delays (${frameDrift.toFixed(0)}ms frame drift)`,
-                frameDrift: frameDrift,
+                reason: `Your connection is experiencing delays (${rtt.toFixed(0)}ms RTT)`,
+                frameDrift: rtt, // Keep field name for backwards compat, but using RTT value
               });
 
               // Reset counters so we don't keep re-recommending
@@ -1690,13 +1689,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           const timeSinceLastChange = now - lastBitrateChangeRef.current;
 
           if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
-            console.log(`[AdaptiveBitrate] At minimum bitrate (${MIN_BITRATE}Mbps) but still experiencing congestion (${frameDrift.toFixed(0)}ms drift), recommending screenshot mode`);
+            console.log(`[AdaptiveBitrate] At minimum bitrate (${MIN_BITRATE}Mbps) but still experiencing congestion (${rtt.toFixed(0)}ms RTT), recommending screenshot mode`);
 
             setBitrateRecommendation({
               type: 'screenshot',
               targetBitrate: MIN_BITRATE, // Keep same bitrate, just switch mode
               reason: `Video streaming is struggling even at ${MIN_BITRATE}Mbps`,
-              frameDrift: frameDrift,
+              frameDrift: rtt, // Keep field name for backwards compat, but using RTT value
             });
 
             lastBitrateChangeRef.current = now;
@@ -1706,7 +1705,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
       } else {
-        // Low frame drift - connection is stable at current bitrate
+        // Low RTT - connection is stable at current bitrate
         congestionCheckCountRef.current = 0; // Reset congestion counter on good sample
         // DISABLED: We no longer recommend increasing bitrate even when stable.
         // Lower bitrates (5 Mbps) provide smoother streaming than higher bitrates -
@@ -3275,26 +3274,56 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           When no cursor image: render a circle fallback */}
       {isConnected && hasMouseMoved && cursorVisible && (
         cursorImage ? (
-          // Render actual cursor image from server with colored glow
-          <Box
-            sx={{
-              position: 'absolute',
-              left: cursorPosition.x - cursorImage.hotspotX,
-              top: cursorPosition.y - cursorImage.hotspotY,
-              width: cursorImage.width,
-              height: cursorImage.height,
-              backgroundImage: `url(${cursorImage.imageUrl})`,
-              backgroundSize: 'contain',
-              backgroundRepeat: 'no-repeat',
-              pointerEvents: 'none',
-              zIndex: 1000,
-              // Apply colored glow matching user's presence color
-              filter: selfUser?.color
-                ? `drop-shadow(0 0 3px ${selfUser.color}) drop-shadow(0 0 6px ${selfUser.color}80)`
-                : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
-            }}
-            id="custom-cursor"
-          />
+          // Render actual cursor image from server at standard cursor size
+          // Server sends native resolution cursor, but we display at fixed size for consistency
+          (() => {
+            const STANDARD_CURSOR_SIZE = 24; // Standard OS cursor size
+            const cursorScale = cursorImage.width > 0
+              ? STANDARD_CURSOR_SIZE / cursorImage.width
+              : 1;
+            const scaledWidth = cursorImage.width * cursorScale;
+            const scaledHeight = cursorImage.height * cursorScale;
+            const scaledHotspotX = cursorImage.hotspotX * cursorScale;
+            const scaledHotspotY = cursorImage.hotspotY * cursorScale;
+            return (
+              <>
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: cursorPosition.x - scaledHotspotX,
+                    top: cursorPosition.y - scaledHotspotY,
+                    width: scaledWidth,
+                    height: scaledHeight,
+                    backgroundImage: `url(${cursorImage.imageUrl})`,
+                    backgroundSize: 'contain',
+                    backgroundRepeat: 'no-repeat',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                    // Apply colored glow matching user's presence color
+                    filter: selfUser?.color
+                      ? `drop-shadow(0 0 3px ${selfUser.color}) drop-shadow(0 0 6px ${selfUser.color}80)`
+                      : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                  }}
+                  id="custom-cursor"
+                />
+                {/* DEBUG: Red dot = cursor position (where clicks land) */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: cursorPosition.x - 3,
+                    top: cursorPosition.y - 3,
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    backgroundColor: 'red',
+                    border: '1px solid white',
+                    pointerEvents: 'none',
+                    zIndex: 1002,
+                  }}
+                />
+              </>
+            );
+          })()
         ) : (
           // Fallback: circle indicator when no cursor image received
           <Box
