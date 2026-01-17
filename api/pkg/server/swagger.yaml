@@ -9185,6 +9185,10 @@ paths:
         name: file
         required: true
         type: file
+      - description: 'Open file manager to show uploaded file (default: true)'
+        in: query
+        name: open_file_manager
+        type: boolean
       produces:
       - application/json
       responses:

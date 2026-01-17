@@ -98,6 +98,35 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 - Use gomock, not testify/mock
 
 ### TypeScript/React
+
+#### 🚨 CRITICAL: ALWAYS Use Generated TypeScript API Client 🚨
+
+**NEVER use manual `fetch()`, `api.post()`, `api.get()`, or raw HTTP calls in frontend code.**
+
+The generated API client (`frontend/src/api/api.ts`) provides type-safe methods for ALL backend endpoints:
+
+```typescript
+// ✅ CORRECT - use generated client
+const apiClient = api.getApiClient();
+await apiClient.v1SessionsResumeCreate(sessionId);
+await apiClient.v1ExternalAgentsUploadCreate(sessionId, { file }, { open_file_manager: false });
+
+// ❌ WRONG - never do this
+await api.post(`/api/v1/sessions/${sessionId}/resume`);
+await fetch(`/api/v1/external-agents/${sessionId}/upload`, { ... });
+```
+
+**If an endpoint is missing from the generated client:**
+1. Add swagger annotations to the Go handler (see `api/pkg/server/*_handlers.go`)
+2. Run `./stack update_openapi` to regenerate the client
+3. Then use the generated method
+
+**Benefits:**
+- Type safety for request/response bodies
+- Auto-completion in IDE
+- Breaking API changes caught at compile time
+- Consistent error handling
+
 - Use generated API client + React Query for ALL API calls
 - Extract `.data` from Axios responses in query functions
 - No `setTimeout` for async — use events/promises

@@ -1296,6 +1296,7 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Param file formData file true "File to upload"
+// @Param open_file_manager query bool false "Open file manager to show uploaded file (default: true)"
 // @Success 200 {object} types.SandboxFileUploadResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError

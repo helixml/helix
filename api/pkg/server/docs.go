@@ -1971,6 +1971,12 @@ const docTemplate = `{
                         "name": "file",
                         "in": "formData",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Open file manager to show uploaded file (default: true)",
+                        "name": "open_file_manager",
+                        "in": "query"
                     }
                 ],
                 "responses": {

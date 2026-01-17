@@ -5958,11 +5958,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** File to upload */
         file: File;
       },
+      query?: {
+        /** Open file manager to show uploaded file (default: true) */
+        open_file_manager?: boolean;
+      },
       params: RequestParams = {},
     ) =>
       this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/upload`,
         method: "POST",
+        query: query,
         body: data,
         secure: true,
         type: ContentType.FormData,

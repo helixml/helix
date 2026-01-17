@@ -141,27 +141,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Handle image paste in RobustPromptInput - uploads without opening file manager
   const handleImagePaste = useCallback(async (file: File): Promise<string | null> => {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(
-        `/api/v1/external-agents/${sessionId}/upload?open_file_manager=false`,
-        {
-          method: 'POST',
-          body: formData,
-        }
+      const response = await api.getApiClient().v1ExternalAgentsUploadCreate(
+        sessionId,
+        { file },
+        { open_file_manager: false }
       );
 
-      if (!response.ok) {
-        console.error('Image upload failed:', response.statusText);
-        snackbar.error('Failed to upload image');
-        return null;
-      }
-
-      const data = await response.json();
-      if (data.path) {
+      if (response.data?.path) {
         snackbar.success(`${file.name} uploaded to ~/work/incoming`);
-        return data.path;
+        return response.data.path;
       }
       return null;
     } catch (error) {
@@ -169,7 +157,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       snackbar.error('Failed to upload image');
       return null;
     }
-  }, [sessionId, snackbar]);
+  }, [sessionId]);
 
   // Once running, remember it to prevent unmounting on transient state changes
   useEffect(() => {
@@ -182,7 +170,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     e?.stopPropagation(); // Prevent click from bubbling to parent (e.g., Kanban card navigation)
     setIsResuming(true);
     try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      await api.getApiClient().v1SessionsResumeCreate(sessionId);
       snackbar.success('External agent started successfully');
       // Success - don't reset isResuming here
       // The useEffect below will reset it when container state changes
