@@ -9,163 +9,31 @@ import { Api } from "../api"
 import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
-import { StreamCapabilities } from "../api_bindings"
+import { WsVideoCodec, codecToWebCodecsString } from "./codecs"
+import {
+  WsMessageType,
+  CursorImageData,
+  RemoteUserInfo,
+  RemoteCursorPosition,
+  AgentCursorInfo,
+  RemoteTouchInfo,
+  WsStreamInfoEvent,
+  WsStreamInfoEventListener,
+} from "./websocket-stream.types"
 
-// ============================================================================
-// Binary Protocol Types (matching Rust ws_protocol.rs)
-// ============================================================================
-
-const WsMessageType = {
-  VideoFrame: 0x01,
-  AudioFrame: 0x02,
-  VideoBatch: 0x03,  // Multiple video frames in one message (congestion handling)
-  KeyboardInput: 0x10,
-  MouseClick: 0x11,
-  MouseAbsolute: 0x12,
-  MouseRelative: 0x13,
-  TouchEvent: 0x14,
-  ControllerEvent: 0x15,
-  ControllerState: 0x16,
-  MicAudio: 0x17,
-  ControlMessage: 0x20,
-  StreamInit: 0x30,
-  StreamError: 0x31,
-  Ping: 0x40,
-  Pong: 0x41,
-  // Cursor message types (server → client)
-  CursorImage: 0x50,      // Cursor image data when cursor changes
-  // Multi-user cursor message types (server → all clients)
-  RemoteCursor: 0x53,     // Remote user cursor position
-  RemoteUser: 0x54,       // Remote user joined/left
-  AgentCursor: 0x55,      // AI agent cursor position/action
-  RemoteTouch: 0x56,      // Remote user touch event
-  SelfId: 0x58,           // Server tells client their own clientId
-} as const
-
-export const WsVideoCodec = {
-  H264: 0x01,
-  H264High444: 0x02,
-  H265: 0x10,
-  H265Main10: 0x11,
-  H265Rext8_444: 0x12,
-  H265Rext10_444: 0x13,
-  Av1Main8: 0x20,
-  Av1Main10: 0x21,
-  Av1High8_444: 0x22,
-  Av1High10_444: 0x23,
-} as const
-
-export type WsVideoCodecType = typeof WsVideoCodec[keyof typeof WsVideoCodec]
-
-// Map codec byte to WebCodecs codec string
-export function codecToWebCodecsString(codec: number): string {
-  switch (codec) {
-    case WsVideoCodec.H264: return "avc1.4d0033"
-    case WsVideoCodec.H264High444: return "avc1.640032"
-    case WsVideoCodec.H265: return "hvc1.1.6.L120.90"
-    case WsVideoCodec.H265Main10: return "hvc1.2.4.L120.90"
-    case WsVideoCodec.H265Rext8_444: return "hvc1.4.10.L120.90"
-    case WsVideoCodec.H265Rext10_444: return "hvc1.4.10.L120.90"
-    case WsVideoCodec.Av1Main8: return "av01.0.08M.08"
-    case WsVideoCodec.Av1Main10: return "av01.0.08M.10"
-    case WsVideoCodec.Av1High8_444: return "av01.1.08H.08"
-    case WsVideoCodec.Av1High10_444: return "av01.1.08H.10"
-    default: return "avc1.4d0033" // Default to H264
-  }
-}
-
-// Map codec byte to human-readable display name for stats UI
-export function codecToDisplayName(codec: number | null): string {
-  if (codec === null) return "Unknown"
-  switch (codec) {
-    case WsVideoCodec.H264: return "H.264"
-    case WsVideoCodec.H264High444: return "H.264 High 4:4:4"
-    case WsVideoCodec.H265: return "HEVC"
-    case WsVideoCodec.H265Main10: return "HEVC Main10"
-    case WsVideoCodec.H265Rext8_444: return "HEVC RExt 4:4:4"
-    case WsVideoCodec.H265Rext10_444: return "HEVC RExt 10bit 4:4:4"
-    case WsVideoCodec.Av1Main8: return "AV1"
-    case WsVideoCodec.Av1Main10: return "AV1 10bit"
-    case WsVideoCodec.Av1High8_444: return "AV1 High 4:4:4"
-    case WsVideoCodec.Av1High10_444: return "AV1 High 10bit 4:4:4"
-    default: return `Unknown (0x${codec.toString(16)})`
-  }
-}
-
-// ============================================================================
-// Event Types
-// ============================================================================
-
-// Cursor image data from server
-export interface CursorImageData {
-  cursorId: number
-  hotspotX: number
-  hotspotY: number
-  width: number
-  height: number
-  imageUrl: string  // data URL or blob URL for the cursor image
-}
-
-// Remote user info for multi-player cursors
-export interface RemoteUserInfo {
-  userId: number
-  userName: string
-  color: string      // Hex color assigned to this user
-  avatarUrl?: string // User's avatar URL if available
-}
-
-// Remote cursor position
-export interface RemoteCursorPosition {
-  userId: number
-  x: number
-  y: number
-  color?: string
-  lastSeen: number  // Timestamp for idle detection
-  cursorImage?: CursorImageData  // Cursor shape for this remote user
-}
-
-// AI agent cursor info
-export interface AgentCursorInfo {
-  agentId: number
-  x: number
-  y: number
-  action: 'idle' | 'moving' | 'clicking' | 'typing' | 'scrolling' | 'dragging'
-  visible: boolean
-  lastSeen: number  // Timestamp for idle detection
-}
-
-// Remote touch event
-export interface RemoteTouchInfo {
-  userId: number
-  touchId: number
-  eventType: 'start' | 'move' | 'end' | 'cancel'
-  x: number
-  y: number
-  pressure: number
-  color?: string  // User's assigned color for touch indicator
-}
-
-export type WsStreamInfoEvent = CustomEvent<
-  | { type: "error"; message: string }
-  | { type: "connecting" }
-  | { type: "connected" }
-  | { type: "disconnected" }
-  | { type: "reconnecting"; attempt: number }
-  | { type: "streamInit"; width: number; height: number; fps: number }
-  | { type: "connectionComplete"; capabilities: StreamCapabilities }
-  | { type: "addDebugLine"; line: string }
-  // Cursor events
-  | { type: "cursorImage"; cursor: CursorImageData; lastMoverID?: number }
-  | { type: "cursorPosition"; x: number; y: number; hotspotX: number; hotspotY: number }
-  // Multi-player cursor events
-  | { type: "remoteCursor"; cursor: RemoteCursorPosition }
-  | { type: "remoteUserJoined"; user: RemoteUserInfo }
-  | { type: "remoteUserLeft"; userId: number }
-  | { type: "agentCursor"; agent: AgentCursorInfo }
-  | { type: "remoteTouch"; touch: RemoteTouchInfo }
-  | { type: "selfId"; clientId: number }
->
-export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void
+// Re-export types and codecs for external consumers
+export { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+export type { WsVideoCodecType } from "./codecs"
+export {
+  WsMessageType,
+  CursorImageData,
+  RemoteUserInfo,
+  RemoteCursorPosition,
+  AgentCursorInfo,
+  RemoteTouchInfo,
+  WsStreamInfoEvent,
+  WsStreamInfoEventListener,
+} from "./websocket-stream.types"
 
 // ============================================================================
 // WebSocket Stream Class

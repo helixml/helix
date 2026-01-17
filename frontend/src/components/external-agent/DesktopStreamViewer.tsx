@@ -18,46 +18,25 @@ import {
   TouchApp,
   PanTool,
 } from '@mui/icons-material';
-import { LineChart } from '@mui/x-charts';
-import {
-  darkChartStyles,
-  chartContainerStyles,
-  chartLegendProps,
-  axisLabelStyle,
-} from '../common/chartStyles';
-// getApi import removed - we create API object directly instead of using cached singleton
 import {
   WebSocketStream,
-  codecToWebCodecsString,
-  codecToDisplayName,
   CursorImageData,
   RemoteUserInfo,
   RemoteCursorPosition,
   AgentCursorInfo,
   RemoteTouchInfo,
 } from '../../lib/helix-stream/stream/websocket-stream';
-import { defaultStreamSettings, VideoMode } from '../../lib/helix-stream/component/settings_menu';
+import { defaultStreamSettings } from '../../lib/helix-stream/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
-
-interface DesktopStreamViewerProps {
-  sessionId: string;
-  sandboxId?: string; // Sandbox ID for streaming connection
-  hostId?: number;
-  appId?: number;
-  onConnectionChange?: (isConnected: boolean) => void;
-  onError?: (error: string) => void;
-  onClientIdCalculated?: (clientId: string) => void; // Callback when client unique ID is calculated
-  width?: number;
-  height?: number;
-  fps?: number;
-  className?: string;
-  // When true, suppress the connection overlay (parent component is showing its own overlay)
-  // This prevents multiple spinners stacking when container state changes
-  suppressOverlay?: boolean;
-}
+import { DesktopStreamViewerProps, StreamStats, ActiveConnection, QualityMode } from './DesktopStreamViewer.types';
+import StatsOverlay from './StatsOverlay';
+import ChartsPanel from './ChartsPanel';
+import ConnectionOverlay from './ConnectionOverlay';
+import RemoteCursorsOverlay from './RemoteCursorsOverlay';
+import AgentCursorOverlay from './AgentCursorOverlay';
 
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
@@ -150,7 +129,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
-  const [qualityMode, setQualityMode] = useState<'video' | 'screenshot'>('video'); // Default to WebSocket video
+  const [qualityMode, setQualityMode] = useState<QualityMode>('video'); // Default to WebSocket video
   const [isOnFallback, setIsOnFallback] = useState(false); // True when in screenshot mode
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching
 
@@ -194,7 +173,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<StreamStats | null>(null);
 
   // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
   // Uses refs to persist across reconnects - only reset when component unmounts
@@ -248,11 +227,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - [websocket-stream, websocket-video-enabled] - WebSocket video mode
   // - [websocket-stream, screenshot-polling] - WebSocket + screenshots mode
   //
-  type ActiveConnection = {
-    id: string;           // Unique ID (timestamp-based)
-    type: 'websocket-stream' | 'websocket-video-enabled' | 'screenshot-polling';
-    createdAt: number;    // Timestamp for ordering
-  };
   const activeConnectionsRef = useRef<ActiveConnection[]>([]);
   const [activeConnectionsDisplay, setActiveConnectionsDisplay] = useState<ActiveConnection[]>([]);
 
