@@ -17,6 +17,7 @@ import (
 	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	gormpostgres "gorm.io/driver/postgres"
@@ -27,11 +28,13 @@ import (
 type PostgresStore struct {
 	cfg config.Store
 
-	gdb *gorm.DB
+	gdb    *gorm.DB
+	pubsub pubsub.PubSub
 }
 
 func NewPostgresStore(
 	cfg config.Store,
+	pubsub pubsub.PubSub,
 ) (*PostgresStore, error) {
 
 	schema.RegisterSerializer("json", schema.JSONSerializer{})
@@ -55,8 +58,9 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg: cfg,
-		gdb: gormDB,
+		cfg:    cfg,
+		gdb:    gormDB,
+		pubsub: pubsub,
 	}
 
 	if cfg.AutoMigrate {

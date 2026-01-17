@@ -1355,10 +1355,9 @@ type: docker
 name: build-sandbox
 
 trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
+  event:
+    - push
+    - tag
 
 volumes:
   - name: dockersocket
@@ -1648,7 +1647,7 @@ steps:
     depends_on:
       - build-desktops
 
-  # Step 6: Push to registry (only on tag or main branch)
+  # Step 6: Push to registry
   - name: push-sandbox
     image: docker:cli
     environment:
@@ -1681,10 +1680,5 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
     depends_on:
       - build-sandbox

@@ -174,6 +174,7 @@ interface SpecTaskKanbanBoardProps {
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
+  showMerged?: boolean; // Show merged column
 }
 
 const DroppableColumn: React.FC<{
@@ -349,6 +350,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   hasExternalRepo = false,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
+  showMerged: showMergedProp = true,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -494,17 +496,19 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       });
     }
 
-    baseColumns.push({
-      id: 'completed',
-      title: 'Merged',
-      color: '#6b7280',
-      backgroundColor: 'transparent',
-      description: 'Merged to main',
-      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done'),
-    });
+    if (showMergedProp) {
+      baseColumns.push({
+        id: 'completed',
+        title: 'Merged',
+        color: '#6b7280',
+        backgroundColor: 'transparent',
+        description: 'Merged to main',
+        tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done'),
+      });
+    }
 
     return baseColumns;
-  }, [tasks, theme, wipLimits, hasExternalRepo]);
+  }, [tasks, theme, wipLimits, hasExternalRepo, showMergedProp]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();

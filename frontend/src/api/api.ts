@@ -582,14 +582,6 @@ export interface ServerConfigurePendingSessionRequest {
   client_unique_id?: string;
 }
 
-export interface ServerCreateSpecTaskFromDemoRequest {
-  demo_repo: string;
-  organization_id?: string;
-  priority?: string;
-  prompt: string;
-  type?: string;
-}
-
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
@@ -849,19 +841,6 @@ export interface ServerSlotLogSummary {
   id?: string;
   model?: string;
   runner_id?: string;
-}
-
-export interface ServerSpecTaskExternalAgentStatusResponse {
-  container_app_id?: string;
-  exists?: boolean;
-  external_agent_id?: string;
-  helix_session_ids?: string[];
-  idle_minutes?: number;
-  session_count?: number;
-  status?: string;
-  warning_threshold?: boolean;
-  will_terminate_in?: number;
-  workspace_dir?: string;
 }
 
 export interface ServerTaskProgressResponse {
@@ -9812,58 +9791,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Start or resume the external agent for a SpecTask (allocates GPU)
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksExternalAgentStartCreate
-     * @summary Start SpecTask external agent
-     * @request POST:/api/v1/spec-tasks/{id}/external-agent/start
-     * @secure
-     */
-    v1SpecTasksExternalAgentStartCreate: (id: string, params: RequestParams = {}) =>
-      this.request<string, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/external-agent/start`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get the current status and info for a SpecTask's external agent
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksExternalAgentStatusDetail
-     * @summary Get SpecTask external agent status
-     * @request GET:/api/v1/spec-tasks/{id}/external-agent/status
-     * @secure
-     */
-    v1SpecTasksExternalAgentStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerSpecTaskExternalAgentStatusResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/external-agent/status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Manually stop the external agent for a SpecTask (frees GPU)
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksExternalAgentStopCreate
-     * @summary Stop SpecTask external agent
-     * @request POST:/api/v1/spec-tasks/{id}/external-agent/stop
-     * @secure
-     */
-    v1SpecTasksExternalAgentStopCreate: (id: string, params: RequestParams = {}) =>
-      this.request<string, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/external-agent/stop`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Approve the implementation and instruct agent to merge to main branch
      *
      * @tags spec-tasks
@@ -10346,26 +10273,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesBoardSettings, TypesAPIError>({
         path: `/api/v1/spec-tasks/board-settings`,
         method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new SpecTask with a demo repository
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksFromDemoCreate
-     * @summary Create SpecTask from demo repo
-     * @request POST:/api/v1/spec-tasks/from-demo
-     * @secure
-     */
-    v1SpecTasksFromDemoCreate: (request: ServerCreateSpecTaskFromDemoRequest, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/from-demo`,
-        method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,

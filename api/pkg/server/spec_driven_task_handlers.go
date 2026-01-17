@@ -558,16 +558,6 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start the agent immediately in background (don't wait for orchestrator's 10s poll)
-	// This makes the UX feel responsive - task starts immediately instead of waiting
-	go func() {
-		if task.JustDoItMode {
-			s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
-		} else {
-			s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
-		}
-	}()
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(task)

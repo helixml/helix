@@ -32,7 +32,7 @@ import {
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings, MoreHorizontal } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal, Code, GitMerge } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -154,9 +154,14 @@ const SpecTasksPage: FC = () => {
 
   // Kanban view options state (controlled from topbar)
   const METRICS_STORAGE_KEY = 'helix-kanban-show-metrics';
+  const MERGED_STORAGE_KEY = 'helix-kanban-show-merged';
   const [showArchived, setShowArchived] = useState(false);
   const [showMetrics, setShowMetrics] = useState(() => {
     const stored = localStorage.getItem(METRICS_STORAGE_KEY);
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [showMerged, setShowMerged] = useState(() => {
+    const stored = localStorage.getItem(MERGED_STORAGE_KEY);
     return stored !== null ? stored === 'true' : true;
   });
   const [viewMenuAnchorEl, setViewMenuAnchorEl] = useState<null | HTMLElement>(null);
@@ -165,6 +170,14 @@ const SpecTasksPage: FC = () => {
     setShowMetrics(prev => {
       const newValue = !prev;
       localStorage.setItem(METRICS_STORAGE_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  const handleToggleMerged = useCallback(() => {
+    setShowMerged(prev => {
+      const newValue = !prev;
+      localStorage.setItem(MERGED_STORAGE_KEY, String(newValue));
       return newValue;
     });
   }, []);
@@ -980,6 +993,23 @@ const SpecTasksPage: FC = () => {
               </Button>
             </span>
           </Tooltip>
+          {defaultRepoId && (
+            <Button
+              variant="outlined"
+              startIcon={<Code size={18} />}
+              href={account.organizationTools.organization?.name 
+                ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
+                : `/git-repos/${defaultRepoId}`}
+              onClick={(e: React.MouseEvent) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return
+                e.preventDefault()
+                account.orgNavigate('git-repo-detail', { repoId: defaultRepoId })
+              }}
+              sx={{ flexShrink: 0 }}
+            >
+              Code
+            </Button>
+          )}
           <Button
             variant="outlined"
             startIcon={<Settings size={18} />}
@@ -1016,6 +1046,10 @@ const SpecTasksPage: FC = () => {
             <MenuItem onClick={() => { handleToggleMetrics(); setViewMenuAnchorEl(null); }}>
               <MetricsIcon sx={{ mr: 1.5, fontSize: 20 }} />
               {showMetrics ? 'Hide Metrics' : 'Show Metrics'}
+            </MenuItem>
+            <MenuItem onClick={() => { handleToggleMerged(); setViewMenuAnchorEl(null); }}>
+              <GitMerge style={{ marginRight: 12, width: 20, height: 20 }} />
+              {showMerged ? 'Hide Merged' : 'Show Merged'}
             </MenuItem>
           </Menu>
         </Stack>
@@ -1085,6 +1119,7 @@ const SpecTasksPage: FC = () => {
                 hasExternalRepo={hasExternalRepo}
                 showArchived={showArchived}
                 showMetrics={showMetrics}
+                showMerged={showMerged}
               />
             )}
             {viewMode === 'tabs' && (

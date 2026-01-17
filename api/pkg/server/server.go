@@ -116,8 +116,8 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              *services.KoditService
-	mcpGateway    *MCPGateway
-	gitHTTPServer *services.GitHTTPServer
+	mcpGateway                *MCPGateway
+	gitHTTPServer             *services.GitHTTPServer
 	// Rate limiting for streaming connections
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
@@ -202,7 +202,6 @@ func NewServer(
 
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
-
 
 	// Initialize external agent WebSocket manager BEFORE executor
 	externalAgentWSManager := NewExternalAgentWSManager()
@@ -714,7 +713,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/voice", apiServer.sendVoiceInput).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST") // Execute safe commands in sandbox (vkcube, glxgears)
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")            // Execute safe commands in sandbox (vkcube, glxgears)
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // Direct WebSocket input
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // Direct WebSocket video streaming
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")
@@ -1077,11 +1076,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
 	// SpecTask orchestrator routes
-	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/start", apiServer.startSpecTaskExternalAgent).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/stop", apiServer.stopSpecTaskExternalAgent).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/start", apiServer.startSpecTaskExternalAgent).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/stop", apiServer.stopSpecTaskExternalAgent).Methods(http.MethodPost)
 
 	// SpecTask shareable design docs (authenticated)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs/share", system.Wrapper(apiServer.generateDesignDocsShareLink)).Methods(http.MethodPost)
