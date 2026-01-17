@@ -123,7 +123,10 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 		case <-ticker.C:
 			o.processTasks(ctx)
 		case task := <-taskCh:
-			o.processTask(ctx, task)
+			err := o.processTask(ctx, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to process task")
+			}
 		}
 	}
 }
