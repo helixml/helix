@@ -814,22 +814,6 @@ definitions:
       client_unique_id:
         type: string
     type: object
-  server.CreateSpecTaskFromDemoRequest:
-    properties:
-      demo_repo:
-        type: string
-      organization_id:
-        type: string
-      priority:
-        type: string
-      prompt:
-        type: string
-      type:
-        type: string
-    required:
-    - demo_repo
-    - prompt
-    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -1230,31 +1214,6 @@ definitions:
       model:
         type: string
       runner_id:
-        type: string
-    type: object
-  server.SpecTaskExternalAgentStatusResponse:
-    properties:
-      container_app_id:
-        type: string
-      exists:
-        type: boolean
-      external_agent_id:
-        type: string
-      helix_session_ids:
-        items:
-          type: string
-        type: array
-      idle_minutes:
-        type: integer
-      session_count:
-        type: integer
-      status:
-        type: string
-      warning_threshold:
-        type: boolean
-      will_terminate_in:
-        type: integer
-      workspace_dir:
         type: string
     type: object
   server.TaskProgressResponse:
@@ -14384,97 +14343,6 @@ paths:
       summary: Generate shareable design docs link
       tags:
       - SpecTasks
-  /api/v1/spec-tasks/{id}/external-agent/start:
-    post:
-      description: Start or resume the external agent for a SpecTask (allocates GPU)
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Start SpecTask external agent
-      tags:
-      - SpecTasks
-  /api/v1/spec-tasks/{id}/external-agent/status:
-    get:
-      description: Get the current status and info for a SpecTask's external agent
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.SpecTaskExternalAgentStatusResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get SpecTask external agent status
-      tags:
-      - SpecTasks
-  /api/v1/spec-tasks/{id}/external-agent/stop:
-    post:
-      description: Manually stop the external agent for a SpecTask (frees GPU)
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Stop SpecTask external agent
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
     post:
       description: Approve the implementation and instruct agent to merge to main
@@ -15292,38 +15160,6 @@ paths:
       summary: Update board settings for spec tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/from-demo:
-    post:
-      consumes:
-      - application/json
-      description: Create a new SpecTask with a demo repository
-      parameters:
-      - description: Demo task request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSpecTaskFromDemoRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SpecTask'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Create SpecTask from demo repo
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/from-prompt:
     post:
       consumes:
