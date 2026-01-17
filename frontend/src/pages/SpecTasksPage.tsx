@@ -32,7 +32,7 @@ import {
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings, MoreHorizontal, Code } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal, Code, GitMerge } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -1046,8 +1046,8 @@ const SpecTasksPage: FC = () => {
               {showMetrics ? 'Hide Metrics' : 'Show Metrics'}
             </MenuItem>
             <MenuItem onClick={() => { handleToggleMerged(); setViewMenuAnchorEl(null); }}>
-              <ArchiveIcon sx={{ mr: 1.5, fontSize: 20 }} />
-              {showMerged ? 'Hide Merged Column' : 'Show Merged Column'}
+              <GitMerge style={{ marginRight: 12, width: 20, height: 20 }} />
+              {showMerged ? 'Hide Merged' : 'Show Merged'}
             </MenuItem>
           </Menu>
         </Stack>
