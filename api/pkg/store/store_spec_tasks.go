@@ -38,7 +38,7 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	s.notifyTaskUpdates(ctx, task)
+	_ = s.notifyTaskUpdates(ctx, task)
 
 	return nil
 }
@@ -87,6 +87,27 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 		Msg("Updated spec task")
 
 	s.notifyTaskUpdates(ctx, task)
+
+	return nil
+}
+
+func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("task ID is required")
+	}
+
+	result := s.gdb.WithContext(ctx).Delete(&types.SpecTask{}, "id = ?", id)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete spec task: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("spec task not found: %s", id)
+	}
+
+	log.Info().
+		Str("task_id", id).
+		Msg("Deleted spec task")
 
 	return nil
 }
@@ -181,10 +202,6 @@ func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, task *types.SpecT
 		return fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	if task.ProjectID == "" {
-		task.ProjectID = "*"
-	}
-
 	return s.pubsub.Publish(ctx, newTaskSpecSubject(task.ProjectID), message)
 }
 
@@ -196,10 +213,6 @@ type SpecTaskSubscriptionFilter struct {
 func (f *SpecTaskSubscriptionFilter) Matches(task *types.SpecTask) bool {
 	if f == nil {
 		return true
-	}
-
-	if f.ProjectID != "" && task.ProjectID != f.ProjectID {
-		return false
 	}
 
 	if len(f.Statuses) > 0 {
