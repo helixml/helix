@@ -42,7 +42,6 @@ const WsMessageType = {
   SelfId: 0x58,           // Server tells client their own clientId
 } as const
 
-// Exported for reuse in SSE video handling in DesktopStreamViewer.tsx
 export const WsVideoCodec = {
   H264: 0x01,
   H264High444: 0x02,
@@ -59,7 +58,6 @@ export const WsVideoCodec = {
 export type WsVideoCodecType = typeof WsVideoCodec[keyof typeof WsVideoCodec]
 
 // Map codec byte to WebCodecs codec string
-// Exported for reuse in SSE video handling
 export function codecToWebCodecsString(codec: number): string {
   switch (codec) {
     case WsVideoCodec.H264: return "avc1.4d0033"
@@ -77,7 +75,6 @@ export function codecToWebCodecsString(codec: number): string {
 }
 
 // Map codec byte to human-readable display name for stats UI
-// Exported for reuse in SSE video handling
 export function codecToDisplayName(codec: number | null): string {
   if (codec === null) return "Unknown"
   switch (codec) {
@@ -1100,7 +1097,6 @@ export class WebSocketStream {
         return
       }
       // Debug: hexdump first 32 bytes to see NAL structure
-      // Helps diagnose HEVC description issues - compare with SSE mode
       if (frameData.length >= 32) {
         const hexBytes = Array.from(frameData.slice(0, 32))
           .map(b => b.toString(16).padStart(2, "0"))
