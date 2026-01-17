@@ -716,9 +716,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         } else if (data.type === 'cursorPosition') {
           // DON'T update cursor position from server - use locally tracked position only
           // Server position creates feedback loop + lag. Local mouse tracking is authoritative.
-          // Only update hotspot from server (for cursor shape accuracy)
-          // Use functional update to avoid stale closure issues
-          setCursorImage(prev => prev ? { ...prev, hotspotX: data.hotspotX, hotspotY: data.hotspotY } : prev);
+          // DON'T update hotspot from cursorPosition events - this can cause mismatches
+          // when the server sends a hotspot for a cached cursor we don't have.
+          // The hotspot should only be updated via cursorImage events which include
+          // both the cursor image AND the correct hotspot together.
         }
         // Multi-player cursor events
         else if (data.type === 'remoteCursor') {
