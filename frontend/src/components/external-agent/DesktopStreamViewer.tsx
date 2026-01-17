@@ -698,7 +698,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
         // Cursor events
         else if (data.type === 'cursorImage') {
-          setCursorImage(data.cursor);
+          // Only update cursor shape if it was caused by our own movement
+          // This prevents other users' movements from changing our cursor shape
+          // If selfClientId is not set yet (initial connection), accept all updates
+          // If lastMoverID is 0 (single-user mode or no tracking), accept all updates
+          const isOurMovement = !selfClientId || !data.lastMoverID || data.lastMoverID === selfClientId;
+          if (isOurMovement) {
+            setCursorImage(data.cursor);
+          } else {
+            console.debug('[DesktopStreamViewer] Ignoring cursor shape from other user:', data.lastMoverID, 'self:', selfClientId);
+          }
         } else if (data.type === 'cursorVisibility') {
           setCursorVisible(data.visible);
         } else if (data.type === 'cursorSwitch') {
@@ -719,10 +728,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
         // Multi-player cursor events
         else if (data.type === 'remoteCursor') {
-          setRemoteCursors(prev => new Map(prev).set(data.cursor.userId, data.cursor));
+          console.log('[DesktopStreamViewer] Adding remote cursor to map:', data.cursor.userId, 'selfClientId:', selfClientId);
+          setRemoteCursors(prev => {
+            const next = new Map(prev).set(data.cursor.userId, data.cursor);
+            console.log('[DesktopStreamViewer] remoteCursors map now has:', Array.from(next.keys()));
+            return next;
+          });
         } else if (data.type === 'remoteUserJoined') {
+          console.log('[DesktopStreamViewer] remoteUserJoined:', {
+            userId: data.user.userId,
+            userName: data.user.userName,
+            accountName: account.user?.name,
+            selfUser: selfUser?.userId,
+            willSetSelf: !selfUser && account.user && data.user.userName === account.user.name
+          });
           // Check if this is ourselves (first user joined with matching name or first message when selfUser is null)
           if (!selfUser && account.user && data.user.userName === account.user.name) {
+            console.log('[DesktopStreamViewer] Setting selfClientId to:', data.user.userId);
             setSelfUser(data.user);
             setSelfClientId(data.user.userId);
           }
@@ -752,6 +774,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           } else {
             setRemoteTouches(prev => new Map(prev).set(touchKey, data.touch));
           }
+        } else if (data.type === 'selfId') {
+          // Server tells us our assigned clientId
+          console.log('[DesktopStreamViewer] Received selfId:', data.clientId);
+          setSelfClientId(data.clientId);
         }
         });
 
@@ -1586,7 +1612,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
 
     const CHECK_INTERVAL_MS = 1000;       // Check every second (for congestion detection)
-    const CONNECTION_GRACE_PERIOD_MS = 10000; // Wait 10s after connection before showing recommendations
+    const CONNECTION_GRACE_PERIOD_MS = 60000; // Wait 60s after connection before showing recommendations
+    // Long grace period because stream startup often has transient issues (buffering, pipeline init)
+    // that look like congestion but resolve quickly. Avoid false positives that annoy users.
     const REDUCE_COOLDOWN_MS = 300000;    // Don't show another recommendation within 5 minutes
     const INCREASE_COOLDOWN_MS = 300000;  // Don't show another recommendation within 5 minutes
     const MANUAL_SELECTION_COOLDOWN_MS = 60000;  // Don't auto-reduce within 60s of user manually selecting bitrate
@@ -3373,12 +3401,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Remote user cursors (Figma-style multi-player) */}
       {Array.from(remoteCursors.entries()).map(([userId, cursor]) => {
         // Skip our own cursor (we render it separately)
-        if (userId === selfClientId) return null;
+        if (userId === selfClientId) {
+          return null;
+        }
         // Skip idle cursors (no movement for 30 seconds)
         const isIdle = Date.now() - cursor.lastSeen > 30000;
-        if (isIdle) return null;
+        if (isIdle) {
+          return null;
+        }
         const user = remoteUsers.get(userId);
-        if (!user) return null;
+        if (!user) {
+          return null;
+        }
 
         // Scale remote cursor from screen coordinates to container-relative coordinates
         // cursor.x/y are in screen resolution (e.g., 1920x1080)
