@@ -38,6 +38,22 @@ import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
 
+// Default cursor - standard arrow pointer as SVG data URL
+// Used until server sends the actual cursor image
+const DEFAULT_CURSOR: CursorImageData = {
+  cursorId: 0,
+  hotspotX: 0,
+  hotspotY: 0,
+  width: 24,
+  height: 24,
+  // Standard arrow cursor SVG
+  imageUrl: 'data:image/svg+xml,' + encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <path fill="white" stroke="black" stroke-width="1" d="M0,0 L0,17 L4,13 L7,20 L10,19 L7,12 L12,12 Z"/>
+    </svg>
+  `.trim()),
+};
+
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -95,7 +111,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   // Client-side cursor rendering state
-  const [cursorImage, setCursorImage] = useState<CursorImageData | null>(null);
+  const [cursorImage, setCursorImage] = useState<CursorImageData | null>(DEFAULT_CURSOR);
   const [cursorVisible, setCursorVisible] = useState(true);
   // Multi-player cursor state
   const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
