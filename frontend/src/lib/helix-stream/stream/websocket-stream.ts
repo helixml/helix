@@ -24,8 +24,8 @@ import {
 // Re-export types and codecs for external consumers
 export { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
 export type { WsVideoCodecType } from "./codecs"
-export {
-  WsMessageType,
+export { WsMessageType } from "./websocket-stream.types"
+export type {
   CursorImageData,
   RemoteUserInfo,
   RemoteCursorPosition,
