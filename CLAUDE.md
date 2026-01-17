@@ -38,7 +38,7 @@ See also: `.cursor/rules/*.mdc`
 ```
 helix-sandbox (outer container)
 ├── hydra (Go, dev container lifecycle, Docker isolation)
-└── helix-sway.tar / helix-ubuntu.tar (desktop images)
+└── helix-sway / helix-ubuntu (desktop images, pulled from local registry)
     ├── Desktop environment (Sway or GNOME)
     ├── Zed IDE
     ├── Qwen Code agent
@@ -51,8 +51,8 @@ helix-sandbox (outer container)
 | Changed | Command | Notes |
 |---------|---------|-------|
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
-| Desktop image (helix-sway) | `./stack build-sway` | Creates tarball in sandbox-images/ |
-| Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Creates tarball in sandbox-images/ |
+| Desktop image (helix-sway) | `./stack build-sway` | Pushes to local registry, updates `sandbox-images/helix-sway.version` |
+| Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Pushes to local registry, updates `sandbox-images/helix-ubuntu.version` |
 | Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
 | Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` or `./stack build-sway` | Rust plugin built inside desktop image |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
@@ -65,15 +65,15 @@ helix-sandbox (outer container)
 # 1. Build Zed (if changed)
 ./stack build-zed
 
-# 2. Build desktop images (creates tarballs, includes streaming + zerocopy plugin)
+# 2. Build desktop images (pushes to local registry, includes streaming + zerocopy plugin)
 ./stack build-sway
 ./stack build-ubuntu
 
-# 3. Build sandbox (embeds desktop tarballs)
+# 3. Build sandbox (only if Hydra or sandbox scripts changed)
 ./stack build-sandbox
 
-# 4. Restart sandbox to use new image
-docker compose down sandbox && docker compose up -d sandbox
+# 4. Start a new session to use the updated desktop image
+# No sandbox restart needed - new sessions auto-pull from local registry
 ```
 
 ### Verify Build
@@ -83,11 +83,11 @@ docker compose down sandbox && docker compose up -d sandbox
 cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
-# Verify image is loaded in sandbox's dockerd
+# Verify image is available in sandbox's dockerd
 docker compose exec -T sandbox docker images | grep helix-
 ```
 
-New sessions use updated image; existing containers don't update.
+New sessions auto-pull from local registry. Version flow: build writes `.version` files → sandbox heartbeat reads them → API looks up version from heartbeat when starting sessions. Existing containers don't update.
 
 ## Code Patterns
 
@@ -265,11 +265,11 @@ docker compose exec -T sandbox docker images | grep helix-
 
 ### Image Versions
 ```bash
-# Check current desktop image versions
+# Check desktop image versions
 cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
-# Verify image is loaded in sandbox's dockerd
+# Verify image is available in sandbox's dockerd
 docker compose exec -T sandbox docker images | grep helix-
 ```
 
