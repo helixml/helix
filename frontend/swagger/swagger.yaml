@@ -5008,7 +5008,7 @@ definitions:
       source_branch:
         type: string
       state:
-        type: string
+        $ref: '#/definitions/types.PullRequestState'
       target_branch:
         type: string
       title:
@@ -5018,6 +5018,18 @@ definitions:
       url:
         type: string
     type: object
+  types.PullRequestState:
+    enum:
+    - open
+    - closed
+    - merged
+    - unknown
+    type: string
+    x-enum-varnames:
+    - PullRequestStateOpen
+    - PullRequestStateClosed
+    - PullRequestStateMerged
+    - PullRequestStateUnknown
   types.PullResponse:
     properties:
       branch:
@@ -14658,6 +14670,40 @@ paths:
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{taskId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a spec task
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete a spec task
+      tags:
+      - spec-driven-tasks
     get:
       description: Get detailed information about a specific spec-driven task
       parameters:
