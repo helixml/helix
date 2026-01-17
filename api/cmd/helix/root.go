@@ -62,7 +62,6 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(NewServeCmd())
 	RootCmd.AddCommand(NewVersionCommand())
 
-	RootCmd.AddCommand(NewQapairCommand())
 	RootCmd.AddCommand(NewEvalsCommand())
 	RootCmd.AddCommand(NewTestCmd()) // Use the NewTestCmd function from the current package
 

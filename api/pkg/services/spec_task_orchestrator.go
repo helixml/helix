@@ -90,6 +90,30 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 	ticker := time.NewTicker(o.orchestrationInterval)
 	defer ticker.Stop()
 
+	// Individual task update channel
+	taskCh := make(chan *types.SpecTask)
+
+	subscription, err := o.store.SubscribeForTasks(ctx, &store.SpecTaskSubscriptionFilter{
+		Statuses: []types.SpecTaskStatus{
+			types.TaskStatusBacklog,
+			types.TaskStatusQueuedSpecGeneration,
+			types.TaskStatusQueuedImplementation,
+		},
+	}, func(task *types.SpecTask) error {
+		taskCh <- task
+		return nil
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to subscribe to tasks")
+		return
+	}
+	defer func() {
+		err := subscription.Unsubscribe()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to unsubscribe from tasks")
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -98,6 +122,8 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			o.processTasks(ctx)
+		case task := <-taskCh:
+			o.processTask(ctx, task)
 		}
 	}
 }
@@ -149,8 +175,12 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	}
 }
 
-// processTask processes a single task through its workflow
+// processTask processes a single task through its workflow.
+// NOTE TO LLMS: this function should be fast and non blocking, when handling a task avoid long processes
+// as it will block the whole orchestration loop. It first needs to change task status and then
+// start the goroutine if needed for long running commands.
 func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.SpecTask) error {
+	log.Info().Str("task_id", task.ID).Str("status", task.Status.String()).Msg("Processing task")
 	// State machine for task workflow
 	switch task.Status {
 	case types.TaskStatusBacklog:
@@ -231,7 +261,17 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	// Delegate to the canonical StartSpecGeneration implementation
 	// This ensures both explicit start and auto-start use the same code path
 	// Auto-start doesn't have user browser context, so pass empty options
-	o.specTaskService.StartSpecGeneration(ctx, task)
+	// o.specTaskService.StartSpecGeneration(ctx, task)
+	if task.JustDoItMode {
+		task.Status = types.TaskStatusQueuedImplementation
+	} else {
+		task.Status = types.TaskStatusQueuedSpecGeneration
+	}
+
+	err = o.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to update task status: %w", err)
+	}
 
 	return nil
 }

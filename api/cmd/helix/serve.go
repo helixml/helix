@@ -216,7 +216,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	postgresStore, err := store.NewPostgresStore(cfg.Store)
+	ps, err := pubsub.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create pubsub provider: %w", err)
+	}
+
+	postgresStore, err := store.NewPostgresStore(cfg.Store, ps)
 	if err != nil {
 		return err
 	}
@@ -239,11 +244,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	err = postgresStore.ResetRunningInteractions(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to reset running interactions")
-	}
-
-	ps, err := pubsub.New(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create pubsub provider: %w", err)
 	}
 
 	// Start TURN server for WebRTC NAT traversal if enabled
