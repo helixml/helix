@@ -17,6 +17,14 @@ package desktop
 #include <stdlib.h>
 #include <string.h>
 
+// SPA_PARAM_META_type and SPA_PARAM_META_size from spa/param/param.h
+#ifndef SPA_PARAM_META_type
+#define SPA_PARAM_META_type 1
+#endif
+#ifndef SPA_PARAM_META_size
+#define SPA_PARAM_META_size 2
+#endif
+
 // Cursor data extracted from spa_meta_cursor
 typedef struct {
     uint32_t id;
@@ -47,6 +55,9 @@ typedef struct {
 
     // Last cursor hash to avoid duplicate callbacks
     uint64_t last_cursor_hash;
+
+    // Flag to track if we've already called update_params
+    int params_set;
 } PwCursorClient;
 
 // Forward declarations
@@ -68,6 +79,17 @@ static const struct pw_stream_events stream_events = {
 // Extract cursor metadata from buffer
 static int extract_cursor_from_buffer(struct spa_buffer *buffer, CursorInfo *info) {
     struct spa_meta_cursor *cursor = NULL;
+
+    // Debug: log what meta types are in the buffer
+    static int debug_count = 0;
+    if (debug_count < 5) {
+        debug_count++;
+        fprintf(stderr, "[CURSOR_CLIENT] buffer has %d metas: ", buffer->n_metas);
+        for (uint32_t i = 0; i < buffer->n_metas; i++) {
+            fprintf(stderr, "%d ", buffer->metas[i].type);
+        }
+        fprintf(stderr, "(looking for SPA_META_Cursor=%d)\n", SPA_META_Cursor);
+    }
 
     // Find cursor metadata using spa_buffer_find_meta
     struct spa_meta *meta = spa_buffer_find_meta(buffer, SPA_META_Cursor);
@@ -185,20 +207,34 @@ static void on_stream_process(void *data) {
     pw_stream_queue_buffer(client->stream, b);
 }
 
+// Helper to get state name - PW_STREAM_STATE_ERROR = -1, UNCONNECTED = 0, CONNECTING = 1, PAUSED = 2, STREAMING = 3
+static const char* pw_state_name(enum pw_stream_state s) {
+    switch (s) {
+        case PW_STREAM_STATE_ERROR: return "error";
+        case PW_STREAM_STATE_UNCONNECTED: return "unconnected";
+        case PW_STREAM_STATE_CONNECTING: return "connecting";
+        case PW_STREAM_STATE_PAUSED: return "paused";
+        case PW_STREAM_STATE_STREAMING: return "streaming";
+        default: return "unknown";
+    }
+}
+
 static void on_stream_state_changed(void *data, enum pw_stream_state old,
                                      enum pw_stream_state state, const char *error) {
     PwCursorClient *client = (PwCursorClient *)data;
 
-    const char *state_names[] = {"error", "unconnected", "connecting", "paused", "streaming"};
-    const char *old_name = (old >= 0 && old <= 4) ? state_names[old] : "unknown";
-    const char *new_name = (state >= 0 && state <= 4) ? state_names[state] : "unknown";
-    fprintf(stderr, "[CURSOR_CLIENT] state: %s -> %s\n", old_name, new_name);
+    fprintf(stderr, "[CURSOR_CLIENT] state: %s -> %s\n", pw_state_name(old), pw_state_name(state));
 
     if (state == PW_STREAM_STATE_ERROR) {
         fprintf(stderr, "[CURSOR_CLIENT] stream error: %s\n", error ? error : "unknown");
         client->running = 0;
     } else if (state == PW_STREAM_STATE_UNCONNECTED) {
         client->running = 0;
+    } else if (state == PW_STREAM_STATE_PAUSED) {
+        // Stream is paused and ready - AUTOCONNECT flag should handle activation
+        fprintf(stderr, "[CURSOR_CLIENT] stream paused, ready for buffers\n");
+    } else if (state == PW_STREAM_STATE_STREAMING) {
+        fprintf(stderr, "[CURSOR_CLIENT] stream now streaming\n");
     }
 }
 
@@ -211,55 +247,51 @@ static void on_stream_param_changed(void *data, uint32_t id, const struct spa_po
         return;
     }
 
-    // Handle Format (id=4) - final negotiated format
-    fprintf(stderr, "[CURSOR_CLIENT] received Format param, requesting cursor metadata\n");
+    if (client->params_set) {
+        fprintf(stderr, "[CURSOR_CLIENT] params already set, skipping\n");
+        return;
+    }
 
-    // Request cursor metadata and buffer types
-    uint8_t buffer[2048];
+    fprintf(stderr, "[CURSOR_CLIENT] received Format param, requesting cursor metadata in buffers\n");
+
+    // Request cursor metadata in buffer params
+    // This tells PipeWire/Mutter we want SPA_META_Cursor in each buffer
+    uint8_t buffer[1024];
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
 
-    // Request both SHM and DmaBuf buffer types
-    // This matches what gnome-remote-desktop and OBS do
-    uint32_t buffer_types = (1 << SPA_DATA_MemFd) | (1 << SPA_DATA_DmaBuf);
+    // Calculate cursor meta sizes like OBS does:
+    // CURSOR_META_SIZE(w,h) = sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + w*h*4
+    // = 28 + 20 + w*h*4 (spa_meta_cursor=28, spa_meta_bitmap=20)
+    const int32_t cursor_meta_size_64 = 28 + 20 + 64 * 64 * 4;     // 16432 (default)
+    const int32_t cursor_meta_size_1 = 28 + 20 + 1 * 1 * 4;        // 52 (min)
+    const int32_t cursor_meta_size_256 = 28 + 20 + 256 * 256 * 4;  // 262192 (max)
 
-    // Cursor metadata size calculation (must match Mutter's CURSOR_META_SIZE macro)
-    // sizeof(spa_meta_cursor) = 28, sizeof(spa_meta_bitmap) = 20
-    #define CURSOR_META_SIZE(w, h) (28 + 20 + (w) * (h) * 4)
+    struct spa_pod *params[2];
 
-    const struct spa_pod *params[3];
-
-    // 1. Buffer types param (with 0 terminator for varargs)
+    // Request cursor metadata with CHOICE_RANGE like OBS does
+    // This allows GNOME to choose an appropriate size within our range
     params[0] = spa_pod_builder_add_object(&b,
-        SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
-        SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(8, 2, 8),
-        SPA_PARAM_BUFFERS_dataType, SPA_POD_Int(buffer_types),
-        0);
+        SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
+        SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(cursor_meta_size_64, cursor_meta_size_1, cursor_meta_size_256));
 
-    // 2. Header metadata (grd also requests this)
+    // Request header metadata (for timing info)
     params[1] = spa_pod_builder_add_object(&b,
         SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
         SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
-        SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)),
-        0);
+        SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
 
-    // 3. Cursor metadata with enough space for cursor bitmap (384x384 to match Mutter)
-    // gnome-remote-desktop uses CURSOR_META_SIZE(384, 384) as default
-    params[2] = spa_pod_builder_add_object(&b,
-        SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
-        SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
-            CURSOR_META_SIZE(384, 384),  // Default: 384x384 cursor (matches Mutter)
-            CURSOR_META_SIZE(1, 1),      // Min: 1x1 cursor
-            CURSOR_META_SIZE(384, 384)   // Max: 384x384 cursor
-        ),
-        0);
+    pw_stream_update_params(client->stream, (const struct spa_pod **)params, 2);
 
-    pw_stream_update_params(client->stream, params, 3);
-    fprintf(stderr, "[CURSOR_CLIENT] update_params called with 3 params (Buffers, Header, Cursor meta)\n");
+    client->params_set = 1;
+    fprintf(stderr, "[CURSOR_CLIENT] requested cursor meta RANGE size: default=%d, min=%d, max=%d\n",
+        cursor_meta_size_64, cursor_meta_size_1, cursor_meta_size_256);
 }
 
 // Create a new PipeWire cursor client
-static PwCursorClient* pw_cursor_client_new(void) {
+// If pipewire_fd > 0, uses pw_context_connect_fd to connect via portal FD
+// Otherwise uses pw_context_connect to connect to default PipeWire socket
+static PwCursorClient* pw_cursor_client_new(int pipewire_fd) {
     pw_init(NULL, NULL);
 
     PwCursorClient *client = calloc(1, sizeof(PwCursorClient));
@@ -278,14 +310,24 @@ static PwCursorClient* pw_cursor_client_new(void) {
         return NULL;
     }
 
-    client->core = pw_context_connect(client->context, NULL, 0);
+    // Connect to PipeWire - use FD if provided (for portal ScreenCast access)
+    if (pipewire_fd > 0) {
+        fprintf(stderr, "[CURSOR_CLIENT] connecting via portal FD %d\n", pipewire_fd);
+        client->core = pw_context_connect_fd(client->context, pipewire_fd, NULL, 0);
+    } else {
+        fprintf(stderr, "[CURSOR_CLIENT] connecting to default PipeWire socket\n");
+        client->core = pw_context_connect(client->context, NULL, 0);
+    }
+
     if (!client->core) {
+        fprintf(stderr, "[CURSOR_CLIENT] failed to connect to PipeWire\n");
         pw_context_destroy(client->context);
         pw_main_loop_destroy(client->loop);
         free(client);
         return NULL;
     }
 
+    fprintf(stderr, "[CURSOR_CLIENT] connected to PipeWire\n");
     return client;
 }
 
@@ -310,21 +352,38 @@ static int pw_cursor_client_connect(PwCursorClient *client, uint32_t node_id, vo
 
     pw_stream_add_listener(client->stream, &client->stream_listener, &stream_events, client);
 
-    // Don't specify format in connect - accept whatever GNOME offers
-    // Format negotiation happens in on_stream_param_changed
-    // Only pass NULL params to accept server defaults
+    // Build initial format params like gnome-remote-desktop does
+    // We accept any raw video format - we only care about cursor metadata
     uint8_t buffer[4096];
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-    (void)buffer;
-    (void)b;
 
-    // Connect to the specific node
+    // Build a format pod that accepts any raw video
+    // spa_format_video_raw_build() from spa/param/video/format-utils.h
+    struct spa_video_info_raw info;
+    memset(&info, 0, sizeof(info));
+    info.format = SPA_VIDEO_FORMAT_UNKNOWN; // Accept any format
+    info.size.width = 0;
+    info.size.height = 0;
+    info.framerate.num = 0;
+    info.framerate.denom = 1;
+
+    // Use spa_format_video_raw_build to create the format pod
+    const struct spa_pod *format_param = spa_format_video_raw_build(&b,
+        SPA_PARAM_EnumFormat,
+        &info);
+
+    const struct spa_pod *params[1];
+    params[0] = format_param;
+
+    fprintf(stderr, "[CURSOR_CLIENT] connecting with EnumFormat param (accept any video format)\\n");
+
+    // Connect to the specific node with format params
     int connect_result = pw_stream_connect(client->stream,
                           PW_DIRECTION_INPUT,
                           node_id,
                           PW_STREAM_FLAG_AUTOCONNECT |
                           PW_STREAM_FLAG_MAP_BUFFERS,
-                          NULL, 0);
+                          params, 1);
 
     if (connect_result < 0) {
         pw_stream_destroy(client->stream);
@@ -457,8 +516,10 @@ func goCursorCallback(info *C.CursorInfo, userdata unsafe.Pointer) {
 }
 
 // NewPipeWireCursorClient creates a new PipeWire cursor client
-func NewPipeWireCursorClient() (*PipeWireCursorClient, error) {
-	client := C.pw_cursor_client_new()
+// If pipeWireFd > 0, uses the portal FD for ScreenCast node access
+// Otherwise connects to the default PipeWire socket
+func NewPipeWireCursorClient(pipeWireFd int) (*PipeWireCursorClient, error) {
+	client := C.pw_cursor_client_new(C.int(pipeWireFd))
 	if client == nil {
 		return nil, fmt.Errorf("failed to create PipeWire cursor client")
 	}

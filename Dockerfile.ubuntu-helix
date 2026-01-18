@@ -645,6 +645,13 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
     cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
     glib-compile-schemas /usr/share/glib-2.0/schemas/
 
+# Helix Cursor Tracker extension - provides cursor shape data to desktop-bridge
+# GNOME headless mode doesn't provide cursor metadata in PipeWire buffers.
+# This extension uses Meta.CursorTracker to capture cursor sprite and hotspot,
+# sending them to the Go process via Unix socket for WebSocket streaming.
+COPY desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
+RUN chmod -R a+rX /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
+
 # ====================================================================
 # Ghostty Terminal - modern GPU-accelerated terminal with blur support
 # ====================================================================

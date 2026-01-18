@@ -177,12 +177,12 @@ if [ -f /opt/gow/dconf-settings.ini ]; then
     dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
 fi
 
-# Enable Just Perfection extension and hide screen recording indicator
-# This MUST be done before gnome-shell starts so the extension is loaded
-# The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
-# Also keep Ubuntu Dock enabled for the Ubuntu experience
-gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
-gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection']"
+# Enable extensions before gnome-shell starts so they are loaded:
+# - Just Perfection: Hides the ScreenCast "stop" button that would crash Wolf if clicked
+# - Helix Cursor: Sends cursor shape data to desktop-bridge via Unix socket
+# - Ubuntu Dock: Keep the Ubuntu dock experience
+gow_log "[start] Enabling GNOME Shell extensions..."
+gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection', 'helix-cursor@helix.ml']"
 gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"

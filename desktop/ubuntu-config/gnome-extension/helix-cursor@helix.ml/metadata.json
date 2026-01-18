@@ -1,0 +1,8 @@
+{
+    "uuid": "helix-cursor@helix.ml",
+    "name": "Helix Cursor Tracker",
+    "description": "Tracks cursor shape changes and sends them to Helix desktop-bridge via Unix socket",
+    "shell-version": ["45", "46", "47", "48", "49"],
+    "version": 1,
+    "url": "https://helix.ml"
+}

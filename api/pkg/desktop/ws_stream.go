@@ -313,7 +313,12 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.startMicStreaming(ctx)
 
 	// Start cursor monitoring (reads cursor data from pipewirezerocopysrc)
-	go v.monitorCursor(ctx)
+	// Can be disabled with HELIX_DISABLE_CURSOR_MONITORING=1 for testing
+	if os.Getenv("HELIX_DISABLE_CURSOR_MONITORING") != "1" {
+		go v.monitorCursor(ctx)
+	} else {
+		v.logger.Info("cursor monitoring disabled via HELIX_DISABLE_CURSOR_MONITORING")
+	}
 
 	// Read frames from appsink and send to WebSocket
 	go v.readFramesAndSend(ctx)
@@ -851,11 +856,11 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 
 	// Create cursor update callback
 	var lastCursorHash uint64
-	cursorCallback := func(posX, posY, hotspotX, hotspotY int32, bitmapData []byte) {
-		bitmapSize := uint32(len(bitmapData))
+	cursorCallback := func(posX, posY, hotspotX, hotspotY int32, width, height uint32, stride int32, format uint32, bitmapData []byte) {
+		pixelDataSize := uint32(len(bitmapData))
 
 		// Hash cursor TYPE (hotspot + bitmap content), NOT position
-		cursorHash := uint64(hotspotX) ^ (uint64(hotspotY) << 8) ^ (uint64(bitmapSize) << 16)
+		cursorHash := uint64(hotspotX) ^ (uint64(hotspotY) << 8) ^ (uint64(pixelDataSize) << 16)
 		if len(bitmapData) >= 8 {
 			cursorHash ^= uint64(binary.LittleEndian.Uint64(bitmapData[0:8])) << 32
 		}
@@ -871,7 +876,13 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 		}
 
 		// Send cursor message (StreamMsgCursorImage = 0x50)
-		// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + bitmap...
+		// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + [format(4) + width(4) + height(4) + stride(4) + pixels...]
+		// bitmapSize includes the 16-byte header (format/width/height/stride) + pixel data
+		bitmapSize := uint32(0)
+		if pixelDataSize > 0 {
+			bitmapSize = 16 + pixelDataSize // header + pixels
+		}
+
 		msgLen := 1 + 4 + 4 + 4 + 4 + 4 + 4 + int(bitmapSize)
 		msg := make([]byte, msgLen)
 		msg[0] = StreamMsgCursorImage
@@ -882,7 +893,12 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 		binary.LittleEndian.PutUint32(msg[17:21], uint32(hotspotY))
 		binary.LittleEndian.PutUint32(msg[21:25], bitmapSize)
 		if bitmapSize > 0 {
-			copy(msg[25:], bitmapData)
+			// Bitmap header: format, width, height, stride
+			binary.LittleEndian.PutUint32(msg[25:29], format)
+			binary.LittleEndian.PutUint32(msg[29:33], width)
+			binary.LittleEndian.PutUint32(msg[33:37], height)
+			binary.LittleEndian.PutUint32(msg[37:41], uint32(stride)) // stride can be negative but we cast to uint32 for wire format
+			copy(msg[41:], bitmapData)
 		}
 
 		if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
@@ -895,6 +911,7 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 			v.logger.Info("cursor update",
 				"count", v.cursorUpdateCount,
 				"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
+				"size", fmt.Sprintf("%dx%d", width, height),
 				"bitmap_size", bitmapSize)
 		}
 	}
@@ -930,48 +947,120 @@ func detectCompositorSimple() string {
 }
 
 // cursorCallbackFunc is called when cursor state changes
-type cursorCallbackFunc func(posX, posY, hotspotX, hotspotY int32, bitmapData []byte)
+// width, height, stride, format are the bitmap dimensions (0 if no bitmap)
+type cursorCallbackFunc func(posX, posY, hotspotX, hotspotY int32, width, height uint32, stride int32, format uint32, bitmapData []byte)
 
-// monitorCursorPipeWire uses Go PipeWire client to read cursor from spa_meta_cursor
+// monitorCursorPipeWire monitors cursor changes for GNOME desktops.
+// Uses a GNOME Shell extension that sends cursor data via Unix socket.
+// The extension listens to Meta.CursorTracker.cursor-changed signal and pushes
+// cursor sprite/hotspot data to /run/user/1000/helix-cursor.sock.
+//
+// This approach avoids PipeWire cursor metadata issues in GNOME headless mode
+// and eliminates CGO complexity.
+//
+// Fallback: If no cursor data after 5 seconds, sends default cursor.
 func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback cursorCallbackFunc) {
-	// Create PipeWire cursor client
-	client, err := NewPipeWireCursorClient()
+	v.logger.Info("starting cursor socket listener for GNOME Shell extension")
+
+	// Create cursor socket listener
+	listener, err := NewCursorSocketListener(v.logger)
 	if err != nil {
-		v.logger.Error("failed to create PipeWire cursor client", "err", err)
+		v.logger.Error("failed to create cursor socket listener", "err", err)
+		// Send default cursor as fallback
+		defaultCursor := generateDefaultArrowCursor()
+		callback(0, 0, 0, 0, 24, 24, 24*4, 0x34325241, defaultCursor)
 		return
 	}
-	defer client.Close()
+	defer listener.Close()
 
-	// Use the dedicated cursor session node for cursor monitoring
-	// This is a standalone ScreenCast session with cursor-mode=2 (Metadata)
-	// that only the cursor client consumes, avoiding multi-consumer conflicts with video
-	cursorNode := v.cursorNodeID
-	if cursorNode == 0 {
-		// Fallback to video node if cursor session wasn't created
-		cursorNode = v.nodeID
-		v.logger.Warn("no dedicated cursor node, falling back to video node", "video_node", v.nodeID)
-	}
-	v.logger.Info("connecting cursor client to PipeWire node", "cursor_node", cursorNode, "video_node", v.nodeID)
+	// Track if we've received any cursor data
+	var receivedCursor atomic.Bool
+	startTime := time.Now()
 
-	err = client.Connect(cursorNode, func(cursor *CursorData) {
+	// Set callback for cursor updates from GNOME Shell extension
+	listener.SetCallback(func(hotspotX, hotspotY, width, height int, pixels []byte) {
+		receivedCursor.Store(true)
+		v.logger.Debug("cursor update from GNOME extension",
+			"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
+			"size", fmt.Sprintf("%dx%d", width, height),
+			"pixels_len", len(pixels))
+
+		// Convert to callback format
+		// Position is not tracked by GNOME extension (frontend tracks position client-side)
+		// Format is ARGB_8888 (0x34325241 = 'RA24' in little endian, but GNOME uses ARGB)
+		// Use standard ARGB format code
 		callback(
-			cursor.PositionX,
-			cursor.PositionY,
-			cursor.HotspotX,
-			cursor.HotspotY,
-			cursor.BitmapData,
+			0, 0, // Position not available from extension
+			int32(hotspotX), int32(hotspotY),
+			uint32(width), uint32(height),
+			int32(width*4), // stride = width * 4 bytes per pixel
+			0x34325241,     // ARGB_8888 format (matches what frontend expects)
+			pixels,
 		)
 	})
-	if err != nil {
-		v.logger.Error("failed to connect PipeWire cursor client", "err", err, "cursorNode", cursorNode)
-		return
-	}
 
-	// Run cursor client
-	client.Run(ctx)
+	// Start the listener in background
+	go listener.Run(ctx)
+
+	// Monitor for timeout - send default cursor if no data received
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !receivedCursor.Load() && time.Since(startTime) > 5*time.Second {
+					v.logger.Warn("no cursor data from GNOME extension after 5s, sending default cursor")
+					defaultCursor := generateDefaultArrowCursor()
+					callback(0, 0, 0, 0, 24, 24, 24*4, 0x34325241, defaultCursor)
+					return
+				}
+			}
+		}
+	}()
 
 	// Wait for context cancellation
 	<-ctx.Done()
+	v.logger.Info("cursor monitoring stopped")
+}
+
+// generateDefaultArrowCursor creates a simple 24x24 white arrow cursor bitmap.
+// Format: ARGB8888 (4 bytes per pixel)
+func generateDefaultArrowCursor() []byte {
+	const size = 24
+	const stride = size * 4
+	pixels := make([]byte, size*stride)
+
+	// Arrow shape: simple pointer cursor
+	// Each row is defined by start column, end column
+	arrowRows := []struct{ start, end int }{
+		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}, {0, 8},
+		{0, 9}, {0, 10}, {0, 11}, {0, 12}, {0, 7}, {0, 4}, {3, 5}, {4, 6},
+		{5, 7}, {6, 8}, {7, 9}, {8, 10}, {9, 11}, {10, 12}, {0, 0}, {0, 0},
+	}
+
+	for y := 0; y < size && y < len(arrowRows); y++ {
+		row := arrowRows[y]
+		for x := row.start; x < row.end && x < size; x++ {
+			offset := y*stride + x*4
+			// ARGB8888: Blue, Green, Red, Alpha
+			pixels[offset+0] = 255 // B
+			pixels[offset+1] = 255 // G
+			pixels[offset+2] = 255 // R
+			pixels[offset+3] = 255 // A
+
+			// Add black outline (if at edge of filled area)
+			if x == row.start || x == row.end-1 {
+				pixels[offset+0] = 0
+				pixels[offset+1] = 0
+				pixels[offset+2] = 0
+			}
+		}
+	}
+
+	return pixels
 }
 
 // monitorCursorWayland uses Go Wayland client to read cursor from ext-image-copy-capture
@@ -991,6 +1080,10 @@ func (v *VideoStreamer) monitorCursorWayland(ctx context.Context, callback curso
 			cursor.PositionY,
 			cursor.HotspotX,
 			cursor.HotspotY,
+			cursor.BitmapWidth,
+			cursor.BitmapHeight,
+			cursor.BitmapStride,
+			cursor.BitmapFormat,
 			cursor.BitmapData,
 		)
 	})

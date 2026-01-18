@@ -96,6 +96,7 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
+- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested and add complexity. If something doesn't work, fix it properly instead of adding a fallback.
 
 ### TypeScript/React
 

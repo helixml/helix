@@ -2,6 +2,7 @@ package spectask
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -672,6 +673,7 @@ const (
 	WsMsgStreamInit    = 0x30
 	WsMsgPing          = 0x40
 	WsMsgPong          = 0x41
+	WsMsgCursorImage   = 0x50
 )
 
 // Video codec constants
@@ -709,6 +711,7 @@ func newStreamCommand() *cobra.Command {
 	var verbose bool
 	var width, height, fps, bitrate int
 	var videoMode string
+	var mouseSweep bool
 
 	cmd := &cobra.Command{
 		Use:   "stream <session-id>",
@@ -736,6 +739,7 @@ Examples:
   helix spectask stream ses_01xxx --duration 30               # Run for 30 seconds
   helix spectask stream ses_01xxx --output video.h264         # Save raw video to file
   helix spectask stream ses_01xxx --video-mode zerocopy       # Test zero-copy streaming
+  helix spectask stream ses_01xxx --mouse-sweep               # Sweep mouse to trigger cursor updates
   helix spectask stream ses_01xxx -v                          # Verbose mode (show each frame)
 `,
 		Args: cobra.ExactArgs(1),
@@ -834,6 +838,64 @@ Examples:
 			done := make(chan struct{})
 			var lastError error
 
+			// Mouse sweep goroutine - sends mouse movements via WebSocket to trigger cursor shape changes
+			if mouseSweep {
+				fmt.Printf("🖱️  Mouse sweep enabled - moving mouse horizontally across middle of screen\n")
+				go func() {
+					// Wait a moment for stream to initialize
+					time.Sleep(2 * time.Second)
+
+					// Sweep mouse from left to right across the middle of the screen
+					// Using the same binary protocol as ws_input.go handleWSMouseAbsolute
+					// Format: [type:1][subType:1][x:2 BE int16][y:2 BE int16][refWidth:2 BE int16][refHeight:2 BE int16]
+					sweepY := int16(height / 2) // Middle of screen
+					refW := int16(width)
+					refH := int16(height)
+
+					sweepNum := 0
+					for {
+						select {
+						case <-done:
+							return
+						default:
+						}
+
+						sweepNum++
+						fmt.Printf("🖱️  Starting mouse sweep #%d\n", sweepNum)
+
+						// Sweep from left to right
+						for x := int16(100); x < int16(width-100); x += 50 {
+							select {
+							case <-done:
+								return
+							default:
+							}
+
+							// Build mouse absolute message
+							// Format: [type:1][subType:1][x:2 BE][y:2 BE][refWidth:2 BE][refHeight:2 BE] = 10 bytes
+							msg := make([]byte, 10)
+							msg[0] = WsMsgMouseAbsolute // 0x12
+							msg[1] = 1                  // subType: 1 = absolute position
+							binary.BigEndian.PutUint16(msg[2:4], uint16(x))
+							binary.BigEndian.PutUint16(msg[4:6], uint16(sweepY))
+							binary.BigEndian.PutUint16(msg[6:8], uint16(refW))
+							binary.BigEndian.PutUint16(msg[8:10], uint16(refH))
+
+							if err := conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
+								fmt.Printf("❌ Mouse sweep error: %v\n", err)
+								return
+							}
+
+							// Slow sweep - 50ms between movements to allow cursor shape to update
+							time.Sleep(50 * time.Millisecond)
+						}
+
+						// Wait before next sweep
+						time.Sleep(3 * time.Second)
+					}
+				}()
+			}
+
 			// Message reading goroutine
 			go func() {
 				defer close(done)
@@ -928,6 +990,35 @@ Examples:
 							}
 						case WsMsgPong:
 							// RTT measurement would go here
+						case WsMsgCursorImage:
+							// Cursor image message
+							// Format: type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4) + [format(4) + width(4) + height(4) + stride(4) + pixels...]
+							stats.cursorMessages++
+							if len(data) >= 25 {
+								hotspotX := int(data[13]) | int(data[14])<<8 | int(data[15])<<16 | int(data[16])<<24
+								hotspotY := int(data[17]) | int(data[18])<<8 | int(data[19])<<16 | int(data[20])<<24
+								bitmapSize := int(data[21]) | int(data[22])<<8 | int(data[23])<<16 | int(data[24])<<24
+
+								// If bitmap is present, extract width/height from header
+								if bitmapSize >= 16 && len(data) >= 41 {
+									cursorFormat := uint32(data[25]) | uint32(data[26])<<8 | uint32(data[27])<<16 | uint32(data[28])<<24
+									cursorWidth := int(data[29]) | int(data[30])<<8 | int(data[31])<<16 | int(data[32])<<24
+									cursorHeight := int(data[33]) | int(data[34])<<8 | int(data[35])<<16 | int(data[36])<<24
+									stats.lastCursorWidth = cursorWidth
+									stats.lastCursorHeight = cursorHeight
+									stats.lastCursorHotspotX = hotspotX
+									stats.lastCursorHotspotY = hotspotY
+
+									if verbose || stats.cursorMessages == 1 {
+										fmt.Printf("🖱️  [%s] Cursor: %dx%d hotspot=(%d,%d) bitmapSize=%d format=0x%08x\n",
+											time.Now().Format("15:04:05.000"),
+											cursorWidth, cursorHeight, hotspotX, hotspotY, bitmapSize, cursorFormat)
+									}
+								} else if verbose {
+									fmt.Printf("🖱️  [%s] Cursor: no bitmap (hotspot=(%d,%d))\n",
+										time.Now().Format("15:04:05.000"), hotspotX, hotspotY)
+								}
+							}
 						}
 					} else if msgType == websocket.TextMessage {
 						// JSON control message
@@ -1011,6 +1102,17 @@ Examples:
 					fmt.Printf("Batch messages:     %d\n", stats.batchCount)
 				}
 
+				// Cursor statistics
+				if stats.cursorMessages > 0 {
+					fmt.Printf("Cursor updates:     %d", stats.cursorMessages)
+					if stats.lastCursorWidth > 0 {
+						fmt.Printf(" (last: %dx%d hotspot=(%d,%d))",
+							stats.lastCursorWidth, stats.lastCursorHeight,
+							stats.lastCursorHotspotX, stats.lastCursorHotspotY)
+					}
+					fmt.Println()
+				}
+
 				fmt.Printf("───────────────────────────────────────────────\n")
 			}
 
@@ -1056,6 +1158,7 @@ Examples:
 	cmd.Flags().IntVar(&fps, "fps", 60, "Video stream frames per second")
 	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video stream bitrate in kbps")
 	cmd.Flags().StringVar(&videoMode, "video-mode", "", "Video capture mode: shm, native, or zerocopy (default: container env)")
+	cmd.Flags().BoolVar(&mouseSweep, "mouse-sweep", false, "Sweep mouse horizontally across middle of screen to trigger cursor shape changes")
 
 	return cmd
 }
@@ -1082,6 +1185,12 @@ type videoStreamStats struct {
 	currentSecond     int   // Which second bucket we're in
 	currentSecondFPS  int   // Frames received in current second
 	lastSecondFPS     int   // Frames received in previous second (displayed)
+	// Cursor message tracking
+	cursorMessages    int   // Number of cursor messages received
+	lastCursorWidth   int   // Last cursor bitmap width
+	lastCursorHeight  int   // Last cursor bitmap height
+	lastCursorHotspotX int  // Last cursor hotspot X
+	lastCursorHotspotY int  // Last cursor hotspot Y
 }
 
 // runInteractiveStream runs a combined interactive session with VLC server, keyboard, and mouse support

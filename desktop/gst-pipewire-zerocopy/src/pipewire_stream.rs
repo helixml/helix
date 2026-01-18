@@ -27,6 +27,32 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+/// Cursor bitmap image data
+#[derive(Debug, Clone)]
+pub struct CursorBitmap {
+    /// DRM fourcc format (e.g., ARGB8888)
+    pub format: u32,
+    /// Bitmap width in pixels
+    pub width: u32,
+    /// Bitmap height in pixels
+    pub height: u32,
+    /// Stride in bytes
+    pub stride: i32,
+    /// Raw pixel data
+    pub data: Vec<u8>,
+}
+
+/// Cursor data extracted from PipeWire SPA_META_Cursor metadata
+#[derive(Debug, Clone)]
+pub struct CursorData {
+    pub id: u32,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub hotspot_x: i32,
+    pub hotspot_y: i32,
+    pub bitmap: Option<CursorBitmap>,
+}
+
 /// Frame received from PipeWire
 pub enum FrameData {
     /// DMA-BUF frame (zero-copy) - directly usable with waylanddisplaycore
@@ -281,6 +307,161 @@ unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
         meta_ptr = meta_ptr.wrapping_add(1);
     }
     0
+}
+
+/// SPA_META_Cursor type constant (from spa/buffer/meta.h)
+const SPA_META_CURSOR: u32 = 5;
+
+/// Extract cursor metadata from PipeWire buffer's spa_meta_cursor.
+/// This is sent when cursor-mode=2 (Metadata) is set in ScreenCast.
+/// NOTE: No longer used in Rust - Go PipeWire client handles cursor via its own session.
+///
+/// # Safety
+/// The buffer pointer must be valid and point to a spa_buffer.
+#[allow(dead_code)]
+unsafe fn extract_cursor_from_buffer(buffer: *mut spa_buffer) -> Option<CursorData> {
+    if buffer.is_null() {
+        return None;
+    }
+    let n_metas = (*buffer).n_metas;
+    if n_metas == 0 {
+        return None;
+    }
+
+    let mut meta_ptr: *mut spa_meta = (*buffer).metas;
+    let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
+
+    while meta_ptr != metas_end {
+        if (*meta_ptr).type_ == SPA_META_CURSOR {
+            let data_ptr = (*meta_ptr).data as *const u8;
+            let meta_size = (*meta_ptr).size;
+
+            // spa_meta_cursor is 28 bytes minimum
+            if meta_size < 28 {
+                meta_ptr = meta_ptr.wrapping_add(1);
+                continue;
+            }
+
+            // Parse spa_meta_cursor fields
+            // Offsets: id(0), flags(4), position.x(8), position.y(12),
+            //          hotspot.x(16), hotspot.y(20), bitmap_offset(24)
+            let id = *(data_ptr as *const u32);
+            let position_x = *(data_ptr.add(8) as *const i32);
+            let position_y = *(data_ptr.add(12) as *const i32);
+            let hotspot_x = *(data_ptr.add(16) as *const i32);
+            let hotspot_y = *(data_ptr.add(20) as *const i32);
+            let bitmap_offset = *(data_ptr.add(24) as *const u32);
+
+            // Check if there's a valid bitmap
+            let bitmap = if bitmap_offset >= 28 && (bitmap_offset as usize) + 20 <= meta_size as usize {
+                let bitmap_ptr = data_ptr.add(bitmap_offset as usize);
+                let format = *(bitmap_ptr as *const u32);
+                let width = *(bitmap_ptr.add(4) as *const u32);
+                let height = *(bitmap_ptr.add(8) as *const u32);
+                let stride = *(bitmap_ptr.add(12) as *const i32);
+                let pixel_offset = *(bitmap_ptr.add(16) as *const u32);
+
+                if format == 0 || width == 0 || height == 0 {
+                    None
+                } else {
+                    let pixel_data_start = bitmap_ptr.add(pixel_offset as usize);
+                    let pixel_data_size = (stride.abs() as u32 * height) as usize;
+                    let total_offset = bitmap_offset as usize + pixel_offset as usize + pixel_data_size;
+
+                    if total_offset <= meta_size as usize {
+                        let data = std::slice::from_raw_parts(pixel_data_start, pixel_data_size).to_vec();
+                        Some(CursorBitmap {
+                            format,
+                            width,
+                            height,
+                            stride,
+                            data,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            return Some(CursorData {
+                id,
+                position_x,
+                position_y,
+                hotspot_x,
+                hotspot_y,
+                bitmap,
+            });
+        }
+        meta_ptr = meta_ptr.wrapping_add(1);
+    }
+    None
+}
+
+/// Write cursor data to a file for IPC with Go WebSocket handler.
+/// NOTE: No longer used - Go PipeWire client reads cursor directly from its own session.
+#[allow(dead_code)]
+fn write_cursor_to_file(cursor: &CursorData) {
+    use std::io::Write;
+
+    // Track last cursor state to avoid redundant writes
+    static LAST_CURSOR_HASH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    // Hash cursor state (hotspot + bitmap, NOT position - position changes every frame)
+    let cursor_hash = {
+        let mut h: u64 = cursor.id as u64;
+        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_x as u64);
+        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_y as u64);
+        if let Some(ref bmp) = cursor.bitmap {
+            h = h.wrapping_mul(31).wrapping_add(bmp.width as u64);
+            h = h.wrapping_mul(31).wrapping_add(bmp.height as u64);
+            if bmp.data.len() >= 8 {
+                h = h.wrapping_mul(31).wrapping_add(u64::from_le_bytes([
+                    bmp.data[0], bmp.data[1], bmp.data[2], bmp.data[3],
+                    bmp.data[4], bmp.data[5], bmp.data[6], bmp.data[7],
+                ]));
+            }
+        }
+        h
+    };
+
+    // Only write if cursor state changed
+    let last_hash = LAST_CURSOR_HASH.swap(cursor_hash, std::sync::atomic::Ordering::Relaxed);
+    if cursor_hash == last_hash {
+        return;
+    }
+
+    // Binary format: header (28 bytes) + optional bitmap
+    let bitmap_header_size = if cursor.bitmap.is_some() { 16 } else { 0 };
+    let bitmap_data_size = cursor.bitmap.as_ref().map(|b| b.data.len()).unwrap_or(0);
+    let total_size = 28 + bitmap_header_size + bitmap_data_size;
+
+    let mut buf = Vec::with_capacity(total_size);
+    buf.extend_from_slice(&0x43555253u32.to_le_bytes()); // "CURS" magic
+    buf.extend_from_slice(&1u32.to_le_bytes()); // version
+    buf.extend_from_slice(&cursor.position_x.to_le_bytes());
+    buf.extend_from_slice(&cursor.position_y.to_le_bytes());
+    buf.extend_from_slice(&cursor.hotspot_x.to_le_bytes());
+    buf.extend_from_slice(&cursor.hotspot_y.to_le_bytes());
+    buf.extend_from_slice(&((bitmap_header_size + bitmap_data_size) as u32).to_le_bytes());
+
+    if let Some(ref bmp) = cursor.bitmap {
+        buf.extend_from_slice(&bmp.format.to_le_bytes());
+        buf.extend_from_slice(&bmp.width.to_le_bytes());
+        buf.extend_from_slice(&bmp.height.to_le_bytes());
+        buf.extend_from_slice(&bmp.stride.to_le_bytes());
+        buf.extend_from_slice(&bmp.data);
+    }
+
+    // Atomic write via temp file
+    let cursor_path = "/tmp/helix-cursor.bin";
+    let temp_path = "/tmp/helix-cursor.bin.tmp";
+    if let Ok(mut file) = std::fs::File::create(temp_path) {
+        if file.write_all(&buf).is_ok() {
+            let _ = std::fs::rename(temp_path, cursor_path);
+        }
+    }
 }
 
 fn run_pipewire_loop(
@@ -622,10 +803,13 @@ fn run_pipewire_loop(
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
 
+            // Note: Cursor metadata is handled by Go PipeWire client via separate session
+            // The Rust plugin only handles video frames
+
             // Get datas from spa_buffer
             let n_datas = unsafe { (*spa_buffer).n_datas };
             if n_datas == 0 {
-                eprintln!("[PIPEWIRE_DEBUG] process #{}: n_datas is 0!", pcount);
+                // No video data in this buffer (empty buffer)
                 unsafe { stream.queue_raw_buffer(pw_buffer) };
                 return;
             }
@@ -809,13 +993,14 @@ fn build_negotiation_params(
     // Meta types from spa/buffer/meta.h
     const SPA_META_HEADER: u32 = 1; // struct spa_meta_header (24 bytes)
     const SPA_META_VIDEOCROP: u32 = 2; // struct spa_meta_region (16 bytes)
-    // Note: Cursor metadata (SPA_META_CURSOR) is handled by Go-side PipeWire/Wayland clients,
-    // not by this Rust plugin. This simplifies the architecture - Rust handles video frames,
-    // Go handles cursor position/bitmap extraction.
+    const SPA_META_CURSOR: u32 = 5; // struct spa_meta_cursor + optional bitmap
 
     // Sizes
     const SPA_META_HEADER_SIZE: i32 = 24; // sizeof(struct spa_meta_header)
     const SPA_META_REGION_SIZE: i32 = 16; // sizeof(struct spa_meta_region) = 4 ints
+    // Cursor meta size: spa_meta_cursor (28) + spa_meta_bitmap header (20) + 256x256 ARGB (262144)
+    // Use generous size to accommodate large cursors
+    const SPA_META_CURSOR_SIZE: i32 = 28 + 20 + 256 * 256 * 4;
 
     eprintln!(
         "[PIPEWIRE_DEBUG] build_negotiation_params: {}x{} use_dmabuf={}",
@@ -923,7 +1108,51 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
     }
 
-    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Buffers[dataType=0x{:x}] + Header) - NO Format",
+    // 5. Cursor meta - request cursor metadata from GNOME ScreenCast
+    // When cursor-mode=2 (Metadata) is set, GNOME will include cursor position
+    // and bitmap in each frame buffer's metadata.
+    //
+    // OBS uses SPA_POD_CHOICE_RANGE_Int for cursor size:
+    // CURSOR_META_SIZE(w,h) = sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + w*h*4
+    // = 28 + 20 + w*h*4
+    const CURSOR_META_SIZE_64: i32 = 28 + 20 + 64 * 64 * 4; // 16432
+    const CURSOR_META_SIZE_1: i32 = 28 + 20 + 1 * 1 * 4; // 52
+    const CURSOR_META_SIZE_256: i32 = 28 + 20 + 256 * 256 * 4; // 262192
+
+    // Use CHOICE_RANGE like OBS: default=64x64, min=1x1, max=256x256
+    let cursor_size_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Range {
+            default: CURSOR_META_SIZE_64,
+            min: CURSOR_META_SIZE_1,
+            max: CURSOR_META_SIZE_256,
+        },
+    );
+    let cursor_meta_obj = Object {
+        type_: SpaTypes::ObjectParamMeta.as_raw(),
+        id: ParamType::Meta.as_raw(),
+        properties: vec![
+            Property {
+                key: SPA_PARAM_META_TYPE,
+                flags: PropertyFlags::empty(),
+                value: Value::Id(Id(SPA_META_CURSOR)),
+            },
+            Property {
+                key: SPA_PARAM_META_SIZE,
+                flags: PropertyFlags::empty(),
+                value: Value::Choice(ChoiceValue::Int(cursor_size_choice)),
+            },
+        ],
+    };
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_meta_obj))
+    {
+        params.push(cursor.into_inner());
+        eprintln!("[PIPEWIRE_DEBUG] Added cursor meta param (RANGE size: default={}, min={}, max={})",
+            CURSOR_META_SIZE_64, CURSOR_META_SIZE_1, CURSOR_META_SIZE_256);
+    }
+
+    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Buffers[dataType=0x{:x}] + Header + Cursor) - NO Format",
         params.len(), buffer_types);
     params
 }

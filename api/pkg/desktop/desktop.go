@@ -66,6 +66,7 @@ type Server struct {
 	cursorScSessionPath dbus.ObjectPath
 	cursorScStreamPath  dbus.ObjectPath
 	cursorNodeID        uint32
+	cursorPipeWireFd    int // Separate PipeWire FD for cursor client (each PW connection needs its own FD)
 
 	// Portal session state (for Sway/wlroots via xdg-desktop-portal-wlr)
 	portalSessionHandle   string // ScreenCast session handle

@@ -298,7 +298,6 @@ static void cursor_session_hotspot(void *data, struct ext_image_copy_capture_cur
     WlCursorClient *client = (WlCursorClient *)data;
     client->cursor.hotspot_x = x;
     client->cursor.hotspot_y = y;
-    fprintf(stderr, "[WAYLAND_CURSOR] Hotspot changed: (%d, %d)\n", x, y);
 
     // When hotspot changes, trigger a callback with current state
     if (client->callback && client->cursor.in_area) {
@@ -331,8 +330,10 @@ static void cursor_capture_session_buffer_size(void *data, struct ext_image_copy
 
 static void cursor_capture_session_shm_format(void *data, struct ext_image_copy_capture_session_v1 *session, uint32_t format) {
     WlCursorClient *client = (WlCursorClient *)data;
-    // Prefer ARGB8888 or XRGB8888
-    if (format == WL_SHM_FORMAT_ARGB8888 || (client->cursor_buffer_format == 0 && format == WL_SHM_FORMAT_XRGB8888)) {
+    // Accept any ARGB/XRGB/ABGR/XBGR format (32-bit with alpha or opaque)
+    // Sway may use DRM fourcc codes (like 0x34324241 for ABGR8888)
+    // We accept the first usable format
+    if (client->cursor_buffer_format == 0) {
         client->cursor_buffer_format = format;
     }
 }
@@ -379,7 +380,6 @@ static void cursor_frame_presentation_time(void *data, struct ext_image_copy_cap
 static void cursor_frame_ready(void *data, struct ext_image_copy_capture_frame_v1 *frame) {
     WlCursorClient *client = (WlCursorClient *)data;
     client->frame_ready = 1;
-    fprintf(stderr, "[WAYLAND_CURSOR] Cursor frame ready\n");
 
     // Copy bitmap data
     if (client->shm_ptr && client->cursor_buffer_width > 0 && client->cursor_buffer_height > 0) {
@@ -534,12 +534,21 @@ static int create_cursor_buffer(WlCursorClient *client) {
         return -1;
     }
 
-    uint32_t format = client->cursor_buffer_format ? client->cursor_buffer_format : WL_SHM_FORMAT_ARGB8888;
+    // For wl_shm buffer creation, we need a wl_shm format (small integer)
+    // Some compositors report DRM fourcc codes which are large numbers
+    // Map DRM formats to wl_shm formats for buffer creation
+    uint32_t buffer_format = client->cursor_buffer_format;
+    if (buffer_format > 100) {
+        // Likely a DRM fourcc code, use ARGB8888 for the buffer
+        // Common DRM formats: 0x34324241 (ABGR8888), 0x34324258 (XBGR8888)
+        fprintf(stderr, "[WAYLAND_CURSOR] Format 0x%08x looks like DRM fourcc, using ARGB8888 for buffer\n", buffer_format);
+        buffer_format = WL_SHM_FORMAT_ARGB8888;
+    }
     client->cursor_buffer = wl_shm_pool_create_buffer(client->shm_pool, 0,
         client->cursor_buffer_width, client->cursor_buffer_height,
-        client->cursor_buffer_stride, format);
+        client->cursor_buffer_stride, buffer_format);
     if (!client->cursor_buffer) {
-        fprintf(stderr, "[WAYLAND_CURSOR] wl_shm_pool_create_buffer failed\n");
+        fprintf(stderr, "[WAYLAND_CURSOR] wl_shm_pool_create_buffer failed (format=0x%08x)\n", buffer_format);
         return -1;
     }
 
