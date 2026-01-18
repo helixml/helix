@@ -2,28 +2,70 @@
  * Helix Cursor Tracker Extension
  *
  * Monitors cursor shape changes via Meta.CursorTracker and sends
- * cursor sprite data to the Helix desktop-bridge via Unix socket.
+ * cursor shape names to the Helix desktop-bridge via Unix socket.
  *
  * Architecture:
  *   Meta.CursorTracker -> This Extension -> Unix Socket -> Go Process -> WebSocket -> Frontend
  *
  * Socket Protocol:
- *   JSON messages with cursor bitmap data (base64 encoded RGBA pixels)
+ *   JSON messages with cursor shape information
  *   {
  *     "hotspot_x": number,
  *     "hotspot_y": number,
  *     "width": number,
  *     "height": number,
- *     "pixels": string (base64 encoded RGBA data)
+ *     "pixels": "",  // Always empty - we use fingerprinting instead
+ *     "cursor_name": string  // CSS cursor name (e.g., "default", "pointer", "text")
  *   }
+ *
+ * Cursor Identification Strategy:
+ *   Uses "Helix-Invisible" cursor theme where each cursor type has a unique
+ *   hotspot position. By reading the hotspot, we can identify the cursor shape
+ *   without needing to capture pixel data (which fails in headless mode anyway).
  */
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import Cogl from 'gi://Cogl';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const SOCKET_PATH = '/run/user/1000/helix-cursor.sock';
+
+// Hotspot fingerprinting: map (hotspotX, hotspotY) to CSS cursor names
+// These values match the Helix-Invisible cursor theme exactly
+// Each cursor type has a unique hotspot position at 24x24 size
+//
+// Format: "hotspotX,hotspotY" -> "css-cursor-name"
+// Note: We match on hotspot only (not size) for flexibility
+const CURSOR_FINGERPRINTS = {
+    // Arrow/pointer cursors (top-left area hotspots)
+    '0,0': 'default',
+    '6,0': 'pointer',
+    '0,1': 'context-menu',
+    '0,2': 'help',
+    '0,3': 'progress',
+    '0,4': 'copy',
+    '0,5': 'alias',
+
+    // Wait/busy (top-center)
+    '12,0': 'wait',
+
+    // Centered cursors with distinct Y values
+    '12,1': 'crosshair',
+    '12,2': 'move',
+    '12,3': 'grab',
+    '12,4': 'grabbing',
+    '12,5': 'not-allowed',
+    '12,6': 'cell',
+    '12,7': 'zoom-in',
+    '12,8': 'zoom-out',
+
+    // Resize cursors (each direction has unique hotspot)
+    '12,9': 'ns-resize',
+    '12,10': 'ew-resize',
+    '12,11': 'nwse-resize',
+    '12,12': 'text',
+    '12,13': 'nesw-resize',
+};
 
 export default class HelixCursorExtension extends Extension {
     constructor(metadata) {
@@ -160,39 +202,27 @@ export default class HelixCursorExtension extends Extension {
                 return true; // Already sent this cursor
             }
 
-            console.log('[HelixCursor] Cursor changed: ' + width + 'x' + height + ' hotspot=(' + hotspotX + ',' + hotspotY + ')');
+            // Use hotspot fingerprinting to identify cursor shape.
+            // With Helix-Invisible cursor theme, each cursor type has a unique hotspot,
+            // so we can reliably identify the shape without needing pixel data.
+            // (The cursor pixels are transparent anyway, so capturing them is pointless.)
+            const cursorName = this._getCursorNameFromFingerprint(hotspotX, hotspotY, width, height);
+            console.log('[HelixCursor] Cursor changed: hotspot=(' + hotspotX + ',' + hotspotY + ') -> ' + cursorName);
 
-            // Read pixel data from texture using pre-allocated buffer
-            let pixelData = null;
-            const rowstride = width * 4; // RGBA = 4 bytes per pixel
-            const bufferSize = rowstride * height;
-
-            try {
-                if (texture.get_data) {
-                    const buffer = new Uint8Array(bufferSize);
-                    const result = texture.get_data(Cogl.PixelFormat.RGBA_8888, rowstride, buffer);
-                    if (result > 0) {
-                        pixelData = this._uint8ArrayToBase64(buffer);
-                    }
-                }
-            } catch (e) {
-                console.log('[HelixCursor] get_data() failed: ' + e);
-            }
-
-            // Build message
+            // Build message (pixels always empty - we use cursor_name for client-side rendering)
             const message = {
                 hotspot_x: hotspotX,
                 hotspot_y: hotspotY,
                 width: width,
                 height: height,
-                pixels: pixelData || ''
+                pixels: '',
+                cursor_name: cursorName
             };
 
             const success = this._sendToSocket(JSON.stringify(message));
             if (success) {
                 this._lastCursorHash = hash;
                 this._sentSuccessfully = true;
-                console.log('[HelixCursor] Cursor data sent successfully');
             }
             return success;
 
@@ -202,14 +232,27 @@ export default class HelixCursorExtension extends Extension {
         }
     }
 
-    _uint8ArrayToBase64(uint8Array) {
-        // Convert Uint8Array to base64 string
-        let binary = '';
-        const len = uint8Array.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(uint8Array[i]);
+    /**
+     * Get CSS cursor name from hotspot fingerprint
+     *
+     * When using the Helix-Invisible cursor theme, each cursor type has a
+     * unique (hotspotX, hotspotY) position, so we can reliably identify the
+     * cursor shape from the hotspot alone.
+     *
+     * If no exact match is found (e.g., using a different theme), falls back
+     * to 'default' which renders as an arrow cursor.
+     */
+    _getCursorNameFromFingerprint(hotspotX, hotspotY, width, height) {
+        // Check exact match in fingerprint table (hotspot only)
+        const key = `${hotspotX},${hotspotY}`;
+        if (CURSOR_FINGERPRINTS[key]) {
+            return CURSOR_FINGERPRINTS[key];
         }
-        return GLib.base64_encode(binary);
+
+        // No exact match - fall back to 'default' (arrow cursor)
+        // This happens when using a theme other than Helix-Invisible
+        console.log('[HelixCursor] No fingerprint match for hotspot (' + hotspotX + ',' + hotspotY + '), using default');
+        return 'default';
     }
 
     _sendToSocket(message) {

@@ -37,6 +37,7 @@ import ChartsPanel from './ChartsPanel';
 import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
+import CursorRenderer from './CursorRenderer';
 
 // Default cursor - standard arrow pointer as SVG data URL
 // Used until server sends the actual cursor image
@@ -112,6 +113,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   // Client-side cursor rendering state
   const [cursorImage, setCursorImage] = useState<CursorImageData | null>(DEFAULT_CURSOR);
+  const [cursorCssName, setCursorCssName] = useState<string | null>(null); // CSS cursor name fallback (GNOME headless)
   const [cursorVisible, setCursorVisible] = useState(true);
   // Multi-player cursor state
   const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
@@ -720,6 +722,32 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // when the server sends a hotspot for a cached cursor we don't have.
           // The hotspot should only be updated via cursorImage events which include
           // both the cursor image AND the correct hotspot together.
+        } else if (data.type === 'cursorName') {
+          // CSS cursor name fallback when pixel capture fails (GNOME headless mode)
+          // Attribute cursor shape to the user who caused it (like cursorImage)
+          const currentSelfId = selfClientIdRef.current;
+          const lastMover = data.lastMoverID;
+
+          if (lastMover && lastMover !== currentSelfId) {
+            // Another user caused the cursor shape change - update their remote cursor
+            console.log('[CURSOR] Remote user cursorName change:', { lastMover, currentSelfId, cursorName: data.cursorName });
+            setRemoteCursors(prev => {
+              const existing = prev.get(lastMover);
+              if (existing) {
+                // Create a cursorImage-like object with just the cursorName for rendering
+                return new Map(prev).set(lastMover, {
+                  ...existing,
+                  cursorImage: { cursorId: 0, hotspotX: data.hotspotX, hotspotY: data.hotspotY, width: 24, height: 24, imageUrl: '', cursorName: data.cursorName },
+                });
+              }
+              return prev;
+            });
+          } else {
+            // It's our movement - update local cursor
+            setCursorImage(null);
+            setCursorCssName(data.cursorName);
+            console.log('[CURSOR] CSS cursor name received:', data.cursorName);
+          }
         }
         // Multi-player cursor events
         else if (data.type === 'remoteCursor') {
@@ -3270,80 +3298,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Custom cursor - shows local mouse position
-          When cursor image is available: render the actual cursor image
-          When no cursor image: render a circle fallback */}
+          Uses shared CursorRenderer for consistent rendering with remote cursors */}
       {isConnected && hasMouseMoved && cursorVisible && (
-        cursorImage ? (
-          // Render actual cursor image from server at standard cursor size
-          // Server sends native resolution cursor, but we display at fixed size for consistency
-          (() => {
-            const STANDARD_CURSOR_SIZE = 24; // Standard OS cursor size
-            const cursorScale = cursorImage.width > 0
-              ? STANDARD_CURSOR_SIZE / cursorImage.width
-              : 1;
-            const scaledWidth = cursorImage.width * cursorScale;
-            const scaledHeight = cursorImage.height * cursorScale;
-            const scaledHotspotX = cursorImage.hotspotX * cursorScale;
-            const scaledHotspotY = cursorImage.hotspotY * cursorScale;
-            return (
-              <>
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: cursorPosition.x - scaledHotspotX,
-                    top: cursorPosition.y - scaledHotspotY,
-                    width: scaledWidth,
-                    height: scaledHeight,
-                    backgroundImage: `url(${cursorImage.imageUrl})`,
-                    backgroundSize: 'contain',
-                    backgroundRepeat: 'no-repeat',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                    // Apply colored glow matching user's presence color
-                    filter: selfUser?.color
-                      ? `drop-shadow(0 0 3px ${selfUser.color}) drop-shadow(0 0 6px ${selfUser.color}80)`
-                      : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
-                  }}
-                  id="custom-cursor"
-                />
-                {/* DEBUG: Red dot = cursor position (where clicks land) */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: cursorPosition.x - 3,
-                    top: cursorPosition.y - 3,
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    backgroundColor: 'red',
-                    border: '1px solid white',
-                    pointerEvents: 'none',
-                    zIndex: 1002,
-                  }}
-                />
-              </>
-            );
-          })()
-        ) : (
-          // Fallback: circle indicator when no cursor image received
-          <Box
-            sx={{
-              position: 'absolute',
-              left: cursorPosition.x,
-              top: cursorPosition.y,
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: selfUser?.color || 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(0, 0, 0, 0.5)',
-              boxShadow: selfUser?.color ? `0 0 8px ${selfUser.color}` : 'none',
-              pointerEvents: 'none',
-              zIndex: 1000,
-              transform: 'translate(-50%, -50%)',
-            }}
-            id="custom-cursor-fallback"
-          />
-        )
+        <CursorRenderer
+          x={cursorPosition.x}
+          y={cursorPosition.y}
+          cursorImage={cursorImage}
+          cursorCssName={cursorCssName}
+          userColor={selfUser?.color}
+          showDebugDot={true}
+        />
       )}
 
       {/* Remote user cursors (Figma-style multi-player) */}

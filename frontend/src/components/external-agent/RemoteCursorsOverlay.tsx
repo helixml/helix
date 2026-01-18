@@ -1,10 +1,13 @@
 /**
  * RemoteCursorsOverlay - Renders remote user cursors (Figma-style multi-player)
+ *
+ * Uses shared CursorRenderer for consistent cursor appearance with local cursor.
  */
 
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { RemoteCursorPosition, RemoteUserInfo } from '../../lib/helix-stream/stream/websocket-stream';
+import CursorRenderer from './CursorRenderer';
 
 export interface RemoteCursorsOverlayProps {
   cursors: Map<number, RemoteCursorPosition>;
@@ -76,60 +79,17 @@ const RemoteCursorsOverlay: React.FC<RemoteCursorsOverlayProps> = ({
               willChange: 'left, top',
             }}
           >
-            {/* Cursor - use actual shape if available, otherwise default arrow */}
-            {cursor.cursorImage ? (
-              // Display cursor at standard size (24px) for consistency
-              (() => {
-                const STANDARD_CURSOR_SIZE = 24;
-                const cursorScale = cursor.cursorImage!.width > 0
-                  ? STANDARD_CURSOR_SIZE / cursor.cursorImage!.width
-                  : 1;
-                const scaledWidth = cursor.cursorImage!.width * cursorScale;
-                const scaledHeight = cursor.cursorImage!.height * cursorScale;
-                const scaledHotspotX = cursor.cursorImage!.hotspotX * cursorScale;
-                const scaledHotspotY = cursor.cursorImage!.hotspotY * cursorScale;
-                return (
-                  <Box
-                    component="img"
-                    src={cursor.cursorImage!.imageUrl}
-                    sx={{
-                      width: scaledWidth,
-                      height: scaledHeight,
-                      marginLeft: `-${scaledHotspotX}px`,
-                      marginTop: `-${scaledHotspotY}px`,
-                      filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
-                      pointerEvents: 'none',
-                    }}
-                  />
-                );
-              })()
-            ) : (
-              <svg
-                width="24"
-                height="24"
-                style={{
-                  color: displayColor,
-                  filter: `drop-shadow(0 0 4px ${displayColor}) drop-shadow(0 0 8px ${displayColor}80)`,
-                }}
-              >
-                <defs>
-                  <filter id={`glow-${userId}`} x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-                    <feMerge>
-                      <feMergeNode in="coloredBlur"/>
-                      <feMergeNode in="SourceGraphic"/>
-                    </feMerge>
-                  </filter>
-                </defs>
-                <path
-                  fill="currentColor"
-                  stroke="white"
-                  strokeWidth="1"
-                  d="M0,0 L0,16 L4,12 L8,20 L10,19 L6,11 L12,11 Z"
-                  filter={`url(#glow-${userId})`}
-                />
-              </svg>
-            )}
+            {/* Cursor - uses shared CursorRenderer for consistent appearance */}
+            <Box sx={{ position: 'relative' }}>
+              <CursorRenderer
+                x={0}
+                y={0}
+                cursorImage={cursor.cursorImage}
+                cursorCssName={cursor.cursorImage?.cursorName || 'default'}
+                userColor={displayColor}
+                zIndexOffset={1}
+              />
+            </Box>
             {/* User name pill */}
             <Box
               sx={{

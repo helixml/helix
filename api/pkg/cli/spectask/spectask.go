@@ -705,6 +705,131 @@ func codecName(codec byte) string {
 	}
 }
 
+// renderCursorASCII renders cursor bitmap data as ASCII art
+// Supports RGBA8888 and ARGB8888 formats, down-samples to maxSize x maxSize
+// Also returns sample pixel values for debugging
+func renderCursorASCII(data []byte, width, height, stride int, format uint32, maxSize int) (string, string) {
+	if width == 0 || height == 0 || len(data) < 4 {
+		return "", ""
+	}
+
+	// Characters from transparent to opaque (using brightness for color)
+	// Using block characters for better visibility
+	chars := []rune{' ', '░', '▒', '▓', '█'}
+
+	// Calculate step for down-sampling
+	stepX := (width + maxSize - 1) / maxSize
+	stepY := (height + maxSize - 1) / maxSize
+	if stepX < 1 {
+		stepX = 1
+	}
+	if stepY < 1 {
+		stepY = 1
+	}
+
+	outWidth := (width + stepX - 1) / stepX
+	outHeight := (height + stepY - 1) / stepY
+
+	var result strings.Builder
+	var pixelSamples strings.Builder
+
+	// Sample first few pixels for debugging
+	pixelSamples.WriteString("Sample pixels (first 8): ")
+	for i := 0; i < 8 && i*4+3 < len(data); i++ {
+		r, g, b, a := data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]
+		// Interpret based on format
+		switch format {
+		case 0x34325241: // ARGB8888: A,R,G,B bytes
+			a, r, g, b = data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]
+		case 0x34324152: // RGBA8888: R,G,B,A bytes
+			r, g, b, a = data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]
+		case 0x34324142: // BGRA8888: B,G,R,A bytes
+			b, g, r, a = data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]
+		case 0x34324241: // ABGR8888: A,B,G,R bytes
+			a, b, g, r = data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]
+		}
+		if i > 0 {
+			pixelSamples.WriteString(" ")
+		}
+		pixelSamples.WriteString(fmt.Sprintf("(%d,%d,%d,%d)", r, g, b, a))
+	}
+
+	for y := 0; y < outHeight; y++ {
+		srcY := y * stepY
+		if srcY >= height {
+			break
+		}
+		for x := 0; x < outWidth; x++ {
+			srcX := x * stepX
+			if srcX >= width {
+				break
+			}
+
+			// Get pixel from source
+			srcIdx := srcY*stride + srcX*4
+			if srcIdx+3 >= len(data) {
+				result.WriteRune(' ')
+				continue
+			}
+
+			var r, g, b, a byte
+			switch format {
+			case 0x34325241: // ARGB8888: A,R,G,B bytes
+				a = data[srcIdx]
+				r = data[srcIdx+1]
+				g = data[srcIdx+2]
+				b = data[srcIdx+3]
+			case 0x34324152: // RGBA8888: R,G,B,A bytes
+				r = data[srcIdx]
+				g = data[srcIdx+1]
+				b = data[srcIdx+2]
+				a = data[srcIdx+3]
+			case 0x34324142: // BGRA8888: B,G,R,A bytes
+				b = data[srcIdx]
+				g = data[srcIdx+1]
+				r = data[srcIdx+2]
+				a = data[srcIdx+3]
+			case 0x34324241: // ABGR8888: A,B,G,R bytes
+				a = data[srcIdx]
+				b = data[srcIdx+1]
+				g = data[srcIdx+2]
+				r = data[srcIdx+3]
+			default: // Assume RGBA
+				r = data[srcIdx]
+				g = data[srcIdx+1]
+				b = data[srcIdx+2]
+				a = data[srcIdx+3]
+			}
+
+			// If alpha is 0, pixel is transparent
+			if a == 0 {
+				result.WriteRune(' ')
+				continue
+			}
+
+			// Calculate brightness (0-255)
+			brightness := (int(r) + int(g) + int(b)) / 3
+
+			// Combine alpha and brightness for character selection
+			// Higher alpha + higher brightness = more solid character
+			combined := (int(a) + brightness) / 2
+
+			// Map to character index
+			charIdx := (combined * (len(chars) - 1)) / 255
+			if charIdx >= len(chars) {
+				charIdx = len(chars) - 1
+			}
+			if charIdx < 0 {
+				charIdx = 0
+			}
+			result.WriteRune(chars[charIdx])
+		}
+		result.WriteRune('\n')
+	}
+
+	return result.String(), pixelSamples.String()
+}
+
 func newStreamCommand() *cobra.Command {
 	var duration int
 	var outputFile string
@@ -999,20 +1124,43 @@ Examples:
 								hotspotY := int(data[17]) | int(data[18])<<8 | int(data[19])<<16 | int(data[20])<<24
 								bitmapSize := int(data[21]) | int(data[22])<<8 | int(data[23])<<16 | int(data[24])<<24
 
-								// If bitmap is present, extract width/height from header
+								// If bitmap is present, extract width/height/stride from header
+								// Header: format(4) + width(4) + height(4) + stride(4) = 16 bytes, then pixels
 								if bitmapSize >= 16 && len(data) >= 41 {
 									cursorFormat := uint32(data[25]) | uint32(data[26])<<8 | uint32(data[27])<<16 | uint32(data[28])<<24
 									cursorWidth := int(data[29]) | int(data[30])<<8 | int(data[31])<<16 | int(data[32])<<24
 									cursorHeight := int(data[33]) | int(data[34])<<8 | int(data[35])<<16 | int(data[36])<<24
+									cursorStride := int(data[37]) | int(data[38])<<8 | int(data[39])<<16 | int(data[40])<<24
 									stats.lastCursorWidth = cursorWidth
 									stats.lastCursorHeight = cursorHeight
 									stats.lastCursorHotspotX = hotspotX
 									stats.lastCursorHotspotY = hotspotY
 
+									// Extract pixel data (starts at offset 41)
+									pixelDataStart := 41
+									pixelDataEnd := 25 + bitmapSize // bitmapSize includes header
+									if pixelDataEnd > len(data) {
+										pixelDataEnd = len(data)
+									}
+									pixelData := data[pixelDataStart:pixelDataEnd]
+
+									// Always show cursor info with ASCII art in verbose mode
 									if verbose || stats.cursorMessages == 1 {
-										fmt.Printf("🖱️  [%s] Cursor: %dx%d hotspot=(%d,%d) bitmapSize=%d format=0x%08x\n",
-											time.Now().Format("15:04:05.000"),
-											cursorWidth, cursorHeight, hotspotX, hotspotY, bitmapSize, cursorFormat)
+										fmt.Printf("\n🖱️  [%s] Cursor #%d: %dx%d hotspot=(%d,%d) stride=%d format=0x%08x (%d bytes)\n",
+											time.Now().Format("15:04:05.000"), stats.cursorMessages,
+											cursorWidth, cursorHeight, hotspotX, hotspotY, cursorStride, cursorFormat, len(pixelData))
+
+										// Render ASCII art cursor (max 24 chars wide for terminal)
+										asciiArt, pixelSamples := renderCursorASCII(pixelData, cursorWidth, cursorHeight, cursorStride, cursorFormat, 24)
+										if asciiArt != "" {
+											fmt.Printf("    %s\n", pixelSamples)
+											// Indent each line of ASCII art
+											for _, line := range strings.Split(asciiArt, "\n") {
+												if line != "" {
+													fmt.Printf("    |%s|\n", line)
+												}
+											}
+										}
 									}
 								} else if verbose {
 									fmt.Printf("🖱️  [%s] Cursor: no bitmap (hotspot=(%d,%d))\n",

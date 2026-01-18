@@ -525,6 +525,9 @@ export class WebSocketStream {
       case WsMessageType.CursorImage:
         this.handleCursorImage(data)
         break
+      case WsMessageType.CursorName:
+        this.handleCursorName(data)
+        break
       // Multi-player cursor messages
       case WsMessageType.RemoteCursor:
         this.handleRemoteCursor(data)
@@ -2521,6 +2524,53 @@ export class WebSocketStream {
       y: posY,
       hotspotX,
       hotspotY,
+    })
+  }
+
+  /**
+   * Handle cursor name message (CSS cursor name for fallback rendering).
+   * This is sent when pixel capture fails in GNOME headless mode.
+   * Wire format: type(1) + lastMoverID(4) + hotspotX(4) + hotspotY(4) + nameLen(1) + name(...)
+   */
+  private handleCursorName(data: Uint8Array) {
+    if (data.length < 14) {
+      console.warn("[WebSocketStream] CursorName message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1  // Skip message type
+
+    const lastMoverID = view.getUint32(offset, true)
+    offset += 4
+    const hotspotX = view.getInt32(offset, true)
+    offset += 4
+    const hotspotY = view.getInt32(offset, true)
+    offset += 4
+    const nameLen = data[offset]
+    offset += 1
+
+    if (data.length < offset + nameLen) {
+      console.warn("[WebSocketStream] CursorName message truncated")
+      return
+    }
+
+    const cursorName = new TextDecoder().decode(data.slice(offset, offset + nameLen))
+
+    console.debug("[WebSocketStream] Cursor name received:", {
+      cursorName,
+      hotspotX,
+      hotspotY,
+      lastMoverID,
+    })
+
+    // Emit cursor name event for CSS fallback rendering
+    this.dispatchInfoEvent({
+      type: "cursorName",
+      cursorName,
+      hotspotX,
+      hotspotY,
+      lastMoverID,
     })
   }
 

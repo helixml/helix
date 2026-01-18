@@ -110,6 +110,7 @@ const (
 	StreamMsgControlMessage  = 0x20
 	// Cursor message types (server → client)
 	StreamMsgCursorImage = 0x50 // Cursor image data when cursor changes
+	StreamMsgCursorName  = 0x51 // CSS cursor name for fallback rendering (when pixels unavailable)
 	// Multi-user cursor message types (server → all clients)
 	StreamMsgRemoteCursor = 0x53 // Remote user cursor position
 	StreamMsgRemoteUser   = 0x54 // Remote user joined/left
@@ -280,6 +281,10 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	if err := v.sendStreamInit(); err != nil {
 		v.logger.Error("failed to send StreamInit", "err", err)
 	}
+
+	// Send initial cursor (default arrow) so frontend has something to render immediately.
+	// This will be replaced by actual cursor data once cursor monitoring starts.
+	v.sendCursorName("default", 0, 0)
 
 	// Send ConnectionComplete to signal frontend that connection is ready
 	if err := v.sendConnectionComplete(); err != nil {
@@ -950,6 +955,37 @@ func detectCompositorSimple() string {
 // width, height, stride, format are the bitmap dimensions (0 if no bitmap)
 type cursorCallbackFunc func(posX, posY, hotspotX, hotspotY int32, width, height uint32, stride int32, format uint32, bitmapData []byte)
 
+// sendCursorName sends a CSS cursor name to the frontend for fallback rendering.
+// This is used when pixel data is unavailable (e.g., GNOME headless mode).
+// Wire format: type(1) + lastMoverID(4) + hotspotX(4) + hotspotY(4) + nameLen(1) + name(...)
+func (v *VideoStreamer) sendCursorName(cursorName string, hotspotX, hotspotY int32) {
+	if len(cursorName) > 255 {
+		cursorName = cursorName[:255]
+	}
+
+	// Get the last mover for cursor shape attribution
+	lastMoverID := uint32(0)
+	if v.config.SessionID != "" {
+		lastMoverID = GetSessionRegistry().GetLastMover(v.config.SessionID)
+	}
+
+	msgLen := 1 + 4 + 4 + 4 + 1 + len(cursorName)
+	msg := make([]byte, msgLen)
+	msg[0] = StreamMsgCursorName
+	binary.LittleEndian.PutUint32(msg[1:5], lastMoverID)
+	binary.LittleEndian.PutUint32(msg[5:9], uint32(hotspotX))
+	binary.LittleEndian.PutUint32(msg[9:13], uint32(hotspotY))
+	msg[13] = byte(len(cursorName))
+	copy(msg[14:], cursorName)
+
+	if _, err := v.writeMessage(websocket.BinaryMessage, msg); err != nil {
+		v.logger.Debug("cursor name message failed", "err", err)
+		return
+	}
+
+	v.logger.Info("cursor name sent", "name", cursorName, "hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY), "lastMoverID", lastMoverID)
+}
+
 // monitorCursorPipeWire monitors cursor changes for GNOME desktops.
 // Uses a GNOME Shell extension that sends cursor data via Unix socket.
 // The extension listens to Meta.CursorTracker.cursor-changed signal and pushes
@@ -978,25 +1014,32 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 	startTime := time.Now()
 
 	// Set callback for cursor updates from GNOME Shell extension
-	listener.SetCallback(func(hotspotX, hotspotY, width, height int, pixels []byte) {
+	listener.SetCallback(func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string) {
 		receivedCursor.Store(true)
 		v.logger.Debug("cursor update from GNOME extension",
 			"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
 			"size", fmt.Sprintf("%dx%d", width, height),
-			"pixels_len", len(pixels))
+			"pixels_len", len(pixels),
+			"cursor_name", cursorName)
 
-		// Convert to callback format
-		// Position is not tracked by GNOME extension (frontend tracks position client-side)
-		// GNOME Shell extension uses Cogl.PixelFormat.RGBA_8888 which is R,G,B,A byte order
-		// Use DRM_FORMAT_RGBA8888 (0x34324152) which the frontend handles with direct copy
-		callback(
-			0, 0, // Position not available from extension
-			int32(hotspotX), int32(hotspotY),
-			uint32(width), uint32(height),
-			int32(width*4), // stride = width * 4 bytes per pixel
-			0x34324152,     // DRM_FORMAT_RGBA8888 - matches Cogl RGBA_8888 byte order
-			pixels,
-		)
+		// If we have pixel data, send cursor image
+		if len(pixels) > 0 {
+			// Convert to callback format
+			// Position is not tracked by GNOME extension (frontend tracks position client-side)
+			// GNOME Shell extension uses Cogl.PixelFormat.RGBA_8888 which is R,G,B,A byte order
+			// Use DRM_FORMAT_RGBA8888 (0x34324152) which the frontend handles with direct copy
+			callback(
+				0, 0, // Position not available from extension
+				int32(hotspotX), int32(hotspotY),
+				uint32(width), uint32(height),
+				int32(width*4), // stride = width * 4 bytes per pixel
+				0x34324152,     // DRM_FORMAT_RGBA8888 - matches Cogl RGBA_8888 byte order
+				pixels,
+			)
+		} else if cursorName != "" {
+			// No pixels available - send cursor name for CSS fallback rendering
+			v.sendCursorName(cursorName, int32(hotspotX), int32(hotspotY))
+		}
 	})
 
 	// Start the listener in background

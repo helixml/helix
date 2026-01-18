@@ -652,6 +652,38 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
 COPY desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
 RUN chmod -R a+rX /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
 
+# Helix-Invisible cursor theme - transparent cursors with unique hotspots
+# Each cursor type has a unique (hotspotX, hotspotY) position, allowing the
+# helix-cursor extension to identify cursor shapes via fingerprinting when
+# actual pixel data is unavailable in headless mode.
+COPY desktop/ubuntu-config/helix-cursors/generate-cursors.sh /tmp/generate-cursors.sh
+RUN <<_INSTALL_CURSOR_THEME
+set -e
+echo "=== Generating Helix-Invisible cursor theme ==="
+
+# Install cursor generation tools
+# xcursorgen is in x11-apps package
+apt-get update
+apt-get install -y --no-install-recommends x11-apps imagemagick
+
+# Run the generation script
+chmod +x /tmp/generate-cursors.sh
+/tmp/generate-cursors.sh
+
+# Install the theme to system icons directory
+mv /tmp/Helix-Invisible /usr/share/icons/Helix-Invisible
+
+# Cleanup
+rm /tmp/generate-cursors.sh
+apt-get remove -y imagemagick
+apt-get autoremove -y
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== Helix-Invisible cursor theme installed ==="
+ls -la /usr/share/icons/Helix-Invisible/cursors/ | head -20
+_INSTALL_CURSOR_THEME
+
 # ====================================================================
 # Ghostty Terminal - modern GPU-accelerated terminal with blur support
 # ====================================================================

@@ -21,18 +21,19 @@ const (
 
 // CursorSocketMessage is the JSON message format from the GNOME Shell extension
 type CursorSocketMessage struct {
-	HotspotX int    `json:"hotspot_x"`
-	HotspotY int    `json:"hotspot_y"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	Pixels   string `json:"pixels"` // Base64 encoded ARGB pixel data
+	HotspotX   int    `json:"hotspot_x"`
+	HotspotY   int    `json:"hotspot_y"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	Pixels     string `json:"pixels"`      // Base64 encoded RGBA pixel data
+	CursorName string `json:"cursor_name"` // CSS cursor name (fallback when pixels unavailable)
 }
 
 // CursorSocketListener listens for cursor updates from the GNOME Shell extension
 type CursorSocketListener struct {
 	listener net.Listener
 	logger   *slog.Logger
-	callback func(hotspotX, hotspotY, width, height int, pixels []byte)
+	callback func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string)
 	mu       sync.Mutex
 	running  bool
 }
@@ -70,7 +71,7 @@ func NewCursorSocketListener(logger *slog.Logger) (*CursorSocketListener, error)
 }
 
 // SetCallback sets the callback for cursor updates
-func (c *CursorSocketListener) SetCallback(callback func(hotspotX, hotspotY, width, height int, pixels []byte)) {
+func (c *CursorSocketListener) SetCallback(callback func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.callback = callback
@@ -142,7 +143,8 @@ func (c *CursorSocketListener) handleConnection(conn net.Conn) {
 		c.logger.Info("cursor update from extension",
 			"hotspot", [2]int{msg.HotspotX, msg.HotspotY},
 			"size", [2]int{msg.Width, msg.Height},
-			"pixels_len", len(pixels))
+			"pixels_len", len(pixels),
+			"cursor_name", msg.CursorName)
 
 		// Call callback
 		c.mu.Lock()
@@ -150,7 +152,7 @@ func (c *CursorSocketListener) handleConnection(conn net.Conn) {
 		c.mu.Unlock()
 
 		if callback != nil {
-			callback(msg.HotspotX, msg.HotspotY, msg.Width, msg.Height, pixels)
+			callback(msg.HotspotX, msg.HotspotY, msg.Width, msg.Height, pixels, msg.CursorName)
 		}
 	}
 }

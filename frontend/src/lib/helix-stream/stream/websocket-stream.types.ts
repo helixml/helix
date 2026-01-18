@@ -29,6 +29,7 @@ export const WsMessageType = {
   Pong: 0x41,
   // Cursor message types (server → client)
   CursorImage: 0x50,      // Cursor image data when cursor changes
+  CursorName: 0x51,       // CSS cursor name for fallback rendering
   // Multi-user cursor message types (server → all clients)
   RemoteCursor: 0x53,     // Remote user cursor position
   RemoteUser: 0x54,       // Remote user joined/left
@@ -49,6 +50,7 @@ export interface CursorImageData {
   width: number
   height: number
   imageUrl: string  // data URL or blob URL for the cursor image
+  cursorName?: string  // CSS cursor name for fallback rendering when pixels unavailable
 }
 
 // Remote user info for multi-player cursors
@@ -101,6 +103,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "addDebugLine"; line: string }
   // Cursor events
   | { type: "cursorImage"; cursor: CursorImageData; lastMoverID?: number }
+  | { type: "cursorName"; cursorName: string; hotspotX: number; hotspotY: number; lastMoverID?: number }
   | { type: "cursorPosition"; x: number; y: number; hotspotX: number; hotspotY: number }
   // Multi-player cursor events
   | { type: "remoteCursor"; cursor: RemoteCursorPosition }

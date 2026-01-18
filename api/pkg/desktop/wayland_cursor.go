@@ -259,10 +259,16 @@ extern void goWaylandCursorCallback(WlCursorInfo *info, void *userdata);
 // Cursor session events
 static int cursor_callback_count = 0;
 
+// Forward declaration for frame capture
+static int wl_cursor_client_capture_frame(WlCursorClient *client);
+
 static void cursor_session_enter(void *data, struct ext_image_copy_capture_cursor_session_v1 *session) {
     WlCursorClient *client = (WlCursorClient *)data;
     client->cursor.in_area = 1;
     fprintf(stderr, "[WAYLAND_CURSOR] Cursor entered capture area\n");
+
+    // Request initial cursor frame when cursor enters
+    wl_cursor_client_capture_frame(client);
 }
 
 static void cursor_session_leave(void *data, struct ext_image_copy_capture_cursor_session_v1 *session) {
@@ -279,30 +285,38 @@ static void cursor_session_leave(void *data, struct ext_image_copy_capture_curso
 
 static void cursor_session_position(void *data, struct ext_image_copy_capture_cursor_session_v1 *session, int32_t x, int32_t y) {
     WlCursorClient *client = (WlCursorClient *)data;
-    int32_t old_x = client->cursor.pos_x;
-    int32_t old_y = client->cursor.pos_y;
     client->cursor.pos_x = x;
     client->cursor.pos_y = y;
 
-    // Trigger callback on position change (not just hotspot)
-    if (client->callback && client->cursor.in_area && (x != old_x || y != old_y)) {
-        cursor_callback_count++;
-        if (cursor_callback_count <= 5 || cursor_callback_count % 100 == 0) {
-            fprintf(stderr, "[WAYLAND_CURSOR] cursor position: (%d,%d) callback #%d\n", x, y, cursor_callback_count);
-        }
-        client->callback(&client->cursor, client->userdata);
-    }
+    // DON'T trigger callback from position events - position is tracked locally in frontend.
+    // Only frame_ready events should trigger callbacks, ensuring hotspot and bitmap are atomically updated.
+    // Sending here would cause hotspot/bitmap mismatch when cursor shape is changing.
 }
 
 static void cursor_session_hotspot(void *data, struct ext_image_copy_capture_cursor_session_v1 *session, int32_t x, int32_t y) {
     WlCursorClient *client = (WlCursorClient *)data;
+    int32_t old_x = client->cursor.hotspot_x;
+    int32_t old_y = client->cursor.hotspot_y;
     client->cursor.hotspot_x = x;
     client->cursor.hotspot_y = y;
 
-    // When hotspot changes, trigger a callback with current state
-    if (client->callback && client->cursor.in_area) {
-        client->callback(&client->cursor, client->userdata);
-    }
+    // The compositor sends 'hotspot' whenever the cursor SHAPE changes, regardless of
+    // whether the hotspot position is different from the previous cursor.
+    // Two different cursor shapes can have the same hotspot (e.g., both at 0,0).
+    //
+    // ALWAYS request an immediate frame capture when we receive hotspot event,
+    // because this indicates the cursor shape has changed and we need the new bitmap.
+    //
+    // DON'T trigger callback here - wait for frame_ready which includes the bitmap
+    // so we send hotspot and bitmap atomically together.
+
+    static int hotspot_event_count = 0;
+    hotspot_event_count++;
+    fprintf(stderr, "[WAYLAND_CURSOR] Hotspot event #%d: (%d,%d) -> (%d,%d)%s\n",
+        hotspot_event_count, old_x, old_y, x, y,
+        (old_x == x && old_y == y) ? " (SAME - would have been missed before!)" : "");
+
+    wl_cursor_client_capture_frame(client);
 }
 
 // Listener struct for cursor session
