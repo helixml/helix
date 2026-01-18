@@ -987,14 +987,14 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 
 		// Convert to callback format
 		// Position is not tracked by GNOME extension (frontend tracks position client-side)
-		// Format is ARGB_8888 (0x34325241 = 'RA24' in little endian, but GNOME uses ARGB)
-		// Use standard ARGB format code
+		// GNOME Shell extension uses Cogl.PixelFormat.RGBA_8888 which is R,G,B,A byte order
+		// Use DRM_FORMAT_RGBA8888 (0x34324152) which the frontend handles with direct copy
 		callback(
 			0, 0, // Position not available from extension
 			int32(hotspotX), int32(hotspotY),
 			uint32(width), uint32(height),
 			int32(width*4), // stride = width * 4 bytes per pixel
-			0x34325241,     // ARGB_8888 format (matches what frontend expects)
+			0x34324152,     // DRM_FORMAT_RGBA8888 - matches Cogl RGBA_8888 byte order
 			pixels,
 		)
 	})
