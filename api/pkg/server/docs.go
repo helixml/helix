@@ -11018,6 +11018,59 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a spec task",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Delete a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/spec-tasks/{taskId}/approve-specs": {
@@ -20198,7 +20251,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "state": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.PullRequestState"
                 },
                 "target_branch": {
                     "type": "string"
@@ -20213,6 +20266,21 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.PullRequestState": {
+            "type": "string",
+            "enum": [
+                "open",
+                "closed",
+                "merged",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "PullRequestStateOpen",
+                "PullRequestStateClosed",
+                "PullRequestStateMerged",
+                "PullRequestStateUnknown"
+            ]
         },
         "types.PullResponse": {
             "type": "object",

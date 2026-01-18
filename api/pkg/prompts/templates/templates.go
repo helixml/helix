@@ -12,3 +12,6 @@ var RagTemplate string
 
 //go:embed finetuning.tmpl
 var FinetuningTemplate string
+
+//go:embed agent_implementation_approved_push.tmpl
+var ImplementationApprovedPushPrompt string

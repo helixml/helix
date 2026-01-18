@@ -2388,3 +2388,20 @@ func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, git
 		return nil
 	}
 }
+
+func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		return fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, pullRequestID)
+	case types.ExternalRepositoryTypeGitHub:
+		// Repo the suffix .git if it's there
+		repoURL := strings.TrimSuffix(repo.ExternalURL, ".git")
+
+		return fmt.Sprintf("%s/pull/%s", repoURL, pullRequestID)
+	case types.ExternalRepositoryTypeGitLab:
+		return fmt.Sprintf("%s/merge_requests/%s", repo.ExternalURL, pullRequestID)
+	case types.ExternalRepositoryTypeBitbucket:
+		return fmt.Sprintf("%s/pull-requests/%s", repo.ExternalURL, pullRequestID)
+	}
+	return ""
+}

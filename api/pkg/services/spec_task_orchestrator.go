@@ -123,7 +123,10 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 		case <-ticker.C:
 			o.processTasks(ctx)
 		case task := <-taskCh:
-			o.processTask(ctx, task)
+			err := o.processTask(ctx, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to process task")
+			}
 		}
 	}
 }
@@ -423,13 +426,13 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	}
 
 	switch pr.State {
-	case "active":
+	case types.PullRequestStateOpen:
 		// Active - still open, nothing to do
 		log.Debug().
 			Str("task_id", task.ID).
 			Str("pr_id", task.PullRequestID).
 			Msg("PR still active, awaiting merge")
-	case "completed":
+	case types.PullRequestStateMerged:
 		// PR merged - move to done
 		now := time.Now()
 		task.Status = types.TaskStatusDone
@@ -442,7 +445,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			Str("pr_id", task.PullRequestID).
 			Msg("PR merged! Moving task to done")
 		return o.store.UpdateSpecTask(ctx, task)
-	case "abandoned":
+	case types.PullRequestStateClosed:
 		// PR abandoned - archive the task
 		task.Archived = true
 		task.UpdatedAt = time.Now()
@@ -451,6 +454,15 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			Str("pr_id", task.PullRequestID).
 			Msg("PR abandoned, archiving task")
 		return o.store.UpdateSpecTask(ctx, task)
+	case types.PullRequestStateUnknown:
+		// PR state unknown - don't know what to do
+		log.Warn().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Str("pr_state", string(pr.State)).
+			Str("repository_id", project.DefaultRepoID).
+			Msg("PR state unknown, skipping")
+		return nil
 	}
 
 	return nil
@@ -463,7 +475,7 @@ func (o *SpecTaskOrchestrator) prPollLoop(ctx context.Context) {
 	// Use configured interval or default to 1 minute
 	interval := o.prPollInterval
 	if interval == 0 {
-		interval = 1 * time.Minute
+		interval = 30 * time.Second
 	}
 
 	ticker := time.NewTicker(interval)
