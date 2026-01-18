@@ -80,21 +80,26 @@ func (c *CursorSocketListener) SetCallback(callback func(hotspotX, hotspotY, wid
 func (c *CursorSocketListener) Run(ctx context.Context) {
 	c.logger.Info("starting cursor socket listener")
 
-	for {
-		select {
-		case <-ctx.Done():
-			c.logger.Info("cursor socket listener stopping (context done)")
-			return
-		default:
+	// Use a goroutine to close listener when context is cancelled
+	// This unblocks the blocking Accept() call
+	go func() {
+		<-ctx.Done()
+		c.mu.Lock()
+		c.running = false
+		c.mu.Unlock()
+		if c.listener != nil {
+			c.listener.Close()
 		}
+	}()
 
-		// Accept connection (non-blocking check via SetDeadline would be better but this works)
+	for {
 		conn, err := c.listener.Accept()
 		if err != nil {
 			c.mu.Lock()
 			running := c.running
 			c.mu.Unlock()
 			if !running {
+				c.logger.Info("cursor socket listener stopping (context done)")
 				return
 			}
 			c.logger.Debug("cursor socket accept error", "err", err)
