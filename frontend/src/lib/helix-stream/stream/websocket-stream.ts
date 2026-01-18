@@ -2590,11 +2590,13 @@ export class WebSocketStream {
               dst[dstIdx + 3] = pixelData[srcIdx + 3]
               break
             case DRM_FORMAT_ABGR8888:
-              // ABGR -> RGBA
-              dst[dstIdx + 0] = pixelData[srcIdx + 3]  // R
-              dst[dstIdx + 1] = pixelData[srcIdx + 2]  // G
-              dst[dstIdx + 2] = pixelData[srcIdx + 1]  // B
-              dst[dstIdx + 3] = pixelData[srcIdx + 0]  // A
+              // ABGR8888 on little-endian: bytes are R, G, B, A (same as Canvas)
+              // DRM format name describes bit layout in 32-bit word, not byte order
+              // Bits [31:24]=A, [23:16]=B, [15:8]=G, [7:0]=R -> bytes: R, G, B, A
+              dst[dstIdx + 0] = pixelData[srcIdx + 0]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 2]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]  // A
               break
             default:
               // Assume ARGB as default
