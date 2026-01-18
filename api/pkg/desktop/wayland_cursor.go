@@ -881,7 +881,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -1010,25 +1009,26 @@ func (w *WaylandCursorClient) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to start cursor tracking")
 	}
 
-	// Main loop
-	ticker := time.NewTicker(100 * time.Millisecond) // Capture cursor bitmap periodically
-	defer ticker.Stop()
-
+	// Main loop - event driven with periodic fallback
+	// The C code uses poll() with 16ms timeout to wait for Wayland events
+	// We just need to call iterate in a loop, checking for stop signals
 	for {
+		// Check for stop signals first (non-blocking)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-w.stopCh:
 			return nil
-		case <-ticker.C:
-			// Request cursor frame capture
-			C.wl_cursor_client_capture_frame(w.client)
 		default:
-			// Process Wayland events
-			result := C.wl_cursor_client_iterate(w.client)
-			if result != 0 {
-				return fmt.Errorf("wayland event loop error")
-			}
+			// Continue processing
+		}
+
+		// Process Wayland events (blocks up to 16ms in poll)
+		// This is event-driven - cursor shape changes trigger hotspot events
+		// which automatically request frame captures
+		result := C.wl_cursor_client_iterate(w.client)
+		if result != 0 {
+			return fmt.Errorf("wayland event loop error")
 		}
 	}
 }
