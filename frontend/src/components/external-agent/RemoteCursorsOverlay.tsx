@@ -75,8 +75,6 @@ const RemoteCursorsOverlay: React.FC<RemoteCursorsOverlayProps> = ({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'flex-start',
-              transition: 'left 0.1s ease-out, top 0.1s ease-out',
-              willChange: 'left, top',
             }}
           >
             {/* Cursor - uses shared CursorRenderer for consistent appearance */}
