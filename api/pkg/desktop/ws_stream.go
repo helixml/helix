@@ -585,7 +585,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", getGOPSize(), v.config.Bitrate),
 			"h264parse",
-			"video/x-h264,profile=main,stream-format=byte-stream",
+			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
 
 	case "vaapi":
@@ -606,7 +606,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
-			"video/x-h264,profile=main,stream-format=byte-stream",
+			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
 
 	case "vaapi-lp":
@@ -623,7 +623,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
 				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			"h264parse",
-			"video/x-h264,profile=main,stream-format=byte-stream",
+			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
 
 	case "vaapi-legacy":
