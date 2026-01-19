@@ -1030,8 +1030,14 @@ fn run_pipewire_loop(
     // Main loop: iterate PipeWire events
     // set_active(true) is called in the state_changed callback when entering Paused state
     // (gnome-remote-desktop pattern: call set_active BEFORE format negotiation)
+    //
+    // CRITICAL: Use 1ms poll interval for low-latency frame delivery.
+    // With 50ms, typing latency on static screens was 1-2 seconds because:
+    // - Mutter's pending_process flag blocks subsequent damage until on_stream_process fires
+    // - on_stream_process only fires when WE dequeue and return buffers
+    // - Slow polling delays buffer return, blocking Mutter's frame clock
     while !shutdown.load(Ordering::SeqCst) {
-        mainloop.loop_().iterate(Duration::from_millis(50));
+        mainloop.loop_().iterate(Duration::from_millis(1));
     }
 
     Ok(())

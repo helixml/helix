@@ -379,6 +379,54 @@ PINEOF
 
 _INSTALL_BASE
 
+# ====================================================================
+# Whisper.cpp - Local speech-to-text for voice input
+# ====================================================================
+# Provides voice transcription without external API calls.
+# CPU-only build (CUDA would require toolkit installation).
+# Placed early in Dockerfile for better layer caching.
+RUN <<_INSTALL_WHISPER
+set -e
+echo "=== Installing whisper.cpp ==="
+
+# Install build dependencies
+apt-get update
+apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libcurl4-openssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build whisper.cpp (CPU-only)
+cd /tmp
+git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp
+
+echo "Building whisper.cpp (CPU-only)"
+cmake -B build
+cmake --build build --config Release -j$(nproc)
+
+# Install binaries and shared libraries
+cp build/bin/whisper-cli /usr/local/bin/whisper
+cp build/bin/whisper-server /usr/local/bin/whisper-server 2>/dev/null || true
+chmod +x /usr/local/bin/whisper*
+
+# Install shared libraries
+cp build/src/libwhisper.so* /usr/local/lib/ 2>/dev/null || true
+cp build/ggml/src/libggml*.so* /usr/local/lib/ 2>/dev/null || true
+ldconfig
+
+# Download base.en model
+mkdir -p /usr/share/whisper/models
+cd /usr/share/whisper/models
+curl -L -o ggml-base.en.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+
+rm -rf /tmp/whisper.cpp
+echo "=== Whisper.cpp installed ==="
+whisper --help | head -5 || echo "Whisper CLI installed"
+_INSTALL_WHISPER
+
 # Enable the keyboard layout fix - this tells wlroots to preserve Sway's
 # own keyboard layout instead of syncing to the parent compositor's layout.
 ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
@@ -773,48 +821,3 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
 ENV NVD_BACKEND=direct \
     MOZ_DISABLE_RDD_SANDBOX=1
 
-# ====================================================================
-# Whisper.cpp - Local speech-to-text for voice input
-# ====================================================================
-# Provides voice transcription without external API calls.
-# CPU-only build (CUDA would require toolkit installation).
-RUN <<_INSTALL_WHISPER
-set -e
-echo "=== Installing whisper.cpp ==="
-
-# Install build dependencies
-apt-get update
-apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    libcurl4-openssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone and build whisper.cpp (CPU-only)
-cd /tmp
-git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
-cd whisper.cpp
-
-echo "Building whisper.cpp (CPU-only)"
-cmake -B build
-cmake --build build --config Release -j$(nproc)
-
-# Install binaries and shared libraries
-cp build/bin/whisper-cli /usr/local/bin/whisper
-cp build/bin/whisper-server /usr/local/bin/whisper-server 2>/dev/null || true
-chmod +x /usr/local/bin/whisper*
-
-# Install shared libraries
-cp build/src/libwhisper.so* /usr/local/lib/ 2>/dev/null || true
-cp build/ggml/src/libggml*.so* /usr/local/lib/ 2>/dev/null || true
-ldconfig
-
-# Download base.en model
-mkdir -p /usr/share/whisper/models
-cd /usr/share/whisper/models
-curl -L -o ggml-base.en.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-
-rm -rf /tmp/whisper.cpp
-echo "=== Whisper.cpp installed ==="
-whisper --help | head -5 || echo "Whisper CLI installed"
-_INSTALL_WHISPER

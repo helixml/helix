@@ -223,6 +223,57 @@ PINEOF
 
 _INSTALL_BASE
 
+# ====================================================================
+# Whisper.cpp - Local speech-to-text for voice input
+# ====================================================================
+# Provides CPU-based transcription for the voice input feature.
+# Uses the base.en model for fast English transcription (~1-2s for 10s audio).
+# The desktop-bridge /voice endpoint uses this for speech-to-text.
+# Placed early in Dockerfile for better layer caching.
+RUN <<_INSTALL_WHISPER
+set -e
+echo "=== Installing whisper.cpp ==="
+
+# Install build dependencies
+apt-get update
+apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libcurl4-openssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build whisper.cpp (CPU-only)
+cd /tmp
+git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp
+
+echo "Building whisper.cpp (CPU-only)"
+cmake -B build
+cmake --build build --config Release -j$(nproc)
+
+# Install binaries and shared libraries
+cp build/bin/whisper-cli /usr/local/bin/whisper
+cp build/bin/whisper-server /usr/local/bin/whisper-server 2>/dev/null || true
+chmod +x /usr/local/bin/whisper*
+
+# Install shared libraries (whisper depends on libwhisper, libggml)
+cp build/src/libwhisper.so* /usr/local/lib/ 2>/dev/null || true
+cp build/ggml/src/libggml*.so* /usr/local/lib/ 2>/dev/null || true
+ldconfig
+
+# Download base.en model (small, fast, English-only)
+mkdir -p /usr/share/whisper/models
+cd /usr/share/whisper/models
+curl -L -o ggml-base.en.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+
+# Cleanup
+rm -rf /tmp/whisper.cpp
+
+echo "=== Whisper.cpp installed ==="
+whisper --help | head -5 || echo "Whisper CLI installed"
+_INSTALL_WHISPER
+
 # WirePlumber configuration to disable stream suspension
 # PipeWire/WirePlumber suspends streams after 5 seconds of "inactivity" by default.
 # This causes ScreenCast video streams to stop producing frames, breaking Wolf video capture.
@@ -736,54 +787,4 @@ ADD desktop/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
 
 # Compile the dconf database
 RUN dconf update
-
-# ====================================================================
-# Whisper.cpp - Local speech-to-text for voice input
-# ====================================================================
-# Provides GPU-accelerated transcription for the voice input feature.
-# Uses the base.en model for fast English transcription (~1-2s for 10s audio).
-# The desktop-bridge /voice endpoint uses this for speech-to-text.
-RUN <<_INSTALL_WHISPER
-set -e
-echo "=== Installing whisper.cpp ==="
-
-# Install build dependencies
-apt-get update
-apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    libcurl4-openssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone and build whisper.cpp (CPU-only)
-# CUDA support would require installing CUDA toolkit in the container
-cd /tmp
-git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
-cd whisper.cpp
-
-echo "Building whisper.cpp (CPU-only)"
-cmake -B build
-cmake --build build --config Release -j$(nproc)
-
-# Install binaries and shared libraries
-cp build/bin/whisper-cli /usr/local/bin/whisper
-cp build/bin/whisper-server /usr/local/bin/whisper-server 2>/dev/null || true
-chmod +x /usr/local/bin/whisper*
-
-# Install shared libraries (whisper depends on libwhisper, libggml)
-cp build/src/libwhisper.so* /usr/local/lib/ 2>/dev/null || true
-cp build/ggml/src/libggml*.so* /usr/local/lib/ 2>/dev/null || true
-ldconfig
-
-# Download base.en model (small, fast, English-only)
-mkdir -p /usr/share/whisper/models
-cd /usr/share/whisper/models
-curl -L -o ggml-base.en.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-
-# Cleanup
-rm -rf /tmp/whisper.cpp
-
-echo "=== Whisper.cpp installed ==="
-whisper --help | head -5 || echo "Whisper CLI installed"
-_INSTALL_WHISPER
 

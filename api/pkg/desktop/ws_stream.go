@@ -488,7 +488,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 					bufferType = "dmabuf"
 				}
 
-				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
+				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
 					v.nodeID, captureSource, bufferType)
 				// Add render-node for multi-GPU systems
 				if renderNode := getRenderDevice(); renderNode != "" {
