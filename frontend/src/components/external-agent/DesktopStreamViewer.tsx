@@ -85,6 +85,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
   const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
@@ -2736,8 +2737,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isConnected, resetInputState]);
 
   // Focus container when clicking anywhere in the viewer
+  // On touch devices (iOS/iPad), focus the hidden input to trigger virtual keyboard
   const handleContainerClick = useCallback(() => {
-    if (containerRef.current) {
+    // Detect touch device - iOS/iPad needs hidden input focused to show keyboard
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    if (isTouchDevice && hiddenInputRef.current) {
+      // Focus hidden input to trigger iOS/iPad virtual keyboard
+      hiddenInputRef.current.focus();
+      console.log('[DesktopStreamViewer] Touch device detected - focused hidden input for keyboard');
+    } else if (containerRef.current) {
       containerRef.current.focus();
     }
   }, []);
@@ -2783,6 +2792,60 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
       }}
     >
+      {/* Hidden input for iOS/iPad virtual keyboard support */}
+      {/* iOS only shows keyboard when an actual input element is focused */}
+      <input
+        ref={hiddenInputRef}
+        type="text"
+        inputMode="text"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        style={{
+          position: 'absolute',
+          left: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0,
+          pointerEvents: 'none',
+        }}
+        onKeyDown={(e) => {
+          // Forward keyboard events to the stream input handler
+          console.log('[DesktopStreamViewer] Hidden input keydown:', e.key, e.code);
+          const input = streamRef.current?.getInput();
+          if (input) {
+            input.onKeyDown(e.nativeEvent);
+          }
+          e.preventDefault();
+        }}
+        onKeyUp={(e) => {
+          console.log('[DesktopStreamViewer] Hidden input keyup:', e.key, e.code);
+          const input = streamRef.current?.getInput();
+          if (input) {
+            input.onKeyUp(e.nativeEvent);
+          }
+          e.preventDefault();
+        }}
+        onInput={(e) => {
+          // Handle text input from virtual keyboard (iOS sends input events, not keydown)
+          const inputEvent = e.nativeEvent as InputEvent;
+          const data = inputEvent.data;
+          if (data) {
+            console.log('[DesktopStreamViewer] Hidden input text:', data);
+            const input = streamRef.current?.getInput();
+            if (input) {
+              // Send each character as a key event
+              for (const char of data) {
+                input.sendText(char);
+              }
+            }
+          }
+          // Clear the input to prevent accumulation
+          (e.target as HTMLInputElement).value = '';
+        }}
+      />
+
       {/* Toolbar - always visible so user can reconnect/access controls */}
       {/* z-index 1100 ensures toolbar is above connection overlay (z-index 1000) */}
       <Box
