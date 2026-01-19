@@ -225,15 +225,32 @@ func TestInjectAvailableModels(t *testing.T) {
 			providerConfig := languageModels[tt.wantProvider].(map[string]interface{})
 			availableModels := providerConfig["available_models"].([]interface{})
 
+			// Helper to get model name from either map or struct
+			getModelName := func(m interface{}) string {
+				if model, ok := m.(map[string]interface{}); ok {
+					return model["name"].(string)
+				}
+				if model, ok := m.(AvailableModel); ok {
+					return model.Name
+				}
+				return ""
+			}
+
 			// Find the model
 			found := false
 			for _, m := range availableModels {
-				model := m.(map[string]interface{})
-				if model["name"] == tt.wantModel {
+				if getModelName(m) == tt.wantModel {
 					found = true
-					assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
-					assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
-					assert.NotNil(t, model["max_output_tokens"], "max_output_tokens should be set")
+					// Check fields based on type
+					if model, ok := m.(AvailableModel); ok {
+						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
+						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
+						assert.NotZero(t, model.MaxOutputTokens, "max_output_tokens should be set")
+					} else if model, ok := m.(map[string]interface{}); ok {
+						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
+						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
+						assert.NotNil(t, model["max_output_tokens"], "max_output_tokens should be set")
+					}
 					break
 				}
 			}
@@ -243,8 +260,7 @@ func TestInjectAvailableModels(t *testing.T) {
 			if tt.name == "does not duplicate model if already exists" {
 				count := 0
 				for _, m := range availableModels {
-					model := m.(map[string]interface{})
-					if model["name"] == tt.wantModel {
+					if getModelName(m) == tt.wantModel {
 						count++
 					}
 				}
