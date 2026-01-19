@@ -38,8 +38,7 @@ import ChartsPanel from './ChartsPanel';
 import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
-// CursorRenderer is used by RemoteCursorsOverlay for glowing remote user cursors
-// Local cursor uses native CSS cursor property instead
+import CursorRenderer from './CursorRenderer';
 
 // Default cursor - standard arrow pointer as SVG data URL
 // Used until server sends the actual cursor image
@@ -2743,19 +2742,36 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isConnected, resetInputState]);
 
   // Focus container when clicking anywhere in the viewer
-  // On touch devices (iOS/iPad), focus the hidden input to trigger virtual keyboard
+  // On touch devices (iOS/iPad), show/hide virtual keyboard based on cursor type
   const handleContainerClick = useCallback(() => {
     // Detect touch device - iOS/iPad needs hidden input focused to show keyboard
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     if (isTouchDevice && hiddenInputRef.current) {
-      // Focus hidden input to trigger iOS/iPad virtual keyboard
-      hiddenInputRef.current.focus();
-      console.log('[DesktopStreamViewer] Touch device detected - focused hidden input for keyboard');
+      // Check if cursor is a text cursor (indicates text field is focused in remote desktop)
+      // Text cursors: 'text', 'vertical-text', or cursorName containing 'text' or 'xterm'
+      const isTextCursor = cursorCssName === 'text' ||
+        cursorCssName === 'vertical-text' ||
+        cursorImage?.cursorName === 'text' ||
+        cursorImage?.cursorName === 'vertical-text' ||
+        cursorImage?.cursorName?.includes('xterm') ||
+        cursorImage?.cursorName?.includes('ibeam');
+
+      if (isTextCursor) {
+        // Focus hidden input to trigger iOS/iPad virtual keyboard
+        hiddenInputRef.current.focus();
+        console.log('[DesktopStreamViewer] Text cursor detected - showing virtual keyboard');
+      } else {
+        // Blur hidden input to dismiss virtual keyboard
+        hiddenInputRef.current.blur();
+        // Focus container for keyboard events (hardware keyboard still works)
+        containerRef.current?.focus();
+        console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard');
+      }
     } else if (containerRef.current) {
       containerRef.current.focus();
     }
-  }, []);
+  }, [cursorCssName, cursorImage]);
 
   // Compute native CSS cursor style from cursor image or CSS name
   // Local user sees native cursor (no glowing overlay), remote users see glowing cursors
@@ -2871,7 +2887,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           display: 'flex',
           gap: 1,
           cursor: 'default', // Show normal cursor in toolbar for usability
+          pointerEvents: 'auto', // Ensure toolbar captures pointer events on iPad
         }}
+        onClick={(e) => e.stopPropagation()} // Prevent clicks from reaching canvas
+        onPointerDown={(e) => e.stopPropagation()} // Prevent pointer events from reaching canvas
       >
         <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
@@ -3287,6 +3306,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Transparent in screenshot mode so overlays are visible, but still captures input
           opacity: qualityMode === 'video' ? 1 : 0,
           zIndex: 20,
+          // Prevent browser from handling touch gestures (no scroll, pan, zoom)
+          // This ensures all touch events go to our handlers
+          touchAction: 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -3431,6 +3453,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         streamWidth={width}
         streamHeight={height}
       />
+
+      {/* Local cursor for trackpad mode on touch devices (iPad) */}
+      {/* Native CSS cursor doesn't work well on iPad, so we render an overlay cursor */}
+      {isConnected && touchMode === 'trackpad' && hasTouchCapability && cursorVisible && (
+        <CursorRenderer
+          x={cursorPosition.x}
+          y={cursorPosition.y}
+          cursorImage={cursorImage}
+          cursorCssName={cursorCssName}
+          showDebugDot={false}
+        />
+      )}
 
       {/* AI Agent cursor */}
       <AgentCursorOverlay
