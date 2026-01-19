@@ -305,6 +305,15 @@ pub struct State {
     drm_format_string: Option<String>,
     timing: TimingStats,
     // Note: buffer_pool is now in CudaResources, passed to PipeWire thread
+
+    // DECODER FLUSH HACK: Duplicate frames when rate drops to flush browser's WebCodecs decoder buffer.
+    // Chrome's H.264 decoder buffers 1-2 frames waiting for potential reordering.
+    // When we detect the rate dropping, we rapid-fire 4 copies to flush the buffer.
+    // The encoder encodes duplicates as near-empty skip P-frames (very efficient).
+    // See: design/2026-01-19-decoder-flush-hack.md
+    frame_repeat_remaining: u32,
+    last_frame_time: Option<std::time::Instant>,
+    last_frame_interval: Duration,
 }
 
 impl Default for State {
@@ -319,6 +328,9 @@ impl Default for State {
             dmabuf_allocator: None,
             drm_format_string: None,
             timing: TimingStats::default(),
+            frame_repeat_remaining: 0,
+            last_frame_time: None,
+            last_frame_interval: Duration::from_millis(16), // Default ~60fps
         }
     }
 }
@@ -791,34 +803,92 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         &self,
         _buffer: Option<&mut gst::BufferRef>,
     ) -> Result<CreateSuccess, gst::FlowError> {
-        let (cuda_context, keepalive_time_ms) = {
+        let (cuda_context, keepalive_time_ms, target_fps) = {
             let s = self.settings.lock();
-            (s.cuda_context.clone(), s.keepalive_time_ms)
+            (s.cuda_context.clone(), s.keepalive_time_ms, s.target_fps)
         };
+        let target_interval = Duration::from_micros(1_000_000 / target_fps.max(1) as u64);
 
         let mut g = self.state.lock();
         let state = g.as_mut().ok_or(gst::FlowError::Eos)?;
         let stream = state.stream.as_ref().ok_or(gst::FlowError::Error)?;
 
-        // Timeout: 30s for first frame, keepalive_time_ms for subsequent
+        // === DECODER FLUSH HACK ===
+        // When frame rate drops, rapid-fire 4 copies to flush browser's WebCodecs decoder buffer.
+        // If we have repeats pending, return them immediately without waiting for PipeWire.
+        // The encoder encodes these as near-empty skip P-frames (identical pixels = no residual).
+        if state.frame_repeat_remaining > 0 && state.last_buffer.is_some() {
+            let remaining = state.frame_repeat_remaining;
+            state.frame_repeat_remaining -= 1;
+            eprintln!("[DECODER_FLUSH] Sending flush frame {}/4", 4 - remaining + 1);
+            let buf = state.last_buffer.as_ref().unwrap().copy();
+            state.frame_count += 1;
+            drop(g);
+            return Ok(CreateSuccess::NewBuffer(buf));
+        }
+
         let has_last = state.last_buffer.is_some();
+
+        // SMART TIMEOUT STRATEGY:
+        // 1. First frame: wait up to 30s
+        // 2. Subsequent frames: wait for last_frame_interval (adaptive to actual frame rate)
+        // 3. If timeout: queue 4 flush frames to clear decoder buffer, then use keepalive_time
         let timeout = if !has_last {
             Duration::from_secs(30)
-        } else if keepalive_time_ms > 0 {
-            Duration::from_millis(keepalive_time_ms as u64)
         } else {
-            Duration::from_secs(30)
+            // Wait for expected next frame based on recent cadence
+            // Add small buffer (20%) to avoid false triggers on jitter
+            let expected_interval = state.last_frame_interval + state.last_frame_interval / 5;
+            // Cap at 100ms to ensure responsive flush even at very low frame rates
+            expected_interval.min(Duration::from_millis(100))
         };
 
         let frame = match stream.recv_frame_timeout(timeout) {
-            Ok(f) => f,
-            Err(RecvError::Timeout) if keepalive_time_ms > 0 && has_last => {
-                // Keepalive: resend last buffer
-                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if count <= 10 || count % 100 == 0 {
-                    eprintln!("[KEEPALIVE] Resending last buffer (repeat frame #{})", count);
+            Ok(f) => {
+                // Real frame received - update timing, no flush needed
+                let now = std::time::Instant::now();
+                let old_interval = state.last_frame_interval;
+                if let Some(last_time) = state.last_frame_time {
+                    state.last_frame_interval = now.duration_since(last_time);
                 }
+                state.last_frame_time = Some(now);
+
+                // Log frame rate changes (every 60 frames or when interval changes significantly)
+                static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let interval_change = if old_interval > state.last_frame_interval {
+                    old_interval.as_millis() as f64 / state.last_frame_interval.as_millis().max(1) as f64
+                } else {
+                    state.last_frame_interval.as_millis() as f64 / old_interval.as_millis().max(1) as f64
+                };
+                if count < 5 || count % 60 == 0 || interval_change > 2.0 {
+                    eprintln!("[FRAME] Real frame #{}, interval {:?} → {:?}",
+                        count, old_interval, state.last_frame_interval);
+                }
+                f
+            }
+            Err(RecvError::Timeout) if has_last => {
+                // Frame rate dropped! No new frame within expected interval.
+                // Queue 3 more copies (this one + 3 = 4 total) to flush decoder buffer.
+                state.frame_repeat_remaining = 3;
+
+                static FLUSH_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = FLUSH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                eprintln!("[DECODER_FLUSH] #{} - Rate dropped! Timeout {:?} exceeded, interval was {:?}, sending 4 flush frames",
+                    count, timeout, state.last_frame_interval);
+
+                // Reset timing for next real frame.
+                // CRITICAL: Set interval to keepalive time, NOT target_interval!
+                // Otherwise we'd immediately timeout again since target_interval is ~16ms
+                // but the screen might be static for 500ms+ between real frames.
+                state.last_frame_time = None;
+                let keepalive_interval = if keepalive_time_ms > 0 {
+                    Duration::from_millis(keepalive_time_ms as u64)
+                } else {
+                    Duration::from_millis(500) // Fallback: 2 FPS
+                };
+                state.last_frame_interval = keepalive_interval;
+
                 let buf = state.last_buffer.as_ref().unwrap().copy();
                 state.frame_count += 1;
                 drop(g);

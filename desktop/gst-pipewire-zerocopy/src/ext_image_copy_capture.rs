@@ -44,9 +44,14 @@ fn wl_shm_to_drm_fourcc(format: wl_shm::Format) -> u32 {
 }
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+// Use crossbeam-channel instead of std::sync::mpsc to avoid race conditions
+// where recv_timeout can miss messages sent during timeout processing.
+// See: https://github.com/rust-lang/rust/issues/94518
+use crossbeam_channel::{self as channel, Receiver, Sender};
 use wayland_client::{
     protocol::{wl_buffer, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
@@ -252,7 +257,7 @@ struct ExtCaptureState {
     buffer_size_received: bool,
 
     // Communication
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     capturing: bool,
     shutdown: Arc<AtomicBool>,
     frame_interval: Duration,
@@ -261,7 +266,7 @@ struct ExtCaptureState {
 
 impl ExtCaptureState {
     fn new(
-        frame_tx: mpsc::SyncSender<FrameData>,
+        frame_tx: Sender<FrameData>,
         shutdown: Arc<AtomicBool>,
         target_fps: u32,
     ) -> Self {
@@ -834,7 +839,7 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for ExtCaptureState {
 /// ext-image-copy-capture stream for Sway 1.10+
 pub struct ExtImageCopyCaptureStream {
     thread: Option<JoinHandle<()>>,
-    frame_rx: mpsc::Receiver<FrameData>,
+    frame_rx: Receiver<FrameData>,
     shutdown: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
 }
@@ -842,7 +847,7 @@ pub struct ExtImageCopyCaptureStream {
 impl ExtImageCopyCaptureStream {
     /// Connect and start capturing
     pub fn connect(target_fps: u32) -> Result<Self, String> {
-        let (frame_tx, frame_rx) = mpsc::sync_channel(8);
+        let (frame_tx, frame_rx) = channel::bounded(8);
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
         let error = Arc::new(Mutex::new(None));
@@ -950,8 +955,8 @@ impl ExtImageCopyCaptureStream {
             return Err(RecvError::Error(err));
         }
         self.frame_rx.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
-            mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
+            channel::RecvTimeoutError::Timeout => RecvError::Timeout,
+            channel::RecvTimeoutError::Disconnected => RecvError::Disconnected,
         })
     }
 }
@@ -966,7 +971,7 @@ impl Drop for ExtImageCopyCaptureStream {
 }
 
 fn run_capture_loop(
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     shutdown: Arc<AtomicBool>,
     target_fps: u32,
 ) -> Result<(), String> {

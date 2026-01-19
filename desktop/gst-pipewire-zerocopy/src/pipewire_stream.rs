@@ -29,12 +29,14 @@ use smithay::backend::allocator::{Fourcc, Modifier};
 use std::io::Cursor;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::sync::Arc;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+// Use crossbeam-channel instead of std::sync::mpsc to avoid race conditions
+// where recv_timeout can miss messages sent during timeout processing.
+// See: https://github.com/rust-lang/rust/issues/94518
+use crossbeam_channel::{self as channel, Receiver, Sender};
 
 // CUDA imports for zero-copy path
 use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
@@ -168,7 +170,7 @@ unsafe impl Send for CudaResources {}
 
 pub struct PipeWireStream {
     thread: Option<JoinHandle<()>>,
-    frame_rx: mpsc::Receiver<FrameData>,
+    frame_rx: Receiver<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
     error: Arc<Mutex<Option<String>>>,
@@ -200,7 +202,9 @@ impl PipeWireStream {
     ) -> Result<Self, String> {
         // Use larger buffer to reduce backpressure from GStreamer consumer
         // This helps prevent frame drops when GNOME delivers frames faster than we consume them
-        let (frame_tx, frame_rx) = mpsc::sync_channel(8);
+        // crossbeam::bounded is used instead of std::mpsc::sync_channel to avoid race conditions
+        // where recv_timeout can miss messages sent during timeout processing
+        let (frame_tx, frame_rx) = channel::bounded(8);
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
         let video_info = Arc::new(Mutex::new(VideoParams::default()));
@@ -275,8 +279,8 @@ impl PipeWireStream {
             return Err(RecvError::Error(err));
         }
         self.frame_rx.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
-            mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
+            channel::RecvTimeoutError::Timeout => RecvError::Timeout,
+            channel::RecvTimeoutError::Disconnected => RecvError::Disconnected,
         })
     }
 
@@ -525,7 +529,7 @@ fn run_pipewire_loop(
     pipewire_fd: Option<i32>,
     dmabuf_caps: Option<DmaBufCapabilities>,
     negotiated_max_fps: u32,
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
     cuda_resources: Option<CudaResources>,
