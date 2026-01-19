@@ -98,14 +98,52 @@ Software decoding works, but hardware decoding would be more efficient. Accordin
 - **BASELINE profile** works 1-in-1-out even with hardware decoding
 - **MAIN profile** requires 4-frame buffer
 
-We already modify H.264 frames on the fly (constraint flags). We should investigate:
+### What We've Done
 
-1. **Ensure nvenc outputs Baseline profile** - not Main or High
-2. **Set `max_num_reorder_frames=0` in SPS** - tells decoder no reordering needed
-3. **Set `max_dec_frame_buffering=1` in VUI** - limits DPB size
-4. **Correct codec string signaling** - ensure browser knows it's Baseline
+1. **Changed encoder profile caps to `constrained-baseline`** (was `main`)
+   - Updated qsv, vaapi, vaapi-lp h264parse caps
+   - This tells the encoder to output Baseline profile
 
-If we can get hardware decoders to respect Baseline profile signaling, we get both hardware acceleration AND low latency.
+2. **Already patching `constraint_set3_flag=1` in SPS**
+   - This signals no B-frames/no reordering to decoder
+   - May not be enough on its own
+
+3. **Already using `ref-frames=1` on most encoders**
+   - qsv: `ref-frames=1`
+   - vaapi: `ref-frames=1`
+   - vaapi-lp: `ref-frames=1`
+   - x264: `ref=1`
+   - **nvenc: missing!** (may need to add if property exists)
+
+### What's Still Missing
+
+The **VUI (Video Usability Information)** section of the SPS contains critical parameters:
+
+1. **`max_dec_frame_buffering`** - Maximum decoder buffer size
+   - NVENC with `maxNumRefFrames=2` outputs `max_dec_buffering=2`
+   - This allows 2-frame decoder buffering even with Baseline profile!
+   - Need to either set `ref-frames=1` on nvenc or patch VUI
+
+2. **`num_reorder_frames`** - Frames decoder must buffer for reordering
+   - Should be 0 for no reordering
+   - If not present in VUI, decoder derives from MaxDpbSize (can be large)
+
+3. **VUI `bitstream_restriction` presence**
+   - These fields are in the optional `bitstream_restriction` section
+   - nvenc may or may not include this section by default
+
+### To Investigate
+
+1. **Capture actual SPS bytes from stream** - use `spectask stream` with `--output` to save h264
+2. **Parse SPS with ffprobe or h264bitstream** - see actual profile/VUI values
+3. **Check if nvh264enc has a ref-frames or dpb-size property** - run `gst-inspect-1.0 nvh264enc`
+4. **Consider patching VUI in Go** - like we do for `constraint_set3_flag`, but VUI is Exp-Golomb coded (complex)
+
+### Testing Hardware Decoding
+
+Use `?hwdecode=1` URL parameter to test hardware decoding:
+- If latency is fixed: profile change + existing settings are sufficient
+- If latency persists: need to set ref-frames on nvenc or patch VUI
 
 ## Why The Flush Hack Failed: Full Analysis
 
