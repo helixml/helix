@@ -537,11 +537,10 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline
-	// max-size-buffers=16 allows decoder flush hack to queue 16 duplicate frames
-	// without dropping them (pipewirezerocopysrc sends 16 copies when frame rate drops
-	// to flush Chrome's WebCodecs decoder buffer - see design/2026-01-19-decoder-flush-hack.md)
-	// leaky=downstream drops oldest frames if real frames pile up faster than encoder
-	parts = append(parts, "queue max-size-buffers=16 leaky=downstream")
+	// max-size-buffers=1 keeps only the newest frame, dropping older ones immediately
+	// This prevents frame buildup when Mutter drains buffered frames in bursts
+	// leaky=downstream drops oldest frames if encoding falls behind (low latency)
+	parts = append(parts, "queue max-size-buffers=1 leaky=downstream")
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path

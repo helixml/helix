@@ -25,9 +25,11 @@ export interface VideoStats {
   width?: number;
   height?: number;
   fps?: number;
+  receiveFps?: number;
   videoPayloadBitrate?: string;
   totalBitrate?: string;
   framesDecoded?: number;
+  framesReceived?: number;
   framesDropped?: number;
   rttMs?: number;
   encoderLatencyMs?: number;

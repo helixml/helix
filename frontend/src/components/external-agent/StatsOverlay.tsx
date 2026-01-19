@@ -77,8 +77,9 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           <>
             <div><strong>Codec:</strong> {stats.video.codec}</div>
             <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
-            <div><strong>FPS:</strong> {stats.video.fps}</div>
+            <div><strong>FPS:</strong> {stats.video.receiveFps} recv / {stats.video.fps} decoded</div>
             <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+            <div><strong>Received:</strong> {stats.video.framesReceived} frames</div>
             <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
             <div>
               <strong>Dropped:</strong> {stats.video.framesDropped} frames

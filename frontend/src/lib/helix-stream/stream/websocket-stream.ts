@@ -89,6 +89,10 @@ export class WebSocketStream {
   private lastFrameTime = 0
   private frameCount = 0
   private currentFps = 0
+  // Received FPS (frames arriving from WebSocket, before decode)
+  private lastReceiveTime = 0
+  private receiveCount = 0
+  private currentReceiveFps = 0
   // Video payload bytes (H.264 data only, excluding protocol headers)
   private videoPayloadBytes = 0
   private lastVideoPayloadBytes = 0
@@ -144,6 +148,10 @@ export class WebSocketStream {
   private maxReceiveIntervalMs = 0                    // Max interval seen in current window
   private minRenderIntervalMs = 0                     // Min render interval seen
   private maxRenderIntervalMs = 0                     // Max render interval seen
+
+  // Decode latency tracking - measures time from decode() to output callback
+  // This tells us if the decoder is buffering frames internally
+  private pendingDecodeTimestamps = new Map<number, number>() // pts -> decode submission time
 
   // Adaptive input throttling based on RTT
   // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
@@ -789,11 +797,18 @@ export class WebSocketStream {
 
     // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS)
     // This tells WebCodecs to expect NAL start codes and in-band parameter sets
+    //
+    // optimizeForLatency: true is CRITICAL for low frame rate scenarios.
+    // Without it, the decoder's internal output queue holds frames waiting for the
+    // next input, causing latency = queueDepth * frameInterval.
+    // At 2 FPS (500ms keepalive), even queueDepth=2 means 1 second latency!
+    // See: https://github.com/w3c/webcodecs/issues/698
     const config: VideoDecoderConfig = {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
       hardwareAcceleration: useHardwareAcceleration,
+      optimizeForLatency: true,
     }
 
     // For H264, specify Annex B format to handle in-band SPS/PPS
@@ -812,12 +827,13 @@ export class WebSocketStream {
       console.log("[WebSocketStream] Video decoder configured:", config)
     } catch (e) {
       console.error("[WebSocketStream] Failed to configure video decoder:", e)
-      // Try without the format hint as fallback
+      // Try without the format hint as fallback (but keep optimizeForLatency!)
       this.videoDecoder.configure({
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
         hardwareAcceleration: useHardwareAcceleration,
+        optimizeForLatency: true,
       })
       console.log("[WebSocketStream] Video decoder configured (fallback mode)")
     }
@@ -841,6 +857,20 @@ export class WebSocketStream {
     if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
       this.canvas.width = frame.displayWidth
       this.canvas.height = frame.displayHeight
+    }
+
+    // === Decode Latency Measurement ===
+    // Measure time from decode() call to output callback
+    const outputTime = performance.now()
+    const pts = frame.timestamp // microseconds
+    const decodeStartTime = this.pendingDecodeTimestamps.get(pts)
+    if (decodeStartTime !== undefined) {
+      const decodeLatencyMs = outputTime - decodeStartTime
+      this.pendingDecodeTimestamps.delete(pts)
+      // Log decode latency for first 20 frames or if very high
+      if (this.framesDecoded < 20 || decodeLatencyMs > 100) {
+        console.log(`[WebSocketStream] Decode latency: ${decodeLatencyMs.toFixed(1)}ms (pts=${pts}, queueSize=${this.lastDecodeQueueSize})`)
+      }
     }
 
     // Draw frame to canvas
@@ -968,9 +998,17 @@ export class WebSocketStream {
     const isKeyframe = (flags & 0x01) !== 0
     const ptsUs = view.getBigUint64(3, false) // big-endian
 
-    // DEBUG: Log first 10 frames received (before decode)
-    // Use a class counter since framesDecoded only increments on successful decode
+    // Track received FPS (before decode)
     this.framesReceived = (this.framesReceived || 0) + 1
+    this.receiveCount++
+    const now = performance.now()
+    if (now - this.lastReceiveTime >= 1000) {
+      this.currentReceiveFps = this.receiveCount
+      this.receiveCount = 0
+      this.lastReceiveTime = now
+    }
+
+    // DEBUG: Log first 10 frames received (before decode)
     if (this.framesReceived <= 10) {
       // Log header bytes to debug PTS issues
       const ptsBytes = Array.from(data.slice(3, 11)).map(b => b.toString(16).padStart(2, "0")).join(" ")
@@ -1110,6 +1148,10 @@ export class WebSocketStream {
         timestamp: Number(ptsUs), // microseconds
         data: frameData,
       })
+
+      // Track decode submission time for latency measurement
+      const decodeStartTime = performance.now()
+      this.pendingDecodeTimestamps.set(Number(ptsUs), decodeStartTime)
 
       this.videoDecoder.decode(chunk)
     } catch (e) {
@@ -1894,9 +1936,11 @@ export class WebSocketStream {
 
   getStats(): {
     fps: number
+    receiveFps: number               // Frames received per second (before decode)
     videoPayloadBitrateMbps: number  // H.264 data only
     totalBitrateMbps: number         // Everything over WebSocket
     framesDecoded: number
+    framesReceived: number
     framesDropped: number
     width: number
     height: number
@@ -1941,9 +1985,11 @@ export class WebSocketStream {
   } {
     return {
       fps: this.currentFps,
+      receiveFps: this.currentReceiveFps,
       videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
       totalBitrateMbps: this.currentTotalBitrateMbps,
       framesDecoded: this.framesDecoded,
+      framesReceived: this.framesReceived || 0,
       framesDropped: this.framesDropped,
       width: this.streamerSize[0],
       height: this.streamerSize[1],
