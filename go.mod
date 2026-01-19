@@ -8,6 +8,7 @@ replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
 require (
 	cloud.google.com/go/storage v1.51.0
+	github.com/Eyevinn/mp4ff v0.50.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/anthropics/anthropic-sdk-go v1.12.0
 	github.com/avast/retry-go/v4 v4.5.1

@@ -840,54 +840,153 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	}
 }
 
-// patchSPSConstraintSet3 finds SPS NAL units in H.264 Annex B data and sets constraint_set3_flag=1.
-// This enables zero-latency decoding in Chrome's WebCodecs by signaling no frame reordering.
+// spsLogOnce tracks whether we've logged SPS details (only log once per stream)
+var spsLogOnce sync.Once
+var spsLogRewriteOnce sync.Once
+
+// patchSPSForZeroLatencyDecode finds SPS NAL units in H.264 Annex B data and modifies them
+// for zero-latency decoding in Chrome's WebCodecs.
 //
-// We need this because we use damage-based encoding: Mutter only produces frames when the
-// screen content changes, which can result in very low frame rates (2 FPS) on static screens.
-// Without constraint_set3_flag=1, Chrome's decoder buffers 1-2 frames before displaying,
-// causing latency = buffer_depth × frame_interval. At 2 FPS, even 1 frame buffer = 500ms delay.
-// With constraint_set3_flag=1, the decoder outputs frames immediately with no buffering.
+// Modifications:
+// 1. Sets constraint_set3_flag=1 - signals no B-frames/reordering
+// 2. Rewrites VUI to set max_num_reorder_frames=0 and max_dec_frame_buffering=1
+// 3. Logs VUI parameters to diagnose decoder buffering (once per stream)
 //
-// See: https://issues.chromium.org/issues/40857774
+// Background:
+// We use damage-based encoding: Mutter only produces frames when the screen content changes,
+// which can result in very low frame rates (2 FPS) on static screens. Hardware decoders
+// buffer 1-4 frames for B-frame reordering, causing latency = buffer_depth × frame_interval.
+// At 2 FPS, even 1 frame buffer = 500ms delay.
+//
+// The key VUI parameters for zero-latency are:
+// - max_num_reorder_frames=0 (no frame reordering)
+// - max_dec_frame_buffering=1 (minimal decoder buffer)
+//
+// See: https://github.com/w3c/webcodecs/issues/732
 // See: https://github.com/w3c/webcodecs/issues/698
 // Returns a new slice with the patched data (or original if no SPS found).
-func patchSPSConstraintSet3(data []byte) []byte {
-	// Make a copy to avoid modifying the original buffer
-	result := make([]byte, len(data))
-	copy(result, data)
+func patchSPSForZeroLatencyDecode(data []byte) []byte {
+	// Parse the Annex B data into NAL units, rewrite SPS units, then reconstruct
+	nalUnits := parseAnnexBNALUnits(data)
+	if len(nalUnits) == 0 {
+		return data
+	}
 
-	// Find SPS NAL units and patch constraint_set3_flag
-	// H.264 Annex B uses start codes: 0x00000001 or 0x000001
-	// NAL unit type is in bits 0-4 of the first byte after start code
-	// SPS NAL unit type = 7
-	for i := 0; i < len(result)-4; i++ {
-		// Check for 4-byte start code (0x00000001)
-		if result[i] == 0x00 && result[i+1] == 0x00 && result[i+2] == 0x00 && result[i+3] == 0x01 {
-			if i+6 < len(result) {
-				nalType := result[i+4] & 0x1F
-				if nalType == 7 { // SPS
-					// SPS structure after NAL header:
-					// byte 0: NAL header (already at i+4)
-					// byte 1: profile_idc (at i+5)
-					// byte 2: constraint_set flags (at i+6)
-					// Set constraint_set3_flag (bit 4 of constraint byte)
-					result[i+6] |= 0x10
-				}
-			}
-		}
-		// Check for 3-byte start code (0x000001)
-		if result[i] == 0x00 && result[i+1] == 0x00 && result[i+2] == 0x01 {
-			if i+5 < len(result) {
-				nalType := result[i+3] & 0x1F
-				if nalType == 7 { // SPS
-					// Set constraint_set3_flag (bit 4 of constraint byte)
-					result[i+5] |= 0x10
-				}
+	modified := false
+	for i, nal := range nalUnits {
+		nalType := nal.data[0] & 0x1F
+		if nalType == 7 { // SPS
+			// Log original SPS details once
+			spsLogOnce.Do(func() {
+				debugStr := GetSPSDebugString(nal.data)
+				slog.Info("[STREAM] H.264 SPS before rewrite", "sps", debugStr)
+			})
+
+			// Rewrite SPS with zero-latency VUI
+			newSPS, wasModified := RewriteSPSForZeroLatency(nal.data)
+			if wasModified || len(newSPS) != len(nal.data) || !bytesEqual(newSPS, nal.data) {
+				nalUnits[i] = annexBNAL{data: newSPS, startCodeLen: nal.startCodeLen}
+				modified = true
+
+				// Log modified SPS once
+				spsLogRewriteOnce.Do(func() {
+					debugStr := GetSPSDebugString(newSPS)
+					slog.Info("[STREAM] H.264 SPS after VUI rewrite", "sps", debugStr)
+				})
 			}
 		}
 	}
+
+	if !modified {
+		return data
+	}
+
+	// Reconstruct Annex B data with rewritten NAL units
+	return reconstructAnnexB(nalUnits)
+}
+
+// annexBNAL represents a NAL unit extracted from Annex B data
+type annexBNAL struct {
+	data         []byte // NAL unit data including NAL header
+	startCodeLen int    // Original start code length (3 or 4 bytes)
+}
+
+// parseAnnexBNALUnits parses H.264 Annex B data into individual NAL units
+func parseAnnexBNALUnits(data []byte) []annexBNAL {
+	var units []annexBNAL
+	i := 0
+	for i < len(data) {
+		// Find start code
+		startCodeLen := 0
+		if i+4 <= len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1 {
+			startCodeLen = 4
+		} else if i+3 <= len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 1 {
+			startCodeLen = 3
+		} else {
+			i++
+			continue
+		}
+
+		nalStart := i + startCodeLen
+		if nalStart >= len(data) {
+			break
+		}
+
+		// Find end of NAL (next start code or end of data)
+		nalEnd := len(data)
+		for j := nalStart + 1; j < len(data)-2; j++ {
+			if data[j] == 0 && data[j+1] == 0 && (data[j+2] == 1 || (data[j+2] == 0 && j+3 < len(data) && data[j+3] == 1)) {
+				nalEnd = j
+				break
+			}
+		}
+
+		units = append(units, annexBNAL{
+			data:         data[nalStart:nalEnd],
+			startCodeLen: startCodeLen,
+		})
+		i = nalEnd
+	}
+	return units
+}
+
+// reconstructAnnexB reconstructs H.264 Annex B data from NAL units
+func reconstructAnnexB(units []annexBNAL) []byte {
+	// Calculate total size
+	totalSize := 0
+	for _, nal := range units {
+		totalSize += nal.startCodeLen + len(nal.data)
+	}
+
+	result := make([]byte, 0, totalSize)
+	for _, nal := range units {
+		// Write start code
+		if nal.startCodeLen == 4 {
+			result = append(result, 0, 0, 0, 1)
+		} else {
+			result = append(result, 0, 0, 1)
+		}
+		result = append(result, nal.data...)
+	}
 	return result
+}
+
+// bytesEqual compares two byte slices for equality
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Deprecated: use patchSPSForZeroLatencyDecode instead
+func patchSPSConstraintSet3(data []byte) []byte {
+	return patchSPSForZeroLatencyDecode(data)
 }
 
 // sendVideoFrame sends a video frame to the WebSocket

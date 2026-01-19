@@ -92,58 +92,65 @@ srcPart := fmt.Sprintf("pipewirezerocopysrc ... keepalive-time=33", ...)
 
 This works but wastes bandwidth/CPU when the screen is static. With software decoding, we can revert to true damage-based rendering.
 
-## Next Steps: Fix Hardware Decoding Properly
+## Fix for Hardware Decoding: VUI Rewriting
 
-Software decoding works, but hardware decoding would be more efficient. According to issue #732:
-- **BASELINE profile** works 1-in-1-out even with hardware decoding
-- **MAIN profile** requires 4-frame buffer
+Software decoding works, but hardware decoding is more efficient. We implemented VUI rewriting to fix hardware decoding latency.
 
-### What We've Done
+### What We Implemented
 
 1. **Changed encoder profile caps to `constrained-baseline`** (was `main`)
    - Updated qsv, vaapi, vaapi-lp h264parse caps
    - This tells the encoder to output Baseline profile
 
-2. **Already patching `constraint_set3_flag=1` in SPS**
+2. **Patching `constraint_set3_flag=1` in SPS**
    - This signals no B-frames/no reordering to decoder
-   - May not be enough on its own
+   - Done in `patchSPSForZeroLatencyDecode()`
 
 3. **Already using `ref-frames=1` on most encoders**
    - qsv: `ref-frames=1`
    - vaapi: `ref-frames=1`
    - vaapi-lp: `ref-frames=1`
    - x264: `ref=1`
-   - **nvenc: missing!** (may need to add if property exists)
+   - nvenc: does NOT expose ref-frames property (checked via gst-inspect)
 
-### What's Still Missing
+4. **NEW: VUI Rewriting in Go** (`api/pkg/desktop/h264_sps.go`)
+   - Uses mp4ff library for H.264 SPS parsing and writing
+   - Rewrites the VUI `bitstream_restriction` section with:
+     - `max_num_reorder_frames=0` (no frame reordering)
+     - `max_dec_frame_buffering=1` (or max_num_ref_frames if higher)
+   - Automatically adds VUI if not present
+   - Uses EBSPWriter for proper Exp-Golomb encoding and emulation prevention bytes
 
-The **VUI (Video Usability Information)** section of the SPS contains critical parameters:
+### VUI Rewriting Implementation
 
-1. **`max_dec_frame_buffering`** - Maximum decoder buffer size
-   - NVENC with `maxNumRefFrames=2` outputs `max_dec_buffering=2`
-   - This allows 2-frame decoder buffering even with Baseline profile!
-   - Need to either set `ref-frames=1` on nvenc or patch VUI
+The key parameters that tell hardware decoders to output immediately (matching [WebRTC's sps_vui_rewriter.cc](https://webrtc.googlesource.com/src/+/refs/heads/main/common_video/h264/sps_vui_rewriter.cc#400)):
 
-2. **`num_reorder_frames`** - Frames decoder must buffer for reordering
-   - Should be 0 for no reordering
-   - If not present in VUI, decoder derives from MaxDpbSize (can be large)
+```go
+// CRITICAL: These are the key fields for zero-latency decode
+// Reference: WebRTC sps_vui_rewriter.cc line 400
+w.WriteExpGolomb(0) // max_num_reorder_frames = 0 (no frame reordering)
 
-3. **VUI `bitstream_restriction` presence**
-   - These fields are in the optional `bitstream_restriction` section
-   - nvenc may or may not include this section by default
+// max_dec_frame_buffering = max_num_ref_frames (per WebRTC and H.264 spec)
+// The key insight is that max_num_reorder_frames=0 is what eliminates buffering.
+maxDecBuf := sps.NumRefFrames
+if maxDecBuf == 0 {
+    maxDecBuf = 1
+}
+w.WriteExpGolomb(maxDecBuf)
+```
 
-### To Investigate
+**Key insight from WebRTC**: `max_num_reorder_frames=0` is what eliminates decoder output buffering. `max_dec_frame_buffering` just needs to satisfy the spec requirement of being >= `max_num_ref_frames`.
 
-1. **Capture actual SPS bytes from stream** - use `spectask stream` with `--output` to save h264
-2. **Parse SPS with ffprobe or h264bitstream** - see actual profile/VUI values
-3. **Check if nvh264enc has a ref-frames or dpb-size property** - run `gst-inspect-1.0 nvh264enc`
-4. **Consider patching VUI in Go** - like we do for `constraint_set3_flag`, but VUI is Exp-Golomb coded (complex)
+The implementation:
+- `RewriteSPSForZeroLatency()` - parses SPS, rewrites VUI, returns new SPS
+- `patchSPSForZeroLatencyDecode()` - processes Annex B stream, rewrites all SPS NAL units
+- Uses mp4ff's `EBSPWriter` which handles emulation prevention bytes automatically
 
 ### Testing Hardware Decoding
 
 Use `?hwdecode=1` URL parameter to test hardware decoding:
-- If latency is fixed: profile change + existing settings are sufficient
-- If latency persists: need to set ref-frames on nvenc or patch VUI
+- If latency is fixed: VUI rewriting is working correctly
+- If latency persists: check logs for "H.264 SPS after VUI rewrite" to verify patching
 
 ## Why The Flush Hack Failed: Full Analysis
 
