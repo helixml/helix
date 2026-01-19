@@ -80,6 +80,10 @@ export class WebSocketStream {
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
+  // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
+  private pageVisible = true
+  private visibilityHandler: (() => void) | null = null
+
   // Cursor cache - maps cursor ID to blob URL (for revoking old blob URLs)
   private cursorCache = new Map<number, CursorImageData>()
   private cursorX = 0  // Current cursor X position from server
@@ -2174,8 +2178,28 @@ export class WebSocketStream {
   private startHeartbeat() {
     this.stopHeartbeat()
 
+    // Set up page visibility listener to handle iOS background suspension
+    // When page goes hidden, iOS suspends JS - we don't want to detect this as stale
+    this.visibilityHandler = () => {
+      const wasHidden = !this.pageVisible
+      this.pageVisible = !document.hidden
+
+      if (this.pageVisible && wasHidden) {
+        // Page just became visible again - reset lastMessageTime to avoid false stale detection
+        // iOS suspends JS when page is hidden, so elapsed time includes suspension
+        console.log("[WebSocketStream] Page became visible, resetting heartbeat timer")
+        this.lastMessageTime = Date.now()
+      }
+    }
+    document.addEventListener("visibilitychange", this.visibilityHandler)
+
     this.heartbeatIntervalId = setInterval(() => {
       if (!this.connected) return
+
+      // Skip stale detection when page is hidden (iOS suspends JS, time passes but no messages)
+      if (!this.pageVisible) {
+        return
+      }
 
       const now = Date.now()
       const elapsed = now - this.lastMessageTime
@@ -2200,6 +2224,12 @@ export class WebSocketStream {
     if (this.heartbeatIntervalId) {
       clearInterval(this.heartbeatIntervalId)
       this.heartbeatIntervalId = null
+    }
+
+    // Clean up visibility listener
+    if (this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler)
+      this.visibilityHandler = null
     }
   }
 
