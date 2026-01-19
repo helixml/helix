@@ -2084,6 +2084,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             renderJitterMs: wsStats.renderJitterMs,
             avgReceiveIntervalMs: wsStats.avgReceiveIntervalMs,
             avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
+            // Debug flags
+            usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
           },
           // Input buffer stats (detects TCP send buffer congestion)
           input: {

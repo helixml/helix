@@ -49,6 +49,8 @@ export interface VideoStats {
   renderJitterMs?: string;           // "min-max" interval between frames rendering
   avgReceiveIntervalMs?: number;     // Average receive interval (16.7ms = 60fps)
   avgRenderIntervalMs?: number;      // Average render interval
+  // Debug flags
+  usingSoftwareDecoder?: boolean;    // True if software decoding was forced (?softdecode=1)
 }
 
 // Stats for input handling

@@ -211,6 +211,9 @@ export class WebSocketStream {
   private userName?: string
   private avatarUrl?: string
 
+  // Debug: Force software decoding to test hardware decoder buffering hypothesis
+  private forceSoftwareDecoding = false
+
   constructor(
     api: Api,
     hostId: number,
@@ -233,6 +236,17 @@ export class WebSocketStream {
     this.userName = userName
     this.avatarUrl = avatarUrl
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
+
+    // Check for debug query parameter: ?softdecode=1 forces software decoding
+    // This is for testing the hardware decoder buffering hypothesis
+    // See: https://github.com/w3c/webcodecs/issues/732
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get("softdecode") === "1") {
+        this.forceSoftwareDecoding = true
+        console.log("[WebSocketStream] ?softdecode=1 detected - forcing software decoding")
+      }
+    }
 
     // Initialize input handler
     // Use evdev keycodes for direct WebSocket mode - bypasses VK→evdev conversion on backend
@@ -717,34 +731,42 @@ export class WebSocketStream {
     console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
 
     // Check if codec is supported - try hardware first, then software fallback
-    let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
+    // Debug: forceSoftwareDecoding bypasses hardware to test latency hypothesis
+    // See: https://github.com/w3c/webcodecs/issues/732
+    let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" =
+      this.forceSoftwareDecoding ? "prefer-software" : "prefer-hardware"
+
+    if (this.forceSoftwareDecoding) {
+      console.log("[WebSocketStream] DEBUG: Forcing software decoding (testing hardware latency hypothesis)")
+    }
+
     try {
       const hwSupport = await VideoDecoder.isConfigSupported({
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
-        hardwareAcceleration: "prefer-hardware",
+        hardwareAcceleration: useHardwareAcceleration,
       })
 
       if (!hwSupport.supported) {
-        // Hardware not supported, try software decoding
-        console.log("[WebSocketStream] Hardware decoding not supported, trying software fallback")
-        const swSupport = await VideoDecoder.isConfigSupported({
+        // Requested mode not supported, try fallback
+        console.log(`[WebSocketStream] ${this.forceSoftwareDecoding ? 'Software' : 'Hardware'} decoding not supported, trying fallback`)
+        const fallbackSupport = await VideoDecoder.isConfigSupported({
           codec: codecString,
           codedWidth: width,
           codedHeight: height,
           // No hardwareAcceleration = allow any
         })
 
-        if (!swSupport.supported) {
+        if (!fallbackSupport.supported) {
           console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
           this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
           return
         }
         useHardwareAcceleration = "no-preference"
-        console.log("[WebSocketStream] Using software video decoding")
+        console.log("[WebSocketStream] Using fallback video decoding (no-preference)")
       } else {
-        console.log("[WebSocketStream] Using hardware video decoding")
+        console.log(`[WebSocketStream] Using ${this.forceSoftwareDecoding ? 'software' : 'hardware'} video decoding`)
       }
     } catch (e) {
       console.error("[WebSocketStream] Failed to check codec support:", e)
@@ -1930,6 +1952,25 @@ export class WebSocketStream {
     })
   }
 
+  /**
+   * Debug: Toggle software decoding to test hardware decoder buffering hypothesis.
+   * Hardware decoders (VideoToolbox on macOS, NVDEC on Linux/Windows) may buffer
+   * 1-2 frames internally for B-frame reordering, even when optimizeForLatency=true.
+   * Software decoding (libvpx, FFmpeg) typically has lower latency.
+   * See: https://github.com/w3c/webcodecs/issues/732
+   */
+  setForceSoftwareDecoding(force: boolean) {
+    if (this.forceSoftwareDecoding === force) return
+    this.forceSoftwareDecoding = force
+    console.log(`[WebSocketStream] Force software decoding: ${force}`)
+    // Will take effect on next video init (e.g., after disconnect/reconnect)
+    // For immediate effect, we'd need to reinit the decoder, but that requires a keyframe
+  }
+
+  getForceSoftwareDecoding(): boolean {
+    return this.forceSoftwareDecoding
+  }
+
   getStreamerSize(): [number, number] {
     return this.streamerSize
   }
@@ -1982,6 +2023,8 @@ export class WebSocketStream {
     renderJitterMs: string           // "min-max" interval between frames rendering
     avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
     avgRenderIntervalMs: number      // Average render interval
+    // Debug flags
+    usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
   } {
     return {
       fps: this.currentFps,
@@ -2041,6 +2084,8 @@ export class WebSocketStream {
       avgRenderIntervalMs: this.renderIntervalSamples.length > 0
         ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
         : 0,
+      // Debug flags
+      usingSoftwareDecoder: this.forceSoftwareDecoding,
     }
   }
 
