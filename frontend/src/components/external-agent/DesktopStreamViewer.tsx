@@ -1324,12 +1324,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Lower encoder latency and more consistent frame pacing outweigh quality benefits
     hasConnectedRef.current = true;
     setIsConnecting(true);
-    console.log('[DesktopStreamViewer] Auto-connecting at 5 Mbps (skipping bandwidth probe)');
-    setUserBitrate(5);
-    setRequestedBitrate(5);
+    // Use resolution-based default: 10 Mbps for 4K, 5 Mbps for 1080p and below
+    const defaultBitrate = getDefaultBitrateForResolution(width, height) / 1000;
+    console.log(`[DesktopStreamViewer] Auto-connecting at ${defaultBitrate} Mbps for ${width}x${height}`);
+    setUserBitrate(defaultBitrate);
+    setRequestedBitrate(defaultBitrate);
     connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandboxId, sessionId, isVisible]); // Only trigger on props and visibility, not on function identity changes
+  }, [sandboxId, sessionId, isVisible, width, height]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
@@ -3039,7 +3041,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               }}
               sx={{ fontSize: '0.8rem' }}
             >
-              {bitrate} Mbps {bitrate === 10 && '(default)'}
+              {bitrate} Mbps {bitrate === getDefaultBitrateForResolution(width, height) / 1000 && '(default)'}
             </MenuItem>
           ))}
         </Menu>
