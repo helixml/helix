@@ -135,7 +135,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Build language models config
-	// Note: API keys come from environment variables, not settings.json
+	// Note: api_key is injected by settings-sync-daemon from HELIX_API_TOKEN env var
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
 		modelConfig := map[string]interface{}{
@@ -195,37 +195,13 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
-	// Build CodeAgentConfig from the spec task's assistant configuration
+	// Build CodeAgentConfig from the spec task's zed_external assistant (if any)
 	var codeAgentConfig *types.CodeAgentConfig
 	if session.Metadata.SpecTaskID != "" {
-		// Get the spec task to find the associated app
-		specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-		if err != nil {
-			log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to get spec task for code agent config")
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get spec task: %v", err))
-		}
-
-		if specTask.HelixAppID == "" {
-			log.Error().Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Spec task has no HelixAppID configured")
-			return nil, system.NewHTTPError500("spec task has no app configured")
-		}
-
-		// Get the app to find the code agent assistant
-		specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
-		if err != nil {
-			log.Error().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for code agent config")
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
-		}
-
-		codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
-		if codeAgentConfig == nil {
-			// No zed_external assistant configured - Zed will use built-in agent with defaults
-			// from GenerateZedMCPConfig (language_models routing through Helix proxy)
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("spec_task_id", session.Metadata.SpecTaskID).
-				Str("app_id", specTask.HelixAppID).
-				Msg("No zed_external assistant found - using default Zed agent with Helix proxy")
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
+			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+				codeAgentConfig = buildCodeAgentConfig(app, sandboxAPIURL)
+			}
 		}
 	}
 

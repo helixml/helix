@@ -38,8 +38,11 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
 WORKDIR /app/api
+# GO_HASH busts the build cache when api/ code changes (passed from CI)
+ARG GO_HASH=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    echo "Building Go binaries (GO_HASH=${GO_HASH})" && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 

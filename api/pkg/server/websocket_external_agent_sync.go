@@ -407,14 +407,14 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 								},
 							}
 
-							// Send immediately via channel
-							select {
-							case wsConn.SendChan <- command:
+							// Queue message - will be sent when agent_ready is received
+							// This prevents race condition where we send before Zed is stable
+							if apiServer.externalAgentWSManager.queueOrSend(helixSessionID, command) {
 								log.Info().
 									Str("agent_session_id", agentID).
 									Str("request_id", requestID).
 									Str("helix_session_id", helixSessionID).
-									Msg("✅ [HELIX] Sent initial chat_message to Zed")
+									Msg("✅ [HELIX] Queued initial chat_message for Zed (will send when agent_ready)")
 								// Update agent work state to working
 								if activity, actErr := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID); actErr == nil && activity != nil {
 									activity.AgentWorkState = types.AgentWorkStateWorking
@@ -422,10 +422,10 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 									activity.LastInteraction = time.Now()
 									apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
 								}
-							default:
+							} else {
 								log.Warn().
 									Str("agent_session_id", agentID).
-									Msg("⚠️ [HELIX] SendChan full, could not send initial message")
+									Msg("⚠️ [HELIX] Failed to queue initial message")
 							}
 						} else {
 							log.Warn().

@@ -30,11 +30,9 @@ ALL work happens in /home/retro/work/. No other paths.
 - /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
 - /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 
-Your task directory: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+## Your Task Directory
 
-## CRITICAL: What To Create
-
-Create these 3 files in your task directory:
+Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ (directory already exists):
 1. requirements.md - User stories + acceptance criteria
 2. design.md - Architecture + key decisions
 3. tasks.md - Checklist of implementation tasks using [ ] format
@@ -49,9 +47,7 @@ Match solution complexity to task complexity:
 ## Git Workflow
 
 ` + "```bash" + `
-cd /home/retro/work/helix-specs
-mkdir -p design/tasks/{{.TaskDirName}}
-cd design/tasks/{{.TaskDirName}}
+cd /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}
 
 # Create requirements.md, design.md, tasks.md here
 
