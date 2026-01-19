@@ -166,10 +166,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const twoFingerStartYRef = useRef<number | null>(null);
   // Double-tap-and-drag gesture detection
   const lastTapTimeRef = useRef<number>(0);
+  const touchStartTimeRef = useRef<number>(0); // Track when touch started (for tap vs drag detection)
+  const touchMovedRef = useRef<boolean>(false); // Track if finger moved significantly during touch
   const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
   // Trackpad mode constants
   const TRACKPAD_CURSOR_SENSITIVITY = 1.5; // Multiplier for cursor movement
   const DOUBLE_TAP_THRESHOLD_MS = 300; // Max time between taps for double-tap
+  const TAP_MAX_DURATION_MS = 200; // Max touch duration to be considered a tap (not a drag)
+  const TAP_MAX_MOVEMENT_PX = 10; // Max finger movement to be considered a tap (not a drag)
 
   // Voice input state - hold-to-record for speech-to-text
   // Supports buffering and retry for flaky connections
@@ -964,14 +968,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const reconnectRef = useRef(reconnect);
   useEffect(() => { reconnectRef.current = reconnect; }, [reconnect]);
 
-  // Toggle fullscreen
+  // Toggle fullscreen - with iOS Safari webkit prefix support
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
 
     if (!isFullscreen) {
-      containerRef.current.requestFullscreen?.();
+      // Try standard API first, then webkit prefix for iOS Safari
+      if (containerRef.current.requestFullscreen) {
+        containerRef.current.requestFullscreen();
+      } else if ((containerRef.current as any).webkitRequestFullscreen) {
+        (containerRef.current as any).webkitRequestFullscreen();
+      }
     } else {
-      document.exitFullscreen?.();
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
     }
   }, [isFullscreen]);
 
@@ -1072,14 +1085,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [isRecording]);
 
-  // Handle fullscreen events
+  // Handle fullscreen events (with webkit prefix for iOS Safari)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const fullscreenElement = document.fullscreenElement || (document as any).webkitFullscreenElement;
+      setIsFullscreen(!!fullscreenElement);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
   }, []);
 
   // Detect touch capability on mount
@@ -2259,41 +2277,54 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, []);
 
   // Touch event handlers - delegates to StreamInput which handles different touch modes
-  // In trackpad mode, we also handle double-tap-drag gesture for click-and-drag operations
+  // In trackpad mode, we handle gestures:
+  // - One finger drag: move cursor
+  // - One finger tap: left click
+  // - Double-tap-drag: click and drag
+  // - Two finger tap: right click
+  // - Three finger tap: middle click
+  // - Two finger scroll: scroll
   const handleTouchStart = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
     const handler = getInputHandler();
     const rect = getStreamRect();
     if (!handler) return;
 
+    // Track touch start time and reset movement tracking
+    touchStartTimeRef.current = Date.now();
+    touchMovedRef.current = false;
+
     // In trackpad mode, handle gestures
-    if (touchMode === 'trackpad' && event.touches.length === 1) {
-      const touch = event.touches[0];
-      const now = Date.now();
-      lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
+    if (touchMode === 'trackpad') {
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        const now = Date.now();
+        lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
 
-      // Initialize cursor at center of stream if this is first touch
-      if (!hasMouseMoved && containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        setCursorPosition({
-          x: (rect.x - containerRect.x) + rect.width / 2,
-          y: (rect.y - containerRect.y) + rect.height / 2,
-        });
-        setHasMouseMoved(true);
+        // Initialize cursor at center of stream if this is first touch
+        if (!hasMouseMoved && containerRef.current) {
+          const containerRect = containerRef.current.getBoundingClientRect();
+          setCursorPosition({
+            x: (rect.x - containerRect.x) + rect.width / 2,
+            y: (rect.y - containerRect.y) + rect.height / 2,
+          });
+          setHasMouseMoved(true);
+        }
+
+        // Check for double-tap: if second tap within threshold, start drag mode
+        // Only triggers if the previous touch was a real tap (short, no movement)
+        if (now - lastTapTimeRef.current < DOUBLE_TAP_THRESHOLD_MS && !isDragging) {
+          console.log('[DesktopStreamViewer] Double-tap detected, starting drag mode');
+          setIsDragging(true);
+          // Send mouse button down to start drag
+          handler.sendMouseButton?.(true, 0); // 0 = left button
+        }
       }
 
-      // Check for double-tap: if second tap within threshold, start drag mode
-      if (now - lastTapTimeRef.current < DOUBLE_TAP_THRESHOLD_MS && !isDragging) {
-        console.log('[DesktopStreamViewer] Double-tap detected, starting drag mode');
-        setIsDragging(true);
-        // Send mouse button down to start drag
-        handler.sendMouseButton?.(true, 0); // 0 = left button
+      // Reset two-finger tracking for scroll
+      if (event.touches.length === 2) {
+        twoFingerStartYRef.current = (event.touches[0].clientY + event.touches[1].clientY) / 2;
       }
-    }
-
-    // Reset two-finger tracking
-    if (event.touches.length === 2) {
-      twoFingerStartYRef.current = (event.touches[0].clientY + event.touches[1].clientY) / 2;
     }
 
     // Delegate to StreamInput for actual input handling
@@ -2309,8 +2340,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // In trackpad mode, update cursor position based on touch movement delta
     if (touchMode === 'trackpad' && event.touches.length === 1 && lastTouchPosRef.current && containerRef.current) {
       const touch = event.touches[0];
-      const dx = (touch.clientX - lastTouchPosRef.current.x) * TRACKPAD_CURSOR_SENSITIVITY;
-      const dy = (touch.clientY - lastTouchPosRef.current.y) * TRACKPAD_CURSOR_SENSITIVITY;
+      const dx = touch.clientX - lastTouchPosRef.current.x;
+      const dy = touch.clientY - lastTouchPosRef.current.y;
+
+      // Mark as moved if finger moved significantly (not a tap)
+      if (Math.abs(dx) > TAP_MAX_MOVEMENT_PX || Math.abs(dy) > TAP_MAX_MOVEMENT_PX) {
+        touchMovedRef.current = true;
+      }
+
+      const scaledDx = dx * TRACKPAD_CURSOR_SENSITIVITY;
+      const scaledDy = dy * TRACKPAD_CURSOR_SENSITIVITY;
 
       const containerRect = containerRef.current.getBoundingClientRect();
       const streamOffsetX = rect.x - containerRect.x;
@@ -2318,8 +2357,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Update cursor position relatively, clamped to stream bounds
       setCursorPosition(prev => ({
-        x: Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, prev.x + dx)),
-        y: Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, prev.y + dy)),
+        x: Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, prev.x + scaledDx)),
+        y: Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, prev.y + scaledDy)),
       }));
 
       lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
@@ -2327,7 +2366,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Delegate to StreamInput for actual input handling
     handler.onTouchMove(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY]);
+  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY, TAP_MAX_MOVEMENT_PX]);
 
   const handleTouchEnd = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2335,16 +2374,49 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const rect = getStreamRect();
     if (!handler) return;
 
-    // In trackpad mode, handle end of drag and record tap time for double-tap detection
+    const now = Date.now();
+    const touchDuration = now - touchStartTimeRef.current;
+    const wasTap = touchDuration < TAP_MAX_DURATION_MS && !touchMovedRef.current;
+
+    // In trackpad mode, handle gestures
     if (touchMode === 'trackpad') {
+      // End drag mode if active
       if (isDragging) {
         console.log('[DesktopStreamViewer] Ending drag mode');
-        // Send mouse button up to end drag
         handler.sendMouseButton?.(false, 0); // 0 = left button
         setIsDragging(false);
       }
-      // Record tap time for double-tap detection
-      lastTapTimeRef.current = Date.now();
+
+      // Handle multi-finger taps (check changedTouches for the fingers that just lifted)
+      // Note: event.touches shows remaining fingers, changedTouches shows lifted fingers
+      const liftedFingers = event.changedTouches.length;
+      const remainingFingers = event.touches.length;
+      const totalFingers = liftedFingers + remainingFingers;
+
+      if (wasTap && remainingFingers === 0) {
+        // All fingers lifted - check how many were in the tap
+        if (totalFingers === 2) {
+          // Two-finger tap = right click
+          console.log('[DesktopStreamViewer] Two-finger tap = right click');
+          handler.sendMouseButton?.(true, 2); // 2 = right button
+          handler.sendMouseButton?.(false, 2);
+        } else if (totalFingers >= 3) {
+          // Three-finger tap = middle click
+          console.log('[DesktopStreamViewer] Three-finger tap = middle click');
+          handler.sendMouseButton?.(true, 1); // 1 = middle button
+          handler.sendMouseButton?.(false, 1);
+        } else if (totalFingers === 1 && !isDragging) {
+          // Single tap = left click (but not if we just ended a drag)
+          console.log('[DesktopStreamViewer] Single tap = left click');
+          handler.sendMouseButton?.(true, 0); // 0 = left button
+          handler.sendMouseButton?.(false, 0);
+        }
+      }
+
+      // Only record tap time for double-tap detection if it was a real tap
+      if (wasTap && totalFingers === 1) {
+        lastTapTimeRef.current = now;
+      }
     }
 
     // Delegate to StreamInput for actual input handling
