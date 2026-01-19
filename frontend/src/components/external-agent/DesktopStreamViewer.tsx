@@ -2731,7 +2731,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
-        cursor: isConnected ? 'none' : 'default', // Only hide cursor when stream is active
+        // Cursor is hidden only on the canvas element, not the container
+        // This ensures the cursor is visible in the black letterbox/pillarbox bars
       }}
     >
       {/* Toolbar - always visible so user can reconnect/access controls */}
