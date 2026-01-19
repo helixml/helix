@@ -169,9 +169,13 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
+        // Debug logging for iPad keyboard troubleshooting
+        console.log(`[StreamInput] ${isDown ? 'KeyDown' : 'KeyUp'}: key="${event.key}" code="${event.code}" keyCode=${event.keyCode}`)
+
         // Check if we should use keysym mode (iPad/iOS with empty event.code)
         if (this.config.useEvdevCodes && shouldUseKeysym(event)) {
             const keysym = convertToKeysym(event)
+            console.log(`[StreamInput] Keysym mode: keysym=${keysym}`)
             if (keysym) {
                 const modifiers = convertToEvdevModifiers(event)
                 this.sendKeysym(isDown, keysym, modifiers)
@@ -186,11 +190,13 @@ export class StreamInput {
         if (this.config.useEvdevCodes) {
             key = convertToEvdevKey(event)
             modifiers = convertToEvdevModifiers(event)
+            console.log(`[StreamInput] Evdev mode: key=${key} modifiers=${modifiers}`)
         } else {
             key = convertToKey(event)
             modifiers = convertToModifiers(event)
         }
         if (!key) {
+            console.log(`[StreamInput] No key mapping found, dropping event`)
             return
         }
 

@@ -2788,6 +2788,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
+        // Prevent iOS tap highlight (blue rectangle on touch)
+        WebkitTapHighlightColor: 'transparent',
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
       }}
