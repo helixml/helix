@@ -488,7 +488,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 					bufferType = "dmabuf"
 				}
 
-				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
+				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
 					v.nodeID, captureSource, bufferType)
 				// Add render-node for multi-GPU systems
 				if renderNode := getRenderDevice(); renderNode != "" {
@@ -537,10 +537,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline
-	// max-size-buffers=1 keeps only the newest frame, dropping older ones immediately
-	// This prevents frame buildup when Mutter drains buffered frames in bursts
-	// leaky=downstream drops oldest frames if encoding falls behind (low latency)
-	parts = append(parts, "queue max-size-buffers=1 leaky=downstream")
+	// max-size-buffers=16 allows decoder flush hack to queue 16 duplicate frames
+	// without dropping them (pipewirezerocopysrc sends 16 copies when frame rate drops
+	// to flush Chrome's WebCodecs decoder buffer - see design/2026-01-19-decoder-flush-hack.md)
+	// leaky=downstream drops oldest frames if real frames pile up faster than encoder
+	parts = append(parts, "queue max-size-buffers=16 leaky=downstream")
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path
@@ -568,12 +569,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"videoconvert",
 				"video/x-raw,format=RGBA", // Convert BGR→RGBA (32-bit) for cudaupload
 				"cudaupload",
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		} else {
 			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
 			parts = append(parts,
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		}
 
@@ -840,6 +841,56 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	}
 }
 
+// patchSPSConstraintSet3 finds SPS NAL units in H.264 Annex B data and sets constraint_set3_flag=1.
+// This enables zero-latency decoding in Chrome's WebCodecs by signaling no frame reordering.
+//
+// We need this because we use damage-based encoding: Mutter only produces frames when the
+// screen content changes, which can result in very low frame rates (2 FPS) on static screens.
+// Without constraint_set3_flag=1, Chrome's decoder buffers 1-2 frames before displaying,
+// causing latency = buffer_depth × frame_interval. At 2 FPS, even 1 frame buffer = 500ms delay.
+// With constraint_set3_flag=1, the decoder outputs frames immediately with no buffering.
+//
+// See: https://issues.chromium.org/issues/40857774
+// See: https://github.com/w3c/webcodecs/issues/698
+// Returns a new slice with the patched data (or original if no SPS found).
+func patchSPSConstraintSet3(data []byte) []byte {
+	// Make a copy to avoid modifying the original buffer
+	result := make([]byte, len(data))
+	copy(result, data)
+
+	// Find SPS NAL units and patch constraint_set3_flag
+	// H.264 Annex B uses start codes: 0x00000001 or 0x000001
+	// NAL unit type is in bits 0-4 of the first byte after start code
+	// SPS NAL unit type = 7
+	for i := 0; i < len(result)-4; i++ {
+		// Check for 4-byte start code (0x00000001)
+		if result[i] == 0x00 && result[i+1] == 0x00 && result[i+2] == 0x00 && result[i+3] == 0x01 {
+			if i+6 < len(result) {
+				nalType := result[i+4] & 0x1F
+				if nalType == 7 { // SPS
+					// SPS structure after NAL header:
+					// byte 0: NAL header (already at i+4)
+					// byte 1: profile_idc (at i+5)
+					// byte 2: constraint_set flags (at i+6)
+					// Set constraint_set3_flag (bit 4 of constraint byte)
+					result[i+6] |= 0x10
+				}
+			}
+		}
+		// Check for 3-byte start code (0x000001)
+		if result[i] == 0x00 && result[i+1] == 0x00 && result[i+2] == 0x01 {
+			if i+5 < len(result) {
+				nalType := result[i+3] & 0x1F
+				if nalType == 7 { // SPS
+					// Set constraint_set3_flag (bit 4 of constraint byte)
+					result[i+5] |= 0x10
+				}
+			}
+		}
+	}
+	return result
+}
+
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
 // pts is the presentation timestamp in microseconds from GStreamer
@@ -851,6 +902,12 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64)
 	}
 
 	v.frameCount++
+
+	// For keyframes, patch SPS to set constraint_set3_flag=1 for zero-latency decode
+	frameData := data
+	if isKeyframe {
+		frameData = patchSPSConstraintSet3(data)
+	}
 
 	// PTS is already in microseconds from GStreamer (converted in gst_pipeline.go)
 
@@ -866,9 +923,9 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64)
 	binary.BigEndian.PutUint16(header[13:15], uint16(v.config.Height))
 
 	// Combine header and payload
-	msg := make([]byte, 15+len(data))
+	msg := make([]byte, 15+len(frameData))
 	copy(msg[:15], header)
-	copy(msg[15:], data)
+	copy(msg[15:], frameData)
 
 	return v.writeMessage(websocket.BinaryMessage, msg)
 }
