@@ -28,10 +28,21 @@ export interface StreamSettings {
   videoMode?: VideoMode;
 }
 
+// Get default bitrate (in kbps) based on resolution
+// 4K (3840x2160 or higher): 10 Mbps
+// 1080p and below: 5 Mbps
+export const getDefaultBitrateForResolution = (width: number, height: number): number => {
+  // 4K is 3840x2160, so check if either dimension exceeds 1080p thresholds
+  if (width >= 3840 || height >= 2160) {
+    return 10000; // 10 Mbps for 4K
+  }
+  return 5000; // 5 Mbps for 1080p and below
+};
+
 export const defaultStreamSettings = (): StreamSettings => ({
   videoSize: '1080p',
   videoSizeCustom: { width: 1920, height: 1080 },
-  bitrate: 5000, // 5 Mbps - lower bitrates provide smoother streaming than higher ones
+  bitrate: 5000, // 5 Mbps for 1080p default - use getDefaultBitrateForResolution() for resolution-aware default
   packetSize: 1024,
   fps: 60,
   videoSampleQueueSize: 50,  // Increased for 4K60 (was 5, too small for high bitrate)

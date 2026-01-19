@@ -26,7 +26,7 @@ import {
   AgentCursorInfo,
   RemoteTouchInfo,
 } from '../../lib/helix-stream/stream/websocket-stream';
-import { defaultStreamSettings } from '../../lib/helix-stream/component/settings_menu';
+import { defaultStreamSettings, getDefaultBitrateForResolution } from '../../lib/helix-stream/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
@@ -38,7 +38,8 @@ import ChartsPanel from './ChartsPanel';
 import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
-import CursorRenderer from './CursorRenderer';
+// CursorRenderer is used by RemoteCursorsOverlay for glowing remote user cursors
+// Local cursor uses native CSS cursor property instead
 
 // Default cursor - standard arrow pointer as SVG data URL
 // Used until server sends the actual cursor image
@@ -416,10 +417,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         credentials: helixToken,
       };
 
-      // Get streaming bitrate: user-selected > backend config > default
-      // 5 Mbps provides smoother streaming than higher bitrates - lower encoder latency
-      // and more consistent frame pacing outweigh the quality benefits of higher bitrates
-      let streamingBitrateMbps = 5; // Default: 5 Mbps (smoother than higher bitrates)
+      // Get streaming bitrate: user-selected > backend config > resolution-based default
+      // Default: 10 Mbps for 4K, 5 Mbps for 1080p and below
+      const defaultBitrateKbps = getDefaultBitrateForResolution(width, height);
+      let streamingBitrateMbps = defaultBitrateKbps / 1000;
 
       if (userBitrate !== null) {
         // User explicitly selected a bitrate - use it
@@ -2741,6 +2742,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, []);
 
+  // Compute native CSS cursor style from cursor image or CSS name
+  // Local user sees native cursor (no glowing overlay), remote users see glowing cursors
+  const nativeCursorStyle = (() => {
+    if (!isConnected) return 'default';
+    if (!cursorVisible) return 'none';
+
+    // If we have a cursor image with URL, use it as a custom cursor
+    if (cursorImage?.imageUrl) {
+      // CSS cursor: url(image) hotspotX hotspotY, fallback
+      return `url(${cursorImage.imageUrl}) ${cursorImage.hotspotX} ${cursorImage.hotspotY}, auto`;
+    }
+
+    // If we have a CSS cursor name (from GNOME headless), use it directly
+    if (cursorCssName) {
+      return cursorCssName;
+    }
+
+    // Default fallback
+    return 'default';
+  })();
+
   return (
     <Box
       ref={containerRef}
@@ -3183,7 +3205,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           top: '50%',
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
-          cursor: isConnected ? 'none' : 'default', // Hide cursor only when stream active (custom cursor shown)
+          cursor: nativeCursorStyle, // Use native cursor (custom image or CSS name from server)
           // Always visible for input capture
           // In video mode: renders video AND handles input
           // In screenshot mode: transparent but handles input (screenshot overlays on top)
@@ -3324,21 +3346,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Custom cursor - shows local mouse position
-          Uses shared CursorRenderer for consistent rendering with remote cursors
-          Hidden when mouse leaves canvas (isMouseOverCanvas) */}
-      {isConnected && hasMouseMoved && cursorVisible && isMouseOverCanvas && (
-        <CursorRenderer
-          x={cursorPosition.x}
-          y={cursorPosition.y}
-          cursorImage={cursorImage}
-          cursorCssName={cursorCssName}
-          userColor={selfUser?.color}
-          showDebugDot={true}
-        />
-      )}
-
-      {/* Remote user cursors (Figma-style multi-player) */}
+      {/* Remote user cursors (Figma-style multi-player) - uses glowing CursorRenderer */}
       <RemoteCursorsOverlay
         cursors={remoteCursors}
         users={remoteUsers}
