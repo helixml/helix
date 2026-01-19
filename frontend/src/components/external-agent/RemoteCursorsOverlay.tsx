@@ -59,6 +59,11 @@ const RemoteCursorsOverlay: React.FC<RemoteCursorsOverlayProps> = ({
         const displayColor = user?.color || cursor.color || '#0D99FF';
         const displayName = user?.userName || `User ${userId}`;
 
+        // Hide cursor if outside the canvas region (in stream coordinates)
+        if (cursor.x < 0 || cursor.x > streamWidth || cursor.y < 0 || cursor.y > streamHeight) {
+          return null;
+        }
+
         // Transform cursor position
         const displayX = offsetX + cursor.x * scaleX;
         const displayY = offsetY + cursor.y * scaleY;
