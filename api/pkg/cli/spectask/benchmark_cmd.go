@@ -194,8 +194,33 @@ func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps,
 			if msgType == websocket.BinaryMessage && len(data) > 0 {
 				wsMsgType := data[0]
 				if wsMsgType == WsMsgVideoFrame {
+					now := time.Now()
 					stats.totalFrames++
 					stats.totalBytes += int64(len(data))
+
+					// Jitter tracking - measure inter-frame arrival time
+					if !stats.lastFrameTime.IsZero() {
+						intervalMs := now.Sub(stats.lastFrameTime).Milliseconds()
+						stats.totalIntervalMs += intervalMs
+						stats.intervalCount++
+						if stats.minIntervalMs == 0 || intervalMs < stats.minIntervalMs {
+							stats.minIntervalMs = intervalMs
+						}
+						if intervalMs > stats.maxIntervalMs {
+							stats.maxIntervalMs = intervalMs
+						}
+						// Track significant gaps
+						if intervalMs > 50 {
+							stats.gapCount50ms++
+						}
+						if intervalMs > 100 {
+							stats.gapCount100ms++
+						}
+						if intervalMs > 200 {
+							stats.gapCount200ms++
+						}
+					}
+					stats.lastFrameTime = now
 
 					// Track frame in current second bucket
 					elapsed := time.Since(stats.startTime)
@@ -309,6 +334,18 @@ type benchmarkStats struct {
 	height       int
 	streamFPS    int
 	fpsBuckets   []int // Frames received per second
+
+	// Jitter tracking - measures variance in inter-frame arrival times
+	lastFrameTime   time.Time
+	minIntervalMs   int64
+	maxIntervalMs   int64
+	totalIntervalMs int64
+	intervalCount   int64
+
+	// Track gaps > 50ms for detailed analysis
+	gapCount50ms  int // Gaps > 50ms
+	gapCount100ms int // Gaps > 100ms
+	gapCount200ms int // Gaps > 200ms
 }
 
 func printBenchmarkResults(stats *benchmarkStats, _ /* duration */, targetFPS int) {
@@ -375,6 +412,26 @@ func printBenchmarkResults(stats *benchmarkStats, _ /* duration */, targetFPS in
 		fmt.Printf("     Frame Range:   %s - %s\n",
 			formatBytes(int64(stats.minFrameSize)),
 			formatBytes(int64(stats.maxFrameSize)))
+	}
+
+	// Jitter stats
+	fmt.Printf("\n")
+	fmt.Printf("  📉 Frame Jitter (inter-frame arrival variance):\n")
+	if stats.intervalCount > 0 {
+		avgIntervalMs := stats.totalIntervalMs / stats.intervalCount
+		fmt.Printf("     Interval:      min=%dms avg=%dms max=%dms\n",
+			stats.minIntervalMs, avgIntervalMs, stats.maxIntervalMs)
+		fmt.Printf("     Gaps >50ms:    %d (%.1f%%)\n",
+			stats.gapCount50ms, float64(stats.gapCount50ms)/float64(stats.intervalCount)*100)
+		fmt.Printf("     Gaps >100ms:   %d (%.1f%%)\n",
+			stats.gapCount100ms, float64(stats.gapCount100ms)/float64(stats.intervalCount)*100)
+		fmt.Printf("     Gaps >200ms:   %d (%.1f%%)\n",
+			stats.gapCount200ms, float64(stats.gapCount200ms)/float64(stats.intervalCount)*100)
+
+		// Warning if significant jitter
+		if stats.maxIntervalMs > 100 {
+			fmt.Printf("     ⚠️  High jitter detected! Max gap: %dms\n", stats.maxIntervalMs)
+		}
 	}
 
 	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")

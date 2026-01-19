@@ -460,7 +460,29 @@ export class WebSocketStream {
   }
 
   private messageCount = 0
+  private lastRawMsgTime = 0
+  private rawMsgIntervals: number[] = []
   private onMessage(event: MessageEvent) {
+    // RAW TIMESTAMP LOG - before ANY processing to detect browser-level jitter
+    const rawNow = performance.now()
+    if (this.lastRawMsgTime > 0) {
+      const interval = rawNow - this.lastRawMsgTime
+      this.rawMsgIntervals.push(interval)
+      // Keep last 60 samples
+      if (this.rawMsgIntervals.length > 60) {
+        this.rawMsgIntervals.shift()
+      }
+      // Log every 60 frames (about 1 second at 60fps)
+      if (this.rawMsgIntervals.length === 60) {
+        const min = Math.min(...this.rawMsgIntervals)
+        const max = Math.max(...this.rawMsgIntervals)
+        const avg = this.rawMsgIntervals.reduce((a, b) => a + b, 0) / this.rawMsgIntervals.length
+        console.log(`[WS_RAW] Message intervals: min=${min.toFixed(1)}ms avg=${avg.toFixed(1)}ms max=${max.toFixed(1)}ms`)
+        this.rawMsgIntervals = []
+      }
+    }
+    this.lastRawMsgTime = rawNow
+
     // Update heartbeat timestamp on any message
     this.lastMessageTime = Date.now()
     this.messageCount++

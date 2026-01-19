@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 8081,
-    allowedHosts: ['proxy', 'frontend'],
+    allowedHosts: true,  // Allow access from any hostname
   },
   publicDir: 'assets',
   build: {

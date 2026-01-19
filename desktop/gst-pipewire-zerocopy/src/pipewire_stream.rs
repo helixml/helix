@@ -1,4 +1,13 @@
 //! PipeWire stream handling - outputs smithay Dmabuf directly
+//!
+//! For CUDA path: EGL import + CUDA copy happens HERE in the PipeWire thread
+//! BEFORE returning the buffer to the compositor. This prevents race conditions
+//! where the compositor reuses the GPU buffer while we're still reading from it.
+
+// GStreamer imports (crate names from Cargo.toml: gst, gst-video)
+use gst::prelude::*;
+use gst::Buffer as GstBuffer;
+use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
 
 use parking_lot::Mutex;
 use pipewire::spa::param::format::{FormatProperties, MediaSubtype, MediaType};
@@ -26,6 +35,13 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+// CUDA imports for zero-copy path
+use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
+use smithay::backend::egl::EGLDisplay;
+use waylanddisplaycore::utils::allocator::cuda::{
+    CUDABufferPool, CUDAContext, CUDAImage, EGLImage, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
+};
 
 /// Cursor bitmap image data
 #[derive(Debug, Clone)]
@@ -59,6 +75,15 @@ pub enum FrameData {
     /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
     DmaBuf {
         dmabuf: Dmabuf,
+        pts_ns: i64,
+    },
+    /// CUDA buffer - EGL import + CUDA copy already completed in PipeWire thread
+    /// This is the preferred path for NVIDIA: no race condition with buffer reuse
+    CudaBuffer {
+        buffer: GstBuffer,
+        width: u32,
+        height: u32,
+        format: VideoFormat,
         pts_ns: i64,
     },
     /// SHM fallback
@@ -113,7 +138,34 @@ pub struct DmaBufCapabilities {
     pub dmabuf_available: bool,
 }
 
+/// CUDA resources for zero-copy GPU path.
+/// These are passed to the PipeWire thread to do EGL import + CUDA copy
+/// BEFORE returning the buffer to the compositor (preventing race conditions).
+///
+/// The key insight: We must complete the CUDA copy BEFORE calling `queue_raw_buffer`
+/// because returning the buffer allows Mutter to reuse the underlying GPU memory.
+/// The DmaBuf file descriptor we dup'd still points to the same GPU buffer!
+pub struct CudaResources {
+    /// Smithay EGLDisplay - used to import DmaBuf as EGLImage
+    pub egl_display: Arc<EGLDisplay>,
+    /// CUDA context for GPU operations
+    pub cuda_context: Arc<std::sync::Mutex<CUDAContext>>,
+    /// Buffer pool state - wrapped in Mutex for interior mutability
+    pub buffer_pool_state: Arc<Mutex<BufferPoolState>>,
+}
+
+/// Buffer pool state for CUDA buffer allocation
+pub struct BufferPoolState {
+    pub pool: Option<CUDABufferPool>,
+    pub configured: bool,
+}
+
+// CudaResources needs to be Send to pass to the PipeWire thread
+// Safety: EGL display and CUDA context are thread-safe when properly synchronized
+unsafe impl Send for CudaResources {}
+
 /// PipeWire stream wrapper
+
 pub struct PipeWireStream {
     thread: Option<JoinHandle<()>>,
     frame_rx: mpsc::Receiver<FrameData>,
@@ -136,11 +188,15 @@ impl PipeWireStream {
     ///                   If None, we only offer SHM formats (MemFd).
     /// * `target_fps` - Target frames per second. The max_framerate sent to Mutter will be
     ///                  target_fps * 2 to avoid the 16ms/17ms timing boundary issue.
+    /// * `cuda_resources` - Optional CUDA resources for GPU zero-copy path.
+    ///                      If provided, EGL import + CUDA copy happens in the PipeWire thread
+    ///                      BEFORE returning the buffer to the compositor, preventing race conditions.
     pub fn connect(
         node_id: u32,
         pipewire_fd: Option<i32>,
         dmabuf_caps: Option<DmaBufCapabilities>,
         target_fps: u32,
+        cuda_resources: Option<CudaResources>,
     ) -> Result<Self, String> {
         // Use larger buffer to reduce backpressure from GStreamer consumer
         // This helps prevent frame drops when GNOME delivers frames faster than we consume them
@@ -161,8 +217,8 @@ impl PipeWireStream {
         // The 100ms keepalive provides 10 FPS minimum for static screens.
         let negotiated_max_fps = 0;
         eprintln!(
-            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter)",
-            target_fps, negotiated_max_fps
+            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter), cuda={}",
+            target_fps, negotiated_max_fps, cuda_resources.is_some()
         );
 
         let thread = thread::Builder::new()
@@ -176,6 +232,7 @@ impl PipeWireStream {
                     frame_tx,
                     shutdown_clone,
                     video_info_clone,
+                    cuda_resources,
                 ) {
                     tracing::error!("PipeWire loop error: {}", e);
                     *error_clone.lock() = Some(e);
@@ -471,6 +528,7 @@ fn run_pipewire_loop(
     frame_tx: mpsc::SyncSender<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
+    cuda_resources: Option<CudaResources>,
 ) -> Result<(), String> {
     pipewire::init();
 
@@ -510,6 +568,11 @@ fn run_pipewire_loop(
     // Note: SyncSender is thread-safe, no Mutex needed
     let video_info_param = video_info.clone();
     let frame_tx_process = frame_tx.clone();
+
+    // Wrap cuda_resources in Arc for sharing with process callback
+    // The process callback will do EGL import + CUDA copy BEFORE returning buffer to PipeWire
+    let cuda_resources = cuda_resources.map(Arc::new);
+    let cuda_resources_process = cuda_resources.clone();
 
     // Per-stream tracking for format negotiation.
     // CRITICAL: This must be per-stream (Arc), not static, because Wolf runs
@@ -841,7 +904,32 @@ fn run_pipewire_loop(
                     tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
                 }
 
-                let _ = frame_tx_process.try_send(frame);
+                // CRITICAL FIX: Process DmaBuf through CUDA BEFORE returning buffer to PipeWire.
+                // This prevents the race condition where Mutter reuses the GPU buffer
+                // while we're still reading from it in a different thread.
+                let frame_to_send = match (&frame, cuda_resources_process.as_ref()) {
+                    (FrameData::DmaBuf { dmabuf, pts_ns }, Some(cuda_res)) => {
+                        // Do CUDA processing in PipeWire thread, synchronously
+                        match process_dmabuf_to_cuda(dmabuf, cuda_res, *pts_ns, &params) {
+                            Ok(cuda_frame) => Some(cuda_frame),
+                            Err(e) => {
+                                // Log error and drop frame - no fallback, corruption is worse
+                                static CUDA_ERROR_COUNT: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                let err_count = CUDA_ERROR_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                                if err_count <= 10 || err_count % 100 == 0 {
+                                    eprintln!("[PIPEWIRE_CUDA] ERROR: CUDA processing failed ({}): {}", err_count, e);
+                                }
+                                None  // Drop frame
+                            }
+                        }
+                    }
+                    _ => Some(frame),
+                };
+
+                if let Some(f) = frame_to_send {
+                    let _ = frame_tx_process.try_send(f);
+                }
             } else {
                 // extract_frame returned None - log why (first 5 times only to avoid spam)
                 static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -855,7 +943,8 @@ fn run_pipewire_loop(
                 }
             }
 
-            // Re-queue the buffer
+            // Re-queue the buffer AFTER CUDA copy is complete.
+            // This is safe now because the GPU data has been copied to a CUDA buffer.
             unsafe { stream.queue_raw_buffer(pw_buffer) };
         })
         .register()
@@ -946,6 +1035,114 @@ fn run_pipewire_loop(
     }
 
     Ok(())
+}
+
+/// Convert DRM fourcc (smithay Fourcc enum) to GStreamer VideoFormat.
+/// This is needed for CUDA buffer creation in the PipeWire thread.
+fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
+    // Use the smithay Fourcc enum variants directly
+    match fourcc {
+        Fourcc::Argb8888 => VideoFormat::Bgra,
+        Fourcc::Abgr8888 => VideoFormat::Rgba,
+        Fourcc::Rgba8888 => VideoFormat::Abgr,
+        Fourcc::Bgra8888 => VideoFormat::Argb,
+        Fourcc::Xrgb8888 => VideoFormat::Bgrx,
+        Fourcc::Xbgr8888 => VideoFormat::Rgbx,
+        Fourcc::Rgbx8888 => VideoFormat::Xbgr,
+        Fourcc::Bgrx8888 => VideoFormat::Xrgb,
+        Fourcc::Bgr888 => VideoFormat::Rgb,
+        Fourcc::Rgb888 => VideoFormat::Bgr,
+        _ => {
+            eprintln!("[PIPEWIRE_CUDA] Unknown DRM fourcc {:?}, defaulting to Bgra", fourcc);
+            VideoFormat::Bgra
+        }
+    }
+}
+
+/// Process DmaBuf through CUDA in the PipeWire thread.
+/// This does EGL import + CUDA copy synchronously BEFORE returning the buffer to PipeWire,
+/// preventing the race condition where Mutter reuses the GPU buffer while we're reading.
+fn process_dmabuf_to_cuda(
+    dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
+    cuda_res: &CudaResources,
+    pts_ns: i64,
+    params: &VideoParams,
+) -> Result<FrameData, String> {
+    use smithay::backend::allocator::Buffer;
+
+    let w = dmabuf.width() as u32;
+    let h = dmabuf.height() as u32;
+
+    // Get raw EGL display handle
+    let raw_display: RawEGLDisplay = cuda_res.egl_display.get_display_handle().handle;
+
+    // Step 1: Import DmaBuf as EGLImage
+    let egl_image = EGLImage::from(dmabuf, &raw_display)
+        .map_err(|e| format!("EGLImage::from failed: {}", e))?;
+
+    // Step 2: Lock CUDA context and create CUDAImage
+    let cuda_ctx = cuda_res.cuda_context.lock()
+        .map_err(|e| format!("Failed to lock CUDA context: {}", e))?;
+
+    let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
+        .map_err(|e| format!("CUDAImage::from failed: {}", e))?;
+
+    // Step 3: Build video info for buffer allocation
+    let drm_format = dmabuf.format();
+    let video_format = drm_fourcc_to_video_format(drm_format.code);
+    let base_info = VideoInfo::builder(video_format, w, h)
+        .build()
+        .map_err(|e| format!("VideoInfo build failed: {:?}", e))?;
+    // VideoInfoDmaDrm expects u32 fourcc code
+    let dma_video_info = VideoInfoDmaDrm::new(
+        base_info,
+        drm_format.code as u32,
+        drm_format.modifier.into(),
+    );
+
+    // Step 4: Configure buffer pool on first use
+    {
+        let mut pool_state = cuda_res.buffer_pool_state.lock();
+        if !pool_state.configured {
+            if let Some(ref pool) = pool_state.pool {
+                let pool_caps = VideoCapsBuilder::new()
+                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                    .format(video_format)
+                    .width(w as i32)
+                    .height(h as i32)
+                    .framerate(gst::Fraction::new(60, 1))
+                    .build();
+                let buffer_size = w * h * 4;
+                if pool.configure_basic(&pool_caps, buffer_size, 8, 16).is_ok() {
+                    if pool.activate().is_ok() {
+                        pool_state.configured = true;
+                        eprintln!("[PIPEWIRE_CUDA] Buffer pool configured: {}x{} {:?}", w, h, video_format);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 5: Do the actual CUDA copy (this is synchronous - waits for GPU)
+    let pool_state = cuda_res.buffer_pool_state.lock();
+    let buffer = cuda_image
+        .to_gst_buffer(dma_video_info, &cuda_ctx, pool_state.pool.as_ref())
+        .map_err(|e| format!("to_gst_buffer failed: {}", e))?;
+    drop(pool_state);
+
+    // Step 6: CUDAImage drops here, which calls cuGraphicsUnregisterResource
+    // This is safe because the CUDA copy is complete (synchronous)
+    drop(cuda_image);
+    drop(cuda_ctx);
+
+    // Return the CUDA buffer
+    Ok(FrameData::CudaBuffer {
+        buffer,
+        width: w,
+        height: h,
+        format: video_format,
+        pts_ns,
+    })
 }
 
 /// Extract DRM fourcc code from SPA video format - exposed for testing
