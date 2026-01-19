@@ -544,6 +544,10 @@ func (s *Server) handleWSMouseAbsoluteWithClient(data []byte, sessionID string, 
 		}
 	}
 
+	// Update global cursor position for screenshot compositing
+	// This is used to composite cursors onto screenshots when using transparent cursor themes
+	GetGlobalCursorState().UpdatePosition(int32(absX), int32(absY))
+
 	// Broadcast cursor position to other connected clients for multi-player cursors
 	// Note: This broadcasts the user's mouse position (in screen coords) to all other
 	// clients viewing this session, enabling Figma-style collaborative cursors.

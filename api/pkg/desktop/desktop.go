@@ -107,6 +107,14 @@ type Server struct {
 	// one operation at a time per sender. Concurrent calls return
 	// "There is an ongoing operation for this sender" error.
 	screenshotMu sync.Mutex
+
+	// Cursor state for screenshot compositing
+	// In GNOME with Helix-Invisible cursor theme, we need to composite
+	// the cursor onto screenshots since the actual cursor is transparent.
+	cursorMu   sync.RWMutex
+	cursorX    int32  // Last known cursor X position
+	cursorY    int32  // Last known cursor Y position
+	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -154,7 +162,35 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		screenWidth:     screenWidth,
 		screenHeight:    screenHeight,
 		displayScale:    displayScale,
+		cursorName:      "default", // Start with default arrow cursor
 	}
+}
+
+// UpdateCursorState updates the cursor position and shape for screenshot compositing.
+// Called by the cursor socket listener when cursor state changes.
+func (s *Server) UpdateCursorState(x, y int32, cursorName string) {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
+	s.cursorX = x
+	s.cursorY = y
+	if cursorName != "" {
+		s.cursorName = cursorName
+	}
+}
+
+// UpdateCursorPosition updates just the cursor position (called from input events).
+func (s *Server) UpdateCursorPosition(x, y int32) {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
+	s.cursorX = x
+	s.cursorY = y
+}
+
+// GetCursorState returns the current cursor position and shape.
+func (s *Server) GetCursorState() (x, y int32, cursorName string) {
+	s.cursorMu.RLock()
+	defer s.cursorMu.RUnlock()
+	return s.cursorX, s.cursorY, s.cursorName
 }
 
 // Run starts the server and blocks until context is cancelled.

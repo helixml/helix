@@ -12,12 +12,107 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
 
 const (
 	// CursorSocketPath is the Unix socket path for cursor updates from GNOME Shell extension
 	CursorSocketPath = "/run/user/1000/helix-cursor.sock"
 )
+
+// CursorSocketCallback is called when cursor data is received from the GNOME extension socket
+type CursorSocketCallback func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string)
+
+// SharedCursorBroadcaster manages a single cursor socket listener and broadcasts to multiple VideoStreamers.
+// This is necessary because the Unix socket path is shared - only one listener can own it at a time.
+// When multiple clients connect, they all receive cursor updates via this broadcaster.
+type SharedCursorBroadcaster struct {
+	mu        sync.RWMutex
+	callbacks map[uint64]CursorSocketCallback
+	nextID    atomic.Uint64
+	running   bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	logger    *slog.Logger
+}
+
+var (
+	sharedCursorBroadcaster     *SharedCursorBroadcaster
+	sharedCursorBroadcasterOnce sync.Once
+	sharedCursorBroadcasterMu   sync.Mutex
+)
+
+// GetSharedCursorBroadcaster returns the global shared cursor broadcaster.
+// It lazily starts the broadcaster on first use.
+func GetSharedCursorBroadcaster(logger *slog.Logger) *SharedCursorBroadcaster {
+	sharedCursorBroadcasterMu.Lock()
+	defer sharedCursorBroadcasterMu.Unlock()
+
+	if sharedCursorBroadcaster == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		sharedCursorBroadcaster = &SharedCursorBroadcaster{
+			callbacks: make(map[uint64]CursorSocketCallback),
+			ctx:       ctx,
+			cancel:    cancel,
+			logger:    logger,
+		}
+		go sharedCursorBroadcaster.run()
+	}
+	return sharedCursorBroadcaster
+}
+
+// Register adds a callback to receive cursor updates. Returns an ID for unregistering.
+func (b *SharedCursorBroadcaster) Register(callback CursorSocketCallback) uint64 {
+	id := b.nextID.Add(1)
+	b.mu.Lock()
+	b.callbacks[id] = callback
+	b.mu.Unlock()
+	b.logger.Info("[SharedCursorBroadcaster] registered callback", "id", id, "total", len(b.callbacks))
+	return id
+}
+
+// Unregister removes a callback by ID
+func (b *SharedCursorBroadcaster) Unregister(id uint64) {
+	b.mu.Lock()
+	delete(b.callbacks, id)
+	remaining := len(b.callbacks)
+	b.mu.Unlock()
+	b.logger.Info("[SharedCursorBroadcaster] unregistered callback", "id", id, "remaining", remaining)
+}
+
+// broadcast sends cursor data to all registered callbacks
+func (b *SharedCursorBroadcaster) broadcast(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string) {
+	b.mu.RLock()
+	callbacks := make([]CursorSocketCallback, 0, len(b.callbacks))
+	for _, cb := range b.callbacks {
+		callbacks = append(callbacks, cb)
+	}
+	b.mu.RUnlock()
+
+	for _, cb := range callbacks {
+		cb(hotspotX, hotspotY, width, height, pixels, cursorName)
+	}
+}
+
+// run starts the cursor socket listener and broadcasts events
+func (b *SharedCursorBroadcaster) run() {
+	b.logger.Info("[SharedCursorBroadcaster] starting shared cursor listener")
+
+	listener, err := NewCursorSocketListener(b.logger)
+	if err != nil {
+		b.logger.Error("[SharedCursorBroadcaster] failed to create cursor socket listener", "err", err)
+		return
+	}
+	defer listener.Close()
+
+	// Set callback to broadcast to all registered callbacks
+	listener.SetCallback(func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string) {
+		b.broadcast(hotspotX, hotspotY, width, height, pixels, cursorName)
+	})
+
+	// Run the listener
+	listener.Run(b.ctx)
+}
 
 // CursorSocketMessage is the JSON message format from the GNOME Shell extension
 type CursorSocketMessage struct {

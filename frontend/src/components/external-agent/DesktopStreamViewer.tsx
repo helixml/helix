@@ -698,17 +698,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           const lastMover = data.lastMoverID;
 
           // If lastMover is set and it's NOT us, update the remote user's cursor
-          // This takes priority - even if we don't know our own ID yet
           if (lastMover && lastMover !== currentSelfId) {
             // Another user caused the cursor shape change - update their remote cursor
-            console.log('[CURSOR_SHAPE] Remote user cursor change:', { lastMover, currentSelfId, hasImage: !!data.cursor?.imageUrl });
             setRemoteCursors(prev => {
               const existing = prev.get(lastMover);
               if (existing) {
-                console.log('[CURSOR_SHAPE] Updated remote cursor:', lastMover);
                 return new Map(prev).set(lastMover, { ...existing, cursorImage: data.cursor });
               }
-              console.warn('[CURSOR_SHAPE] Remote cursor not in map:', lastMover, 'keys:', Array.from(prev.keys()));
               return prev;
             });
           } else {
@@ -730,7 +726,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
           if (lastMover && lastMover !== currentSelfId) {
             // Another user caused the cursor shape change - update their remote cursor
-            console.log('[CURSOR] Remote user cursorName change:', { lastMover, currentSelfId, cursorName: data.cursorName });
             setRemoteCursors(prev => {
               const existing = prev.get(lastMover);
               if (existing) {
@@ -746,7 +741,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // It's our movement - update local cursor
             setCursorImage(null);
             setCursorCssName(data.cursorName);
-            console.log('[CURSOR] CSS cursor name received:', data.cursorName);
           }
         }
         // Multi-player cursor events

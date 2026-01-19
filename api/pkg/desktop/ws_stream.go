@@ -963,6 +963,9 @@ func (v *VideoStreamer) sendCursorName(cursorName string, hotspotX, hotspotY int
 		cursorName = cursorName[:255]
 	}
 
+	// Update global cursor state for screenshot compositing
+	GetGlobalCursorState().UpdateShape(cursorName)
+
 	// Get the last mover for cursor shape attribution
 	lastMoverID := uint32(0)
 	if v.config.SessionID != "" {
@@ -994,29 +997,24 @@ func (v *VideoStreamer) sendCursorName(cursorName string, hotspotX, hotspotY int
 // This approach avoids PipeWire cursor metadata issues in GNOME headless mode
 // and eliminates CGO complexity.
 //
+// IMPORTANT: Uses a shared cursor broadcaster so all VideoStreamers receive cursor updates.
+// The Unix socket can only have one listener, so we share it via SharedCursorBroadcaster.
+//
 // Fallback: If no cursor data after 5 seconds, sends default cursor.
 func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback cursorCallbackFunc) {
-	v.logger.Info("starting cursor socket listener for GNOME Shell extension")
+	v.logger.Info("registering with shared cursor broadcaster for GNOME Shell extension")
 
-	// Create cursor socket listener
-	listener, err := NewCursorSocketListener(v.logger)
-	if err != nil {
-		v.logger.Error("failed to create cursor socket listener", "err", err)
-		// Send default cursor as fallback
-		defaultCursor := generateDefaultArrowCursor()
-		callback(0, 0, 0, 0, 24, 24, 24*4, 0x34325241, defaultCursor)
-		return
-	}
-	defer listener.Close()
+	// Get the shared cursor broadcaster (creates socket listener if first use)
+	broadcaster := GetSharedCursorBroadcaster(v.logger)
 
 	// Track if we've received any cursor data
 	var receivedCursor atomic.Bool
 	startTime := time.Now()
 
-	// Set callback for cursor updates from GNOME Shell extension
-	listener.SetCallback(func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string) {
+	// Register callback with the shared broadcaster
+	callbackID := broadcaster.Register(func(hotspotX, hotspotY, width, height int, pixels []byte, cursorName string) {
 		receivedCursor.Store(true)
-		v.logger.Debug("cursor update from GNOME extension",
+		v.logger.Debug("cursor update from GNOME extension (via broadcaster)",
 			"hotspot", fmt.Sprintf("(%d,%d)", hotspotX, hotspotY),
 			"size", fmt.Sprintf("%dx%d", width, height),
 			"pixels_len", len(pixels),
@@ -1042,8 +1040,11 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 		}
 	})
 
-	// Start the listener in background
-	go listener.Run(ctx)
+	// Ensure we unregister when done
+	defer func() {
+		v.logger.Info("unregistering from shared cursor broadcaster", "callbackID", callbackID)
+		broadcaster.Unregister(callbackID)
+	}()
 
 	// Monitor for timeout - send default cursor if no data received
 	go func() {

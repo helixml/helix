@@ -278,6 +278,10 @@ func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, str
 //    - includeCursor=true: use ssNodeID (cursor-mode=1, Embedded)
 //    - includeCursor=false: use ssNoCursorNodeID (cursor-mode=0, Hidden)
 // 2. Otherwise, fall back to D-Bus Screenshot API (slower, ~400ms, serialized).
+//
+// NOTE: When using Helix-Invisible cursor theme, the actual cursor is transparent.
+// Even with cursor-mode=1 (Embedded), the cursor won't be visible in screenshots.
+// We detect this and composite our own cursor sprite onto the screenshot.
 func (s *Server) captureGNOMEScreenshotWithCursor(format string, quality int, includeCursor bool) ([]byte, string, error) {
 	// Select the appropriate PipeWire node based on cursor preference
 	var nodeID uint32
@@ -287,21 +291,56 @@ func (s *Server) captureGNOMEScreenshotWithCursor(format string, quality int, in
 		nodeID = s.ssNoCursorNodeID
 	}
 
+	var data []byte
+	var actualFormat string
+	var err error
+
 	// Fast path: Use dedicated screenshot PipeWire node if available
 	if nodeID > 0 {
-		return s.captureScreenshotPipeWireNode(format, quality, nodeID, includeCursor)
+		data, actualFormat, err = s.captureScreenshotPipeWireNode(format, quality, nodeID, includeCursor)
+	} else {
+		// Slow path: Fall back to D-Bus Screenshot API
+		if s.conn == nil {
+			return nil, "", fmt.Errorf("D-Bus connection not available")
+		}
+
+		// Serialize screenshot requests - GNOME only allows one at a time per D-Bus connection
+		s.screenshotMu.Lock()
+		defer s.screenshotMu.Unlock()
+
+		data, actualFormat, err = s.captureShellScreenshotDBusWithCursor(format, quality, includeCursor)
 	}
 
-	// Slow path: Fall back to D-Bus Screenshot API
-	if s.conn == nil {
-		return nil, "", fmt.Errorf("D-Bus connection not available")
+	if err != nil {
+		return nil, "", err
 	}
 
-	// Serialize screenshot requests - GNOME only allows one at a time per D-Bus connection
-	s.screenshotMu.Lock()
-	defer s.screenshotMu.Unlock()
+	// When includeCursor=true and we're using Helix-Invisible cursor theme,
+	// the captured cursor is transparent. Composite our cursor sprite onto the screenshot.
+	// We always composite when includeCursor=true because the theme detection would be complex
+	// and compositing is fast enough not to matter.
+	if includeCursor {
+		cursorX, cursorY, cursorName := GetGlobalCursorState().Get()
+		compositedData, compErr := CompositeCursorOnImageData(data, actualFormat, int(cursorX), int(cursorY), cursorName, quality)
+		if compErr != nil {
+			// Log but don't fail - return the screenshot without cursor
+			s.logger.Warn("failed to composite cursor onto screenshot",
+				"err", compErr,
+				"cursor_x", cursorX,
+				"cursor_y", cursorY,
+				"cursor_name", cursorName)
+			return data, actualFormat, nil
+		}
+		s.logger.Debug("composited cursor onto screenshot",
+			"cursor_x", cursorX,
+			"cursor_y", cursorY,
+			"cursor_name", cursorName,
+			"original_size", len(data),
+			"composited_size", len(compositedData))
+		return compositedData, actualFormat, nil
+	}
 
-	return s.captureShellScreenshotDBusWithCursor(format, quality, includeCursor)
+	return data, actualFormat, nil
 }
 
 // captureScreenshotPipeWire captures from the dedicated screenshot PipeWire node (with cursor).

@@ -63,14 +63,15 @@ The extension monitors `Meta.CursorTracker` for cursor changes:
 - Calls callback with hotspot, dimensions, and RGBA pixels
 
 ### Integration in ws_stream.go
-- `monitorCursorPipeWire()` creates `CursorSocketListener` when client connects
+- `monitorCursorPipeWire()` registers with `SharedCursorBroadcaster` (singleton)
+- Broadcaster manages single socket listener shared by all VideoStreamers
 - Extension retries until socket exists, then sends cursor data
 - No CGO required, no PipeWire complexity
 
 ### Code Locations
 - `desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/` - GNOME Shell extension
-- `api/pkg/desktop/cursor_socket.go` - Go Unix socket listener
-- `api/pkg/desktop/ws_stream.go` - `monitorCursorPipeWire()` uses socket listener
+- `api/pkg/desktop/cursor_socket.go` - Go Unix socket listener + `SharedCursorBroadcaster`
+- `api/pkg/desktop/ws_stream.go` - `monitorCursorPipeWire()` registers with broadcaster
 
 ### Rust Plugin (Video Only)
 The Rust `pipewirezerocopysrc` plugin handles VIDEO ONLY:
@@ -92,10 +93,94 @@ Root cause: GNOME headless mode doesn't provide cursor metadata in PipeWire buff
 
 **Solution:** Use GNOME Shell extension (Meta.CursorTracker) instead of PipeWire metadata.
 
+## Cursor Compositing for Screenshots (MCP/Agent)
+
+### Problem
+With the Helix-Invisible cursor theme, the system cursor is transparent. Even when capturing
+screenshots with `cursor-mode=1` (Embedded), the cursor isn't visible. AI agents using the
+MCP screenshot tool couldn't see cursor position.
+
+### Solution: Server-Side Cursor Compositing
+Composite cursor sprites onto screenshots before sending to agents.
+
+#### Implementation (api/pkg/desktop/)
+
+1. **`cursor_state.go`** - Global cursor state singleton
+   - Tracks cursor position (x, y) and shape (cursorName)
+   - Updated by VideoStreamer (shape) and input handlers (position)
+   - Read by screenshot functions when compositing
+
+2. **`cursor_sprites.go`** - Cursor sprite generation
+   - Programmatically generates cursor images in Go
+   - **Standard Adwaita style** (white body, black outline) for LLM recognition
+   - Supports 20+ cursor types matching CSS cursor names
+   - `CompositeCursorOnImage()`, `CompositeCursorOnPNG()`, `CompositeCursorOnJPEG()`
+
+3. **`screenshot.go`** - Integration
+   - `captureGNOMEScreenshotWithCursor()` composites cursor when `includeCursor=true`
+   - Gets cursor state from `GetGlobalCursorState().Get()`
+   - Composites after capture, before returning to client
+
+4. **`ws_stream.go`** - Shape tracking
+   - `sendCursorName()` calls `GetGlobalCursorState().UpdateShape()`
+   - Updates global state whenever cursor shape changes
+
+5. **`ws_input.go`** - Position tracking
+   - `handleWSMouseAbsoluteWithClient()` calls `GetGlobalCursorState().UpdatePosition()`
+   - Updates global state on every mouse movement
+
+### Note: Sway Does Not Need Compositing
+Sway uses a normal visible cursor theme. The `grim -c` flag captures the actual cursor.
+Compositing is only needed for GNOME with the Helix-Invisible transparent cursor theme.
+
+## Multi-User Cursor Shape Fix
+
+### Problem
+When User A moves the mouse and hovers over a button, User A's local cursor doesn't update
+to the new shape (e.g., "pointer"). But User B can see User A's remote cursor change correctly.
+
+### Root Cause
+Each `VideoStreamer` was creating its own `CursorSocketListener` using the same Unix socket
+path (`/run/user/1000/helix-cursor.sock`). When User B connected:
+1. User B's VideoStreamer calls `NewCursorSocketListener()`
+2. This removes User A's existing socket file
+3. Creates a new socket listener
+4. User A's listener is orphaned - never receives cursor events
+
+Result: Only the last-connected user received cursor shape updates.
+
+### Fix: SharedCursorBroadcaster
+Created a shared cursor broadcaster singleton that:
+1. Manages a single Unix socket listener
+2. All VideoStreamers register callbacks with the broadcaster
+3. When cursor events arrive, broadcasts to ALL registered callbacks
+
+```go
+// cursor_socket.go - SharedCursorBroadcaster
+type SharedCursorBroadcaster struct {
+    callbacks map[uint64]CursorSocketCallback
+    // ...
+}
+
+// ws_stream.go - monitorCursorPipeWire now uses shared broadcaster
+broadcaster := GetSharedCursorBroadcaster(v.logger)
+callbackID := broadcaster.Register(func(...) { ... })
+defer broadcaster.Unregister(callbackID)
+```
+
+### Frontend Logic (Unchanged)
+The frontend correctly attributes cursor shapes using `lastMoverID`:
+- If `lastMoverID === selfClientId`: update local cursor
+- If `lastMoverID !== selfClientId`: update remote cursor for that user
+
+This creates the "multiple cursors" illusion where each user sees their own cursor
+reflecting their actions, while also seeing other users' cursors.
+
 ## Design Principles
 1. **Minimize CGO** - Hard to debug, memory issues
 2. **Use pure Go** where libraries exist
 3. **Fallback to D-Bus** when PipeWire metadata unavailable
+4. **Standard cursor appearance** - Use Adwaita style for LLM training data recognition
 
 ## References
 - [Mutter MR !2393](https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/2393) - Fix cursor metadata with unthrottled input
