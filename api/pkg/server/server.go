@@ -1069,10 +1069,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/mcp/{server}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/mcp/{server}/{path:.*}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 
-	// Legacy Kodit MCP routes (redirect to gateway) - keep for backwards compatibility
-	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
-	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
-
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 

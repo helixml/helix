@@ -705,6 +705,99 @@ func codecName(codec byte) string {
 	}
 }
 
+// SPSInfo contains parsed H.264 SPS constraint information
+type SPSInfo struct {
+	ProfileIDC         byte
+	ConstraintSet0Flag bool
+	ConstraintSet1Flag bool
+	ConstraintSet2Flag bool
+	ConstraintSet3Flag bool
+	ConstraintSet4Flag bool
+	ConstraintSet5Flag bool
+	LevelIDC           byte
+	RawConstraintByte  byte
+}
+
+// parseSPSFromH264 finds and parses the SPS NAL unit from H.264 Annex B data.
+// Returns nil if no SPS found.
+func parseSPSFromH264(data []byte) *SPSInfo {
+	// H.264 Annex B uses start codes: 0x00000001 or 0x000001
+	// NAL unit type is in bits 0-4 of the first byte after start code
+	// SPS NAL unit type = 7
+
+	// Find all NAL units
+	for i := 0; i < len(data)-4; i++ {
+		// Check for 4-byte start code (0x00000001)
+		if data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x00 && data[i+3] == 0x01 {
+			if i+4 < len(data) {
+				nalType := data[i+4] & 0x1F
+				if nalType == 7 && i+7 < len(data) { // SPS
+					// SPS structure:
+					// byte 0: NAL header
+					// byte 1: profile_idc
+					// byte 2: constraint_set flags
+					// byte 3: level_idc
+					constraintByte := data[i+6]
+					return &SPSInfo{
+						ProfileIDC:         data[i+5],
+						ConstraintSet0Flag: (constraintByte & 0x80) != 0,
+						ConstraintSet1Flag: (constraintByte & 0x40) != 0,
+						ConstraintSet2Flag: (constraintByte & 0x20) != 0,
+						ConstraintSet3Flag: (constraintByte & 0x10) != 0,
+						ConstraintSet4Flag: (constraintByte & 0x08) != 0,
+						ConstraintSet5Flag: (constraintByte & 0x04) != 0,
+						LevelIDC:           data[i+7],
+						RawConstraintByte:  constraintByte,
+					}
+				}
+			}
+		}
+		// Check for 3-byte start code (0x000001)
+		if data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x01 {
+			if i+3 < len(data) {
+				nalType := data[i+3] & 0x1F
+				if nalType == 7 && i+6 < len(data) { // SPS
+					constraintByte := data[i+5]
+					return &SPSInfo{
+						ProfileIDC:         data[i+4],
+						ConstraintSet0Flag: (constraintByte & 0x80) != 0,
+						ConstraintSet1Flag: (constraintByte & 0x40) != 0,
+						ConstraintSet2Flag: (constraintByte & 0x20) != 0,
+						ConstraintSet3Flag: (constraintByte & 0x10) != 0,
+						ConstraintSet4Flag: (constraintByte & 0x08) != 0,
+						ConstraintSet5Flag: (constraintByte & 0x04) != 0,
+						LevelIDC:           data[i+6],
+						RawConstraintByte:  constraintByte,
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// profileName returns a human-readable name for H.264 profile_idc
+func profileName(profileIDC byte) string {
+	switch profileIDC {
+	case 66:
+		return "Baseline"
+	case 77:
+		return "Main"
+	case 88:
+		return "Extended"
+	case 100:
+		return "High"
+	case 110:
+		return "High 10"
+	case 122:
+		return "High 4:2:2"
+	case 244:
+		return "High 4:4:4 Predictive"
+	default:
+		return fmt.Sprintf("Unknown(%d)", profileIDC)
+	}
+}
+
 // renderCursorASCII renders cursor bitmap data as ASCII art
 // Supports RGBA8888 and ARGB8888 formats, down-samples to maxSize x maxSize
 // Also returns sample pixel values for debugging
@@ -1065,6 +1158,34 @@ Examples:
 								}
 								if isKeyframe {
 									stats.keyframes++
+									// Parse and log SPS from keyframes
+									frameData := data[15:]
+									if sps := parseSPSFromH264(frameData); sps != nil {
+										// Always log first keyframe SPS, or all in verbose mode
+										if stats.keyframes == 1 || verbose {
+											b2i := func(b bool) int {
+												if b {
+													return 1
+												}
+												return 0
+											}
+											fmt.Printf("🔑 SPS: profile_idc=%d (%s) constraint_set=[%d%d%d%d%d%d] level=%d.%d (raw=0x%02x)\n",
+												sps.ProfileIDC, profileName(sps.ProfileIDC),
+												b2i(sps.ConstraintSet0Flag), b2i(sps.ConstraintSet1Flag),
+												b2i(sps.ConstraintSet2Flag), b2i(sps.ConstraintSet3Flag),
+												b2i(sps.ConstraintSet4Flag), b2i(sps.ConstraintSet5Flag),
+												sps.LevelIDC/10, sps.LevelIDC%10,
+												sps.RawConstraintByte)
+											// Highlight constraint_set3_flag specifically for zero-latency decode
+											if sps.ConstraintSet3Flag {
+												fmt.Println("   ✅ constraint_set3_flag=1 (zero-latency decode enabled)")
+											} else {
+												fmt.Println("   ⚠️  constraint_set3_flag=0 (decoder may buffer frames)")
+											}
+										}
+									} else if stats.keyframes == 1 {
+										fmt.Println("⚠️  First keyframe: no SPS NAL found")
+									}
 								}
 								frameSize := len(data) - 15
 								if frameSize < stats.minFrameSize || stats.minFrameSize == 0 {
