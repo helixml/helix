@@ -213,7 +213,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   // Use useSpecTask hook with auto-refresh, but disable when in edit mode
   const { data: refreshedTask } = useSpecTask(task?.id || '', {
     enabled: !!task?.id && open,
-    refetchInterval: isEditMode ? false : 2000,
+    refetchInterval: isEditMode ? false : 2300, // 2.3s - prime to avoid sync
   })
 
   // Use refreshed task data for rendering

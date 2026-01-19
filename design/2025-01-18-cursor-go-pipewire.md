@@ -176,6 +176,52 @@ The frontend correctly attributes cursor shapes using `lastMoverID`:
 This creates the "multiple cursors" illusion where each user sees their own cursor
 reflecting their actions, while also seeing other users' cursors.
 
+## GNOME Animation Frame Rate Issue
+
+### Problem
+Desktop animations (alt-tabbing, window transitions) run at ~1 FPS instead of 60 FPS
+in GNOME headless mode with ScreenCast.
+
+### Experiments Tried
+
+**1. max_framerate=60/1**
+- Result: Judder, every other frame skipped, caps at ~30-40 FPS
+- Why: Mutter's rate limiting skips frames that come within 16.6ms of each other
+
+**2. max_framerate=360/1 (high value)**
+- Theory: Keep follow-up mechanism active while having short min_interval (2.7ms)
+- Result: WORSE - still capped at ~30-40 FPS with judder
+- Conclusion: Any non-zero max_framerate triggers Mutter's problematic rate limiting
+
+**3. max_framerate=0/1 (CURRENT)**
+- Result: Full 60 FPS for normal content, but animations run at ~1 FPS
+- Why: Disables rate limiting entirely, but also disables the follow-up mechanism
+- Trade-off: We accept slow animations because the alternative is worse
+
+### Root Cause (Mutter Internals)
+The `max_framerate` parameter controls the ScreenCast virtual monitor's refresh rate:
+
+```c
+// meta-screen-cast-virtual-stream-src.c:661-662
+refresh_rate = ((float) video_format->max_framerate.num /
+                video_format->max_framerate.denom);
+info = meta_virtual_monitor_info_new(width, height, refresh_rate, ...);
+```
+
+- With `max_framerate=0/1`: refresh_rate=0, which paradoxically allows smooth 60 FPS
+  (possibly inherits from the main `--virtual-monitor WxH@60` setting)
+- With `max_framerate=360/1`: refresh_rate=360 Hz, causes conflicts that cap FPS at 30-40
+
+The exact mechanism is unclear, but the observation is consistent: any non-zero
+max_framerate causes frame rate issues in GNOME headless ScreenCast.
+
+### Current Solution
+- Use `max_framerate=0/1` to disable rate limiting (no judder, full 60 FPS)
+- Accept that animations run at ~1 FPS (follow-up mechanism disabled)
+- Use 100ms keepalive to provide 10 FPS minimum for static screens
+
+**Code location:** `desktop/gst-pipewire-zerocopy/src/pipewire_stream.rs`
+
 ## Design Principles
 1. **Minimize CGO** - Hard to debug, memory issues
 2. **Use pure Go** where libraries exist

@@ -30,6 +30,7 @@ import { defaultStreamSettings } from '../../lib/helix-stream/component/settings
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
+import { useVideoStream } from '../../contexts/VideoStreamContext';
 import { TypesClipboardData } from '../../api/api';
 import { DesktopStreamViewerProps, StreamStats, ActiveConnection, QualityMode } from './DesktopStreamViewer.types';
 import StatsOverlay from './StatsOverlay';
@@ -209,6 +210,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }>>([]);
   const [chartUpdateTrigger, setChartUpdateTrigger] = useState(0); // Force re-render when refs change
   const [showCharts, setShowCharts] = useState(false);
+
+  // Register video stream with global context when connected in video mode
+  // This allows other components (like screenshot thumbnails) to slow their polling
+  const { registerStream } = useVideoStream();
+  useEffect(() => {
+    if (isConnected && qualityMode === 'video') {
+      const unregister = registerStream();
+      return unregister;
+    }
+  }, [isConnected, qualityMode, registerStream]);
 
   // Helper to add chart event
   const addChartEvent = useCallback((type: 'reduce' | 'increase' | 'reconnect' | 'rtt_spike' | 'saturation', reason: string) => {
@@ -1920,6 +1931,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     if (!isConnected || !sessionId) return;
 
     const syncClipboard = async () => {
+      // Skip if tab is hidden (save bandwidth and CPU)
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+
       try {
         const apiClient = helixApi.getApiClient();
         const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
@@ -1971,8 +1987,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Initial sync
     syncClipboard();
 
-    // Poll every 2 seconds
-    const syncInterval = setInterval(syncClipboard, 2000);
+    // Poll every 2.7 seconds (prime to avoid sync with other polling)
+    const syncInterval = setInterval(syncClipboard, 2700);
 
     return () => clearInterval(syncInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2061,6 +2077,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             decodeQueueSize: wsStats.decodeQueueSize,
             maxDecodeQueueSize: wsStats.maxDecodeQueueSize,
             framesSkippedToKeyframe: wsStats.framesSkippedToKeyframe,
+            // Jitter stats
+            receiveJitterMs: wsStats.receiveJitterMs,
+            renderJitterMs: wsStats.renderJitterMs,
+            avgReceiveIntervalMs: wsStats.avgReceiveIntervalMs,
+            avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
           },
           // Input buffer stats (detects TCP send buffer congestion)
           input: {

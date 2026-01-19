@@ -58,6 +58,10 @@ type GstPipeline struct {
 	baseTimeNs uint64
 	// useRealtimeClock indicates if the pipeline is using a realtime clock for latency calculation
 	useRealtimeClock bool
+
+	// Frame drop tracking for diagnostics
+	framesReceived atomic.Uint64 // Frames received from appsink
+	framesDropped  atomic.Uint64 // Frames dropped due to full channel
 }
 
 // NewGstPipeline creates a new GStreamer pipeline from a pipeline string.
@@ -229,10 +233,18 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	}
 
 	// Non-blocking send to avoid blocking the GStreamer thread
+	g.framesReceived.Add(1)
 	select {
 	case g.frameCh <- frame:
 	default:
 		// Drop frame if channel is full (low latency preference)
+		dropped := g.framesDropped.Add(1)
+		received := g.framesReceived.Load()
+		// Log every 100th drop to avoid log spam
+		if dropped <= 10 || dropped%100 == 0 {
+			fmt.Printf("[GST_PIPELINE] Frame dropped (channel full): %d dropped / %d received (%.1f%%)\n",
+				dropped, received, float64(dropped)*100.0/float64(received))
+		}
 	}
 
 	return gst.FlowOK
@@ -305,6 +317,11 @@ func (g *GstPipeline) Stop() {
 // IsRunning returns whether the pipeline is currently running.
 func (g *GstPipeline) IsRunning() bool {
 	return g.running.Load()
+}
+
+// GetFrameStats returns frame receive and drop counts for diagnostics.
+func (g *GstPipeline) GetFrameStats() (received, dropped uint64) {
+	return g.framesReceived.Load(), g.framesDropped.Load()
 }
 
 // CheckGstElement checks if a GStreamer element is available.

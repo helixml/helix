@@ -112,19 +112,13 @@ export class WebSocketStream {
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
   private readonly HIGH_LATENCY_THRESHOLD_MS = 150  // Show warning above this
 
-  // Batching stats for congestion visibility
-  private batchesReceived = 0  // Total number of batch messages received
-  private batchedFramesReceived = 0  // Total frames received in batches
-  private individualFramesReceived = 0  // Total frames received individually
-  private recentBatchSizes: number[] = []  // Last N batch sizes for avg calculation
-  private readonly MAX_BATCH_SIZE_SAMPLES = 20
-
   // Frame latency tracking (arrival time vs expected based on PTS)
   // This measures actual frame delivery latency, not just Ping/Pong RTT
   private firstFramePtsUs: number | null = null       // PTS of first frame (microseconds)
   private firstFrameArrivalTime: number | null = null // performance.now() when first frame arrived
   private currentFrameLatencyMs = 0                   // How late current frame arrived (ms)
   private frameLatencySamples: number[] = []          // Recent samples for smoothing
+  private frameLatencySamplesSum = 0                  // Running sum for O(1) average calculation
   private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
   private streamConnectedTime: number | null = null   // When stream connected (for warmup)
   private readonly FRAME_DRIFT_WARMUP_MS = 10000      // Wait 10s before establishing baseline
@@ -138,6 +132,18 @@ export class WebSocketStream {
   private readonly QUEUE_FLUSH_THRESHOLD = 10         // Flush queue when > 10 frames backed up
   private framesSkippedToKeyframe = 0                 // Count of frames flushed for stats
   private queueBackupLogged = false                   // Prevent log spam during queue backup
+
+  // Frame jitter tracking - measures variance in inter-frame timing
+  // High jitter (large max-min) indicates frames are batching/bunching up
+  private lastFrameReceiveTime = 0                    // When last frame arrived (for receive jitter)
+  private lastFrameRenderTime = 0                     // When last frame was rendered (for render jitter)
+  private receiveIntervalSamples: number[] = []       // Recent intervals between frame arrivals (ms)
+  private renderIntervalSamples: number[] = []        // Recent intervals between frame renders (ms)
+  private readonly MAX_JITTER_SAMPLES = 60            // Track ~1 second of frames at 60fps
+  private minReceiveIntervalMs = 0                    // Min interval seen in current window
+  private maxReceiveIntervalMs = 0                    // Max interval seen in current window
+  private minRenderIntervalMs = 0                     // Min render interval seen
+  private maxRenderIntervalMs = 0                     // Max render interval seen
 
   // Adaptive input throttling based on RTT
   // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
@@ -454,7 +460,7 @@ export class WebSocketStream {
   }
 
   private messageCount = 0
-  private async onMessage(event: MessageEvent) {
+  private onMessage(event: MessageEvent) {
     // Update heartbeat timestamp on any message
     this.lastMessageTime = Date.now()
     this.messageCount++
@@ -490,20 +496,18 @@ export class WebSocketStream {
 
     const msgType = data[0]
 
-    // Debug: log non-video message types to track RemoteCursor (0x53) arrival
-    if (msgType !== WsMessageType.VideoFrame && msgType !== WsMessageType.VideoBatch && msgType !== WsMessageType.AudioFrame && msgType !== WsMessageType.Pong) {
-      console.log("[WebSocketStream] Binary msg received, type=0x" + msgType.toString(16), "len=" + data.length)
-    }
+    // Note: Removed per-message debug logging (was causing performance issues)
+    // Cursor, touch, and other non-video messages are high frequency
 
     switch (msgType) {
       case WsMessageType.VideoFrame:
-        await this.handleVideoFrame(data)
-        break
-      case WsMessageType.VideoBatch:
-        await this.handleVideoBatch(data)
+        // Don't await - handleVideoFrame's hot path is synchronous (videoDecoder.decode)
+        // Awaiting creates microtasks that queue up and cause frame batching
+        this.handleVideoFrame(data)
         break
       case WsMessageType.AudioFrame:
-        await this.handleAudioFrame(data)
+        // Don't await - audioDecoder.decode() is synchronous
+        this.handleAudioFrame(data)
         break
       case WsMessageType.StreamInit:
         this.handleStreamInit(data)
@@ -533,12 +537,7 @@ export class WebSocketStream {
         this.handleRemoteCursor(data)
         break
       case WsMessageType.RemoteUser:
-        console.log("[MULTIPLAYER_DEBUG] RemoteUser case matched")
-        try {
-          this.handleRemoteUser(data)
-        } catch (e) {
-          console.error("[MULTIPLAYER_DEBUG] Error in handleRemoteUser:", e)
-        }
+        this.handleRemoteUser(data)
         break
       case WsMessageType.AgentCursor:
         this.handleAgentCursor(data)
@@ -547,15 +546,11 @@ export class WebSocketStream {
         this.handleRemoteTouch(data)
         break
       case WsMessageType.SelfId:
-        console.log("[MULTIPLAYER_DEBUG] SelfId case matched")
-        try {
-          this.handleSelfId(data)
-        } catch (e) {
-          console.error("[MULTIPLAYER_DEBUG] Error in handleSelfId:", e)
-        }
+        this.handleSelfId(data)
         break
       default:
-        console.warn("[MULTIPLAYER_DEBUG] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
+        // Only warn on unknown types (rare, not a hot path)
+        console.warn("[WebSocketStream] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
     }
   }
 
@@ -651,6 +646,7 @@ export class WebSocketStream {
     this.firstFramePtsUs = null
     this.firstFrameArrivalTime = null
     this.frameLatencySamples = []
+    this.frameLatencySamplesSum = 0
     this.currentFrameLatencyMs = 0
     this.baselineSamples = [] // Clear baseline samples for new stream
     // Restart warmup period for frame drift baseline
@@ -830,6 +826,26 @@ export class WebSocketStream {
     frame.close()
     this.framesDecoded++
 
+    // === Frame Render Jitter Tracking ===
+    // Measures variance in time between frames being rendered
+    // High jitter indicates decoder backlog or rendering issues
+    const renderTime = performance.now()
+    if (this.lastFrameRenderTime > 0) {
+      const intervalMs = renderTime - this.lastFrameRenderTime
+      this.renderIntervalSamples.push(intervalMs)
+      if (this.renderIntervalSamples.length > this.MAX_JITTER_SAMPLES) {
+        this.renderIntervalSamples.shift()
+      }
+      // Update min/max incrementally (O(1) instead of O(n) spread)
+      if (intervalMs < this.minRenderIntervalMs || this.minRenderIntervalMs === 0) {
+        this.minRenderIntervalMs = intervalMs
+      }
+      if (intervalMs > this.maxRenderIntervalMs) {
+        this.maxRenderIntervalMs = intervalMs
+      }
+    }
+    this.lastFrameRenderTime = renderTime
+
     // Track frame rate (update every second)
     this.frameCount++
     const now = performance.now()
@@ -837,6 +853,16 @@ export class WebSocketStream {
       this.currentFps = this.frameCount
       this.frameCount = 0
       this.lastFrameTime = now
+
+      // Log jitter stats for debugging
+      const avgReceive = this.receiveIntervalSamples.length > 0
+        ? Math.round(this.receiveIntervalSamples.reduce((a, b) => a + b, 0) / this.receiveIntervalSamples.length)
+        : 0
+      const avgRender = this.renderIntervalSamples.length > 0
+        ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
+        : 0
+      console.log(`Receive Jitter: ${Math.round(this.minReceiveIntervalMs)}-${Math.round(this.maxReceiveIntervalMs)} ms (avg ${avgReceive}ms) ${this.currentFps}fps`)
+      console.log(`Render Jitter: ${Math.round(this.minRenderIntervalMs)}-${Math.round(this.maxRenderIntervalMs)} ms (avg ${avgRender}ms)`)
 
       // Calculate bitrates
       if (this.lastBytesTime > 0) {
@@ -879,7 +905,7 @@ export class WebSocketStream {
   private lastVideoHeight = 0
   private lastVideoHwAccel: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
 
-  private async handleVideoFrame(data: Uint8Array, fromBatch = false) {
+  private handleVideoFrame(data: Uint8Array) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
       return
@@ -887,10 +913,24 @@ export class WebSocketStream {
 
     const arrivalTime = performance.now()
 
-    // Track individual vs batched frames for stats
-    if (!fromBatch) {
-      this.individualFramesReceived++
+    // === Frame Receive Jitter Tracking ===
+    // Measures variance in time between frames arriving from WebSocket
+    // High jitter (large max-min) indicates network buffering (e.g. SSH tunnel)
+    if (this.lastFrameReceiveTime > 0) {
+      const intervalMs = arrivalTime - this.lastFrameReceiveTime
+      this.receiveIntervalSamples.push(intervalMs)
+      if (this.receiveIntervalSamples.length > this.MAX_JITTER_SAMPLES) {
+        this.receiveIntervalSamples.shift()
+      }
+      // Track min/max incrementally (avoid O(n) Math.min/max spread on every frame)
+      if (intervalMs < this.minReceiveIntervalMs || this.minReceiveIntervalMs === 0) {
+        this.minReceiveIntervalMs = intervalMs
+      }
+      if (intervalMs > this.maxReceiveIntervalMs) {
+        this.maxReceiveIntervalMs = intervalMs
+      }
     }
+    this.lastFrameReceiveTime = arrivalTime
 
     // Parse video frame header
     // Format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
@@ -972,14 +1012,17 @@ export class WebSocketStream {
         this.firstFramePtsUs = ptsUsNum
         this.firstFrameArrivalTime = arrivalTime
         this.frameLatencySamples = []
+        this.frameLatencySamplesSum = 0
         this.currentFrameLatencyMs = 0
       } else {
-        // Keep a moving average for stability
+        // Keep a moving average for stability (O(1) using running sum)
         this.frameLatencySamples.push(latencyMs)
+        this.frameLatencySamplesSum += latencyMs
         if (this.frameLatencySamples.length > this.MAX_FRAME_LATENCY_SAMPLES) {
-          this.frameLatencySamples.shift()
+          const removed = this.frameLatencySamples.shift()!
+          this.frameLatencySamplesSum -= removed
         }
-        this.currentFrameLatencyMs = this.frameLatencySamples.reduce((a, b) => a + b, 0) / this.frameLatencySamples.length
+        this.currentFrameLatencyMs = this.frameLatencySamplesSum / this.frameLatencySamples.length
       }
     }
 
@@ -1119,51 +1162,6 @@ export class WebSocketStream {
     }
   }
 
-  /**
-   * Handle a batched video frames message (type 0x03)
-   * Format: type(1) + count(2) + [length(4) + frame_data]...
-   */
-  private async handleVideoBatch(data: Uint8Array) {
-    if (data.length < 3) {
-      console.error("[WebSocketStream] VideoBatch too short:", data.length)
-      return
-    }
-
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const frameCount = view.getUint16(1, false)  // big-endian
-
-    // Track batch stats
-    this.batchesReceived++
-    this.batchedFramesReceived += frameCount
-    this.recentBatchSizes.push(frameCount)
-    if (this.recentBatchSizes.length > this.MAX_BATCH_SIZE_SAMPLES) {
-      this.recentBatchSizes.shift()
-    }
-
-    // Parse and process each frame
-    let offset = 3  // After type + count
-    for (let i = 0; i < frameCount; i++) {
-      if (offset + 4 > data.length) {
-        console.error("[WebSocketStream] VideoBatch truncated at frame", i)
-        break
-      }
-
-      const frameLen = view.getUint32(offset, false)  // big-endian
-      offset += 4
-
-      if (offset + frameLen > data.length) {
-        console.error("[WebSocketStream] VideoBatch frame data truncated at frame", i)
-        break
-      }
-
-      const frameData = data.slice(offset, offset + frameLen)
-      offset += frameLen
-
-      // Process each frame (pass fromBatch=true to skip individual frame counting)
-      await this.handleVideoFrame(frameData, true)
-    }
-  }
-
   private async initAudioDecoder(channels: number, sampleRate: number) {
     if (!("AudioDecoder" in window)) {
       console.warn("[WebSocketStream] WebCodecs AudioDecoder not supported, trying Web Audio API")
@@ -1273,7 +1271,7 @@ export class WebSocketStream {
     data.close()
   }
 
-  private async handleAudioFrame(data: Uint8Array) {
+  private handleAudioFrame(data: Uint8Array) {
     if (!this.audioDecoder || this.audioDecoder.state !== "configured") {
       return
     }
@@ -1364,10 +1362,8 @@ export class WebSocketStream {
     // Extract encoder latency if present (extended Pong format: 23 bytes)
     if (data.length >= 23) {
       this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
-      console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, Encoder=${this.encoderLatencyMs}ms, pongSize=${data.length}`)
-    } else {
-      console.debug(`[WebSocketStream] Pong: RTT=${this.currentRttMs.toFixed(0)}ms, pongSize=${data.length} (no encoder latency - old backend?)`)
     }
+    // Note: Removed console.debug here - was causing frame jitter (console ops block main thread)
 
     // Update adaptive input throttling based on new RTT
     this.updateAdaptiveThrottle()
@@ -1885,12 +1881,6 @@ export class WebSocketStream {
     rttMs: number                    // Round-trip time in milliseconds
     encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
     isHighLatency: boolean           // True if RTT exceeds threshold
-    // Batching stats for congestion visibility
-    batchesReceived: number          // Total batch messages received
-    batchedFramesReceived: number    // Total frames received in batches
-    individualFramesReceived: number // Total frames received individually
-    avgBatchSize: number             // Average frames per batch (0 = no batching)
-    batchingRatio: number            // Percent of frames that arrived batched (0-100)
     // Frame latency (measures actual delivery delay, not just RTT)
     frameLatencyMs: number           // How late frames are arriving based on PTS
     // Adaptive input throttling stats
@@ -1921,16 +1911,12 @@ export class WebSocketStream {
     eventLoopLatencyMs: number       // Current excess delay for setTimeout(0)
     maxEventLoopLatencyMs: number    // Peak event loop latency seen
     avgEventLoopLatencyMs: number    // Average event loop latency
+    // Frame jitter stats (detects batching/bunching)
+    receiveJitterMs: string          // "min-max" interval between frames arriving
+    renderJitterMs: string           // "min-max" interval between frames rendering
+    avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
+    avgRenderIntervalMs: number      // Average render interval
   } {
-    // Calculate batching metrics
-    const totalFrames = this.batchedFramesReceived + this.individualFramesReceived
-    const batchingRatio = totalFrames > 0
-      ? Math.round((this.batchedFramesReceived / totalFrames) * 100)
-      : 0
-    const avgBatchSize = this.recentBatchSizes.length > 0
-      ? this.recentBatchSizes.reduce((a, b) => a + b, 0) / this.recentBatchSizes.length
-      : 0
-
     return {
       fps: this.currentFps,
       videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
@@ -1942,12 +1928,6 @@ export class WebSocketStream {
       rttMs: this.currentRttMs,
       encoderLatencyMs: this.encoderLatencyMs,
       isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
-      // Batching stats
-      batchesReceived: this.batchesReceived,
-      batchedFramesReceived: this.batchedFramesReceived,
-      individualFramesReceived: this.individualFramesReceived,
-      avgBatchSize,
-      batchingRatio,
       // Frame latency (the real measure of how delayed frames are)
       frameLatencyMs: this.currentFrameLatencyMs,
       // Adaptive input throttling
@@ -1983,6 +1963,15 @@ export class WebSocketStream {
       maxEventLoopLatencyMs: this.maxEventLoopLatencyMs,
       avgEventLoopLatencyMs: this.eventLoopLatencySamples.length > 0
         ? this.eventLoopLatencySamples.reduce((a, b) => a + b, 0) / this.eventLoopLatencySamples.length
+        : 0,
+      // Frame jitter stats
+      receiveJitterMs: `${Math.round(this.minReceiveIntervalMs)}-${Math.round(this.maxReceiveIntervalMs)}`,
+      renderJitterMs: `${Math.round(this.minRenderIntervalMs)}-${Math.round(this.maxRenderIntervalMs)}`,
+      avgReceiveIntervalMs: this.receiveIntervalSamples.length > 0
+        ? Math.round(this.receiveIntervalSamples.reduce((a, b) => a + b, 0) / this.receiveIntervalSamples.length)
+        : 0,
+      avgRenderIntervalMs: this.renderIntervalSamples.length > 0
+        ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
         : 0,
     }
   }
@@ -2695,7 +2684,7 @@ export class WebSocketStream {
       color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
     }
 
-    console.log("[MULTIPLAYER_DEBUG] RemoteCursor received", { userId, x, y, color })
+    // Note: Removed console.log here - RemoteCursor fires on every mouse move (high frequency)
     this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y, color, lastSeen: Date.now() } })
   }
 
@@ -2773,7 +2762,7 @@ export class WebSocketStream {
       user: { userId, userName: name, color, avatarUrl },
     })
 
-    console.log("[MULTIPLAYER_DEBUG] Remote user joined:", { userId, name, color, avatarUrl })
+    // Log user joins (infrequent, useful for debugging multiplayer)
   }
 
   /**
@@ -2790,7 +2779,7 @@ export class WebSocketStream {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const clientId = view.getUint32(1, true)  // Little-endian
 
-    console.log("[MULTIPLAYER_DEBUG] SelfId received:", { clientId })
+    // SelfId received once on connect - no logging needed
     this.dispatchInfoEvent({ type: "selfId", clientId })
   }
 

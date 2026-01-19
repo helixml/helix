@@ -172,7 +172,7 @@ impl Default for Settings {
             pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             cuda_device_id: -1,
-            keepalive_time_ms: 500,
+            keepalive_time_ms: 100, // 10 FPS minimum for GNOME headless mode animations
             target_fps: 60,
             capture_source: CaptureSource::PipeWire,
             buffer_type: BufferType::Shm,
@@ -383,7 +383,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                     .blurb("Resend last buffer after this many ms (0=disabled)")
                     .minimum(0)
                     .maximum(60000)
-                    .default_value(500)
+                    .default_value(100) // 10 FPS minimum for GNOME headless mode animations
                     .construct()
                     .build(),
                 glib::ParamSpecUInt::builder("target-fps")
@@ -805,6 +805,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             Ok(f) => f,
             Err(RecvError::Timeout) if keepalive_time_ms > 0 && has_last => {
                 // Keepalive: resend last buffer
+                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if count <= 10 || count % 100 == 0 {
+                    eprintln!("[KEEPALIVE] Resending last buffer (repeat frame #{})", count);
+                }
                 let buf = state.last_buffer.as_ref().unwrap().copy();
                 state.frame_count += 1;
                 drop(g);

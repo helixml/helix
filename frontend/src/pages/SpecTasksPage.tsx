@@ -233,7 +233,7 @@ const SpecTasksPage: FC = () => {
       return response.data || [];
     },
     enabled: !!projectId && viewMode === 'tabs',
-    refetchInterval: 3000, // Refresh every 3 seconds for live updates
+    refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
   // Create task form state (SIMPLIFIED)

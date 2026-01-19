@@ -153,16 +153,15 @@ impl PipeWireStream {
         let error_clone = error.clone();
 
         // Request max_framerate=0 to DISABLE Mutter's frame rate limiter entirely.
-        // Mutter's frame pacing logic in meta-screen-cast-stream-src.c:1322-1345 checks:
-        //   if (priv->video_format.max_framerate.num > 0 && priv->last_frame_timestamp_us != 0)
-        // When max_framerate.num == 0, the limiter is bypassed completely.
+        // When max_framerate>0, Mutter skips frames causing judder and caps FPS at ~30-40.
+        // With max_framerate=0/1, Mutter sends all damage events without frame limiting.
         //
-        // Previous approach (target_fps * 2 = 120) didn't work because Mutter ignores our
-        // offer and negotiates its own value (60/1), causing ~50% of frames to be skipped
-        // as "too early" due to 16ms/17ms timing boundary issues.
+        // Trade-off: Animations (alt-tab, etc) run at ~1 FPS without the follow-up mechanism.
+        // We accept this because the alternative (judder + 30-40 FPS cap) is worse.
+        // The 100ms keepalive provides 10 FPS minimum for static screens.
         let negotiated_max_fps = 0;
         eprintln!(
-            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled)",
+            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter)",
             target_fps, negotiated_max_fps
         );
 

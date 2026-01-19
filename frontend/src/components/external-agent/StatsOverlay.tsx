@@ -130,6 +130,22 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                 {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> Skip</span>}
               </div>
             )}
+            {/* Frame jitter - shows timing variance */}
+            {stats.video.receiveJitterMs && (
+              <div>
+                <strong>Receive Jitter:</strong> {stats.video.receiveJitterMs} ms
+                {' '}(avg {stats.video.avgReceiveIntervalMs ?? 0}ms)
+                {(stats.video.avgReceiveIntervalMs ?? 0) > 0 && (stats.video.avgReceiveIntervalMs ?? 0) < 20 && (
+                  <span style={{ color: '#4caf50' }}> {Math.round(1000 / (stats.video.avgReceiveIntervalMs ?? 16.7))}fps</span>
+                )}
+              </div>
+            )}
+            {stats.video.renderJitterMs && (
+              <div>
+                <strong>Render Jitter:</strong> {stats.video.renderJitterMs} ms
+                {' '}(avg {stats.video.avgRenderIntervalMs ?? 0}ms)
+              </div>
+            )}
           </>
         )}
         {/* Input stats */}

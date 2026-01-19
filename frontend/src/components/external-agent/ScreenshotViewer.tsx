@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Typography, Alert, IconButton, Button, Paper, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { Refresh, OpenInNew, Fullscreen, FullscreenExit, Videocam, CameraAlt } from '@mui/icons-material';
 import DesktopStreamViewer from './DesktopStreamViewer';
+import { useVideoStream } from '../../contexts/VideoStreamContext';
 
 interface ScreenshotViewerProps {
   sessionId: string;
@@ -27,7 +28,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   height = 2160,
   className = '',
   autoRefresh = true,
-  refreshInterval = 1000, // Default 1 second
+  refreshInterval = 1700, // Default 1.7 seconds (prime to avoid sync with other polling)
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
   showTimestamp = true, // Show timestamp by default
@@ -69,6 +70,11 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const fetchScreenshotRef = useRef<() => Promise<void>>();
 
   fetchScreenshotRef.current = async () => {
+    // Skip polling if tab is hidden (save bandwidth and CPU)
+    if (document.visibilityState === 'hidden') {
+      return;
+    }
+
     const endpoint = getScreenshotEndpoint();
 
     try {
@@ -84,35 +90,55 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       }
 
       const blob = await response.blob();
-      const newUrl = URL.createObjectURL(blob);
 
-      // Preload the image before swapping to prevent flicker
-      const img = new Image();
-      img.onload = () => {
+      // Use createImageBitmap for off-main-thread image decoding
+      // This prevents the main thread from blocking during PNG decode
+      try {
+        const bitmap = await createImageBitmap(blob);
+        // Bitmap decoded off-thread, now create URL for display
+        const newUrl = URL.createObjectURL(blob);
+
         // Swap to the inactive buffer
         if (showingA) {
-          // Clean up old imageB, then set new imageB
           if (imageB) URL.revokeObjectURL(imageB);
           setImageB(newUrl);
         } else {
-          // Clean up old imageA, then set new imageA
           if (imageA) URL.revokeObjectURL(imageA);
           setImageA(newUrl);
         }
 
-        // Trigger crossfade
+        // Trigger swap
         setShowingA(!showingA);
         setHasFirstImage(true);
         setLastRefresh(new Date());
         setIsLoading(false);
         setIsInitialLoading(false);
         setError(null);
-      };
-      img.onerror = () => {
-        // Failed to load image, clean up the blob URL
-        URL.revokeObjectURL(newUrl);
-      };
-      img.src = newUrl;
+
+        // Clean up bitmap (we used it just for off-thread decode)
+        bitmap.close();
+      } catch {
+        // Fallback to traditional Image loading if createImageBitmap fails
+        const newUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          if (showingA) {
+            if (imageB) URL.revokeObjectURL(imageB);
+            setImageB(newUrl);
+          } else {
+            if (imageA) URL.revokeObjectURL(imageA);
+            setImageA(newUrl);
+          }
+          setShowingA(!showingA);
+          setHasFirstImage(true);
+          setLastRefresh(new Date());
+          setIsLoading(false);
+          setIsInitialLoading(false);
+          setError(null);
+        };
+        img.onerror = () => URL.revokeObjectURL(newUrl);
+        img.src = newUrl;
+      }
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to fetch screenshot';
 
@@ -135,9 +161,15 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     fetchScreenshotRef.current?.();
   }, []);
 
+  // Check if video streaming is active elsewhere (slow down polling to reduce main thread contention)
+  const { isStreaming } = useVideoStream();
+
   // Auto-refresh screenshot with RAF for higher priority
   useEffect(() => {
     if (!autoRefresh || streamingMode !== 'screenshot') return;
+
+    // When video streaming is active elsewhere, slow down to 10s to reduce main thread contention
+    const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 
     let timeoutId: NodeJS.Timeout;
     let rafId: number;
@@ -145,18 +177,18 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     const refresh = () => {
       rafId = requestAnimationFrame(() => {
         fetchScreenshotRef.current?.();
-        timeoutId = setTimeout(refresh, refreshInterval);
+        timeoutId = setTimeout(refresh, effectiveInterval);
       });
     };
 
     // Start the refresh cycle
-    timeoutId = setTimeout(refresh, refreshInterval);
+    timeoutId = setTimeout(refresh, effectiveInterval);
 
     return () => {
       clearTimeout(timeoutId);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [autoRefresh, refreshInterval, streamingMode]);
+  }, [autoRefresh, refreshInterval, streamingMode, isStreaming]);
 
   // Initial fetch
   useEffect(() => {

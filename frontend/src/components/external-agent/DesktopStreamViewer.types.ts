@@ -42,6 +42,11 @@ export interface VideoStats {
   decodeQueueSize?: number;
   maxDecodeQueueSize?: number;
   framesSkippedToKeyframe?: number;
+  // Jitter stats
+  receiveJitterMs?: string;          // "min-max" interval between frames arriving
+  renderJitterMs?: string;           // "min-max" interval between frames rendering
+  avgReceiveIntervalMs?: number;     // Average receive interval (16.7ms = 60fps)
+  avgRenderIntervalMs?: number;      // Average render interval
 }
 
 // Stats for input handling

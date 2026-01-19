@@ -13,7 +13,7 @@ import { StreamCapabilities } from "../api_bindings"
 export const WsMessageType = {
   VideoFrame: 0x01,
   AudioFrame: 0x02,
-  VideoBatch: 0x03,  // Multiple video frames in one message (congestion handling)
+  // 0x03 was VideoBatch (unused, removed)
   KeyboardInput: 0x10,
   MouseClick: 0x11,
   MouseAbsolute: 0x12,

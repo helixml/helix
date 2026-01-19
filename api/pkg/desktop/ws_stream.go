@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -740,6 +741,12 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalSendTime time.Duration
 	var lastLogTime = time.Now()
 
+	// Frame timing variance tracking (to detect batching)
+	var lastFrameSendTime time.Time
+	var minIntervalMs, maxIntervalMs int64
+	var totalIntervalMs int64
+	var intervalCount int64
+
 	frameCh := v.gstPipeline.Frames()
 
 	for {
@@ -770,6 +777,20 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				continue
 			}
 
+			// Track inter-frame timing variance (to detect batching)
+			if !lastFrameSendTime.IsZero() {
+				intervalMs := actualSendTime.Sub(lastFrameSendTime).Milliseconds()
+				totalIntervalMs += intervalMs
+				intervalCount++
+				if intervalCount == 1 || intervalMs < minIntervalMs {
+					minIntervalMs = intervalMs
+				}
+				if intervalMs > maxIntervalMs {
+					maxIntervalMs = intervalMs
+				}
+			}
+			lastFrameSendTime = actualSendTime
+
 			// Calculate pipeline latency: time from appsink callback to WebSocket write
 			// This measures total encode+pipeline time: PipeWire capture -> GStreamer encode -> channel -> WebSocket
 			// Now that pipewirezerocopysrc uses compositor timestamp (spa_meta_header.pts), this is real encoder latency
@@ -783,16 +804,33 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			if time.Since(lastLogTime) >= 5*time.Second && logFrameCount > 0 {
 				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
+				// Get pipeline frame stats to track drops
+				pipelineReceived, pipelineDropped := v.gstPipeline.GetFrameStats()
+
+				// Calculate frame timing stats
+				var avgIntervalMs int64
+				if intervalCount > 0 {
+					avgIntervalMs = totalIntervalMs / intervalCount
+				}
+
 				v.logger.Info("VIDEO LATENCY STATS",
-					"frames", logFrameCount,
+					"ws_frames", logFrameCount,
+					"pipeline_received", pipelineReceived,
+					"pipeline_dropped", pipelineDropped,
 					"avg_send_us", avgSend.Microseconds(),
 					"encoder_latency_ms", fmt.Sprintf("%.1f", encoderLatMs),
+					"frame_interval_ms", fmt.Sprintf("min=%d avg=%d max=%d", minIntervalMs, avgIntervalMs, maxIntervalMs),
 					"frame_size_bytes", len(frame.Data),
 					"is_keyframe", frame.IsKeyframe)
 				// Reset log counters (but keep encoder latency average and totalFrameCount running)
 				logFrameCount = 0
 				totalSendTime = 0
 				lastLogTime = time.Now()
+				// Reset interval tracking
+				minIntervalMs = 0
+				maxIntervalMs = 0
+				totalIntervalMs = 0
+				intervalCount = 0
 			}
 		}
 	}
@@ -1316,6 +1354,16 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		return
 	}
 	defer ws.Close()
+
+	// Disable Nagle's algorithm (TCP_NODELAY) to prevent small write buffering
+	// This ensures each frame is sent immediately without waiting for more data
+	if tcpConn, ok := ws.UnderlyingConn().(*net.TCPConn); ok {
+		if err := tcpConn.SetNoDelay(true); err != nil {
+			logger.Warn("failed to set TCP_NODELAY", "err", err)
+		} else {
+			logger.Debug("TCP_NODELAY enabled for low-latency streaming")
+		}
+	}
 
 	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr)
 

@@ -72,7 +72,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
     enabled: !!taskId,
-    refetchInterval: 2000,
+    refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   })
 
   // Edit mode state

@@ -63,6 +63,11 @@ func (g *GstPipeline) IsRunning() bool {
 	return false
 }
 
+// GetFrameStats returns zero counts when CGO is disabled.
+func (g *GstPipeline) GetFrameStats() (received, dropped uint64) {
+	return 0, 0
+}
+
 // CheckGstElement always returns false when CGO is disabled.
 func CheckGstElement(element string) bool {
 	return false

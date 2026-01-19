@@ -518,7 +518,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     projectId: projectId || 'default',
     archivedOnly: showArchived,
     enabled: !!account.user?.id,
-    refetchInterval: 3000,
+    refetchInterval: 3100, // 3.1s - prime to avoid sync with other polling
   });
 
   // Transform tasks data when it changes
