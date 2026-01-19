@@ -147,6 +147,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
   const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
+  const [debugKeyEvent, setDebugKeyEvent] = useState<string | null>(null); // Debug: show last key event for iPad troubleshooting
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
@@ -2432,6 +2433,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     let lastEscapeTime = 0;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Debug: Update visual debug indicator for iPad troubleshooting
+      setDebugKeyEvent(`↓ key="${event.key}" code="${event.code}" keyCode=${event.keyCode}`);
+
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[DesktopStreamViewer] KeyDown ignored - container not focused. Active element:', document.activeElement?.tagName);
@@ -3492,6 +3496,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           screenshotFps={screenshotFps}
           screenshotQuality={screenshotQuality}
         />
+      )}
+
+      {/* Debug Key Event Overlay - shows last keyboard event for iPad troubleshooting */}
+      {debugKeyEvent && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 60,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: 12,
+            padding: '4px 8px',
+            borderRadius: 1,
+            zIndex: 2000,
+            pointerEvents: 'none',
+          }}
+        >
+          {debugKeyEvent}
+        </Box>
       )}
 
       {/* Adaptive Bitrate Charts Panel */}
