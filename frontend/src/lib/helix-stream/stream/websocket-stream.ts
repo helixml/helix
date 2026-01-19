@@ -149,10 +149,6 @@ export class WebSocketStream {
   private minRenderIntervalMs = 0                     // Min render interval seen
   private maxRenderIntervalMs = 0                     // Max render interval seen
 
-  // Decode latency tracking - measures time from decode() to output callback
-  // This tells us if the decoder is buffering frames internally
-  private pendingDecodeTimestamps = new Map<number, number>() // pts -> decode submission time
-
   // Adaptive input throttling based on RTT
   // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
   private adaptiveThrottleRatio = 1.0                 // 1.0 = full rate, 0.25 = 25% rate
@@ -887,20 +883,6 @@ export class WebSocketStream {
       this.canvas.height = frame.displayHeight
     }
 
-    // === Decode Latency Measurement ===
-    // Measure time from decode() call to output callback
-    const outputTime = performance.now()
-    const pts = frame.timestamp // microseconds
-    const decodeStartTime = this.pendingDecodeTimestamps.get(pts)
-    if (decodeStartTime !== undefined) {
-      const decodeLatencyMs = outputTime - decodeStartTime
-      this.pendingDecodeTimestamps.delete(pts)
-      // Log decode latency for first 20 frames or if very high
-      if (this.framesDecoded < 20 || decodeLatencyMs > 100) {
-        console.log(`[WebSocketStream] Decode latency: ${decodeLatencyMs.toFixed(1)}ms (pts=${pts}, queueSize=${this.lastDecodeQueueSize})`)
-      }
-    }
-
     // Draw frame to canvas
     this.canvasCtx.drawImage(frame, 0, 0)
     frame.close()
@@ -1176,10 +1158,6 @@ export class WebSocketStream {
         timestamp: Number(ptsUs), // microseconds
         data: frameData,
       })
-
-      // Track decode submission time for latency measurement
-      const decodeStartTime = performance.now()
-      this.pendingDecodeTimestamps.set(Number(ptsUs), decodeStartTime)
 
       this.videoDecoder.decode(chunk)
     } catch (e) {
