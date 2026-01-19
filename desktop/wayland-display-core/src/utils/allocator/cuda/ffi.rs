@@ -113,6 +113,7 @@ pub(crate) const EGL_NONE: EGLint = 0x3038;
 unsafe extern "C" {
     // CUDA Driver API
     fn CuMemcpy2DAsync(pCopy: *const CUDA_MEMCPY2D, stream: CUstream) -> CUresult;
+    fn cuStreamSynchronize(stream: CUstream) -> CUresult;
 }
 
 // Add dynamic function pointer types for CUDA-EGL interop
@@ -560,7 +561,12 @@ pub(crate) fn copy_to_gst_buffer(
         cuda_call!(CuMemcpy2DAsync(&copy_params, stream_handle))?;
     }
 
-    // Safe to unmap without synchronization as the copy is async
+    // CRITICAL: Wait for the async CUDA copy to complete before returning!
+    // Without this, we return the DmaBuf to PipeWire (via queue_raw_buffer) while
+    // the GPU is still reading from it, causing Mutter to overwrite the buffer
+    // mid-copy and resulting in frame reordering/corruption during fast animations.
+    cuda_call!(cuStreamSynchronize(stream_handle))?;
+
     unsafe { gst_ffi::gst_memory_unmap(gst_memory, &mut map_info) };
     Ok(video_info)
 }
