@@ -207,10 +207,9 @@ export class WebSocketStream {
   private userName?: string
   private avatarUrl?: string
 
-  // Software decoding eliminates hardware decoder's reorder buffer latency
-  // Hardware decoders buffer 1-4 frames for B-frame reordering, even with no B-frames
-  // See: https://github.com/w3c/webcodecs/issues/732
-  private forceSoftwareDecoding = true  // Default to software for low latency
+  // Hardware decoding is the default - better performance and GPU offload
+  // Use ?softdecode=1 to force software decoding if needed
+  private forceSoftwareDecoding = false
 
   constructor(
     api: Api,
@@ -236,15 +235,10 @@ export class WebSocketStream {
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
     // Query parameter overrides for decoder testing:
-    // ?hwdecode=1 - force hardware decoding (for comparison/testing)
-    // ?softdecode=1 - force software decoding (default, but explicit)
-    // See: https://github.com/w3c/webcodecs/issues/732
+    // ?softdecode=1 - force software decoding (for latency testing)
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search)
-      if (urlParams.get("hwdecode") === "1") {
-        this.forceSoftwareDecoding = false
-        console.log("[WebSocketStream] ?hwdecode=1 detected - using hardware decoding (may have latency)")
-      } else if (urlParams.get("softdecode") === "1") {
+      if (urlParams.get("softdecode") === "1") {
         this.forceSoftwareDecoding = true
         console.log("[WebSocketStream] ?softdecode=1 detected - using software decoding")
       }

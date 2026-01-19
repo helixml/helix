@@ -78,9 +78,9 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
             <div>
               <strong>Codec:</strong> {stats.video.codec}
               {stats.video.usingSoftwareDecoder ? (
-                <span style={{ color: '#4caf50' }}> (SW decode)</span>
+                <span style={{ color: '#ff9800' }}> (SW decode - ?softdecode=1)</span>
               ) : (
-                <span style={{ color: '#ff9800' }}> (HW decode - ?hwdecode=1)</span>
+                <span style={{ color: '#4caf50' }}> (HW decode)</span>
               )}
             </div>
             <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
