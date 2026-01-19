@@ -428,7 +428,7 @@ GNOME uses **damage-based ScreenCast** in headless mode:
 |---------------|--------------|-------|
 | Static screen | 10 | Keepalive timer, NOT a bug |
 | Kitty terminal | ~17 | Kitty has internal frame pacing |
-| gnome-terminal fast output | 35-40 | More damage events |
+| Terminal (ghostty) fast output | 35-40 | More damage events |
 | vkcube (GPU rendering) | 55-60 | Constant damage at refresh rate |
 
 ### Debug Commands

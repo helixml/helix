@@ -151,7 +151,6 @@ ARG DE_PACKAGES=" \
     mutter \
     gnome-settings-daemon \
     nautilus \
-    gnome-terminal \
     gnome-control-center \
     gnome-tweaks \
     gnome-keyring \
