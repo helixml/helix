@@ -2316,6 +2316,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         if (now - lastTapTimeRef.current < DOUBLE_TAP_THRESHOLD_MS && !isDragging) {
           console.log('[DesktopStreamViewer] Double-tap detected, starting drag mode');
           setIsDragging(true);
+          // Send cursor position to remote before starting drag
+          if (containerRef.current) {
+            const containerRect = containerRef.current.getBoundingClientRect();
+            const streamOffsetX = rect.x - containerRect.x;
+            const streamOffsetY = rect.y - containerRect.y;
+            const streamRelativeX = cursorPosition.x - streamOffsetX;
+            const streamRelativeY = cursorPosition.y - streamOffsetY;
+            const streamX = (streamRelativeX / rect.width) * width;
+            const streamY = (streamRelativeY / rect.height) * height;
+            handler.sendMousePosition?.(streamX, streamY, width, height);
+          }
           // Send mouse button down to start drag
           handler.sendMouseButton?.(true, 0); // 0 = left button
         }
@@ -2329,7 +2340,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Delegate to StreamInput for actual input handling
     handler.onTouchStart(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved, isDragging, DOUBLE_TAP_THRESHOLD_MS]);
+  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved, isDragging, DOUBLE_TAP_THRESHOLD_MS, cursorPosition, width, height]);
 
   const handleTouchMove = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2355,18 +2366,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const streamOffsetX = rect.x - containerRect.x;
       const streamOffsetY = rect.y - containerRect.y;
 
-      // Update cursor position relatively, clamped to stream bounds
-      setCursorPosition(prev => ({
-        x: Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, prev.x + scaledDx)),
-        y: Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, prev.y + scaledDy)),
-      }));
+      // Calculate new cursor position, clamped to stream bounds
+      const newX = Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, cursorPosition.x + scaledDx));
+      const newY = Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, cursorPosition.y + scaledDy));
+
+      // Update local cursor position
+      setCursorPosition({ x: newX, y: newY });
+
+      // Convert to stream coordinates and send to remote
+      // cursorPosition is container-relative, need to convert to stream-relative
+      const streamRelativeX = newX - streamOffsetX;
+      const streamRelativeY = newY - streamOffsetY;
+      const streamX = (streamRelativeX / rect.width) * width;
+      const streamY = (streamRelativeY / rect.height) * height;
+      handler.sendMousePosition?.(streamX, streamY, width, height);
 
       lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
+      // Don't delegate single-finger trackpad movement to StreamInput - we handle it ourselves
+      return;
     }
 
-    // Delegate to StreamInput for actual input handling
+    // Delegate to StreamInput for two-finger scrolling and other touch handling
     handler.onTouchMove(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY, TAP_MAX_MOVEMENT_PX]);
+  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY, TAP_MAX_MOVEMENT_PX, cursorPosition, width, height]);
 
   const handleTouchEnd = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2380,6 +2402,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // In trackpad mode, handle gestures
     if (touchMode === 'trackpad') {
+      // Helper to send current cursor position to remote before clicks
+      const sendCursorPositionToRemote = () => {
+        if (!containerRef.current) return;
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const streamOffsetX = rect.x - containerRect.x;
+        const streamOffsetY = rect.y - containerRect.y;
+        const streamRelativeX = cursorPosition.x - streamOffsetX;
+        const streamRelativeY = cursorPosition.y - streamOffsetY;
+        const streamX = (streamRelativeX / rect.width) * width;
+        const streamY = (streamRelativeY / rect.height) * height;
+        handler.sendMousePosition?.(streamX, streamY, width, height);
+      };
+
       // End drag mode if active
       if (isDragging) {
         console.log('[DesktopStreamViewer] Ending drag mode');
@@ -2394,6 +2429,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const totalFingers = liftedFingers + remainingFingers;
 
       if (wasTap && remainingFingers === 0) {
+        // Send cursor position before any click so remote knows where to click
+        sendCursorPositionToRemote();
+
         // All fingers lifted - check how many were in the tap
         if (totalFingers === 2) {
           // Two-finger tap = right click
@@ -2417,15 +2455,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       if (wasTap && totalFingers === 1) {
         lastTapTimeRef.current = now;
       }
+
+      // Don't delegate single-finger taps to StreamInput in trackpad mode
+      // Clean up and return
+      lastTouchPosRef.current = null;
+      twoFingerStartYRef.current = null;
+      return;
     }
 
-    // Delegate to StreamInput for actual input handling
+    // Delegate to StreamInput for actual input handling (non-trackpad mode)
     handler.onTouchEnd(event.nativeEvent, rect);
 
     // Clean up touch tracking
     lastTouchPosRef.current = null;
     twoFingerStartYRef.current = null;
-  }, [getStreamRect, getInputHandler, touchMode, isDragging]);
+  }, [getStreamRect, getInputHandler, touchMode, isDragging, cursorPosition, width, height]);
 
   const handleTouchCancel = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
