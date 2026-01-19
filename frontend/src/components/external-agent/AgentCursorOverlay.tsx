@@ -28,11 +28,6 @@ const AgentCursorOverlay: React.FC<AgentCursorOverlayProps> = ({
   // Hide if idle for too long
   if (Date.now() - agentCursor.lastSeen >= IDLE_TIMEOUT_MS) return null;
 
-  // Hide cursor if outside the canvas region (in stream coordinates)
-  if (agentCursor.x < 0 || agentCursor.x > streamWidth || agentCursor.y < 0 || agentCursor.y > streamHeight) {
-    return null;
-  }
-
   // Scale agent cursor from screen coordinates to container-relative coordinates
   const scaleX = canvasDisplaySize.width / streamWidth;
   const scaleY = canvasDisplaySize.height / streamHeight;

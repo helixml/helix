@@ -111,6 +111,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [micEnabled, setMicEnabled] = useState(false); // Mic disabled by default - user must enable via toolbar
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
+  const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false); // Track if mouse is over canvas for cursor visibility
   // Client-side cursor rendering state
   const [cursorImage, setCursorImage] = useState<CursorImageData | null>(DEFAULT_CURSOR);
   const [cursorCssName, setCursorCssName] = useState<string | null>(null); // CSS cursor name fallback (GNOME headless)
@@ -3134,7 +3135,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           handleMouseUp(e);
         }}
         onMouseMove={handleMouseMove}
-        onMouseEnter={resetInputState}
+        onMouseEnter={() => {
+          resetInputState();
+          setIsMouseOverCanvas(true);
+        }}
+        onMouseLeave={() => {
+          setIsMouseOverCanvas(false);
+        }}
         onContextMenu={handleContextMenu}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -3293,8 +3300,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       )}
 
       {/* Custom cursor - shows local mouse position
-          Uses shared CursorRenderer for consistent rendering with remote cursors */}
-      {isConnected && hasMouseMoved && cursorVisible && (
+          Uses shared CursorRenderer for consistent rendering with remote cursors
+          Hidden when mouse leaves canvas (isMouseOverCanvas) */}
+      {isConnected && hasMouseMoved && cursorVisible && isMouseOverCanvas && (
         <CursorRenderer
           x={cursorPosition.x}
           y={cursorPosition.y}
