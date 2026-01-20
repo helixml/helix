@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   DialogTitle,
   DialogContent,
@@ -30,6 +30,9 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Refs to read actual DOM values on submit (iOS autofill doesn't trigger onChange)
+  const formRef = useRef<HTMLFormElement>(null);
+
   const { data: config, isLoading: isLoadingConfig } = useGetConfig()
 
   const api = useApi();
@@ -50,7 +53,12 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    // Read from DOM to handle iOS autofill (which doesn't trigger onChange)
+    const form = formRef.current;
+    const emailValue = (form?.querySelector('input[name="username"]') as HTMLInputElement)?.value || email;
+    const passwordValue = (form?.querySelector('input[name="password"]') as HTMLInputElement)?.value || password;
+
+    if (!emailValue || !passwordValue) {
       setError('Please fill in all fields');
       return;
     }
@@ -60,8 +68,8 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     try {
       const loginRequest: TypesLoginRequest = {
-        email,
-        password,
+        email: emailValue,
+        password: passwordValue,
       };
 
       await apiClient.v1AuthLoginCreate(loginRequest);
@@ -91,17 +99,24 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   };
 
   const handleRegister = async () => {
-    if (!email || !fullName || !password || !passwordConfirm) {
+    // Read from DOM to handle iOS autofill (which doesn't trigger onChange)
+    const form = formRef.current;
+    const emailValue = (form?.querySelector('input[name="username"]') as HTMLInputElement)?.value || email;
+    const fullNameValue = (form?.querySelector('input[name="name"]') as HTMLInputElement)?.value || fullName;
+    const passwordValue = (form?.querySelector('input[name="password"]') as HTMLInputElement)?.value || password;
+    const passwordConfirmValue = (form?.querySelector('input[name="password-confirm"]') as HTMLInputElement)?.value || passwordConfirm;
+
+    if (!emailValue || !fullNameValue || !passwordValue || !passwordConfirmValue) {
       setError('Please fill in all fields');
       return;
     }
 
-    if (password !== passwordConfirm) {
+    if (passwordValue !== passwordConfirmValue) {
       setError('Passwords do not match');
       return;
     }
 
-    if (password.length < 8) {
+    if (passwordValue.length < 8) {
       setError('Password must be at least 8 characters long');
       return;
     }
@@ -111,10 +126,10 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     try {
       const registerRequest: TypesRegisterRequest = {
-        email,
-        full_name: fullName,
-        password,
-        password_confirm: passwordConfirm,
+        email: emailValue,
+        full_name: fullNameValue,
+        password: passwordValue,
+        password_confirm: passwordConfirmValue,
       };
 
       await apiClient.v1AuthRegisterCreate(registerRequest);
@@ -166,7 +181,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
         {mode === 'login' ? 'Login' : 'Register'}
       </DialogTitle>
 
-      <form onSubmit={handleSubmit}>
+      <form ref={formRef} onSubmit={handleSubmit}>
         <DialogContent sx={{ p: 3 }}>
           {isRegistrationDisabled && (
             <Alert severity="info" sx={{ mb: 2 }}>
