@@ -175,6 +175,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const TAP_MAX_DURATION_MS = 200; // Max touch duration to be considered a tap (not a drag)
   const TAP_MAX_MOVEMENT_PX = 10; // Max finger movement to be considered a tap (not a drag)
 
+  // Pinch-to-zoom state for mobile/tablet
+  const [zoomLevel, setZoomLevel] = useState(1); // 1 = no zoom, 2 = 2x zoom, etc.
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 }); // Pan offset when zoomed
+  const pinchStartDistanceRef = useRef<number | null>(null); // Distance between fingers at pinch start
+  const pinchStartZoomRef = useRef<number>(1); // Zoom level at pinch start
+  const pinchCenterRef = useRef<{ x: number; y: number } | null>(null); // Center point of pinch
+  const lastPinchCenterRef = useRef<{ x: number; y: number } | null>(null); // For panning while zoomed
+  const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
+  const MAX_ZOOM = 5; // Maximum zoom level
+
   // Voice input state - hold-to-record for speech-to-text
   // Supports buffering and retry for flaky connections
   const [isRecording, setIsRecording] = useState(false);
@@ -2332,15 +2342,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       }
 
-      // Reset two-finger tracking for scroll
+      // Two-finger gesture: pinch-to-zoom
       if (event.touches.length === 2) {
-        twoFingerStartYRef.current = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+        const touch1 = event.touches[0];
+        const touch2 = event.touches[1];
+        // Calculate initial distance between fingers
+        const dx = touch2.clientX - touch1.clientX;
+        const dy = touch2.clientY - touch1.clientY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        pinchStartDistanceRef.current = distance;
+        pinchStartZoomRef.current = zoomLevel;
+        // Calculate center point of pinch
+        const centerX = (touch1.clientX + touch2.clientX) / 2;
+        const centerY = (touch1.clientY + touch2.clientY) / 2;
+        pinchCenterRef.current = { x: centerX, y: centerY };
+        lastPinchCenterRef.current = { x: centerX, y: centerY };
+        // Also keep scroll tracking for fallback
+        twoFingerStartYRef.current = (touch1.clientY + touch2.clientY) / 2;
       }
     }
 
     // Delegate to StreamInput for actual input handling
     handler.onTouchStart(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved, isDragging, DOUBLE_TAP_THRESHOLD_MS, cursorPosition, width, height]);
+  }, [getStreamRect, getInputHandler, touchMode, hasMouseMoved, isDragging, DOUBLE_TAP_THRESHOLD_MS, cursorPosition, width, height, zoomLevel]);
 
   const handleTouchMove = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2386,9 +2410,50 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // Delegate to StreamInput for two-finger scrolling and other touch handling
+    // Two-finger gesture: pinch-to-zoom and pan while zoomed
+    if (event.touches.length === 2 && pinchStartDistanceRef.current !== null) {
+      const touch1 = event.touches[0];
+      const touch2 = event.touches[1];
+
+      // Calculate current distance between fingers
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      const currentDistance = Math.sqrt(dx * dx + dy * dy);
+
+      // Calculate zoom change
+      const scale = currentDistance / pinchStartDistanceRef.current;
+      const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStartZoomRef.current * scale));
+      setZoomLevel(newZoom);
+
+      // Calculate current center point
+      const centerX = (touch1.clientX + touch2.clientX) / 2;
+      const centerY = (touch1.clientY + touch2.clientY) / 2;
+
+      // Pan while pinching (move the view with the gesture)
+      if (lastPinchCenterRef.current && containerRef.current) {
+        const panDx = centerX - lastPinchCenterRef.current.x;
+        const panDy = centerY - lastPinchCenterRef.current.y;
+
+        // Update pan offset, clamping to bounds
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const maxPanX = (containerRect.width * (newZoom - 1)) / 2;
+        const maxPanY = (containerRect.height * (newZoom - 1)) / 2;
+
+        setPanOffset(prev => ({
+          x: Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx)),
+          y: Math.max(-maxPanY, Math.min(maxPanY, prev.y + panDy)),
+        }));
+      }
+
+      lastPinchCenterRef.current = { x: centerX, y: centerY };
+
+      // Don't delegate pinch gestures to StreamInput - we handle zoom ourselves
+      return;
+    }
+
+    // Delegate to StreamInput for other touch handling
     handler.onTouchMove(event.nativeEvent, rect);
-  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY, TAP_MAX_MOVEMENT_PX, cursorPosition, width, height]);
+  }, [getStreamRect, getInputHandler, touchMode, TRACKPAD_CURSOR_SENSITIVITY, TAP_MAX_MOVEMENT_PX, cursorPosition, width, height, zoomLevel, MIN_ZOOM, MAX_ZOOM]);
 
   const handleTouchEnd = useCallback((event: React.TouchEvent) => {
     event.preventDefault();
@@ -2460,6 +2525,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Clean up and return
       lastTouchPosRef.current = null;
       twoFingerStartYRef.current = null;
+      pinchStartDistanceRef.current = null;
+      pinchCenterRef.current = null;
+      lastPinchCenterRef.current = null;
       return;
     }
 
@@ -2469,6 +2537,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Clean up touch tracking
     lastTouchPosRef.current = null;
     twoFingerStartYRef.current = null;
+    pinchStartDistanceRef.current = null;
+    pinchCenterRef.current = null;
+    lastPinchCenterRef.current = null;
   }, [getStreamRect, getInputHandler, touchMode, isDragging, cursorPosition, width, height]);
 
   const handleTouchCancel = useCallback((event: React.TouchEvent) => {
@@ -2488,6 +2559,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Clean up touch tracking
     lastTouchPosRef.current = null;
     twoFingerStartYRef.current = null;
+    pinchStartDistanceRef.current = null;
+    pinchCenterRef.current = null;
+    lastPinchCenterRef.current = null;
   }, [getStreamRect, getInputHandler, touchMode, isDragging]);
 
   // Reset all input state - clears stuck modifiers and mouse buttons
@@ -3135,6 +3209,36 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             </IconButton>
           </Tooltip>
         )}
+        {/* Zoom indicator (on touch devices) - shows when zoomed, tap to reset */}
+        {hasTouchCapability && zoomLevel > 1 && (
+          <Tooltip
+            title="Tap to reset zoom"
+            arrow
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+          >
+            <Button
+              size="small"
+              onClick={() => {
+                setZoomLevel(1);
+                setPanOffset({ x: 0, y: 0 });
+              }}
+              sx={{
+                color: 'white',
+                backgroundColor: 'rgba(33, 150, 243, 0.8)',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.25,
+                fontSize: '0.75rem',
+                fontWeight: 'bold',
+                '&:hover': {
+                  backgroundColor: 'rgba(33, 150, 243, 1)',
+                },
+              }}
+            >
+              {zoomLevel.toFixed(1)}x
+            </Button>
+          </Tooltip>
+        )}
         {/* Bitrate selector - hidden in screenshot mode (has its own adaptive quality) */}
         {qualityMode !== 'screenshot' && (
           <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
@@ -3408,11 +3512,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Canvas doesn't support objectFit like video, so we calculate size manually
           width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
           height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
-          // Center the canvas within the container
+          // Center the canvas within the container, with pinch-zoom and pan transform
           position: 'absolute',
           left: '50%',
           top: '50%',
-          transform: 'translate(-50%, -50%)',
+          // Order: translate to center, then apply zoom, then apply pan offset
+          transform: `translate(-50%, -50%) scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+          transformOrigin: 'center center',
           backgroundColor: '#000',
           cursor: nativeCursorStyle, // Use native cursor (custom image or CSS name from server)
           // Always visible for input capture
@@ -3449,6 +3555,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             objectFit: 'contain',
             pointerEvents: 'none', // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements
+            // Apply same pinch-zoom and pan as canvas
+            transform: zoomLevel > 1 ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)` : undefined,
+            transformOrigin: 'center center',
           }}
         />
       )}
