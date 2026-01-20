@@ -19,31 +19,34 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/proxy"
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
-// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
+// Uses getScopedAPIKey for consistent token selection logic across the codebase.
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
-	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
-		UserID:     userID,
-		ProjectID:  agent.ProjectID,
-		SpecTaskID: agent.SpecTaskID,
-	})
+	// Use the centralized helper for API key selection
+	// For SpecTask agents: uses task-scoped dev container key
+	// For non-SpecTask agents: uses user's generic API key
+	apiKey, err := apiServer.getScopedAPIKey(ctx, userID, agent.ProjectID, agent.SpecTaskID)
 	if err != nil {
-		return fmt.Errorf("failed to get user API key for external agent: %w", err)
+		return fmt.Errorf("failed to get API key for external agent: %w", err)
 	}
 
-	// Add USER_API_TOKEN to agent environment using personal API key
-	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey))
+	// Add API tokens to agent environment
+	// These are appended LAST in hydra_executor.go, overriding runner token defaults
+	agent.Env = append(agent.Env,
+		fmt.Sprintf("USER_API_TOKEN=%s", apiKey),      // Git operations and RevDial
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", apiKey),   // Zed built-in agent (Anthropic)
+		fmt.Sprintf("OPENAI_API_KEY=%s", apiKey),      // Zed built-in agent (OpenAI)
+	)
 
 	log.Debug().
 		Str("user_id", userID).
-		Bool("key_is_personal", true).
-		Msg("Added user API token to agent for git operations")
+		Str("spec_task_id", agent.SpecTaskID).
+		Msg("Added API tokens to agent for git and LLM operations")
 
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -89,17 +90,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		sandboxAPIURL = helixAPIURL
 	}
 
-	// Get the session owner's API key for MCP authentication
-	// This ensures MCP servers authenticate as the user, not as the system runner
-	sessionOwner, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	// Get API key for MCP and LLM authentication
+	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
-		log.Error().Err(err).Str("owner", session.Owner).Msg("Failed to get session owner")
-		return nil, system.NewHTTPError500("failed to get session owner")
-	}
-	helixToken, err := apiServer.getOrCreateUserAPIKey(ctx, sessionOwner)
-	if err != nil {
-		log.Error().Err(err).Str("owner", session.Owner).Msg("Failed to get user API key")
-		return nil, system.NewHTTPError500("failed to get user API key")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
+		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
 	// Determine if Kodit should be enabled for this session
@@ -144,11 +139,14 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Build language models config
-	// Note: API keys come from environment variables, not settings.json
+	// Include api_key so Zed authenticates LLM calls with user's token (not runner token)
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
 		modelConfig := map[string]interface{}{
-			"api_url": config.APIURL, // Empty string = use default provider URL
+			"api_url": config.APIURL,
+		}
+		if config.APIKey != "" {
+			modelConfig["api_key"] = config.APIKey
 		}
 		languageModels[provider] = modelConfig
 	}
@@ -372,12 +370,11 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	// Get the user's API key for MCP authentication
-	// This ensures MCP servers authenticate as the user, not as the system runner
-	helixToken, err := apiServer.getOrCreateUserAPIKey(ctx, user)
+	// Get API key for MCP and LLM authentication
+	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to get user API key")
-		return nil, system.NewHTTPError500("failed to get user API key")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
+		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
@@ -565,4 +562,50 @@ func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context,
 	}
 
 	return false
+}
+
+// getAPIKeyForSession returns the appropriate API key for a session.
+// Convenience wrapper around getScopedAPIKey for session-based lookups.
+func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, session *types.Session) (string, error) {
+	var projectID string
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			return "", fmt.Errorf("failed to get spec task %s: %w", session.Metadata.SpecTaskID, err)
+		}
+		projectID = specTask.ProjectID
+	}
+	return apiServer.getScopedAPIKey(ctx, session.Owner, projectID, session.Metadata.SpecTaskID)
+}
+
+// getScopedAPIKey returns the appropriate API key based on scope.
+// For SpecTask scope: returns a task-scoped dev container key for tighter security and cost attribution.
+// For non-SpecTask scope: returns the user's generic API key.
+//
+// SECURITY: This is the single source of truth for API key selection based on scope.
+// All code that needs to authenticate on behalf of a user/session should use this function.
+func (apiServer *HelixAPIServer) getScopedAPIKey(ctx context.Context, userID, projectID, specTaskID string) (string, error) {
+	if specTaskID != "" {
+		// SpecTask scope: use a task-scoped dev container key
+		apiKey, err := apiServer.specDrivenTaskService.GetOrCreateDevContainerAPIKey(ctx, &services.DevContainerAPIKeyRequest{
+			UserID:     userID,
+			ProjectID:  projectID,
+			SpecTaskID: specTaskID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to get dev container API key for spec task %s: %w", specTaskID, err)
+		}
+		return apiKey, nil
+	}
+
+	// Non-SpecTask scope: use generic user API key
+	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return "", fmt.Errorf("failed to get user %s: %w", userID, err)
+	}
+	apiKey, err := apiServer.getOrCreateUserAPIKey(ctx, user)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user API key for %s: %w", userID, err)
+	}
+	return apiKey, nil
 }

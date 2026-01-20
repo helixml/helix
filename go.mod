@@ -66,7 +66,6 @@ require (
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/ollama/ollama v0.11.4
 	github.com/pgvector/pgvector-go v0.2.3
-	github.com/pion/turn/v4 v4.1.1
 	github.com/puzpuzpuz/xsync/v3 v3.4.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
@@ -147,11 +146,6 @@ require (
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/pion/dtls/v3 v3.0.1 // indirect
-	github.com/pion/logging v0.2.4 // indirect
-	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/stun/v3 v3.0.0 // indirect
-	github.com/pion/transport/v3 v3.0.7 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
@@ -159,7 +153,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/yalue/native_endian v1.0.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

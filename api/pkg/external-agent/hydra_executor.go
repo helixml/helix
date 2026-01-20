@@ -685,17 +685,15 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		// GPU/input device passthrough
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 
-		// LLM proxy configuration for Zed's built-in agent
-		// Note: API keys are now provided via settings.json (see zed_config.go)
-		// These env vars are kept for backwards compatibility
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", h.helixAPIToken),
+		// LLM proxy configuration
+		// ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with dev container token
+		// Only set the base URL here
 		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
 
 		// Zed sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", h.helixAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		"ZED_HELIX_SKIP_TLS_VERIFY=true", // Enterprise internal CAs
 
@@ -713,12 +711,9 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		"SWAY_STOP_ON_APP_EXIT=no",
 	}
 
-	// Add runner API token (for internal API calls from the container)
-	// NOTE: USER_API_TOKEN is provided via agent.Env (the user's actual API key)
-	// Do NOT set USER_API_TOKEN here - it would override the user's token
-	if h.helixAPIToken != "" {
-		env = append(env, fmt.Sprintf("HELIX_API_TOKEN=%s", h.helixAPIToken))
-	}
+	// SECURITY: Runner token is NOT passed to containers - users must never see it
+	// All API authentication uses USER_API_TOKEN (set via agent.Env with dev container token)
+	// Settings-sync-daemon also uses USER_API_TOKEN for API calls
 
 	// Agent identification
 	env = append(env,

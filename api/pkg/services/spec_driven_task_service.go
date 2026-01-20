@@ -441,7 +441,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Get user's personal API token for git operations (not app-scoped keys)
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+	userAPIKey, err := s.GetOrCreateDevContainerAPIKey(ctx, &DevContainerAPIKeyRequest{
 		UserID:     task.CreatedBy,
 		ProjectID:  task.ProjectID,
 		SpecTaskID: task.ID,
@@ -839,7 +839,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Get user's personal API token for git operations
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+	userAPIKey, err := s.GetOrCreateDevContainerAPIKey(ctx, &DevContainerAPIKeyRequest{
 		UserID:     task.CreatedBy,
 		ProjectID:  task.ProjectID,
 		SpecTaskID: task.ID,
@@ -1319,15 +1319,18 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 	return false
 }
 
-type SandboxAPIKeyRequest struct {
+// DevContainerAPIKeyRequest specifies the scope for a dev container API key.
+// For SpecTask containers: scoped to user + project + spec task
+// For non-SpecTask containers: scoped to user only (ProjectID and SpecTaskID empty)
+type DevContainerAPIKeyRequest struct {
 	UserID     string
 	ProjectID  string
 	SpecTaskID string
 }
 
-// getOrCreatePersonalAPIKey gets or creates a personal API key for the user
-// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, req *SandboxAPIKeyRequest) (string, error) {
+// GetOrCreateDevContainerAPIKey gets or creates an API key for a dev container.
+// The key is scoped based on the request parameters for security and cost attribution.
+func (s *SpecDrivenTaskService) GetOrCreateDevContainerAPIKey(ctx context.Context, req *DevContainerAPIKeyRequest) (string, error) {
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		Owner:      req.UserID,
 		OwnerType:  types.OwnerTypeUser,
@@ -1356,7 +1359,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		Owner:      req.UserID,
 		OwnerType:  types.OwnerTypeUser,
 		Key:        newKey,
-		Name:       "Auto-generated for sandbox agent access - " + req.ProjectID + " - " + req.SpecTaskID,
+		Name:       "Auto-generated for dev container - " + req.ProjectID + " - " + req.SpecTaskID,
 		Type:       types.APIkeytypeAPI,
 		ProjectID:  req.ProjectID,
 		SpecTaskID: req.SpecTaskID,
@@ -1448,7 +1451,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	}
 
 	// Get or create API key for the user
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+	userAPIKey, err := s.GetOrCreateDevContainerAPIKey(ctx, &DevContainerAPIKeyRequest{
 		UserID:     task.CreatedBy,
 		SpecTaskID: task.ID,
 	})

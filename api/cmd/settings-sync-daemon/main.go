@@ -205,15 +205,22 @@ func main() {
 	if helixURL == "" {
 		helixURL = "http://api:8080"
 	}
-	helixToken := os.Getenv("HELIX_API_TOKEN")
 	sessionID := os.Getenv("HELIX_SESSION_ID")
 	port := os.Getenv("SETTINGS_SYNC_PORT")
 	if port == "" {
 		port = "9877"
 	}
 
-	// User's Helix API token (for authenticating with LLM proxies)
+	// User/sandbox API token - used for ALL API authentication
+	// SECURITY: Runner token is never passed to containers
 	userAPIKey := os.Getenv("USER_API_TOKEN")
+
+	// For API calls, use USER_API_TOKEN (the user/sandbox-scoped token)
+	// Legacy: fall back to HELIX_API_TOKEN if set (for backwards compatibility during rollout)
+	helixToken := userAPIKey
+	if helixToken == "" {
+		helixToken = os.Getenv("HELIX_API_TOKEN")
+	}
 
 	if sessionID == "" {
 		log.Fatal("HELIX_SESSION_ID environment variable is required")
