@@ -33,7 +33,6 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
-  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge } from 'lucide-react';
 
@@ -860,9 +859,23 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
-          {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
+          {/* View mode toggle: Board vs Workspace vs Audit Trail */}
           <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
-            <Tooltip title="Kanban View">
+            <Tooltip
+              title={
+                <Box sx={{ p: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Board View</Typography>
+                  <Typography variant="caption" component="div">
+                    • Drag-and-drop tasks between columns<br />
+                    • See task status at a glance<br />
+                    • Quick access to active sessions<br />
+                    • Click task cards to view details
+                  </Typography>
+                </Box>
+              }
+              arrow
+              placement="bottom"
+            >
               <IconButton
                 size="small"
                 onClick={() => setViewMode('kanban')}
@@ -876,8 +889,22 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
             {/* Workspace toggle hidden on phones - multi-panel layout doesn't work on small screens */}
-            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 0.25 }}>
-              <Tooltip title="Workspace">
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}>
+              <Tooltip
+                title={
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Workspace View</Typography>
+                    <Typography variant="caption" component="div">
+                      • Work on multiple tasks side-by-side<br />
+                      • Drag dividers to resize panels<br />
+                      • Open tasks and desktops in tabs<br />
+                      • Drag tabs between panels
+                    </Typography>
+                  </Box>
+                }
+                arrow
+                placement="bottom"
+              >
                 <IconButton
                   size="small"
                   onClick={() => setViewMode('workspace')}
@@ -890,30 +917,22 @@ const SpecTasksPage: FC = () => {
                   <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
                 </IconButton>
               </Tooltip>
-              {viewMode === 'workspace' && (
-                <Tooltip
-                  title={
-                    <Box sx={{ p: 0.5 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Workspace View</Typography>
-                      <Typography variant="caption" component="div">
-                        • Drag dividers to resize panels<br />
-                        • Click + to add new panels<br />
-                        • Open tasks in tabs within panels<br />
-                        • Drag tabs between panels<br />
-                        • Right-click tabs for more options
-                      </Typography>
-                    </Box>
-                  }
-                  arrow
-                  placement="bottom"
-                >
-                  <IconButton size="small" sx={{ p: 0.25, opacity: 0.6, '&:hover': { opacity: 1 } }}>
-                    <InfoIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
             </Box>
-            <Tooltip title="Audit Trail">
+            <Tooltip
+              title={
+                <Box sx={{ p: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Audit Trail</Typography>
+                  <Typography variant="caption" component="div">
+                    • View all project activity<br />
+                    • Track task status changes<br />
+                    • See agent actions and decisions<br />
+                    • Review approval history
+                  </Typography>
+                </Box>
+              }
+              arrow
+              placement="bottom"
+            >
               <IconButton
                 size="small"
                 onClick={() => setViewMode('audit')}
