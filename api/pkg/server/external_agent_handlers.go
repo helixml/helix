@@ -1961,3 +1961,116 @@ func (apiServer *HelixAPIServer) sendVoiceInput(res http.ResponseWriter, req *ht
 
 	log.Info().Str("session_id", sessionID).Msg("Voice transcription completed successfully")
 }
+
+// @Summary Get file diff from container
+// @Description Returns git diff information from the running desktop container.
+// @Description Shows changes between the current working directory and base branch,
+// @Description including uncommitted changes.
+// @Tags ExternalAgents
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param base query string false "Base branch to compare against (default: main)"
+// @Param include_content query bool false "Include full diff content for each file (default: false)"
+// @Param path query string false "Filter to specific file path"
+// @Success 200 {object} object "Diff response with files list"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/diff [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for diff")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for diff")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for diff")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Build the diff URL with query parameters
+	diffURL := "http://localhost:9876/diff"
+	if req.URL.RawQuery != "" {
+		diffURL += "?" + req.URL.RawQuery
+	}
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", diffURL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create diff request")
+		http.Error(res, "Failed to create diff request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send diff request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	diffResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read diff response from RevDial")
+		http.Error(res, "Failed to read diff response", http.StatusInternalServerError)
+		return
+	}
+	defer diffResp.Body.Close()
+
+	// Check response status
+	if diffResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(diffResp.Body)
+		log.Error().
+			Int("status", diffResp.StatusCode).
+			Str("session_id", sessionID).
+			Str("error_body", string(errorBody)).
+			Msg("Diff server returned error")
+		http.Error(res, "Failed to get diff from container", diffResp.StatusCode)
+		return
+	}
+
+	// Return JSON directly
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.WriteHeader(http.StatusOK)
+
+	// Stream the diff JSON from container to response
+	_, err = io.Copy(res, diffResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream diff data")
+		return
+	}
+
+	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved diff from container")
+}

@@ -365,7 +365,7 @@ SpecTasksPage
 3. ✅ Team Desktop page
 4. ✅ Rename "Code" to "Files"
 5. ✅ Drag-drop file upload everywhere
-6. 🔲 Diff view tab in task details
+6. ✅ Diff view API (backend complete, frontend pending)
 7. ✅ Simplified project creation
 8. ✅ OnlyOffice installation
 9. 🔲 Chat widget consolidation
