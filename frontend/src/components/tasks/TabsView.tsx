@@ -44,6 +44,7 @@ import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
 import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 import DesignReviewContent from '../spec-tasks/DesignReviewContent'
+import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import useAccount from '../../hooks/useAccount'
 
 // Pulse animation for active agent indicator
@@ -101,12 +102,15 @@ const generatePanelId = () => `panel-${++panelIdCounter}`
 
 interface TabData {
   id: string
-  type: 'task' | 'review'
+  type: 'task' | 'review' | 'desktop'
   task?: TypesSpecTask
   // For review tabs
   taskId?: string
   reviewId?: string
   reviewTitle?: string
+  // For desktop tabs
+  sessionId?: string
+  desktopTitle?: string
 }
 
 interface PanelData {
@@ -167,6 +171,8 @@ const PanelTab: React.FC<PanelTabProps> = ({
   // Display title depends on tab type
   const displayTitle = tab.type === 'review'
     ? (tab.reviewTitle || 'Spec Review')
+    : tab.type === 'desktop'
+    ? (tab.desktopTitle || 'Team Desktop')
     : (displayTask?.user_short_title
       || displayTask?.short_title
       || displayTask?.name?.substring(0, 20)
@@ -177,6 +183,10 @@ const PanelTab: React.FC<PanelTabProps> = ({
     // Review tabs have a simple tooltip
     if (tab.type === 'review') {
       return tab.reviewTitle || 'Spec Review'
+    }
+    // Desktop tabs
+    if (tab.type === 'desktop') {
+      return tab.desktopTitle || 'Team Desktop'
     }
     if (!hasSession) {
       return displayTask?.name || displayTask?.description || 'Task details'
@@ -206,7 +216,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
         )}
       </Box>
     )
-  }, [tab.type, tab.reviewTitle, hasSession, titleHistory, displayTask?.name, displayTask?.description])
+  }, [tab.type, tab.reviewTitle, tab.desktopTitle, hasSession, titleHistory, displayTask?.name, displayTask?.description])
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     // Only allow renaming task tabs
@@ -866,7 +876,18 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       {/* Content area */}
       <Box sx={{ flex: 1, overflow: 'hidden' }}>
         {activeTab ? (
-          activeTab.type === 'review' && activeTab.taskId && activeTab.reviewId ? (
+          activeTab.type === 'desktop' && activeTab.sessionId ? (
+            <ExternalAgentDesktopViewer
+              key={activeTab.id}
+              sessionId={activeTab.sessionId}
+              sandboxId={activeTab.sessionId}
+              mode="stream"
+              showSessionPanel={true}
+              defaultPanelOpen={true}
+              projectId={projectId}
+              apiClient={api.getApiClient()}
+            />
+          ) : activeTab.type === 'review' && activeTab.taskId && activeTab.reviewId ? (
             <DesignReviewContent
               key={activeTab.id}
               specTaskId={activeTab.taskId}
@@ -996,6 +1017,7 @@ interface TabsViewProps {
   onCreateTask?: () => void
   onRefresh?: () => void
   initialTaskId?: string // Task ID to open initially (from "Open in Workspace" button)
+  initialDesktopId?: string // Desktop session ID to open initially (from "Open in Workspace" button)
 }
 
 // localStorage key for workspace state
@@ -1017,6 +1039,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   onCreateTask,
   onRefresh,
   initialTaskId,
+  initialDesktopId,
 }) => {
   const snackbar = useSnackbar()
   const updateSpecTask = useUpdateSpecTask()
@@ -1134,7 +1157,54 @@ const TabsView: React.FC<TabsViewProps> = ({
       }
     }
 
-    // If nothing restored and no initialTaskId, open most recently updated task
+    // If initialDesktopId is provided, ensure the desktop tab is open
+    if (initialDesktopId) {
+      const desktopTabId = `desktop-${initialDesktopId}`
+      if (restored) {
+        // Add to first panel if not already open
+        setPanels(prev => {
+          const alreadyOpen = prev.some(p => p.tabs.some(t => t.id === desktopTabId))
+          if (alreadyOpen) {
+            // Just activate it
+            return prev.map(p => {
+              if (p.tabs.some(t => t.id === desktopTabId)) {
+                return { ...p, activeTabId: desktopTabId }
+              }
+              return p
+            })
+          }
+          // Add to first panel
+          if (prev.length > 0) {
+            return prev.map((p, i) => i === 0 ? {
+              ...p,
+              tabs: [...p.tabs, {
+                id: desktopTabId,
+                type: 'desktop',
+                sessionId: initialDesktopId,
+                desktopTitle: 'Team Desktop',
+              }],
+              activeTabId: desktopTabId,
+            } : p)
+          }
+          return prev
+        })
+      } else {
+        // Start fresh with this desktop
+        setPanels([{
+          id: generatePanelId(),
+          tabs: [{
+            id: desktopTabId,
+            type: 'desktop',
+            sessionId: initialDesktopId,
+            desktopTitle: 'Team Desktop',
+          }],
+          activeTabId: desktopTabId,
+        }])
+        restored = true
+      }
+    }
+
+    // If nothing restored and no initialTaskId/initialDesktopId, open most recently updated task
     if (!restored) {
       const sortedTasks = [...tasks].sort((a, b) => {
         const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
@@ -1153,7 +1223,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     }
 
     setInitialized(true)
-  }, [tasks, initialized, initialTaskId, projectId])
+  }, [tasks, initialized, initialTaskId, initialDesktopId, projectId])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setPanels(prev => prev.map(p =>

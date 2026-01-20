@@ -25,6 +25,7 @@ import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
+import TeamDesktopPage from './pages/TeamDesktopPage'
 import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -200,6 +201,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <SpecTaskReviewPage />
+    ),
+  }, {
+    name: namePrefix + 'project-team-desktop',
+    path: routePrefix + '/projects/:id/desktop/:sessionId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Team Desktop',
+    },
+    render: () => (
+      <TeamDesktopPage />
     ),
   }, {
     name: namePrefix + 'project-settings',

@@ -17,6 +17,7 @@ import {
   CameraAlt,
   TouchApp,
   PanTool,
+  PictureInPictureAlt,
 } from '@mui/icons-material';
 import {
   WebSocketStream,
@@ -170,10 +171,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const touchMovedRef = useRef<boolean>(false); // Track if finger moved significantly during touch
   const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
   // Trackpad mode constants
-  const TRACKPAD_CURSOR_SENSITIVITY = 1.5; // Multiplier for cursor movement
+  // Sensitivity: lower = more precise, less sensitive. 1.0 = 1:1 movement.
+  // Mac trackpads typically use ~0.5-0.8 base sensitivity with acceleration.
+  const TRACKPAD_CURSOR_SENSITIVITY = 0.8; // Base multiplier for cursor movement (reduced from 1.5)
   const DOUBLE_TAP_THRESHOLD_MS = 300; // Max time between taps for double-tap
-  const TAP_MAX_DURATION_MS = 200; // Max touch duration to be considered a tap (not a drag)
-  const TAP_MAX_MOVEMENT_PX = 10; // Max finger movement to be considered a tap (not a drag)
+  const TAP_MAX_DURATION_MS = 400; // Max touch duration to be considered a tap (increased from 200 for mobile)
+  const TAP_MAX_MOVEMENT_PX = 15; // Max finger movement to be considered a tap (increased for touch screens)
+
+  // Mouse button constants (X11/evdev standard: 1=left, 2=middle, 3=right)
+  const MOUSE_BUTTON_LEFT = 1;
+  const MOUSE_BUTTON_MIDDLE = 2;
+  const MOUSE_BUTTON_RIGHT = 3;
 
   // Pinch-to-zoom state for mobile/tablet
   const [zoomLevel, setZoomLevel] = useState(1); // 1 = no zoom, 2 = 2x zoom, etc.
@@ -184,6 +192,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const lastPinchCenterRef = useRef<{ x: number; y: number } | null>(null); // For panning while zoomed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
+
+  // iOS detection for video element fullscreen (iOS Safari doesn't support requestFullscreen on divs)
+  const [isIOS, setIsIOS] = useState(false);
+  // iOS custom fullscreen mode (not native video fullscreen - our custom overlay with full interaction)
+  const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
+  // Picture-in-Picture state
+  const [isPiPActive, setIsPiPActive] = useState(false);
+  const [isPiPSupported, setIsPiPSupported] = useState(false);
+  // Capture stream for video element (iOS fullscreen + PiP)
+  const captureStreamRef = useRef<MediaStream | null>(null);
+
+  // Toolbar icon sizes - larger on touch devices for easier tapping
+  const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
+  const toolbarFontSize = hasTouchCapability ? 'medium' : 'small';
 
   // Voice input state - hold-to-record for speech-to-text
   // Supports buffering and retry for flaky connections
@@ -979,17 +1001,37 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   useEffect(() => { reconnectRef.current = reconnect; }, [reconnect]);
 
   // Toggle fullscreen - with cross-browser support (Chrome, Safari, Firefox)
+  // On iOS, uses custom CSS fullscreen since native video fullscreen doesn't support interaction
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
 
     const elem = containerRef.current as any;
     const doc = document as any;
 
-    if (!isFullscreen) {
+    // Check current fullscreen state (including iOS custom fullscreen)
+    const currentlyFullscreen = isFullscreen || isIOSFullscreen;
+
+    if (!currentlyFullscreen) {
+      // On iOS, use custom CSS-based fullscreen that maintains full interactivity
+      // Native video fullscreen (webkitEnterFullscreen) doesn't allow touch/keyboard input
+      if (isIOS) {
+        console.log('[Fullscreen] Using iOS custom CSS fullscreen for full interactivity');
+        setIsIOSFullscreen(true);
+        setIsFullscreen(true);
+        // Focus container for keyboard input
+        containerRef.current?.focus();
+        return;
+      }
+
       // Try all fullscreen APIs in order of preference
       // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
       if (elem.requestFullscreen) {
-        elem.requestFullscreen().catch(() => {});
+        elem.requestFullscreen().catch(() => {
+          // Fallback to iOS-style CSS fullscreen if native fails
+          console.log('[Fullscreen] Native fullscreen failed, using CSS fallback');
+          setIsIOSFullscreen(true);
+          setIsFullscreen(true);
+        });
       }
       // Webkit (Safari, iOS Safari, iOS Chrome - all use WebKit)
       else if (elem.webkitRequestFullscreen) {
@@ -1007,8 +1049,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       else if (elem.msRequestFullscreen) {
         elem.msRequestFullscreen();
       }
+      // Last resort: CSS fullscreen
+      else {
+        console.log('[Fullscreen] No native API available, using CSS fallback');
+        setIsIOSFullscreen(true);
+        setIsFullscreen(true);
+      }
     } else {
-      // Exit fullscreen - try all APIs
+      // Exit fullscreen
+      // If using iOS custom fullscreen, just toggle the state
+      if (isIOSFullscreen) {
+        setIsIOSFullscreen(false);
+        setIsFullscreen(false);
+        return;
+      }
+
+      // Exit native fullscreen
       if (doc.exitFullscreen) {
         doc.exitFullscreen().catch(() => {});
       } else if (doc.webkitExitFullscreen) {
@@ -1021,7 +1077,36 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         doc.msExitFullscreen();
       }
     }
-  }, [isFullscreen]);
+  }, [isFullscreen, isIOSFullscreen, isIOS]);
+
+  // Toggle Picture-in-Picture mode - allows viewing stream while using other apps
+  const togglePiP = useCallback(async () => {
+    const video = videoRef.current as any;
+    if (!video) return;
+
+    try {
+      if (isPiPActive) {
+        // Exit PiP
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (video.webkitSetPresentationMode) {
+          // Safari
+          video.webkitSetPresentationMode('inline');
+        }
+      } else {
+        // Enter PiP
+        if (video.requestPictureInPicture) {
+          // Standard API (Chrome, Edge, Firefox)
+          await video.requestPictureInPicture();
+        } else if (video.webkitSetPresentationMode) {
+          // Safari
+          video.webkitSetPresentationMode('picture-in-picture');
+        }
+      }
+    } catch (err) {
+      console.error('[PiP] Failed to toggle Picture-in-Picture:', err);
+    }
+  }, [isPiPActive]);
 
   // Voice input: send audio to backend for transcription
   // Stores recording in buffer for retry on failure
@@ -1145,14 +1230,111 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, []);
 
-  // Detect touch capability on mount
+  // Detect touch capability, iOS, and PiP support on mount
   useEffect(() => {
     // Check for touch support: touchscreen or coarse pointer (touch/stylus)
     const hasTouch = 'ontouchstart' in window ||
       navigator.maxTouchPoints > 0 ||
       window.matchMedia('(pointer: coarse)').matches;
     setHasTouchCapability(hasTouch);
+
+    // Detect iOS (iPhone, iPad, iPod) - needed for video element fullscreen
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    setIsIOS(iOS);
+
+    // Check PiP support (Safari uses different API)
+    const video = document.createElement('video');
+    const pipSupported = document.pictureInPictureEnabled ||
+      (video as any).webkitSupportsPresentationMode?.('picture-in-picture');
+    setIsPiPSupported(pipSupported);
   }, []);
+
+  // Set up canvas capture stream for video element (iOS fullscreen + PiP)
+  // This creates a MediaStream from the canvas that can be played in a video element
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    // Only set up stream when connected and canvas has content
+    if (!isConnected) return;
+
+    // Create capture stream from canvas (30 fps is enough for PiP/fullscreen)
+    const stream = (canvas as any).captureStream?.(30);
+    if (!stream) {
+      console.log('[Video] captureStream not supported');
+      return;
+    }
+
+    captureStreamRef.current = stream;
+    video.srcObject = stream;
+    video.muted = true; // Audio handled separately
+    video.playsInline = true; // Required for iOS
+
+    // Start playing (muted autoplay is allowed)
+    video.play().catch(err => {
+      console.log('[Video] Auto-play failed:', err);
+    });
+
+    // Handle PiP state changes
+    const handlePiPEnter = () => setIsPiPActive(true);
+    const handlePiPLeave = () => setIsPiPActive(false);
+
+    video.addEventListener('enterpictureinpicture', handlePiPEnter);
+    video.addEventListener('leavepictureinpicture', handlePiPLeave);
+    // Safari uses different events
+    video.addEventListener('webkitpresentationmodechanged', () => {
+      const mode = (video as any).webkitPresentationMode;
+      setIsPiPActive(mode === 'picture-in-picture');
+    });
+
+    return () => {
+      video.removeEventListener('enterpictureinpicture', handlePiPEnter);
+      video.removeEventListener('leavepictureinpicture', handlePiPLeave);
+      if (captureStreamRef.current) {
+        captureStreamRef.current.getTracks().forEach(track => track.stop());
+        captureStreamRef.current = null;
+      }
+    };
+  }, [isConnected]);
+
+  // Auto-PiP when navigating away from page (swipe home, switch apps, etc.)
+  // This lets users keep watching the remote desktop in a floating window
+  useEffect(() => {
+    if (!isPiPSupported || !isConnected) return;
+
+    const handleVisibilityChange = async () => {
+      const video = videoRef.current as any;
+      if (!video) return;
+
+      // When page becomes hidden (user navigated away)
+      if (document.visibilityState === 'hidden') {
+        // Don't auto-PiP if already in PiP
+        if (document.pictureInPictureElement || isPiPActive) return;
+
+        try {
+          // Try to enter PiP
+          if (video.requestPictureInPicture) {
+            await video.requestPictureInPicture();
+            console.log('[PiP] Auto-entered PiP on page hide');
+          } else if (video.webkitSetPresentationMode) {
+            video.webkitSetPresentationMode('picture-in-picture');
+            console.log('[PiP] Auto-entered PiP on page hide (Safari)');
+          }
+        } catch (err) {
+          // PiP may fail if not triggered by user gesture - that's expected
+          console.log('[PiP] Auto-PiP failed (may require user gesture):', err);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPiPSupported, isConnected, isPiPActive]);
 
   // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
   useEffect(() => {
@@ -2437,7 +2619,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             handler.sendMousePosition?.(streamX, streamY, width, height);
           }
           // Send mouse button down to start drag
-          handler.sendMouseButton?.(true, 0); // 0 = left button
+          handler.sendMouseButton?.(true, MOUSE_BUTTON_LEFT);
         }
       }
 
@@ -2482,8 +2664,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         touchMovedRef.current = true;
       }
 
-      const scaledDx = dx * TRACKPAD_CURSOR_SENSITIVITY;
-      const scaledDy = dy * TRACKPAD_CURSOR_SENSITIVITY;
+      // Apply pointer acceleration curve (like macOS trackpad)
+      // Small/slow movements: reduced for precision
+      // Fast/large movements: amplified for quick navigation
+      const applyAcceleration = (delta: number): number => {
+        const speed = Math.abs(delta);
+        // Below threshold: precision mode (dampen small movements)
+        if (speed < 2) {
+          return delta * 0.5 * TRACKPAD_CURSOR_SENSITIVITY;
+        }
+        // Acceleration curve: starts at base sensitivity, ramps up for fast movement
+        // Factor of 0.03 means at 30px movement, we get 1.9x base sensitivity
+        const accelerationFactor = 1 + (speed * 0.03);
+        return delta * accelerationFactor * TRACKPAD_CURSOR_SENSITIVITY;
+      };
+
+      const scaledDx = applyAcceleration(dx);
+      const scaledDy = applyAcceleration(dy);
 
       const containerRect = containerRef.current.getBoundingClientRect();
       const streamOffsetX = rect.x - containerRect.x;
@@ -2582,7 +2779,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // End drag mode if active
       if (isDragging) {
         console.log('[DesktopStreamViewer] Ending drag mode');
-        handler.sendMouseButton?.(false, 0); // 0 = left button
+        handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
         setIsDragging(false);
       }
 
@@ -2600,18 +2797,41 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         if (totalFingers === 2) {
           // Two-finger tap = right click
           console.log('[DesktopStreamViewer] Two-finger tap = right click');
-          handler.sendMouseButton?.(true, 2); // 2 = right button
-          handler.sendMouseButton?.(false, 2);
+          handler.sendMouseButton?.(true, MOUSE_BUTTON_RIGHT);
+          handler.sendMouseButton?.(false, MOUSE_BUTTON_RIGHT);
         } else if (totalFingers >= 3) {
           // Three-finger tap = middle click
           console.log('[DesktopStreamViewer] Three-finger tap = middle click');
-          handler.sendMouseButton?.(true, 1); // 1 = middle button
-          handler.sendMouseButton?.(false, 1);
+          handler.sendMouseButton?.(true, MOUSE_BUTTON_MIDDLE);
+          handler.sendMouseButton?.(false, MOUSE_BUTTON_MIDDLE);
         } else if (totalFingers === 1 && !isDragging) {
           // Single tap = left click (but not if we just ended a drag)
           console.log('[DesktopStreamViewer] Single tap = left click');
-          handler.sendMouseButton?.(true, 0); // 0 = left button
-          handler.sendMouseButton?.(false, 0);
+          handler.sendMouseButton?.(true, MOUSE_BUTTON_LEFT);
+          handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
+
+          // After single tap, check for text cursor after a delay (wait for remote to update cursor)
+          // This enables virtual keyboard when tapping on text fields in the remote desktop
+          setTimeout(() => {
+            if (hiddenInputRef.current) {
+              // Check if cursor indicates a text field
+              const isTextCursor = cursorCssName === 'text' ||
+                cursorCssName === 'vertical-text' ||
+                cursorImage?.cursorName === 'text' ||
+                cursorImage?.cursorName === 'vertical-text' ||
+                cursorImage?.cursorName?.includes('xterm') ||
+                cursorImage?.cursorName?.includes('ibeam');
+
+              if (isTextCursor) {
+                console.log('[DesktopStreamViewer] Text cursor detected after tap - showing virtual keyboard');
+                hiddenInputRef.current.focus();
+              } else {
+                // Not a text cursor - dismiss keyboard if it's showing
+                hiddenInputRef.current.blur();
+                containerRef.current?.focus();
+              }
+            }
+          }, 300); // Wait for remote cursor update
         }
       }
 
@@ -2649,7 +2869,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Cancel any ongoing drag
     if (touchMode === 'trackpad' && isDragging) {
-      handler.sendMouseButton?.(false, 0);
+      handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
       setIsDragging(false);
     }
 
@@ -3091,14 +3311,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       tabIndex={0}
       onClick={handleContainerClick}
       sx={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        minHeight: 400,
+        // Normal mode: relative positioning within parent
+        // iOS fullscreen mode: fixed positioning covering entire viewport
+        position: isIOSFullscreen ? 'fixed' : 'relative',
+        top: isIOSFullscreen ? 0 : undefined,
+        left: isIOSFullscreen ? 0 : undefined,
+        right: isIOSFullscreen ? 0 : undefined,
+        bottom: isIOSFullscreen ? 0 : undefined,
+        width: isIOSFullscreen ? '100vw' : '100%',
+        // Use dvh (dynamic viewport height) for iOS Safari toolbar handling
+        // Falls back to vh for older browsers
+        height: isIOSFullscreen ? '100dvh' : '100%',
+        minHeight: isIOSFullscreen ? undefined : 400,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
+        // High z-index for iOS fullscreen to cover everything
+        zIndex: isIOSFullscreen ? 9999 : undefined,
         // Prevent iOS tap highlight (blue rectangle on touch)
         WebkitTapHighlightColor: 'transparent',
         WebkitTouchCallout: 'none',
@@ -3106,6 +3336,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         userSelect: 'none',
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
+        // Fallback height for iOS when dvh isn't supported
+        '@supports not (height: 100dvh)': isIOSFullscreen ? {
+          height: '-webkit-fill-available',
+        } : {},
       }}
     >
       {/* Hidden input for iOS/iPad virtual keyboard support */}
@@ -3183,7 +3417,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       >
         <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
-            size="small"
+            size={toolbarIconSize as 'small' | 'medium'}
             onClick={() => {
               const newEnabled = !audioEnabled;
               setAudioEnabled(newEnabled);
@@ -3194,12 +3428,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }}
             sx={{ color: audioEnabled ? 'white' : 'grey' }}
           >
-            {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
+            {audioEnabled ? <VolumeUp fontSize={toolbarFontSize as 'small' | 'medium'} /> : <VolumeOff fontSize={toolbarFontSize as 'small' | 'medium'} />}
           </IconButton>
         </Tooltip>
         <Tooltip title={micEnabled ? 'Disable microphone' : 'Enable microphone'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
-            size="small"
+            size={toolbarIconSize as 'small' | 'medium'}
             onClick={async () => {
               const newEnabled = !micEnabled;
               setMicEnabled(newEnabled);
@@ -3210,13 +3444,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }}
             sx={{ color: micEnabled ? 'white' : 'grey' }}
           >
-            {micEnabled ? <Mic fontSize="small" /> : <MicOff fontSize="small" />}
+            {micEnabled ? <Mic fontSize={toolbarFontSize as 'small' | 'medium'} /> : <MicOff fontSize={toolbarFontSize as 'small' | 'medium'} />}
           </IconButton>
         </Tooltip>
         <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               onClick={() => {
                 setReconnectClicked(true);
                 reconnect(1000, 'Reconnecting...');
@@ -3224,26 +3458,26 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               sx={{ color: 'white' }}
               disabled={reconnectClicked || isConnecting}
             >
-              {reconnectClicked || isConnecting ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <Refresh fontSize="small" />}
+              {reconnectClicked || isConnecting ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <Refresh fontSize={toolbarFontSize as 'small' | 'medium'} />}
             </IconButton>
           </span>
         </Tooltip>
         <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
-            size="small"
+            size={toolbarIconSize as 'small' | 'medium'}
             onClick={() => setShowStats(!showStats)}
             sx={{ color: showStats ? 'primary.main' : 'white' }}
           >
-            <BarChart fontSize="small" />
+            <BarChart fontSize={toolbarFontSize as 'small' | 'medium'} />
           </IconButton>
         </Tooltip>
         <Tooltip title="Charts - visualize throughput, RTT, and bitrate over time" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
-            size="small"
+            size={toolbarIconSize as 'small' | 'medium'}
             onClick={() => setShowCharts(!showCharts)}
             sx={{ color: showCharts ? 'primary.main' : 'white' }}
           >
-            <Timeline fontSize="small" />
+            <Timeline fontSize={toolbarFontSize as 'small' | 'medium'} />
           </IconButton>
         </Tooltip>
         {/* Quality mode toggle: Video → Screenshots */}
@@ -3260,7 +3494,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         >
           <span>
             <IconButton
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               disabled={modeSwitchCooldown}
               onClick={() => {
                 // Toggle: video ↔ screenshot
@@ -3275,9 +3509,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               }}
             >
               {qualityMode === 'video' ? (
-                <Speed fontSize="small" />
+                <Speed fontSize={toolbarFontSize as 'small' | 'medium'} />
               ) : (
-                <CameraAlt fontSize="small" />
+                <CameraAlt fontSize={toolbarFontSize as 'small' | 'medium'} />
               )}
             </IconButton>
           </span>
@@ -3294,16 +3528,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
           >
             <IconButton
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               onClick={() => setTouchMode(prev => prev === 'direct' ? 'trackpad' : 'direct')}
               sx={{
                 color: touchMode === 'trackpad' ? '#2196f3' : 'white',  // Blue when trackpad mode active
               }}
             >
               {touchMode === 'direct' ? (
-                <TouchApp fontSize="small" />
+                <TouchApp fontSize={toolbarFontSize as 'small' | 'medium'} />
               ) : (
-                <PanTool fontSize="small" />
+                <PanTool fontSize={toolbarFontSize as 'small' | 'medium'} />
               )}
             </IconButton>
           </Tooltip>
@@ -3316,7 +3550,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
           >
             <Button
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               onClick={() => {
                 setZoomLevel(1);
                 setPanOffset({ x: 0, y: 0 });
@@ -3342,7 +3576,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         {qualityMode !== 'screenshot' && (
           <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
             <Button
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               onClick={(e) => setBitrateMenuAnchor(e.currentTarget)}
               sx={{
                 color: 'white',
@@ -3385,13 +3619,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Menu>
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
-            size="small"
+            size={toolbarIconSize as 'small' | 'medium'}
             onClick={toggleFullscreen}
             sx={{ color: 'white' }}
           >
-            {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+            {isFullscreen ? <FullscreenExit fontSize={toolbarFontSize as 'small' | 'medium'} /> : <Fullscreen fontSize={toolbarFontSize as 'small' | 'medium'} />}
           </IconButton>
         </Tooltip>
+        {/* Picture-in-Picture button - allows viewing stream while using other apps */}
+        {isPiPSupported && isConnected && (
+          <Tooltip title={isPiPActive ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+            <IconButton
+              size={toolbarIconSize as 'small' | 'medium'}
+              onClick={togglePiP}
+              sx={{ color: isPiPActive ? '#00D4FF' : 'white' }}
+            >
+              <PictureInPictureAlt fontSize={toolbarFontSize as 'small' | 'medium'} />
+            </IconButton>
+          </Tooltip>
+        )}
         {/* Discreet bandwidth recommendation indicator */}
         {bitrateRecommendation && isConnected && (
           <Tooltip
@@ -3400,7 +3646,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
           >
             <Button
-              size="small"
+              size={toolbarIconSize as 'small' | 'medium'}
               onClick={() => {
                 if (bitrateRecommendation.type === 'screenshot') {
                   // Switch to screenshot mode
@@ -3581,6 +3827,41 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           onClearError={() => setError(null)}
         />
       )}
+
+      {/* Video element for Picture-in-Picture (auto-PiP when leaving page) */}
+      {/* This video is fed by canvas.captureStream() and enables:
+          1. Picture-in-Picture mode on all platforms
+          2. Auto-PiP when navigating away from the browser (swipe home, etc.)
+          The video is positioned behind the canvas but visible enough for auto-PiP to work */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        autoPlay
+        // @ts-ignore - autoPictureInPicture is experimental Chrome attribute
+        autoPictureInPicture
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        onClick={() => {
+          containerRef.current?.focus();
+        }}
+        style={{
+          // Positioned behind canvas but visible enough for auto-PiP detection
+          // Browser needs to "see" a playing video to enable auto-PiP on page hide
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: canvasDisplaySize ? canvasDisplaySize.width : '100%',
+          height: canvasDisplaySize ? canvasDisplaySize.height : '100%',
+          objectFit: 'contain',
+          pointerEvents: 'none',
+          zIndex: 5, // Behind canvas (zIndex 20) but visible in DOM
+          opacity: 0.01, // Nearly invisible but browser still considers it "visible"
+        }}
+      />
 
       {/* Canvas Element - centered with proper aspect ratio */}
       <canvas

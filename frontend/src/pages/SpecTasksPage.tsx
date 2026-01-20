@@ -133,9 +133,10 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // Read query params for view mode override and task opening
+  // Read query params for view mode override and task/desktop opening
   const queryTab = router.params.tab as string | undefined;
   const openTaskId = router.params.openTask as string | undefined;
+  const openDesktopId = router.params.openDesktop as string | undefined;
 
   // State for view management - prefer query param, then localStorage
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
@@ -679,18 +680,12 @@ const SpecTasksPage: FC = () => {
   const handleStartExploratorySession = async () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
-      snackbar.success('Exploratory session started');
-      // Open in floating window instead of navigating
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        displayWidth: exploratoryDisplaySettings.width,
-        displayHeight: exploratoryDisplaySettings.height,
-        displayFps: exploratoryDisplaySettings.fps,
-      }, { x: window.innerWidth - 400, y: 100 });
+      snackbar.success('Team Desktop started');
+      // Navigate to the Team Desktop page
+      account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err: any) {
       // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session';
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Team Desktop';
       snackbar.error(errorMessage);
     }
   };
@@ -701,17 +696,11 @@ const SpecTasksPage: FC = () => {
     try {
       // Use the mutation hook which properly invalidates the cache
       const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success('Exploratory session resumed');
-      // Open floating window
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        displayWidth: exploratoryDisplaySettings.width,
-        displayHeight: exploratoryDisplaySettings.height,
-        displayFps: exploratoryDisplaySettings.fps,
-      }, { x: e.clientX, y: e.clientY });
+      snackbar.success('Team Desktop resumed');
+      // Navigate to the Team Desktop page
+      account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err) {
-      snackbar.error('Failed to resume exploratory session');
+      snackbar.error('Failed to resume Team Desktop');
     }
   };
 
@@ -967,18 +956,13 @@ const SpecTasksPage: FC = () => {
                 variant="contained"
                 color="primary"
                 startIcon={<Play size={18} />}
-                onClick={(e) => {
-                  floatingModal.showFloatingModal({
-                    type: 'exploratory_session',
-                    sessionId: exploratorySessionData.id,
-                    displayWidth: exploratoryDisplaySettings.width,
-                    displayHeight: exploratoryDisplaySettings.height,
-                    displayFps: exploratoryDisplaySettings.fps,
-                  }, { x: e.clientX, y: e.clientY });
+                onClick={() => {
+                  // Navigate to the Team Desktop page
+                  account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
                 }}
                 sx={{ flexShrink: 0 }}
               >
-                View Session
+                View Team Desktop
               </Button>
               <Button
                 variant="outlined"
@@ -1137,6 +1121,7 @@ const SpecTasksPage: FC = () => {
                 onCreateTask={handleOpenCreateDialog}
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
                 initialTaskId={openTaskId}
+                initialDesktopId={openDesktopId}
               />
             )}
             {viewMode === 'audit' && (
