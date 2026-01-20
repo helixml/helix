@@ -223,7 +223,7 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Build helix CLI: `cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .` (creates executable)
 - Regenerate API client: `./stack update_openapi`
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
-- Design docs go in `design/YYYY-MM-DD-name.md`
+- Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
 
 ## Testing CLI Commands
 

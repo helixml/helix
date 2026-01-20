@@ -19,7 +19,11 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { FolderGit2, Link as LinkIcon, Plus } from 'lucide-react'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import EditIcon from '@mui/icons-material/Edit'
@@ -54,7 +58,7 @@ const RECOMMENDED_MODELS = [
   'Qwen/Qwen3-235B-A22B-fp8-tput',
 ]
 
-type RepoMode = 'select' | 'create' | 'link'
+type RepoMode = 'auto' | 'select' | 'create' | 'link'
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -88,7 +92,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedRepoId, setSelectedRepoId] = useState('')
-  const [repoMode, setRepoMode] = useState<RepoMode>('create')
+  const [repoMode, setRepoMode] = useState<RepoMode>('auto')
+  const [advancedExpanded, setAdvancedExpanded] = useState(false)
 
   // New repo creation fields
   const [newRepoName, setNewRepoName] = useState('')
@@ -177,7 +182,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setName('')
       setDescription('')
       setSelectedRepoId('')
-      setRepoMode('create')
+      setRepoMode('auto')
+      setAdvancedExpanded(false)
       setNewRepoName('')
       setNewRepoDescription('')
       setUserModifiedRepoName(false)
@@ -202,6 +208,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       // When opening with a preselected repo, switch to select mode
       setRepoMode('select')
       setSelectedRepoId(preselectedRepoId)
+      setAdvancedExpanded(true)
     }
   }, [open, preselectedRepoId])
 
@@ -281,7 +288,34 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     let repoIdToUse = ''
     setRepoError('')
 
-    if (repoMode === 'select') {
+    if (repoMode === 'auto') {
+      // Auto mode: create a repo with the same name as the project
+      if (!onCreateRepo) {
+        setRepoError('Repository creation not available')
+        return
+      }
+
+      const autoRepoName = toRepoName(name)
+      if (!autoRepoName) {
+        setRepoError('Please enter a valid project name')
+        return
+      }
+
+      setCreatingRepo(true)
+      try {
+        const newRepo = await onCreateRepo(autoRepoName, description || `Files for ${name}`)
+        if (!newRepo?.id) {
+          setRepoError('Failed to create file storage')
+          return
+        }
+        repoIdToUse = newRepo.id
+      } catch (err) {
+        setRepoError(err instanceof Error ? err.message : 'Failed to create file storage')
+        return
+      } finally {
+        setCreatingRepo(false)
+      }
+    } else if (repoMode === 'select') {
       if (!selectedRepoId) {
         setRepoError('Please select a repository')
         return
@@ -410,6 +444,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     : !!selectedAgentId
 
   const isSubmitDisabled = createProjectMutation.isPending || creatingRepo || creatingAgent || !name.trim() || !agentValid || (
+    repoMode === 'auto' ? false : // Auto mode only needs project name
     repoMode === 'select' ? !selectedRepoId :
     repoMode === 'create' ? !newRepoName.trim() :
     !externalUrl.trim() || (externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!externalOrgUrl.trim() || !externalToken.trim()))
@@ -436,99 +471,143 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             onChange={(e) => setName(e.target.value)}
             autoFocus
             required
+            helperText="Give your project a descriptive name"
           />
 
-          <Divider sx={{ my: 1 }} />
+          <TextField
+            label="Description"
+            fullWidth
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            multiline
+            rows={2}
+            placeholder="What is this project about?"
+          />
 
-          <Typography variant="subtitle2" color="text.secondary">
-            Primary Repository (required)
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Project configuration and startup scripts will be stored in this repository.
-            You can attach additional repositories later in Project Settings.
-          </Typography>
-
-          <ToggleButtonGroup
-            value={repoMode}
-            exclusive
-            onChange={(_, v) => {
-              if (v && !preselectedRepoId) {
-                setRepoMode(v)
+          {/* Advanced: Git Repository Options */}
+          <Accordion
+            expanded={advancedExpanded || !!preselectedRepoId}
+            onChange={(_, expanded) => {
+              if (!preselectedRepoId) {
+                setAdvancedExpanded(expanded)
+                // When expanding, default to 'create' mode if currently 'auto'
+                if (expanded && repoMode === 'auto') {
+                  setRepoMode('create')
+                }
+                // When collapsing, reset to 'auto' mode
+                if (!expanded) {
+                  setRepoMode('auto')
+                }
               }
             }}
-            size="small"
-            fullWidth
-            disabled={!!preselectedRepoId}
+            sx={{
+              boxShadow: 'none',
+              border: (theme) => `1px solid ${theme.palette.divider}`,
+              '&:before': { display: 'none' },
+              borderRadius: 1,
+            }}
           >
-            <ToggleButton value="create">
-              <Plus size={16} style={{ marginRight: 4 }} />
-              New
-            </ToggleButton>
-            <ToggleButton value="select">
-              <FolderGit2 size={16} style={{ marginRight: 4 }} />
-              Existing
-            </ToggleButton>
-            <ToggleButton value="link">
-              <LinkIcon size={16} style={{ marginRight: 4 }} />
-              External
-            </ToggleButton>
-          </ToggleButtonGroup>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <FolderGit2 size={18} />
+                <Typography variant="body2">
+                  {advancedExpanded || preselectedRepoId
+                    ? 'Git Repository'
+                    : 'Connect a Git repository (optional)'}
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Connect an existing Git repository or create a new one with a custom name.
+                  {!advancedExpanded && ' Leave collapsed to auto-create storage for your project.'}
+                </Typography>
 
-          {repoMode === 'select' && (
-            <FormControl fullWidth size="small">
-              <InputLabel>Select Repository</InputLabel>
-              <Select
-                value={selectedRepoId}
-                label="Select Repository"
-                onChange={(e) => setSelectedRepoId(e.target.value)}
-                disabled={reposLoading || !!preselectedRepoId}
-              >
-                {codeRepos.map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                    {repo.is_external && ` (${repo.external_type || 'external'})`}
-                  </MenuItem>
-                ))}
-                {codeRepos.length === 0 && (
-                  <MenuItem disabled value="">
-                    No repositories available
-                  </MenuItem>
+                <ToggleButtonGroup
+                  value={repoMode}
+                  exclusive
+                  onChange={(_, v) => {
+                    if (v && !preselectedRepoId && v !== 'auto') {
+                      setRepoMode(v)
+                    }
+                  }}
+                  size="small"
+                  fullWidth
+                  disabled={!!preselectedRepoId}
+                >
+                  <ToggleButton value="create">
+                    <Plus size={16} style={{ marginRight: 4 }} />
+                    New
+                  </ToggleButton>
+                  <ToggleButton value="select">
+                    <FolderGit2 size={16} style={{ marginRight: 4 }} />
+                    Existing
+                  </ToggleButton>
+                  <ToggleButton value="link">
+                    <LinkIcon size={16} style={{ marginRight: 4 }} />
+                    External
+                  </ToggleButton>
+                </ToggleButtonGroup>
+
+                {repoMode === 'select' && (
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Select Repository</InputLabel>
+                    <Select
+                      value={selectedRepoId}
+                      label="Select Repository"
+                      onChange={(e) => setSelectedRepoId(e.target.value)}
+                      disabled={reposLoading || !!preselectedRepoId}
+                    >
+                      {codeRepos.map((repo) => (
+                        <MenuItem key={repo.id} value={repo.id}>
+                          {repo.name}
+                          {repo.is_external && ` (${repo.external_type || 'external'})`}
+                        </MenuItem>
+                      ))}
+                      {codeRepos.length === 0 && (
+                        <MenuItem disabled value="">
+                          No repositories available
+                        </MenuItem>
+                      )}
+                    </Select>
+                  </FormControl>
                 )}
-              </Select>
-            </FormControl>
-          )}
 
-          {repoMode === 'create' && (
-            <NewRepoForm
-              name={newRepoName}
-              onNameChange={(value) => {
-                setNewRepoName(value)
-                setUserModifiedRepoName(true)
-              }}
-              size="small"
-              showDescription={false}
-            />
-          )}
+                {repoMode === 'create' && (
+                  <NewRepoForm
+                    name={newRepoName}
+                    onNameChange={(value) => {
+                      setNewRepoName(value)
+                      setUserModifiedRepoName(true)
+                    }}
+                    size="small"
+                    showDescription={false}
+                  />
+                )}
 
-          {repoMode === 'link' && (
-            <ExternalRepoForm
-              url={externalUrl}
-              onUrlChange={setExternalUrl}
-              name={externalName}
-              onNameChange={setExternalName}
-              type={externalType}
-              onTypeChange={setExternalType}
-              username={externalUsername}
-              onUsernameChange={setExternalUsername}
-              password={externalPassword}
-              onPasswordChange={setExternalPassword}
-              organizationUrl={externalOrgUrl}
-              onOrganizationUrlChange={setExternalOrgUrl}
-              token={externalToken}
-              onTokenChange={setExternalToken}
-              size="small"
-            />
-          )}
+                {repoMode === 'link' && (
+                  <ExternalRepoForm
+                    url={externalUrl}
+                    onUrlChange={setExternalUrl}
+                    name={externalName}
+                    onNameChange={setExternalName}
+                    type={externalType}
+                    onTypeChange={setExternalType}
+                    username={externalUsername}
+                    onUsernameChange={setExternalUsername}
+                    password={externalPassword}
+                    onPasswordChange={setExternalPassword}
+                    organizationUrl={externalOrgUrl}
+                    onOrganizationUrlChange={setExternalOrgUrl}
+                    token={externalToken}
+                    onTokenChange={setExternalToken}
+                    size="small"
+                  />
+                )}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
 
           {repoError && (
             <Alert severity="error" sx={{ mt: 1 }}>
@@ -539,10 +618,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           <Divider sx={{ my: 1 }} />
 
           <Typography variant="subtitle2" color="text.secondary">
-            Default Agent for Spec Tasks
+            AI Agent
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Select an agent to use for code development tasks in this project. You can configure MCP servers in the agent settings.
+            Choose which AI agent will work on tasks in this project.
           </Typography>
 
           {!showCreateAgentForm ? (
