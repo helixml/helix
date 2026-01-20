@@ -33,6 +33,7 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge } from 'lucide-react';
 
@@ -884,7 +885,7 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
             {/* Workspace toggle hidden on phones - multi-panel layout doesn't work on small screens */}
-            <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 0.25 }}>
               <Tooltip title="Workspace">
                 <IconButton
                   size="small"
@@ -898,6 +899,28 @@ const SpecTasksPage: FC = () => {
                   <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
                 </IconButton>
               </Tooltip>
+              {viewMode === 'workspace' && (
+                <Tooltip
+                  title={
+                    <Box sx={{ p: 0.5 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Workspace View</Typography>
+                      <Typography variant="caption" component="div">
+                        • Drag dividers to resize panels<br />
+                        • Click + to add new panels<br />
+                        • Open tasks in tabs within panels<br />
+                        • Drag tabs between panels<br />
+                        • Right-click tabs for more options
+                      </Typography>
+                    </Box>
+                  }
+                  arrow
+                  placement="bottom"
+                >
+                  <IconButton size="small" sx={{ p: 0.25, opacity: 0.6, '&:hover': { opacity: 1 } }}>
+                    <InfoIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
             </Box>
             <Tooltip title="Audit Trail">
               <IconButton
