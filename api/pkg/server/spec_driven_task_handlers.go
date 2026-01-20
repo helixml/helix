@@ -120,13 +120,13 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos like ADO)
+	// Compute PullRequestURL for tasks with PullRequestID (external repos)
 	if task.PullRequestID != "" && task.PullRequestURL == "" {
 		project, err := s.Store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo.ExternalURL != "" {
-				task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
+				task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
 			}
 		}
 	}
@@ -204,7 +204,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos like ADO)
+	// Compute PullRequestURL for tasks with PullRequestID (external repos)
 	if projectID != "" {
 		project, err := s.Store.GetProject(ctx, projectID)
 		if err == nil && project.DefaultRepoID != "" {
@@ -212,7 +212,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			if err == nil && repo.ExternalURL != "" {
 				for _, task := range tasks {
 					if task.PullRequestID != "" && task.PullRequestURL == "" {
-						task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
+						task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
 					}
 				}
 			}
