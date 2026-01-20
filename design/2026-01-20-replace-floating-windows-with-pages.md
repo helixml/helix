@@ -207,29 +207,27 @@ When container is NOT running:
 
 **Backend Requirements:**
 
-1. **Container File Watch API** (new endpoint)
-   - `GET /api/v1/external-agents/{sessionId}/files/diff`
+1. **Container File Watch API** ✅ IMPLEMENTED
+   - `GET /api/v1/external-agents/{sessionId}/diff`
+   - Query params: `base` (default: main), `include_content` (boolean), `path` (filter)
    - Returns list of changed files + diff content
-   - Compares container's working directory against main branch
-   - Includes uncommitted changes
+   - Compares container's working directory against base branch
+   - Includes uncommitted/unstaged changes and untracked files
 
-2. **Git Diff API** (fallback, may exist)
-   - `GET /api/v1/git-repositories/{repoId}/diff?base=main&head={branch}`
+2. **Git Diff API** (fallback when container not running)
+   - Use existing git repository APIs
    - Returns git diff between two refs
 
-3. **WebSocket Updates** (optional, for true live)
-   - Push file change events from container
-   - Notify when files are modified/saved
+**Backend Files (COMPLETE):**
+- `api/pkg/desktop/diff.go` - Handler running inside desktop container
+- `api/pkg/server/external_agent_handlers.go` - Proxy handler `getExternalAgentDiff`
+- TypeScript client method: `v1ExternalAgentsDiffDetail(sessionId, query)`
 
 **Files to create (frontend):**
 - `src/components/tasks/DiffViewer.tsx` - Main diff component
 - `src/components/tasks/DiffFileList.tsx` - List of changed files
 - `src/components/tasks/DiffContent.tsx` - Individual file diff
 - `src/hooks/useLiveFileDiff.ts` - Hook for polling/subscribing to file changes
-
-**Files to create (backend):**
-- `api/pkg/server/external_agents_diff.go` - Container file diff endpoint
-- API types for diff response
 
 **Libraries to consider:**
 - Monaco Editor diff view (already using Monaco in codebase)
