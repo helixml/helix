@@ -978,22 +978,47 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const reconnectRef = useRef(reconnect);
   useEffect(() => { reconnectRef.current = reconnect; }, [reconnect]);
 
-  // Toggle fullscreen - with iOS Safari webkit prefix support
+  // Toggle fullscreen - with cross-browser support (Chrome, Safari, Firefox)
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
 
+    const elem = containerRef.current as any;
+    const doc = document as any;
+
     if (!isFullscreen) {
-      // Try standard API first, then webkit prefix for iOS Safari
-      if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen();
-      } else if ((containerRef.current as any).webkitRequestFullscreen) {
-        (containerRef.current as any).webkitRequestFullscreen();
+      // Try all fullscreen APIs in order of preference
+      // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen().catch(() => {});
+      }
+      // Webkit (Safari, iOS Safari, iOS Chrome - all use WebKit)
+      else if (elem.webkitRequestFullscreen) {
+        elem.webkitRequestFullscreen();
+      }
+      // Webkit with capital S (older Android Chrome)
+      else if (elem.webkitRequestFullScreen) {
+        elem.webkitRequestFullScreen();
+      }
+      // Mozilla (older Firefox)
+      else if (elem.mozRequestFullScreen) {
+        elem.mozRequestFullScreen();
+      }
+      // MS (old IE/Edge)
+      else if (elem.msRequestFullscreen) {
+        elem.msRequestFullscreen();
       }
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if ((document as any).webkitExitFullscreen) {
-        (document as any).webkitExitFullscreen();
+      // Exit fullscreen - try all APIs
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen().catch(() => {});
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen();
+      } else if (doc.webkitCancelFullScreen) {
+        doc.webkitCancelFullScreen();
+      } else if (doc.mozCancelFullScreen) {
+        doc.mozCancelFullScreen();
+      } else if (doc.msExitFullscreen) {
+        doc.msExitFullscreen();
       }
     }
   }, [isFullscreen]);
@@ -1095,18 +1120,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [isRecording]);
 
-  // Handle fullscreen events (with webkit prefix for iOS Safari)
+  // Handle fullscreen events (cross-browser support)
   useEffect(() => {
+    const doc = document as any;
     const handleFullscreenChange = () => {
-      const fullscreenElement = document.fullscreenElement || (document as any).webkitFullscreenElement;
+      const fullscreenElement = doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.webkitCurrentFullScreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement;
       setIsFullscreen(!!fullscreenElement);
     };
 
+    // Listen for all vendor-prefixed fullscreen change events
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
     };
   }, []);
 
@@ -1124,28 +1159,47 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     if (!hasTouchCapability) return;
 
     const handleOrientationChange = () => {
+      const doc = document as any;
+      const elem = containerRef.current as any;
+
       // Check if device is in landscape orientation
       const isLandscape = window.innerWidth > window.innerHeight;
-      const fullscreenElement = document.fullscreenElement || (document as any).webkitFullscreenElement;
+      const fullscreenElement = doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.webkitCurrentFullScreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement;
 
-      if (isLandscape && !fullscreenElement && containerRef.current) {
+      if (isLandscape && !fullscreenElement && elem) {
         // Auto-enter fullscreen when rotated to landscape
         console.log('[DesktopStreamViewer] Landscape detected, entering fullscreen');
-        if (containerRef.current.requestFullscreen) {
-          containerRef.current.requestFullscreen().catch(() => {
-            // Fullscreen request may fail if not triggered by user gesture
+        // Try all fullscreen APIs
+        if (elem.requestFullscreen) {
+          elem.requestFullscreen().catch(() => {
             console.log('[DesktopStreamViewer] Fullscreen request failed (requires user gesture)');
           });
-        } else if ((containerRef.current as any).webkitRequestFullscreen) {
-          (containerRef.current as any).webkitRequestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          elem.webkitRequestFullscreen();
+        } else if (elem.webkitRequestFullScreen) {
+          elem.webkitRequestFullScreen();
+        } else if (elem.mozRequestFullScreen) {
+          elem.mozRequestFullScreen();
+        } else if (elem.msRequestFullscreen) {
+          elem.msRequestFullscreen();
         }
       } else if (!isLandscape && fullscreenElement) {
         // Exit fullscreen when rotated back to portrait
         console.log('[DesktopStreamViewer] Portrait detected, exiting fullscreen');
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if ((document as any).webkitExitFullscreen) {
-          (document as any).webkitExitFullscreen();
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.webkitCancelFullScreen) {
+          doc.webkitCancelFullScreen();
+        } else if (doc.mozCancelFullScreen) {
+          doc.mozCancelFullScreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
         }
       }
     };
