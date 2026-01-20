@@ -20,7 +20,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import { Link as LinkIcon, Brain, Sparkles, GitBranch } from 'lucide-react'
+import { Brain } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
@@ -40,7 +40,6 @@ import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 import { useStreaming } from '../contexts/streaming'
 import { useListUserCronTriggers } from '../services/appService'
 import { useListProjects } from '../services'
-import { useGitRepositories } from '../services/gitRepositoryService'
 import { generateCronShortSummary } from '../utils/cronUtils'
 import { invalidateSessionsQuery } from '../services/sessionService'
 import { useQueryClient } from '@tanstack/react-query'
@@ -131,7 +130,6 @@ const Home: FC = () => {
   )
 
   const { data: projects = [] } = useListProjects(account.organizationTools.organization?.id || '')
-  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   useEffect(() => {
     apps.loadApps()
@@ -290,79 +288,6 @@ const Home: FC = () => {
                 maxWidth: '100%',
                 paddingX: '0 !important',
               }}>
-                {/* CTA Banner - Connect Your Codebase */}
-                {/* Always show unless dismissed (X only hides until page reload) */}
-                {!bannerDismissed && (
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      mb: 6,
-                      p: 2.5,
-                      borderRadius: 3,
-                      background: 'linear-gradient(135deg, rgba(0, 213, 255, 0.15) 0%, rgba(138, 43, 226, 0.1) 50%, rgba(0, 213, 255, 0.08) 100%)',
-                      border: '1px solid',
-                      borderColor: 'rgba(0, 213, 255, 0.4)',
-                      width: '100%',
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                      <Box
-                        sx={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 2,
-                          background: 'linear-gradient(135deg, #00d5ff 0%, #8a2be2 100%)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <GitBranch size={22} color="white" />
-                      </Box>
-                      <Box sx={{ flex: 1, minWidth: 200, textAlign: 'left' }}>
-                        <Typography sx={{ fontWeight: 600, mb: 0.25, display: 'flex', alignItems: 'center', gap: 1, color: '#fff', fontSize: '1rem' }}>
-                          Connect Your Codebase
-                          <Sparkles size={16} color="#00d5ff" />
-                        </Typography>
-                        <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.85rem' }}>
-                          AI agents that auto-learn your architecture • Streaming desktops • Secure &amp; private
-                        </Typography>
-                      </Box>
-                      <Button
-                        variant="contained"
-                        color="secondary"
-                        size="medium"
-                        startIcon={<LinkIcon size={16} />}
-                        onClick={() => account.orgNavigate('projects', { tab: 'repositories' })}
-                        sx={{
-                          px: 2.5,
-                          py: 1,
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          boxShadow: '0 4px 14px rgba(0, 213, 255, 0.3)',
-                          '&:hover': {
-                            boxShadow: '0 6px 20px rgba(0, 213, 255, 0.4)',
-                          },
-                        }}
-                      >
-                        Link Repository
-                      </Button>
-                      <IconButton
-                        size="small"
-                        onClick={() => setBannerDismissed(true)}
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.4)',
-                          '&:hover': { color: 'rgba(255, 255, 255, 0.8)' },
-                          ml: -1,
-                        }}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </Paper>
-                )}
-
                 <Row
                   sx={{
                     display: 'flex',
