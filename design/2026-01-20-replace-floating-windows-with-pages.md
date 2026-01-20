@@ -160,25 +160,42 @@ The entire Projects experience should be usable by:
 
 ### Priority: HIGH
 
-### 3.1 Git Diff Tab in Task Details
+### 3.1 Live Diff Tab in Task Details
 
-**Requirement:** Show file changes (diffs) as a tab in spec task detail page.
+**Requirement:** Show file changes (diffs) as a tab in spec task detail page with LIVE updates.
 
 **Use Cases:**
+- Watch agent make changes in real-time
 - Review code changes before approving
-- See what the agent modified
+- See what the agent modified (including uncommitted changes)
 - Compare versions of any file (not just code)
+
+**Critical Feature: Live Updates from Container**
+
+When the desktop container is running:
+- Show LIVE diffs as the agent edits files
+- Include uncommitted/unsaved changes
+- Poll or WebSocket for real-time updates
+- Show "watching" indicator when live
+
+When container is NOT running:
+- Fall back to git diff between task branch and main branch
+- Show last known state of changes
 
 **Implementation:**
 
-**New Tab:** "Changes" or "Diff" in SpecTaskDetailContent
-- Shows list of changed files
+**New Tab:** "Changes" in SpecTaskDetailContent
+- Shows list of changed files (live updating when container running)
 - Click file to see diff
+- Badge showing number of changed files
+- "Live" indicator when container is active
 - Support for:
   - Code files (syntax highlighting)
   - Text files
   - Binary files (show "Binary file changed")
   - Image files (side-by-side preview)
+  - New files (green, full content)
+  - Deleted files (red, strikethrough)
 
 **Diff Display:**
 - Split view (old | new) or unified view toggle
@@ -186,19 +203,47 @@ The entire Projects experience should be usable by:
 - Syntax highlighting for code
 - Expand/collapse unchanged sections
 - "View full file" link
+- Auto-scroll to latest change (optional)
 
-**Data Source:**
-- Git diff between task branch and main branch
-- Or diff between current state and last commit
+**Backend Requirements:**
 
-**Files to create:**
+1. **Container File Watch API** (new endpoint)
+   - `GET /api/v1/external-agents/{sessionId}/files/diff`
+   - Returns list of changed files + diff content
+   - Compares container's working directory against main branch
+   - Includes uncommitted changes
+
+2. **Git Diff API** (fallback, may exist)
+   - `GET /api/v1/git-repositories/{repoId}/diff?base=main&head={branch}`
+   - Returns git diff between two refs
+
+3. **WebSocket Updates** (optional, for true live)
+   - Push file change events from container
+   - Notify when files are modified/saved
+
+**Files to create (frontend):**
 - `src/components/tasks/DiffViewer.tsx` - Main diff component
 - `src/components/tasks/DiffFileList.tsx` - List of changed files
 - `src/components/tasks/DiffContent.tsx` - Individual file diff
+- `src/hooks/useLiveFileDiff.ts` - Hook for polling/subscribing to file changes
+
+**Files to create (backend):**
+- `api/pkg/server/external_agents_diff.go` - Container file diff endpoint
+- API types for diff response
 
 **Libraries to consider:**
-- `react-diff-viewer` or similar
-- Monaco Editor diff view (already using Monaco)
+- Monaco Editor diff view (already using Monaco in codebase)
+- `react-diff-viewer-continued` for simpler diff display
+
+**Data Flow:**
+```
+Container Running:
+[Desktop Container] -> [Hydra/API] -> [Frontend Poll/WS] -> [DiffViewer]
+                      (file watch)   (every 2-5 sec)
+
+Container Stopped:
+[Git Repository] -> [API git diff] -> [DiffViewer]
+```
 
 ---
 
