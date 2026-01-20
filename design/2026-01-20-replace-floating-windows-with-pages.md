@@ -153,5 +153,62 @@ Keep `fontFamily: 'Monaco, Consolas, monospace'` for code blocks.
 
 ## User Decisions
 
-1. **Tiled View Button**: Only on task detail and review pages (not all pages)
+1. **Workspace Button**: Only on task detail, review, and Team Desktop pages (not all pages)
 2. **Design Doc Route**: Keep both routes - `/design-doc` for public sharing, new review route for authenticated review with commenting
+
+---
+
+## Changes Completed (2026-01-20)
+
+### 1. Renamed Tiled View to Workspace
+- "Tiled View"/"Tabs View" → "Workspace" throughout UI
+- Query param: `?tab=workspace`
+- localStorage key: `helix_spectask_view_mode`
+
+### 2. Workspace State Persistence
+- Layout saved to localStorage (`helix_workspace_state`)
+- Remembers open panels, tabs, active tab, and layout direction
+- Restored when returning to Workspace view
+
+### 3. Created Team Desktop Page
+- New route: `/projects/:id/desktop/:sessionId`
+- Proper breadcrumbs: Projects → {Project Name} → Team Desktop
+- "Open in Workspace" button to embed in Workspace
+
+### 4. Extended Workspace Tab Types
+- `TabData.type`: `'task' | 'review' | 'desktop'`
+- Desktop tabs show ExternalAgentDesktopViewer with full streaming
+- Reviews open in Workspace panes (not navigate away)
+
+### 5. Mobile/Touch UX Improvements (DesktopStreamViewer)
+- iOS custom CSS fullscreen (native fullscreen blocks interaction)
+- Picture-in-Picture support detection
+- Larger toolbar icons for touch devices (medium vs small)
+- Better tap detection thresholds for mobile
+- Reduced cursor sensitivity for precision (0.8 vs 1.5)
+
+---
+
+## Remaining Roadmap
+
+### Phase 7: Chat Widget Consolidation
+The Team Desktop currently uses `EmbeddedSessionView` in a side panel.
+SpecTaskDetailContent uses a different chat widget implementation.
+Consolidate to use the same chat component for consistency.
+
+### Phase 8: Info Button for Workspace
+Add an info button on the Workspace page that explains:
+- What the Workspace view is for
+- How to use split panes
+- How to add/remove panels
+
+### Phase 9: Mobile UX Polish
+- Hide Workspace option on phones (< 768px)
+- Optimize for tablet portrait/landscape
+- Ensure touch interactions work in Workspace view
+
+### Phase 10: Cleanup Deprecated Code
+After migration is stable:
+- Simplify or remove `SpecTaskDetailDialog.tsx`
+- Remove unused floating window code from `DesignReviewViewer.tsx`
+- Remove `FloatingModal` usage in SpecTasksPage
