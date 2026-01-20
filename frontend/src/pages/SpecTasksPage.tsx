@@ -6,7 +6,7 @@ import {
   Typography,
   Alert,
   Chip,
-  Stack,  
+  Stack,
   TextField,
   FormControl,
   InputLabel,
@@ -14,10 +14,12 @@ import {
   MenuItem,
   Menu,
   CircularProgress,
-  IconButton,  
+  IconButton,
   Checkbox,
   FormControlLabel,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -90,6 +92,8 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -157,6 +161,13 @@ const SpecTasksPage: FC = () => {
       setViewMode(queryTab);
     }
   }, [queryTab]);
+
+  // On mobile, fallback to kanban if workspace is selected (workspace doesn't work on small screens)
+  useEffect(() => {
+    if (isMobile && viewMode === 'workspace') {
+      setViewMode('kanban');
+    }
+  }, [isMobile, viewMode]);
 
   // Persist view mode preference when it changes
   useEffect(() => {
@@ -872,19 +883,22 @@ const SpecTasksPage: FC = () => {
                 <KanbanIcon fontSize="small" color={viewMode === 'kanban' ? 'primary' : 'inherit'} />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Workspace">
-              <IconButton
-                size="small"
-                onClick={() => setViewMode('workspace')}
-                sx={{
-                  bgcolor: viewMode === 'workspace' ? 'background.paper' : 'transparent',
-                  boxShadow: viewMode === 'workspace' ? 1 : 0,
-                  '&:hover': { bgcolor: viewMode === 'workspace' ? 'background.paper' : 'action.selected' },
-                }}
-              >
-                <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
-              </IconButton>
-            </Tooltip>
+            {/* Workspace toggle hidden on phones - multi-panel layout doesn't work on small screens */}
+            <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+              <Tooltip title="Workspace">
+                <IconButton
+                  size="small"
+                  onClick={() => setViewMode('workspace')}
+                  sx={{
+                    bgcolor: viewMode === 'workspace' ? 'background.paper' : 'transparent',
+                    boxShadow: viewMode === 'workspace' ? 1 : 0,
+                    '&:hover': { bgcolor: viewMode === 'workspace' ? 'background.paper' : 'action.selected' },
+                  }}
+                >
+                  <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
+                </IconButton>
+              </Tooltip>
+            </Box>
             <Tooltip title="Audit Trail">
               <IconButton
                 size="small"
