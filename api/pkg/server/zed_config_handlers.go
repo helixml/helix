@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -564,48 +563,25 @@ func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context,
 	return false
 }
 
-// getAPIKeyForSession returns the appropriate API key for a session.
-// Convenience wrapper around getScopedAPIKey for session-based lookups.
-func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, session *types.Session) (string, error) {
-	var projectID string
-	if session.Metadata.SpecTaskID != "" {
-		specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-		if err != nil {
-			return "", fmt.Errorf("failed to get spec task %s: %w", session.Metadata.SpecTaskID, err)
-		}
-		projectID = specTask.ProjectID
-	}
-	return apiServer.getScopedAPIKey(ctx, session.Owner, projectID, session.Metadata.SpecTaskID)
-}
-
-// getScopedAPIKey returns the appropriate API key based on scope.
-// For SpecTask scope: returns a task-scoped dev container key for tighter security and cost attribution.
-// For non-SpecTask scope: returns the user's generic API key.
+// getAPIKeyForSession returns a session-scoped ephemeral API key.
+// Keys are minted when the desktop starts and revoked when it shuts down.
 //
-// SECURITY: This is the single source of truth for API key selection based on scope.
+// SECURITY: This is the single source of truth for API key selection.
 // All code that needs to authenticate on behalf of a user/session should use this function.
-func (apiServer *HelixAPIServer) getScopedAPIKey(ctx context.Context, userID, projectID, specTaskID string) (string, error) {
-	if specTaskID != "" {
-		// SpecTask scope: use a task-scoped dev container key
-		apiKey, err := apiServer.specDrivenTaskService.GetOrCreateDevContainerAPIKey(ctx, &services.DevContainerAPIKeyRequest{
-			UserID:     userID,
-			ProjectID:  projectID,
-			SpecTaskID: specTaskID,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to get dev container API key for spec task %s: %w", specTaskID, err)
-		}
-		return apiKey, nil
+// The key capabilities vary based on session type:
+// - SpecTask sessions: git push rights to specific branch, LLM calls
+// - Non-SpecTask sessions: LLM calls only
+func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, session *types.Session) (string, error) {
+	if session == nil || session.ID == "" {
+		return "", fmt.Errorf("session is required for session-scoped API key")
 	}
 
-	// Non-SpecTask scope: use generic user API key
-	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	apiKey, err := apiServer.specDrivenTaskService.GetOrCreateSessionAPIKey(ctx, &services.SessionAPIKeyRequest{
+		UserID:    session.Owner,
+		SessionID: session.ID,
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get user %s: %w", userID, err)
-	}
-	apiKey, err := apiServer.getOrCreateUserAPIKey(ctx, user)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user API key for %s: %w", userID, err)
+		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)
 	}
 	return apiKey, nil
 }

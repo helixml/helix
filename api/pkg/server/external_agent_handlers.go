@@ -23,30 +23,40 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// addUserAPITokenToAgent adds the user's API token to agent environment for git operations
-// This ensures RBAC is enforced - agent can only access repos the user can access
-// Uses getScopedAPIKey for consistent token selection logic across the codebase.
+// addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
+// The token is minted when the desktop starts and revoked when it shuts down.
+// This ensures RBAC is enforced - agent can only access repos the user can access.
+// Uses getAPIKeyForSession for consistent token selection logic across the codebase.
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
-	// Use the centralized helper for API key selection
-	// For SpecTask agents: uses task-scoped dev container key
-	// For non-SpecTask agents: uses user's generic API key
-	apiKey, err := apiServer.getScopedAPIKey(ctx, userID, agent.ProjectID, agent.SpecTaskID)
+	if agent.HelixSessionID == "" {
+		return fmt.Errorf("agent has no HelixSessionID - session must be created before adding API token")
+	}
+
+	// Get the session to use for session-scoped API key
+	session, err := apiServer.Store.GetSession(ctx, agent.HelixSessionID)
 	if err != nil {
-		return fmt.Errorf("failed to get API key for external agent: %w", err)
+		return fmt.Errorf("failed to get session %s: %w", agent.HelixSessionID, err)
+	}
+
+	// Get session-scoped ephemeral API key
+	apiKey, err := apiServer.getAPIKeyForSession(ctx, session)
+	if err != nil {
+		return fmt.Errorf("failed to get session API key for external agent: %w", err)
 	}
 
 	// Add API tokens to agent environment
 	// These are appended LAST in hydra_executor.go, overriding runner token defaults
 	agent.Env = append(agent.Env,
-		fmt.Sprintf("USER_API_TOKEN=%s", apiKey),      // Git operations and RevDial
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", apiKey),   // Zed built-in agent (Anthropic)
-		fmt.Sprintf("OPENAI_API_KEY=%s", apiKey),      // Zed built-in agent (OpenAI)
+		fmt.Sprintf("USER_API_TOKEN=%s", apiKey),    // Git operations and RevDial
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", apiKey), // Zed built-in agent (Anthropic)
+		fmt.Sprintf("OPENAI_API_KEY=%s", apiKey),    // Zed built-in agent (OpenAI)
 	)
 
 	log.Debug().
 		Str("user_id", userID).
+		Str("session_id", agent.HelixSessionID).
 		Str("spec_task_id", agent.SpecTaskID).
-		Msg("Added API tokens to agent for git and LLM operations")
+		Msg("Added session-scoped API tokens to agent for git and LLM operations")
 
 	return nil
 }

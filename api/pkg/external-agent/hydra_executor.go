@@ -431,10 +431,51 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 			Msg("Dev container stopped successfully via Hydra")
 	}
 
+	// Revoke session-scoped ephemeral API keys
+	// Keys are minted when desktop starts and should be revoked when it stops
+	if err := h.revokeSessionAPIKeys(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to revoke session API keys")
+		// Don't fail the stop operation - key cleanup is best-effort
+	}
+
 	// Clean up creation lock
 	h.creationLocksMutex.Lock()
 	delete(h.creationLocks, sessionID)
 	h.creationLocksMutex.Unlock()
+
+	return nil
+}
+
+// revokeSessionAPIKeys revokes all ephemeral API keys associated with a session.
+// This is called when a desktop shuts down to clean up session-scoped keys.
+func (h *HydraExecutor) revokeSessionAPIKeys(ctx context.Context, sessionID string) error {
+	// List all API keys and filter by session ID
+	// Note: This could be optimized with a store method that filters directly
+	keys, err := h.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{})
+	if err != nil {
+		return fmt.Errorf("failed to list API keys: %w", err)
+	}
+
+	var revokedCount int
+	for _, key := range keys {
+		if key.SessionID == sessionID {
+			if err := h.store.DeleteAPIKey(ctx, key.Key); err != nil {
+				log.Warn().Err(err).
+					Str("key_prefix", key.Key[:8]+"...").
+					Str("session_id", sessionID).
+					Msg("Failed to revoke session API key")
+				continue
+			}
+			revokedCount++
+		}
+	}
+
+	if revokedCount > 0 {
+		log.Info().
+			Str("session_id", sessionID).
+			Int("revoked_count", revokedCount).
+			Msg("🔒 Revoked ephemeral session API keys on desktop stop")
+	}
 
 	return nil
 }

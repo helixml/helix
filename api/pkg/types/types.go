@@ -832,6 +832,7 @@ type ApiKey struct { //nolint:revive
 	AppID      *sql.NullString `json:"app_id"`
 	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
 	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
+	SessionID  string          `json:"session_id"`   // Session this key is scoped to (ephemeral keys)
 }
 
 type OwnerContext struct {
