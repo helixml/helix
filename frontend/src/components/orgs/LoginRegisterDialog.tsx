@@ -176,7 +176,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             autoFocus
             margin="dense"
             label="Email"
-            type="email"
+            type="text"
             fullWidth
             variant="outlined"
             value={email}
@@ -184,8 +184,9 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             disabled={isRegistrationDisabled}
             inputProps={{
               id: 'login-email',
-              name: 'email',
+              name: 'username',
               autoComplete: 'username',
+              inputMode: 'email',
               'data-1p-ignore': 'false',
             }}
             sx={{
