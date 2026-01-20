@@ -35,7 +35,7 @@ export const SessionButtons: FC<{
     try {
       await deleteSession()
       snackbar.success(`Session deleted`)
-      navigate('home')
+      navigate('chat')
     } catch(e) {}
     loading.setLoading(false)
   }, [])

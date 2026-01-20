@@ -25,7 +25,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!appID) {
-      account.orgNavigate('home')
+      account.orgNavigate('chat')
       return
     }
     setIsLoadingApp(true)

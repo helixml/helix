@@ -145,7 +145,7 @@ const SidebarContentInner: React.FC<{
   // Handle create a new chat
   const handleCreateNew = () => {
     if (!appTools.app) {
-      account.orgNavigate('home')
+      account.orgNavigate('chat')
       return
     }
     // If we are in the app details view, we need to create a new chat
@@ -274,8 +274,8 @@ const SidebarContentInner: React.FC<{
           }}
         >
           {
-            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'qa-results' || router.name === 'app' || router.name === 'new' || 
-                           router.name === 'org_home' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_app' || router.name === 'org_new') && (
+            showTopLinks && (router.name === 'chat' || router.name === 'session' || router.name === 'qa-results' || router.name === 'app' || router.name === 'new' ||
+                           router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_app' || router.name === 'org_new') && (
               <List disablePadding>    
                 
                 {/* New resource creation button */}

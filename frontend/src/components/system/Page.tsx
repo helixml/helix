@@ -68,10 +68,10 @@ const Page: React.FC<{
         title: account.organizationTools.organization?.name || '',
       })
     }
-    // Use custom parent breadcrumb if provided, otherwise default to "Home"
+    // Use custom parent breadcrumb if provided, otherwise default to "Projects"
     useBreadcrumbTitles.unshift(breadcrumbParent || {
-      title: 'Home',
-      routeName: 'home',
+      title: 'Projects',
+      routeName: 'projects',
     })
   }
   

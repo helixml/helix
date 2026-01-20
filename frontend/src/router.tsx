@@ -58,16 +58,44 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 // so rather than duplicate these routes let's return them from this utility function
 const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] => {
   return [{
-    name: namePrefix + 'home',
+    // Projects is now the landing page
+    name: namePrefix + 'projects',
     path: routePrefix + (routePrefix ? '' : '/'),
     meta: {
-      title: 'Home',
+      title: 'Projects',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <Projects />
+    ),
+  }, {
+    // Chat (formerly Home) - the AI chat interface
+    name: namePrefix + 'chat',
+    path: routePrefix + '/chat',
+    meta: {
+      title: 'Chat',
       drawer: true,
       orgRouteAware: true,
     },
     render: () => (
         <Home />
     ),
+  }, {
+    // Legacy home route - redirect to projects for backward compatibility
+    name: namePrefix + 'home',
+    path: routePrefix + '/home',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+    },
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'new',
     path: routePrefix + '/new',
@@ -159,16 +187,20 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <SpecTasksPage />
     ),
   }, {
-    name: namePrefix + 'projects',
+    // Legacy /projects route - redirect to root for backward compatibility
+    name: namePrefix + 'projects-legacy',
     path: routePrefix + '/projects',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
-      title: 'Projects',
     },
-    render: () => (
-      <Projects />
-    ),
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'project-specs',
     path: routePrefix + '/projects/:id/specs',

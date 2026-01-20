@@ -299,9 +299,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     setDialogOpen(true)
   }
 
-  const handleHomeClick = () => {
+  const handleProjectsClick = () => {
     const isDefault = currentOrgSlug === 'default'
-    const routeName = isDefault ? 'home' : 'org_home'
+    const routeName = isDefault ? 'projects' : 'org_projects'
     const useParams = isDefault ? {} : { org_id: currentOrgSlug }
     router.navigate(routeName, useParams)
   }
@@ -359,11 +359,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View projects",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: handleProjectsClick,
+        label: "Projects",
+      },
+      {
         icon: <Home size={NAV_BUTTON_SIZE} />,
-        tooltip: "Go to home",
-        isActive: isActive('home'),
-        onClick: handleHomeClick,
-        label: "Home",
+        tooltip: "AI chat assistant",
+        isActive: isActive('chat'),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
       },
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
@@ -371,13 +378,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive(['apps', 'app']),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
-      },
-      {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
-        onClick: () => orgNavigateTo('projects'),
-        label: "Projects",
       },
       {
         icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,

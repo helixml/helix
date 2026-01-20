@@ -31,10 +31,10 @@ const AccessDenied: React.FC = () => {
         variant="contained"
         color="secondary"
         startIcon={<HomeIcon />}
-        onClick={() => router.navigate('home')}
+        onClick={() => router.navigate('projects')}
         sx={{ mt: 2 }}
       >
-        Back to Home
+        Back to Projects
       </Button>
     </Box>
   );

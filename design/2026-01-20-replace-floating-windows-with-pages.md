@@ -212,3 +212,82 @@ After migration is stable:
 - Simplify or remove `SpecTaskDetailDialog.tsx`
 - Remove unused floating window code from `DesignReviewViewer.tsx`
 - Remove `FloatingModal` usage in SpecTasksPage
+
+---
+
+## Navigation Refactor (2026-01-20)
+
+### Changes Completed
+
+**Projects is now the landing page:**
+- Route `/` now renders Projects (was Home/Chat)
+- Route `/chat` now renders Chat (formerly Home)
+- Legacy routes `/home` and `/projects` redirect for backward compatibility
+- Navigation reordered: Projects first, then Chat, Agents, Q&A, Tasks
+
+**Files changed:**
+- `router.tsx` - Swapped paths, added legacy redirects
+- `UserOrgSelector.tsx` - Reordered navigation, renamed Home→Chat
+- `Sidebar.tsx`, `SidebarContextHeader.tsx` - Updated route references
+- `AccessDenied.tsx`, `Page.tsx` - Updated breadcrumb/navigation
+- `SessionToolbar.tsx`, `SessionButtons.tsx`, `Create.tsx` - Updated navigation after session deletion
+
+---
+
+## Non-Technical Project Creation (TODO)
+
+### Goal
+Make Projects accessible to non-technical users who don't understand Git terminology.
+
+### Requirements
+
+1. **Simplified New Project Flow**
+   - Create project with just a name/description
+   - Auto-create internal Helix repo (no Git jargon)
+   - Hide technical details behind "Advanced" expander
+
+2. **Drag-and-Drop File Upload**
+   - Drag files anywhere on project page to upload
+   - Files uploaded to project's default primary repo
+   - Support common formats: Word docs, PDFs, images, etc.
+   - Show upload progress and success confirmation
+
+3. **Use Case: Document Processing**
+   - User uploads Word documents
+   - Desktop agent can open documents with OnlyOffice
+   - Agent processes content, extracts information, etc.
+
+### UI Changes Needed
+
+**Projects.tsx (New Project Dialog):**
+- Default to "Simple" mode with just name/description
+- "Advanced" section for Git repo connection
+- Remove technical language from default flow
+
+**SpecTasksPage.tsx (Project View):**
+- Add drop zone overlay for file upload
+- "Upload Files" button in header
+- File list view showing uploaded documents
+
+### Backend Needs
+- API endpoint for uploading files to project repo
+- Auto-create internal Helix repo when project created
+
+---
+
+## Desktop Environment Improvements (TODO)
+
+### Install OnlyOffice in Desktop Images
+
+**Files to modify:**
+- `desktop/Dockerfile.ubuntu` - Add OnlyOffice package installation
+- `desktop/Dockerfile.sway` - Add OnlyOffice package installation (if applicable)
+
+**OnlyOffice packages:**
+- onlyoffice-desktopeditors (desktop app)
+- Handles: .docx, .xlsx, .pptx, .odt, .ods, .odp
+
+**Benefits:**
+- Non-technical users can work with familiar document formats
+- Desktop agent can open and process Office documents
+- Complete office suite for document creation/editing
