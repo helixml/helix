@@ -33,7 +33,6 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
-	TURN               TURN
 	ExternalAgents     ExternalAgents
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
@@ -544,15 +543,6 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
-}
-
-type TURN struct {
-	Enabled  bool   `envconfig:"TURN_ENABLED" default:"true" description:"Enable TURN server for WebRTC NAT traversal."`
-	PublicIP string `envconfig:"TURN_PUBLIC_IP" default:"127.0.0.1" description:"Public IP address for TURN server."`
-	Port     int    `envconfig:"TURN_PORT" default:"3478" description:"UDP port for TURN server."`
-	Realm    string `envconfig:"TURN_REALM" default:"helix.ai" description:"Authentication realm for TURN server."`
-	Username string `envconfig:"TURN_USERNAME" default:"helix" description:"Username for TURN authentication."`
-	Password string `envconfig:"TURN_PASSWORD" default:"helix-turn-secret" description:"Password for TURN authentication."`
 }
 
 type ExternalAgents struct {

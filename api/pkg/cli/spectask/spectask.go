@@ -936,8 +936,8 @@ func newStreamCommand() *cobra.Command {
 		Short: "Connect to video stream and display real-time statistics",
 		Long: `Connects to the WebSocket video streaming protocol and displays real-time statistics.
 
-This command uses the WebSocket-only protocol (not WebRTC) which streams raw H.264/HEVC/AV1
-video frames directly over WebSocket. This is ideal for testing and debugging the video pipeline.
+This command streams raw H.264/HEVC/AV1 video frames directly over WebSocket.
+This is ideal for testing and debugging the video pipeline.
 
 Statistics displayed:
   - Frame rate (FPS)

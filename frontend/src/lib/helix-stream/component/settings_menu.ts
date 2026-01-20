@@ -1,8 +1,6 @@
-// Stream transport mode
-// - 'websocket': WebSocket for both video and input (L7-only, works everywhere)
-// - 'webrtc': WebRTC for video/audio, WebSocket for signaling (requires TURN)
-// Note: SSE video is now controlled by qualityMode='sse', not streamingMode
-export type StreamingMode = 'websocket' | 'webrtc';
+// Stream transport mode - WebSocket only (WebRTC removed)
+// WebSocket handles both video and input (L7-only, works everywhere)
+export type StreamingMode = 'websocket';
 
 // Video capture mode for the backend
 // - 'native': Stock GStreamer pipewiresrc (simpler, potentially lower latency)
@@ -22,7 +20,7 @@ export interface StreamSettings {
   playAudioLocal: boolean;
   mouseScrollMode: string;
   controllerConfig: any;
-  // Transport mode: 'websocket' (L7-only, works everywhere) or 'webrtc' (requires TURN)
+  // Transport mode: WebSocket only (WebRTC removed)
   streamingMode: StreamingMode;
   // Video capture mode: 'native' (stock pipewiresrc) or 'zerocopy' (custom zero-copy plugin)
   videoMode?: VideoMode;

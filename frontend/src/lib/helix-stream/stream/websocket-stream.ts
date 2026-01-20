@@ -1,7 +1,7 @@
 /**
- * WebSocket-only streaming implementation
+ * WebSocket streaming implementation
  *
- * Replaces WebRTC for environments with only L7 (HTTP/HTTPS) ingress.
+ * Works with L7 (HTTP/HTTPS) ingress - no special networking required.
  * Uses WebCodecs API for hardware-accelerated video/audio decoding.
  */
 

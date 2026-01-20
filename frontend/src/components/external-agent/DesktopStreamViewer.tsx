@@ -28,7 +28,7 @@ import {
   RemoteTouchInfo,
 } from '../../lib/helix-stream/stream/websocket-stream';
 import { defaultStreamSettings, getDefaultBitrateForResolution } from '../../lib/helix-stream/component/settings_menu';
-import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
+import { getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { useVideoStream } from '../../contexts/VideoStreamContext';
@@ -400,7 +400,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         if (streamRef.current instanceof WebSocketStream) {
           streamRef.current.close();
         } else {
-          // WebRTC Stream
+          // Fallback: close WebSocket directly
           if ((streamRef.current as any).ws) {
             (streamRef.current as any).ws.close();
           }
@@ -1489,7 +1489,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [qualityMode, isConnected, sessionId]);
 
-  // NOTE: SSE and WebRTC mode code removed - we only support WebSocket video + screenshots
+  // NOTE: We only support WebSocket video + screenshots (no alternative transport modes)
 
 
   // Track previous user bitrate for reconnection
@@ -2349,7 +2349,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [debugThrottleRatio]);
 
-  // Poll WebRTC stats when stats overlay or charts are visible
+  // Poll stream stats when stats overlay or charts are visible
   useEffect(() => {
     if ((!showStats && !showCharts) || !streamRef.current) {
       return;
