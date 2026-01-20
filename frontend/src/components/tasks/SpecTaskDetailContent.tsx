@@ -35,9 +35,11 @@ import MenuBookIcon from '@mui/icons-material/MenuBook'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
 import TuneIcon from '@mui/icons-material/Tune'
+import DifferenceIcon from '@mui/icons-material/Difference'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
+import DiffViewer from './DiffViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -151,7 +153,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     apps.loadApps()
   }, [])
 
-  const [currentView, setCurrentView] = useState<'session' | 'desktop' | 'details'>('session')
+  const [currentView, setCurrentView] = useState<'session' | 'desktop' | 'changes' | 'details'>('session')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
@@ -444,6 +446,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Tooltip>
             </ToggleButton>
           )}
+          {activeSessionId && (
+            <ToggleButton value="changes" aria-label="Changes view">
+              <Tooltip title="Changes">
+                <DifferenceIcon sx={{ fontSize: 18 }} />
+              </Tooltip>
+            </ToggleButton>
+          )}
           <ToggleButton value="details" aria-label="Details view">
             <Tooltip title="Details">
               <TuneIcon sx={{ fontSize: 18 }} />
@@ -585,6 +594,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               />
             </Box>
           </>
+        )}
+
+        {/* Changes View */}
+        {activeSessionId && currentView === 'changes' && (
+          <DiffViewer
+            sessionId={activeSessionId}
+            baseBranch="main"
+            pollInterval={3000}
+          />
         )}
 
         {/* Details View */}
