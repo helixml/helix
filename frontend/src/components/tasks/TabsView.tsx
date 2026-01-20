@@ -43,6 +43,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
 import ArchiveConfirmDialog from './ArchiveConfirmDialog'
+import DesignReviewContent from '../spec-tasks/DesignReviewContent'
 import useAccount from '../../hooks/useAccount'
 
 // Pulse animation for active agent indicator
@@ -100,7 +101,12 @@ const generatePanelId = () => `panel-${++panelIdCounter}`
 
 interface TabData {
   id: string
-  task: TypesSpecTask
+  type: 'task' | 'review'
+  task?: TypesSpecTask
+  // For review tabs
+  taskId?: string
+  reviewId?: string
+  reviewTitle?: string
 }
 
 interface PanelData {
@@ -131,44 +137,52 @@ const PanelTab: React.FC<PanelTabProps> = ({
   const [editValue, setEditValue] = useState('')
   const [isHovered, setIsHovered] = useState(false)
 
-  const { data: refreshedTask } = useSpecTask(tab.id, {
-    enabled: true,
+  // Only fetch task data for task tabs
+  const { data: refreshedTask } = useSpecTask(tab.type === 'task' ? tab.id : '', {
+    enabled: tab.type === 'task',
     refetchInterval: 3000,
   })
-  const displayTask = refreshedTask || tab.task
+  const displayTask = tab.type === 'task' ? (refreshedTask || tab.task) : null
 
-  const hasSession = !!(displayTask.planning_session_id)
+  const hasSession = !!(displayTask?.planning_session_id)
   const { isActive: isAgentActiveState, needsAttention, markAsSeen } = useAgentActivityCheck(
-    displayTask.session_updated_at,
+    displayTask?.session_updated_at,
     hasSession
   )
 
   // Fetch session data with title history when hovering (only if session exists)
   const { data: sessionData } = useQuery({
-    queryKey: ['session-title-history', displayTask.planning_session_id],
+    queryKey: ['session-title-history', displayTask?.planning_session_id],
     queryFn: async () => {
-      if (!displayTask.planning_session_id) return null
+      if (!displayTask?.planning_session_id) return null
       const response = await api.get<TypesSession>(`/api/v1/sessions/${displayTask.planning_session_id}`)
       return response
     },
-    enabled: isHovered && !!displayTask.planning_session_id,
+    enabled: isHovered && !!displayTask?.planning_session_id,
     staleTime: 30000, // Cache for 30 seconds
   })
 
   const titleHistory = sessionData?.config?.title_history || []
 
-  const displayTitle = displayTask.user_short_title
-    || displayTask.short_title
-    || displayTask.name?.substring(0, 20)
-    || 'Task'
+  // Display title depends on tab type
+  const displayTitle = tab.type === 'review'
+    ? (tab.reviewTitle || 'Spec Review')
+    : (displayTask?.user_short_title
+      || displayTask?.short_title
+      || displayTask?.name?.substring(0, 20)
+      || 'Task')
 
   // Format title history for tooltip
   const tooltipContent = useMemo(() => {
+    // Review tabs have a simple tooltip
+    if (tab.type === 'review') {
+      return tab.reviewTitle || 'Spec Review'
+    }
     if (!hasSession) {
-      return displayTask.name || displayTask.description || 'Task details'
+      return displayTask?.name || displayTask?.description || 'Task details'
     }
     if (titleHistory.length === 0) {
-      return displayTask.name || displayTask.description || 'No title history yet'
+      return displayTask?.name || displayTask?.description || 'No title history yet'
     }
     return (
       <Box sx={{ p: 0.5 }}>
@@ -192,11 +206,13 @@ const PanelTab: React.FC<PanelTabProps> = ({
         )}
       </Box>
     )
-  }, [hasSession, titleHistory, displayTask.name, displayTask.description])
+  }, [tab.type, tab.reviewTitle, hasSession, titleHistory, displayTask?.name, displayTask?.description])
 
   const handleDoubleClick = (e: React.MouseEvent) => {
+    // Only allow renaming task tabs
+    if (tab.type !== 'task') return
     e.stopPropagation()
-    setEditValue(displayTask.user_short_title || displayTask.short_title || displayTask.name || '')
+    setEditValue(displayTask?.user_short_title || displayTask?.short_title || displayTask?.name || '')
     setIsEditing(true)
   }
 
@@ -351,6 +367,7 @@ interface TaskPanelProps {
   onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
+  onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string) => void
   panelCount: number
 }
 
@@ -366,6 +383,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onSplitPanel,
   onDropTab,
   onClosePanel,
+  onOpenReview,
   panelCount,
 }) => {
   const api = useApi()
@@ -848,10 +866,21 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       {/* Content area */}
       <Box sx={{ flex: 1, overflow: 'hidden' }}>
         {activeTab ? (
-          <SpecTaskDetailContent
-            key={activeTab.id}
-            taskId={activeTab.id}
-          />
+          activeTab.type === 'review' && activeTab.taskId && activeTab.reviewId ? (
+            <DesignReviewContent
+              key={activeTab.id}
+              specTaskId={activeTab.taskId}
+              reviewId={activeTab.reviewId}
+              onClose={() => onTabClose(panel.id, activeTab.id)}
+              hideTitle={true}
+            />
+          ) : (
+            <SpecTaskDetailContent
+              key={activeTab.id}
+              taskId={activeTab.id}
+              onOpenReview={onOpenReview}
+            />
+          )
         ) : (
           <Box
             sx={{
@@ -969,6 +998,19 @@ interface TabsViewProps {
   initialTaskId?: string // Task ID to open initially (from "Open in Workspace" button)
 }
 
+// localStorage key for workspace state
+const WORKSPACE_STATE_KEY = 'helix_workspace_state'
+
+interface SavedWorkspaceState {
+  projectId: string
+  panels: {
+    id: string
+    tabIds: string[] // Just task IDs, not full task objects
+    activeTabId: string | null
+  }[]
+  layoutDirection: 'horizontal' | 'vertical'
+}
+
 const TabsView: React.FC<TabsViewProps> = ({
   projectId,
   tasks,
@@ -979,37 +1021,139 @@ const TabsView: React.FC<TabsViewProps> = ({
   const snackbar = useSnackbar()
   const updateSpecTask = useUpdateSpecTask()
 
+  // Track if we've initialized from saved state
+  const [initialized, setInitialized] = useState(false)
+
   // Layout state: array of panel rows, each row has panels
-  // For simplicity, start with a single panel
   const [panels, setPanels] = useState<PanelData[]>([])
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
 
-  // Initialize with first task (or initialTaskId if provided)
+  // Save workspace state to localStorage whenever panels change
   useEffect(() => {
-    if (panels.length === 0 && tasks.length > 0) {
-      // Prefer initialTaskId if provided, otherwise use most recently updated task
-      let taskToOpen = initialTaskId
-        ? tasks.find(t => t.id === initialTaskId)
-        : null
+    if (!projectId || panels.length === 0) return
 
-      if (!taskToOpen) {
-        const sortedTasks = [...tasks].sort((a, b) => {
-          const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
-          const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
-          return bDate - aDate
-        })
-        taskToOpen = sortedTasks[0]
+    const savedState: SavedWorkspaceState = {
+      projectId,
+      panels: panels.map(p => ({
+        id: p.id,
+        tabIds: p.tabs.map(t => t.id),
+        activeTabId: p.activeTabId,
+      })),
+      layoutDirection,
+    }
+    localStorage.setItem(WORKSPACE_STATE_KEY, JSON.stringify(savedState))
+  }, [panels, layoutDirection, projectId])
+
+  // Initialize workspace: restore from localStorage or start fresh
+  useEffect(() => {
+    if (initialized || tasks.length === 0) return
+
+    // Try to restore from localStorage
+    const savedJson = localStorage.getItem(WORKSPACE_STATE_KEY)
+    let restored = false
+
+    if (savedJson && projectId) {
+      try {
+        const saved: SavedWorkspaceState = JSON.parse(savedJson)
+
+        // Only restore if it's for the same project
+        if (saved.projectId === projectId && saved.panels.length > 0) {
+          // Rebuild panels with current task data (filter out tasks that no longer exist)
+          const restoredPanels: PanelData[] = []
+
+          for (const savedPanel of saved.panels) {
+            const tabs: TabData[] = []
+            for (const taskId of savedPanel.tabIds) {
+              const task = tasks.find(t => t.id === taskId)
+              if (task) {
+                tabs.push({ id: taskId, type: 'task', task })
+              }
+            }
+
+            if (tabs.length > 0) {
+              // Ensure activeTabId is valid
+              const activeTabId = tabs.some(t => t.id === savedPanel.activeTabId)
+                ? savedPanel.activeTabId
+                : tabs[0].id
+
+              restoredPanels.push({
+                id: savedPanel.id,
+                tabs,
+                activeTabId,
+              })
+            }
+          }
+
+          if (restoredPanels.length > 0) {
+            setPanels(restoredPanels)
+            setLayoutDirection(saved.layoutDirection)
+            restored = true
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore workspace state:', e)
       }
+    }
+
+    // If initialTaskId is provided, ensure it's open (even if we restored state)
+    if (initialTaskId) {
+      const taskToOpen = tasks.find(t => t.id === initialTaskId)
+      if (taskToOpen) {
+        if (restored) {
+          // Add to first panel if not already open
+          setPanels(prev => {
+            const alreadyOpen = prev.some(p => p.tabs.some(t => t.id === initialTaskId))
+            if (alreadyOpen) {
+              // Just activate it
+              return prev.map(p => {
+                if (p.tabs.some(t => t.id === initialTaskId)) {
+                  return { ...p, activeTabId: initialTaskId }
+                }
+                return p
+              })
+            }
+            // Add to first panel
+            if (prev.length > 0) {
+              return prev.map((p, i) => i === 0 ? {
+                ...p,
+                tabs: [...p.tabs, { id: initialTaskId, type: 'task', task: taskToOpen }],
+                activeTabId: initialTaskId,
+              } : p)
+            }
+            return prev
+          })
+        } else {
+          // Start fresh with this task
+          setPanels([{
+            id: generatePanelId(),
+            tabs: [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
+            activeTabId: taskToOpen.id,
+          }])
+          restored = true
+        }
+      }
+    }
+
+    // If nothing restored and no initialTaskId, open most recently updated task
+    if (!restored) {
+      const sortedTasks = [...tasks].sort((a, b) => {
+        const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
+        const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
+        return bDate - aDate
+      })
+      const taskToOpen = sortedTasks[0]
 
       if (taskToOpen?.id) {
         setPanels([{
           id: generatePanelId(),
-          tabs: [{ id: taskToOpen.id, task: taskToOpen }],
+          tabs: [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
           activeTabId: taskToOpen.id,
         }])
       }
     }
-  }, [tasks, panels.length, initialTaskId])
+
+    setInitialized(true)
+  }, [tasks, initialized, initialTaskId, projectId])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setPanels(prev => prev.map(p =>
@@ -1067,7 +1211,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       }
       return {
         ...p,
-        tabs: [...p.tabs, { id: task.id, task }],
+        tabs: [...p.tabs, { id: task.id, type: 'task', task }],
         activeTabId: task.id,
       }
     }))
@@ -1165,10 +1309,46 @@ const TabsView: React.FC<TabsViewProps> = ({
       // Add new task as a tab and make it active
       return {
         ...p,
-        tabs: [...p.tabs, { id: task.id!, task }],
+        tabs: [...p.tabs, { id: task.id!, type: 'task', task }],
         activeTabId: task.id!,
       }
     }))
+  }, [])
+
+  // Handle opening a review in a new tab (called from SpecTaskDetailContent)
+  const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string) => {
+    const tabId = `review-${taskId}-${reviewId}`
+
+    setPanels(prev => {
+      // Check if this review is already open in any panel
+      for (const panel of prev) {
+        if (panel.tabs.some(t => t.id === tabId)) {
+          // Activate it
+          return prev.map(p =>
+            p.tabs.some(t => t.id === tabId)
+              ? { ...p, activeTabId: tabId }
+              : p
+          )
+        }
+      }
+
+      // Add to the first panel (or create a new panel if we want split behavior)
+      if (prev.length > 0) {
+        return prev.map((p, i) => i === 0 ? {
+          ...p,
+          tabs: [...p.tabs, {
+            id: tabId,
+            type: 'review' as const,
+            taskId,
+            reviewId,
+            reviewTitle: reviewTitle || 'Spec Review',
+          }],
+          activeTabId: tabId,
+        } : p)
+      }
+
+      return prev
+    })
   }, [])
 
   // When no panels exist, show an empty panel with just a + button
@@ -1240,6 +1420,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 onSplitPanel={handleSplitPanel}
                 onDropTab={handleDropTab}
                 onClosePanel={handleClosePanel}
+                onOpenReview={handleOpenReview}
                 panelCount={panels.length}
               />
             </Panel>

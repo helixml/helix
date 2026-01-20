@@ -56,11 +56,14 @@ import { usePromptHistory } from '../../hooks/usePromptHistory'
 interface SpecTaskDetailContentProps {
   taskId: string
   onClose?: () => void
+  /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
+  onOpenReview?: (taskId: string, reviewId: string, reviewTitle?: string) => void
 }
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   onClose,
+  onOpenReview,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -626,12 +629,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       const reviews = response.data?.reviews || []
                       if (reviews.length > 0) {
                         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-                        // Navigate to the review page
-                        account.orgNavigate('project-task-review', {
-                          id: task.project_id,
-                          taskId: task.id,
-                          reviewId: latestReview.id,
-                        })
+                        // If onOpenReview is provided (Workspace mode), open in a tab instead of navigating
+                        if (onOpenReview) {
+                          onOpenReview(task.id!, latestReview.id, task.name || 'Spec Review')
+                        } else {
+                          // Navigate to the review page
+                          account.orgNavigate('project-task-review', {
+                            id: task.project_id,
+                            taskId: task.id,
+                            reviewId: latestReview.id,
+                          })
+                        }
                       } else {
                         snackbar.error('No design review found')
                       }
