@@ -15,6 +15,11 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** delete source files — fix errors, don't delete
 - **Before switching branches**: run `git status`, note changes, use `git stash push -m "description"`, restore with `git stash apply`
 
+### Commit Practices
+- **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
+- **Update design docs** — when completing roadmap items, update the design doc to reflect progress
+- **Keep commits atomic** — one logical change per commit, easier to review and revert
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
