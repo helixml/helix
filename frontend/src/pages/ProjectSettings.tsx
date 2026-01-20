@@ -74,7 +74,6 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
-import { useFloatingModal } from '../contexts/floatingModal'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   useGetProject,
@@ -103,7 +102,6 @@ const ProjectSettings: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
   const projectId = params.id as string
-  const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
 

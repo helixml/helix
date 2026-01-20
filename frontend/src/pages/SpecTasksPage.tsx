@@ -71,7 +71,6 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useFloatingModal } from '../contexts/floatingModal';
 import EditIcon from '@mui/icons-material/Edit';
 import {
   useGetProject,
@@ -91,7 +90,6 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
-  const floatingModal = useFloatingModal();
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
