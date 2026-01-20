@@ -159,6 +159,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       maxWidth="sm"
       fullWidth
       disablePortal
+      keepMounted
     >
       <DialogTitle sx={{ m: 0, p: 2 }}>
         {mode === 'login' ? 'Login' : 'Register'}
@@ -174,17 +175,17 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           <TextField
             autoFocus
             margin="dense"
-            id="email"
-            name="email"
             label="Email"
             type="email"
-            autoComplete="email"
             fullWidth
             variant="outlined"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
+              id: 'login-email',
+              name: 'email',
+              autoComplete: 'username',
               'data-1p-ignore': 'false',
             }}
             sx={{
@@ -252,17 +253,17 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
           <TextField
             margin="dense"
-            id="password"
-            name="password"
             label="Password"
             type="password"
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             fullWidth
             variant="outlined"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
+              id: 'login-password',
+              name: 'password',
+              autoComplete: mode === 'login' ? 'current-password' : 'new-password',
               'data-1p-ignore': 'false',
             }}
             sx={{
