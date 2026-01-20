@@ -158,6 +158,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       onClose={handleClose}
       maxWidth="sm"
       fullWidth
+      disablePortal
     >
       <DialogTitle sx={{ m: 0, p: 2 }}>
         {mode === 'login' ? 'Login' : 'Register'}
@@ -173,6 +174,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           <TextField
             autoFocus
             margin="dense"
+            id="email"
             name="email"
             label="Email"
             type="email"
@@ -182,6 +184,9 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isRegistrationDisabled}
+            inputProps={{
+              'data-1p-ignore': 'false',
+            }}
             sx={{
               mb: 2,
               '& .MuiOutlinedInput-root': {
@@ -247,6 +252,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
           <TextField
             margin="dense"
+            id="password"
             name="password"
             label="Password"
             type="password"
@@ -256,6 +262,9 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={isRegistrationDisabled}
+            inputProps={{
+              'data-1p-ignore': 'false',
+            }}
             sx={{
               mb: mode === 'register' ? 2 : 0,
               '& .MuiOutlinedInput-root': {
