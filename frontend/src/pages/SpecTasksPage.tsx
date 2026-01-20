@@ -866,10 +866,10 @@ const SpecTasksPage: FC = () => {
                 <Box sx={{ p: 0.5 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Board View</Typography>
                   <Typography variant="caption" component="div">
-                    • Drag-and-drop tasks between columns<br />
-                    • See task status at a glance<br />
-                    • Quick access to active sessions<br />
-                    • Click task cards to view details
+                    • Manage a fleet of AI agents working in parallel<br />
+                    • Each task runs in its own isolated environment<br />
+                    • Spec-driven workflow: planning → review → implement → PR<br />
+                    • Watch agents work live on their desktops
                   </Typography>
                 </Box>
               }
