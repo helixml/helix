@@ -1,5 +1,7 @@
 # Helix Development Rules
 
+**Current year: 2026** - When searching for browser API support, documentation, or library versions, include "2026" in searches to get current information.
+
 See also: `.cursor/rules/*.mdc`
 
 ## 🚨 FORBIDDEN ACTIONS 🚨

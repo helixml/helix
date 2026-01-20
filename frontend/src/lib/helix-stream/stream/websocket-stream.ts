@@ -215,6 +215,13 @@ export class WebSocketStream {
   // Use ?softdecode=1 to force software decoding if needed
   private forceSoftwareDecoding = false
 
+  // Zero-copy PiP support using MediaStreamTrackGenerator/VideoTrackGenerator
+  // When enabled, VideoFrames are written directly to a track generator (GPU-backed)
+  // instead of using canvas.captureStream() which copies pixels on CPU
+  private pipTrackGenerator: any = null  // MediaStreamTrackGenerator or VideoTrackGenerator
+  private pipWriter: WritableStreamDefaultWriter<VideoFrame> | null = null
+  private pipEnabled = false
+
   constructor(
     api: Api,
     hostId: number,
@@ -879,6 +886,19 @@ export class WebSocketStream {
     if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
       this.canvas.width = frame.displayWidth
       this.canvas.height = frame.displayHeight
+    }
+
+    // Zero-copy PiP: write frame directly to track generator (GPU-backed)
+    // This avoids canvas.captureStream() which copies ~33MB per frame at 4K on CPU
+    if (this.pipEnabled && this.pipWriter) {
+      try {
+        // Clone frame for PiP track (zero-copy - just references same GPU memory)
+        const pipFrame = new VideoFrame(frame, { timestamp: frame.timestamp })
+        this.pipWriter.write(pipFrame)
+        // Note: pipFrame ownership transfers to writer, don't close it
+      } catch (e) {
+        // PiP track may be closed - that's fine, just skip
+      }
     }
 
     // Draw frame to canvas
@@ -2507,6 +2527,9 @@ export class WebSocketStream {
     })
     this.cursorCache.clear()
 
+    // Clean up PiP track generator
+    this.disablePiP()
+
     // Close WebSocket
     if (this.ws) {
       try {
@@ -2518,6 +2541,81 @@ export class WebSocketStream {
     }
 
     this.connected = false
+  }
+
+  // ============================================================================
+  // Zero-Copy Picture-in-Picture Support
+  // ============================================================================
+
+  /**
+   * Enable zero-copy PiP mode and return a MediaStream for the video element.
+   * Uses MediaStreamTrackGenerator (Chrome) to write VideoFrames directly to a
+   * track without CPU pixel copying.
+   *
+   * Note: The spec-compliant VideoTrackGenerator (Safari 18+, Firefox) is worker-only,
+   * so we can't use it from the main thread decode callback. Those browsers fall back
+   * to canvas.captureStream() which copies pixels on CPU, but only when PiP is active.
+   *
+   * Returns null if the browser doesn't support this API (fallback to captureStream).
+   */
+  enablePiP(): MediaStream | null {
+    if (this.pipEnabled && this.pipTrackGenerator) {
+      // Already enabled - return existing stream
+      return new MediaStream([this.pipTrackGenerator])
+    }
+
+    // Chrome's MediaStreamTrackGenerator works on main thread
+    // VideoTrackGenerator (Safari/Firefox) is worker-only, can't use from decode callback
+    const MediaStreamTrackGeneratorClass = (window as any).MediaStreamTrackGenerator
+
+    if (MediaStreamTrackGeneratorClass) {
+      try {
+        this.pipTrackGenerator = new MediaStreamTrackGeneratorClass({ kind: 'video' })
+        this.pipWriter = this.pipTrackGenerator.writable.getWriter()
+        this.pipEnabled = true
+        console.log("[WebSocketStream] Zero-copy PiP enabled (MediaStreamTrackGenerator)")
+        return new MediaStream([this.pipTrackGenerator])
+      } catch (e) {
+        console.warn("[WebSocketStream] MediaStreamTrackGenerator failed:", e)
+      }
+    }
+
+    console.log("[WebSocketStream] Zero-copy PiP not supported, will use captureStream fallback")
+    return null
+  }
+
+  /**
+   * Disable zero-copy PiP mode and clean up resources.
+   */
+  disablePiP() {
+    this.pipEnabled = false
+
+    if (this.pipWriter) {
+      try {
+        this.pipWriter.close()
+      } catch (e) {
+        // Ignore - may already be closed
+      }
+      this.pipWriter = null
+    }
+
+    if (this.pipTrackGenerator) {
+      try {
+        this.pipTrackGenerator.stop?.()
+      } catch (e) {
+        // Ignore
+      }
+      this.pipTrackGenerator = null
+    }
+
+    console.log("[WebSocketStream] Zero-copy PiP disabled")
+  }
+
+  /**
+   * Check if zero-copy PiP is currently enabled.
+   */
+  isPiPEnabled(): boolean {
+    return this.pipEnabled
   }
 
   // ============================================================================

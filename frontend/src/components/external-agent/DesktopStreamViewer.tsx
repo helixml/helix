@@ -1080,13 +1080,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isFullscreen, isIOSFullscreen, isIOS]);
 
   // Toggle Picture-in-Picture mode - allows viewing stream while using other apps
+  // Uses zero-copy VideoFrame path when available, falls back to captureStream
   const togglePiP = useCallback(async () => {
     const video = videoRef.current as any;
-    if (!video) return;
+    const canvas = canvasRef.current;
+    const stream = streamRef.current;
+    if (!video || !canvas) return;
 
     try {
       if (isPiPActive) {
-        // Exit PiP
+        // Exit PiP - cleanup handled by event listener
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
         } else if (video.webkitSetPresentationMode) {
@@ -1094,7 +1097,31 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           video.webkitSetPresentationMode('inline');
         }
       } else {
-        // Enter PiP
+        // Enter PiP - try zero-copy first, fall back to captureStream
+        if (!captureStreamRef.current) {
+          // Try zero-copy PiP via WebSocketStream (writes VideoFrames directly to track)
+          // This avoids copying ~33MB per frame at 4K on CPU
+          const zeroCopyStream = stream?.enablePiP?.();
+          if (zeroCopyStream) {
+            captureStreamRef.current = zeroCopyStream;
+            console.log('[PiP] Using zero-copy VideoFrame path');
+          } else {
+            // Fall back to captureStream (CPU copy)
+            const canvasStream = (canvas as any).captureStream?.(30);
+            if (!canvasStream) {
+              console.error('[PiP] Neither zero-copy nor captureStream supported');
+              return;
+            }
+            captureStreamRef.current = canvasStream;
+            console.log('[PiP] Using captureStream fallback (CPU copy)');
+          }
+
+          video.srcObject = captureStreamRef.current;
+          video.muted = true;
+          video.playsInline = true;
+          await video.play().catch((err: Error) => console.log('[PiP] Video play failed:', err));
+        }
+
         if (video.requestPictureInPicture) {
           // Standard API (Chrome, Edge, Firefox)
           await video.requestPictureInPicture();
@@ -1250,91 +1277,66 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setIsPiPSupported(pipSupported);
   }, []);
 
-  // Set up canvas capture stream for video element (iOS fullscreen + PiP)
-  // This creates a MediaStream from the canvas that can be played in a video element
+  // Set up PiP event listeners (but don't create capture stream yet - it's expensive at 4K)
+  // The capture stream is created on-demand when user requests PiP
   useEffect(() => {
-    const canvas = canvasRef.current;
     const video = videoRef.current;
-    if (!canvas || !video) return;
-
-    // Only set up stream when connected and canvas has content
-    if (!isConnected) return;
-
-    // Create capture stream from canvas (30 fps is enough for PiP/fullscreen)
-    const stream = (canvas as any).captureStream?.(30);
-    if (!stream) {
-      console.log('[Video] captureStream not supported');
-      return;
-    }
-
-    captureStreamRef.current = stream;
-    video.srcObject = stream;
-    video.muted = true; // Audio handled separately
-    video.playsInline = true; // Required for iOS
-
-    // Start playing (muted autoplay is allowed)
-    video.play().catch(err => {
-      console.log('[Video] Auto-play failed:', err);
-    });
+    if (!video) return;
 
     // Handle PiP state changes
     const handlePiPEnter = () => setIsPiPActive(true);
-    const handlePiPLeave = () => setIsPiPActive(false);
+    const handlePiPLeave = () => {
+      setIsPiPActive(false);
+      // Disable zero-copy PiP on the stream (stops writing VideoFrames to track)
+      streamRef.current?.disablePiP?.();
+      // Stop the capture stream when exiting PiP to save resources
+      if (captureStreamRef.current) {
+        captureStreamRef.current.getTracks().forEach(track => track.stop());
+        captureStreamRef.current = null;
+        video.srcObject = null;
+        console.log('[PiP] Stopped capture stream on PiP exit');
+      }
+    };
 
     video.addEventListener('enterpictureinpicture', handlePiPEnter);
     video.addEventListener('leavepictureinpicture', handlePiPLeave);
     // Safari uses different events
-    video.addEventListener('webkitpresentationmodechanged', () => {
+    const handleSafariPiP = () => {
       const mode = (video as any).webkitPresentationMode;
-      setIsPiPActive(mode === 'picture-in-picture');
-    });
+      if (mode === 'picture-in-picture') {
+        setIsPiPActive(true);
+      } else {
+        setIsPiPActive(false);
+        // Disable zero-copy PiP on the stream
+        streamRef.current?.disablePiP?.();
+        // Stop capture stream on Safari PiP exit too
+        if (captureStreamRef.current) {
+          captureStreamRef.current.getTracks().forEach(track => track.stop());
+          captureStreamRef.current = null;
+          video.srcObject = null;
+          console.log('[PiP] Stopped capture stream on Safari PiP exit');
+        }
+      }
+    };
+    video.addEventListener('webkitpresentationmodechanged', handleSafariPiP);
 
     return () => {
       video.removeEventListener('enterpictureinpicture', handlePiPEnter);
       video.removeEventListener('leavepictureinpicture', handlePiPLeave);
+      video.removeEventListener('webkitpresentationmodechanged', handleSafariPiP);
+      // Disable zero-copy PiP on cleanup
+      streamRef.current?.disablePiP?.();
       if (captureStreamRef.current) {
         captureStreamRef.current.getTracks().forEach(track => track.stop());
         captureStreamRef.current = null;
       }
     };
-  }, [isConnected]);
+  }, []);
 
-  // Auto-PiP when navigating away from page (swipe home, switch apps, etc.)
-  // This lets users keep watching the remote desktop in a floating window
-  useEffect(() => {
-    if (!isPiPSupported || !isConnected) return;
-
-    const handleVisibilityChange = async () => {
-      const video = videoRef.current as any;
-      if (!video) return;
-
-      // When page becomes hidden (user navigated away)
-      if (document.visibilityState === 'hidden') {
-        // Don't auto-PiP if already in PiP
-        if (document.pictureInPictureElement || isPiPActive) return;
-
-        try {
-          // Try to enter PiP
-          if (video.requestPictureInPicture) {
-            await video.requestPictureInPicture();
-            console.log('[PiP] Auto-entered PiP on page hide');
-          } else if (video.webkitSetPresentationMode) {
-            video.webkitSetPresentationMode('picture-in-picture');
-            console.log('[PiP] Auto-entered PiP on page hide (Safari)');
-          }
-        } catch (err) {
-          // PiP may fail if not triggered by user gesture - that's expected
-          console.log('[PiP] Auto-PiP failed (may require user gesture):', err);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isPiPSupported, isConnected, isPiPActive]);
+  // Auto-PiP disabled - it required running captureStream() constantly which caused
+  // massive performance overhead at 4K (copying ~1GB/sec of pixel data).
+  // Users can still use PiP manually via the toolbar button.
+  // The previous implementation also rarely worked because browsers require a user gesture.
 
   // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
   useEffect(() => {
