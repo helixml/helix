@@ -202,6 +202,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isPiPSupported, setIsPiPSupported] = useState(false);
   // Capture stream for video element (iOS fullscreen + PiP)
   const captureStreamRef = useRef<MediaStream | null>(null);
+  // fMP4 video element for Safari PiP (native video playback without WebCodecs)
+  const fmp4VideoRef = useRef<HTMLVideoElement | null>(null);
 
   // Toolbar icon sizes - larger on touch devices for easier tapping
   const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
@@ -1080,7 +1082,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isFullscreen, isIOSFullscreen, isIOS]);
 
   // Toggle Picture-in-Picture mode - allows viewing stream while using other apps
-  // Uses zero-copy VideoFrame path when available, falls back to captureStream
+  // Uses zero-copy VideoFrame path (Chrome) or fMP4 native video (Safari/iOS)
   const togglePiP = useCallback(async () => {
     const video = videoRef.current as any;
     const canvas = canvasRef.current;
@@ -1095,45 +1097,147 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         } else if (video.webkitSetPresentationMode) {
           // Safari
           video.webkitSetPresentationMode('inline');
+        } else if (fmp4VideoRef.current?.webkitSetPresentationMode) {
+          // Safari fMP4 video
+          (fmp4VideoRef.current as any).webkitSetPresentationMode('inline');
+        }
+        // Cleanup fMP4 video if it was used
+        if (fmp4VideoRef.current) {
+          // Clear live edge interval
+          const intervalId = (fmp4VideoRef.current as any)._liveEdgeInterval;
+          if (intervalId) clearInterval(intervalId);
+          fmp4VideoRef.current.pause();
+          fmp4VideoRef.current.src = '';
+          fmp4VideoRef.current.remove();
+          fmp4VideoRef.current = null;
         }
       } else {
-        // Enter PiP - try zero-copy first, fall back to captureStream
-        if (!captureStreamRef.current) {
-          // Try zero-copy PiP via WebSocketStream (writes VideoFrames directly to track)
-          // This avoids copying ~33MB per frame at 4K on CPU
-          const zeroCopyStream = stream?.enablePiP?.();
-          if (zeroCopyStream) {
-            captureStreamRef.current = zeroCopyStream;
-            console.log('[PiP] Using zero-copy VideoFrame path');
-          } else {
-            // Fall back to captureStream (CPU copy)
-            const canvasStream = (canvas as any).captureStream?.(30);
-            if (!canvasStream) {
-              console.error('[PiP] Neither zero-copy nor captureStream supported');
-              return;
-            }
-            captureStreamRef.current = canvasStream;
-            console.log('[PiP] Using captureStream fallback (CPU copy)');
-          }
-
+        // Enter PiP - try zero-copy first (Chrome), then fMP4 native video (Safari/iOS)
+        // Try zero-copy PiP via WebSocketStream (writes VideoFrames directly to track)
+        // This avoids copying ~33MB per frame at 4K on CPU
+        const zeroCopyStream = stream?.enablePiP?.();
+        if (zeroCopyStream) {
+          captureStreamRef.current = zeroCopyStream;
+          console.log('[PiP] Using zero-copy VideoFrame path (Chrome)');
           video.srcObject = captureStreamRef.current;
           video.muted = true;
           video.playsInline = true;
           await video.play().catch((err: Error) => console.log('[PiP] Video play failed:', err));
-        }
 
-        if (video.requestPictureInPicture) {
-          // Standard API (Chrome, Edge, Firefox)
-          await video.requestPictureInPicture();
-        } else if (video.webkitSetPresentationMode) {
-          // Safari
-          video.webkitSetPresentationMode('picture-in-picture');
+          if (video.requestPictureInPicture) {
+            await video.requestPictureInPicture();
+          }
+        } else {
+          // Use fMP4 native video stream for Safari/iOS
+          // This streams H.264 directly to a native video element, avoiding WebCodecs entirely
+          console.log('[PiP] Using fMP4 native video stream (Safari/iOS)');
+
+          // Create fMP4 video element if not exists
+          if (!fmp4VideoRef.current) {
+            const fmp4Video = document.createElement('video');
+            fmp4Video.style.position = 'absolute';
+            fmp4Video.style.top = '-9999px';
+            fmp4Video.style.left = '-9999px';
+            fmp4Video.style.width = '1px';
+            fmp4Video.style.height = '1px';
+            fmp4Video.muted = true;
+            fmp4Video.playsInline = true;
+            fmp4Video.autoplay = true;
+            document.body.appendChild(fmp4Video);
+            fmp4VideoRef.current = fmp4Video;
+
+            // Build fMP4 stream URL with token and resolution for PiP
+            // Use 720p @ 2Mbps for PiP to reduce bandwidth and decode overhead
+            const token = account.token;
+            const baseUrl = window.location.origin;
+            const pipWidth = 1280;
+            const pipHeight = 720;
+            const pipBitrate = 2000; // 2 Mbps
+            const params = new URLSearchParams();
+            if (token) params.set('access_token', token);
+            params.set('width', String(pipWidth));
+            params.set('height', String(pipHeight));
+            params.set('bitrate', String(pipBitrate));
+            const fmp4Url = `${baseUrl}/api/v1/external-agents/${sessionId}/video.mp4?${params.toString()}`;
+            console.log('[PiP] fMP4 stream URL:', fmp4Url.replace(token || '', '[REDACTED]'));
+
+            fmp4Video.src = fmp4Url;
+
+            // Wait for video to be ready
+            await new Promise<void>((resolve, reject) => {
+              const onCanPlay = () => {
+                fmp4Video.removeEventListener('canplay', onCanPlay);
+                fmp4Video.removeEventListener('error', onError);
+                resolve();
+              };
+              const onError = () => {
+                fmp4Video.removeEventListener('canplay', onCanPlay);
+                fmp4Video.removeEventListener('error', onError);
+                reject(new Error('fMP4 video failed to load'));
+              };
+              fmp4Video.addEventListener('canplay', onCanPlay);
+              fmp4Video.addEventListener('error', onError);
+              // Timeout after 10 seconds
+              setTimeout(() => {
+                fmp4Video.removeEventListener('canplay', onCanPlay);
+                fmp4Video.removeEventListener('error', onError);
+                reject(new Error('fMP4 video load timeout'));
+              }, 10000);
+            });
+
+            // For live streaming: seek to the live edge and stay there
+            // Check periodically and seek if we fall behind
+            const seekToLiveEdge = () => {
+              if (!fmp4Video || fmp4Video.paused) return;
+              const seekable = fmp4Video.seekable;
+              if (seekable && seekable.length > 0) {
+                const liveEdge = seekable.end(seekable.length - 1);
+                const currentTime = fmp4Video.currentTime;
+                const behindBy = liveEdge - currentTime;
+                // If more than 0.5 seconds behind, seek to live edge
+                if (behindBy > 0.5) {
+                  console.log(`[PiP] Seeking to live edge: ${currentTime.toFixed(2)} -> ${liveEdge.toFixed(2)} (was ${behindBy.toFixed(2)}s behind)`);
+                  fmp4Video.currentTime = liveEdge;
+                }
+              }
+            };
+
+            // Set up live edge seeking interval
+            const liveEdgeInterval = setInterval(seekToLiveEdge, 1000);
+            // Store interval ID on video element for cleanup
+            (fmp4Video as any)._liveEdgeInterval = liveEdgeInterval;
+
+            // Initial seek to live edge after play starts
+            fmp4Video.addEventListener('playing', () => {
+              seekToLiveEdge();
+            }, { once: true });
+
+            await fmp4Video.play().catch((err: Error) => console.log('[PiP] fMP4 Video play failed:', err));
+          }
+
+          const fmp4Video = fmp4VideoRef.current as any;
+          if (fmp4Video.requestPictureInPicture) {
+            // Standard API (Chrome, Edge, Firefox)
+            await fmp4Video.requestPictureInPicture();
+          } else if (fmp4Video.webkitSetPresentationMode) {
+            // Safari
+            fmp4Video.webkitSetPresentationMode('picture-in-picture');
+          }
         }
       }
     } catch (err) {
       console.error('[PiP] Failed to toggle Picture-in-Picture:', err);
+      // Cleanup on error
+      if (fmp4VideoRef.current) {
+        const intervalId = (fmp4VideoRef.current as any)._liveEdgeInterval;
+        if (intervalId) clearInterval(intervalId);
+        fmp4VideoRef.current.pause();
+        fmp4VideoRef.current.src = '';
+        fmp4VideoRef.current.remove();
+        fmp4VideoRef.current = null;
+      }
     }
-  }, [isPiPActive]);
+  }, [isPiPActive, account.token, sessionId]);
 
   // Voice input: send audio to backend for transcription
   // Stores recording in buffer for retry on failure

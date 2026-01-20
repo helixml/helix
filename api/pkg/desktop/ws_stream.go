@@ -551,28 +551,38 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
 		//
 		// Case 1: GNOME + NVIDIA (buffer-type=dmabuf)
-		//   → pipewirezerocopysrc outputs CUDAMemory directly → nvh264enc (no cudaupload needed)
+		//   → pipewirezerocopysrc outputs CUDAMemory directly → cudascale → nvh264enc
 		//
 		// Cases 2, 3, 4: Everything else (buffer-type=shm)
-		//   → System memory → videoconvert → cudaupload → nvh264enc
+		//   → System memory → videoconvert → videoscale → cudaupload → nvh264enc
 		//
 		// Sway ext-image-copy-capture outputs BGR888 (24-bit), so videoconvert is always
 		// needed to convert to 32-bit RGBA for cudaupload.
+		//
+		// Resolution scaling: cudascale/videoscale allows clients to request different
+		// resolutions (e.g., mobile PiP at 720p while desktop gets 4K).
 		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
 			os.Getenv("SWAYSOCK") != ""
 		isZeroCopyCuda := v.videoMode == VideoModePlugin && !isSway // Case 1 only
 
+		// Target resolution caps (used for scaling if client requests different size)
+		nvencCaps := fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height)
+
 		if !isZeroCopyCuda {
-			// SHM path: system memory → videoconvert → cudaupload → nvh264enc
+			// SHM path: system memory → videoconvert → videoscale → cudaupload → nvh264enc
 			parts = append(parts,
 				"videoconvert",
-				"video/x-raw,format=RGBA", // Convert BGR→RGBA (32-bit) for cudaupload
+				"videoscale add-borders=true",
+				fmt.Sprintf("video/x-raw,format=RGBA,width=%d,height=%d", v.config.Width, v.config.Height),
 				"cudaupload",
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		} else {
-			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
+			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → cudascale → nvh264enc
+			// cudascale performs GPU-accelerated scaling using CUDA
 			parts = append(parts,
+				"cudascale add-borders=true",
+				nvencCaps,
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		}
@@ -645,17 +655,21 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
-		// Helix always matches desktop/client resolution, so no scaling needed
+		// videoscale allows clients to request different resolutions
 		parts = append(parts,
 			"videoconvert",
+			"videoscale add-borders=true",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
 		)
 
 	case "x264":
 		// x264 software encoder - high quality but requires gst-plugins-ugly
-		// Helix always matches desktop/client resolution, so no scaling needed
+		// videoscale allows clients to request different resolutions
 		parts = append(parts,
 			"videoconvert",
+			"videoscale add-borders=true",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 		)
 
@@ -664,6 +678,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		v.logger.Warn("unknown encoder, falling back to openh264", "encoder", encoder)
 		parts = append(parts,
 			"videoconvert",
+			"videoscale add-borders=true",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
 		)
 	}
