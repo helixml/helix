@@ -173,8 +173,10 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           <TextField
             autoFocus
             margin="dense"
+            name="email"
             label="Email"
             type="email"
+            autoComplete="email"
             fullWidth
             variant="outlined"
             value={email}
@@ -208,8 +210,10 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           {mode === 'register' && (
             <TextField
               margin="dense"
+              name="name"
               label="Full Name"
               type="text"
+              autoComplete="name"
               fullWidth
               variant="outlined"
               value={fullName}
@@ -243,8 +247,10 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
           <TextField
             margin="dense"
+            name="password"
             label="Password"
             type="password"
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             fullWidth
             variant="outlined"
             value={password}
@@ -313,8 +319,10 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           {mode === 'register' && (
             <TextField
               margin="dense"
+              name="password-confirm"
               label="Confirm Password"
               type="password"
+              autoComplete="new-password"
               fullWidth
               variant="outlined"
               value={passwordConfirm}
