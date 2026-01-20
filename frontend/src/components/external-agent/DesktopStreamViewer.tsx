@@ -1119,6 +1119,51 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setHasTouchCapability(hasTouch);
   }, []);
 
+  // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
+  useEffect(() => {
+    if (!hasTouchCapability) return;
+
+    const handleOrientationChange = () => {
+      // Check if device is in landscape orientation
+      const isLandscape = window.innerWidth > window.innerHeight;
+      const fullscreenElement = document.fullscreenElement || (document as any).webkitFullscreenElement;
+
+      if (isLandscape && !fullscreenElement && containerRef.current) {
+        // Auto-enter fullscreen when rotated to landscape
+        console.log('[DesktopStreamViewer] Landscape detected, entering fullscreen');
+        if (containerRef.current.requestFullscreen) {
+          containerRef.current.requestFullscreen().catch(() => {
+            // Fullscreen request may fail if not triggered by user gesture
+            console.log('[DesktopStreamViewer] Fullscreen request failed (requires user gesture)');
+          });
+        } else if ((containerRef.current as any).webkitRequestFullscreen) {
+          (containerRef.current as any).webkitRequestFullscreen();
+        }
+      } else if (!isLandscape && fullscreenElement) {
+        // Exit fullscreen when rotated back to portrait
+        console.log('[DesktopStreamViewer] Portrait detected, exiting fullscreen');
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if ((document as any).webkitExitFullscreen) {
+          (document as any).webkitExitFullscreen();
+        }
+      }
+    };
+
+    // Listen for orientation changes (screen.orientation API) and resize (fallback)
+    if (screen.orientation) {
+      screen.orientation.addEventListener('change', handleOrientationChange);
+    }
+    window.addEventListener('resize', handleOrientationChange);
+
+    return () => {
+      if (screen.orientation) {
+        screen.orientation.removeEventListener('change', handleOrientationChange);
+      }
+      window.removeEventListener('resize', handleOrientationChange);
+    };
+  }, [hasTouchCapability]);
+
   // Load touch mode preference from localStorage on mount
   useEffect(() => {
     const savedTouchMode = localStorage.getItem('desktopStreamTouchMode');
