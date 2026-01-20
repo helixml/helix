@@ -15,10 +15,8 @@ import {
 import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material'
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
-import useApi from '../../hooks/useApi'
 import LogViewerModal from './LogViewerModal'
 import ScreenshotViewer from '../external-agent/ScreenshotViewer'
-import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 
 interface FloatingModalProps {
   onClose?: () => void
@@ -26,7 +24,6 @@ interface FloatingModalProps {
 
 const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const floatingModal = useFloatingModal()
-  const api = useApi()
   const [isMinimized, setIsMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -352,7 +349,6 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
             <Typography variant="subtitle2" sx={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
               {modalConfig.type === 'logs' && 'Model Instance Logs'}
               {modalConfig.type === 'rdp' && 'Remote Desktop'}
-              {modalConfig.type === 'exploratory_session' && 'Team Desktop'}
             </Typography>
             {modalConfig.type === 'logs' && modalConfig.runner && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
@@ -360,11 +356,6 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
               </Typography>
             )}
             {modalConfig.type === 'rdp' && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
-                Session: {modalConfig.sessionId?.slice(-8)}
-              </Typography>
-            )}
-            {modalConfig.type === 'exploratory_session' && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
                 Session: {modalConfig.sessionId?.slice(-8)}
               </Typography>
@@ -427,21 +418,6 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
                 onError={(error) => {
                   console.error('RDP error:', error);
                 }}
-              />
-            )}
-            {modalConfig.type === 'exploratory_session' && modalConfig.sessionId && (
-              <ExternalAgentDesktopViewer
-                sessionId={modalConfig.sessionId}
-                sandboxId={modalConfig.sessionId}
-                height={size.height - 48}
-                displayWidth={modalConfig.displayWidth}
-                displayHeight={modalConfig.displayHeight}
-                displayFps={modalConfig.displayFps}
-                specTaskId={modalConfig.specTaskId}
-                projectId={modalConfig.projectId}
-                apiClient={api.getApiClient()}
-                showSessionPanel={true}
-                defaultPanelOpen={true}
               />
             )}
           </Box>
