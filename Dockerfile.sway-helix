@@ -772,6 +772,31 @@ RUN for size in 16 24 32 48 64 128 256; do \
             /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
     done
 
+# ====================================================================
+# OnlyOffice Desktop Editors - Office document support
+# ====================================================================
+# Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
+# Supports: .docx, .doc, .odt, .xlsx, .xls, .ods, .pptx, .ppt, .odp, .pdf
+RUN <<_INSTALL_ONLYOFFICE
+set -e
+echo "=== Installing OnlyOffice Desktop Editors ==="
+
+# Download OnlyOffice deb package
+cd /tmp
+wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
+
+# Install with dependency resolution
+apt-get update
+dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
+
+# Cleanup
+rm onlyoffice-desktopeditors_amd64.deb
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== OnlyOffice Desktop Editors installed ==="
+_INSTALL_ONLYOFFICE
+
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json

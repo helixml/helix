@@ -363,11 +363,11 @@ SpecTasksPage
 1. ✅ Navigation refactor (Projects landing page)
 2. ✅ Workspace rename and persistence
 3. ✅ Team Desktop page
-4. 🔲 Rename "Code" to "Files"
-5. 🔲 Drag-drop file upload everywhere
+4. ✅ Rename "Code" to "Files"
+5. ✅ Drag-drop file upload everywhere
 6. 🔲 Diff view tab in task details
-7. 🔲 Simplified project creation
-8. 🔲 OnlyOffice installation
+7. ✅ Simplified project creation
+8. ✅ OnlyOffice installation
 9. 🔲 Chat widget consolidation
 10. 🔲 Workspace info button
 11. 🔲 Mobile polish
