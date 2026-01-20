@@ -32,7 +32,7 @@ import {
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings, MoreHorizontal, Code, GitMerge } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -992,8 +992,8 @@ const SpecTasksPage: FC = () => {
           {defaultRepoId && (
             <Button
               variant="outlined"
-              startIcon={<Code size={18} />}
-              href={account.organizationTools.organization?.name 
+              startIcon={<FolderOpen size={18} />}
+              href={account.organizationTools.organization?.name
                 ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
                 : `/git-repos/${defaultRepoId}`}
               onClick={(e: React.MouseEvent) => {
@@ -1003,7 +1003,7 @@ const SpecTasksPage: FC = () => {
               }}
               sx={{ flexShrink: 0 }}
             >
-              Code
+              Files
             </Button>
           )}
           <Button
@@ -1086,7 +1086,7 @@ const SpecTasksPage: FC = () => {
                 </Button>
               }
             >
-              No code repositories attached. Attach a repository in Settings to give agents access to your code.
+              No file storage attached. Go to Settings to connect a repository for file storage.
             </Alert>
           )}
 
