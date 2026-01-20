@@ -49,6 +49,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
+import ProjectDropZone from '../components/project/ProjectDropZone'
 import AccessManagement from '../components/app/AccessManagement'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -673,8 +674,9 @@ const GitRepoDetail: FC = () => {
       ]}
       orgBreadcrumbs={true}
     >
-      <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-        {/* GitHub-style header */}
+      <ProjectDropZone repositoryId={repoId} branch="main">
+        <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+          {/* GitHub-style header */}
         <Box sx={{ mb: 3 }}>
 
           {/* Repo name and actions */}
@@ -1413,7 +1415,8 @@ const GitRepoDetail: FC = () => {
           onLinkRepo={handleLinkRepoForProject}
           preselectedRepoId={repoId}
         />
-      </Container>
+        </Container>
+      </ProjectDropZone>
     </Page>
   )
 }
