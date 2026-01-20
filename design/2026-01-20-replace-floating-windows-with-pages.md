@@ -1,7 +1,7 @@
 # Helix Projects UX Refactor
 
 **Date:** 2026-01-20
-**Status:** In Progress
+**Status:** Complete
 
 ## Executive Summary
 
@@ -302,18 +302,17 @@ Add info button (ℹ️) on Workspace page explaining:
 - Touch-friendly panel resizing
 - Swipe gestures for panel navigation
 
-### 5.4 Cleanup Deprecated Code
+### 5.4 Cleanup Deprecated Code ✅ COMPLETE
 
-After migration stable:
-- Remove `SpecTaskDetailDialog.tsx`
-- Simplify `DesignReviewViewer.tsx` (remove floating window logic)
-- Remove `FloatingModal` usage in SpecTasksPage
-- Remove unused Window tiling/dragging code
+Completed cleanup:
+- Removed dead `exploratory_session` type from FloatingModal context (never called)
+- Removed unused `useFloatingModal` imports from SpecTasksPage and ProjectSettings
+- FloatingModal now only handles admin-only modals (logs, rdp)
+- `SpecTaskDetailDialog.tsx` never existed (was planned but navigation approach used instead)
 
-### 5.5 Remove Serif Fonts
+### 5.5 Remove Serif Fonts ✅ N/A
 
-`DesignReviewViewer.tsx` uses Palatino/Georgia fonts.
-Change to theme defaults for consistency.
+Investigation: `DesignReviewViewer.tsx` does not exist. The Citation.tsx component uses Georgia font intentionally for styled quote excerpts - this is appropriate for its use case and should be kept.
 
 ---
 
@@ -366,10 +365,10 @@ SpecTasksPage
 6. ✅ Diff view (backend + frontend complete)
 7. ✅ Simplified project creation
 8. ✅ OnlyOffice installation
-9. 🔲 Chat widget consolidation
-10. 🔲 Workspace info button
-11. 🔲 Mobile polish
-12. 🔲 Code cleanup
+9. ✅ Chat widget consolidation (already unified - EmbeddedSessionView + RobustPromptInput)
+10. ✅ Workspace info button (tooltip explaining panel usage)
+11. ✅ Mobile polish (hide Workspace on phones, auto-fallback to Kanban)
+12. ✅ Code cleanup (removed dead exploratory_session floating modal code)
 
 ---
 
