@@ -142,17 +142,13 @@ const SpecTasksPage: FC = () => {
   const openTaskId = router.params.openTask as string | undefined;
   const openDesktopId = router.params.openDesktop as string | undefined;
 
-  // State for view management - prefer query param, then localStorage
+  // State for view management - always default to kanban, but respect query param
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
-    // Check query param first
+    // Check query param - allows "Open in Workspace" links to work
     if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
       return queryTab;
     }
-    // Fall back to localStorage (support legacy 'tabs' value)
-    const saved = localStorage.getItem('helix_spectask_view_mode');
-    if (saved === 'kanban' || saved === 'workspace' || saved === 'tabs' || saved === 'audit') {
-      return saved === 'tabs' ? 'workspace' : saved as 'kanban' | 'workspace' | 'audit';
-    }
+    // Always default to kanban (no localStorage persistence - user prefers fresh start)
     return 'kanban';
   });
 
@@ -169,11 +165,6 @@ const SpecTasksPage: FC = () => {
       setViewMode('kanban');
     }
   }, [isMobile, viewMode]);
-
-  // Persist view mode preference when it changes
-  useEffect(() => {
-    localStorage.setItem('helix_spectask_view_mode', viewMode);
-  }, [viewMode]);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);

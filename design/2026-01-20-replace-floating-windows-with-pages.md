@@ -369,6 +369,9 @@ SpecTasksPage
 10. ✅ Workspace info button (tooltip explaining panel usage)
 11. ✅ Mobile polish (hide Workspace on phones, auto-fallback to Kanban)
 12. ✅ Code cleanup (removed dead exploratory_session floating modal code)
+13. ✅ Unified Team Desktop layout (chat at bottom, not side panel)
+14. ✅ Add Team Desktop to workspace "+" menu (lists active sessions)
+15. ✅ Add horizontal and vertical split buttons to workspace panels
 
 ---
 
