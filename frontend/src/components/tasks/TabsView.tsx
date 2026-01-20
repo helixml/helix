@@ -32,6 +32,7 @@ import {
   Description as SpecIcon,
   CheckCircle as ApproveIcon,
   Launch as LaunchIcon,
+  Computer as DesktopIcon,
 } from '@mui/icons-material'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
@@ -45,6 +46,9 @@ import SpecTaskDetailContent from './SpecTaskDetailContent'
 import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 import DesignReviewContent from '../spec-tasks/DesignReviewContent'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import RobustPromptInput from '../common/RobustPromptInput'
+import { useStreaming } from '../../contexts/streaming'
+import { SESSION_TYPE_TEXT } from '../../types'
 import useAccount from '../../hooks/useAccount'
 
 // Pulse animation for active agent indicator
@@ -373,6 +377,7 @@ interface TaskPanelProps {
   onTabClose: (panelId: string, tabId: string) => void
   onTabRename: (tabId: string, newTitle: string) => void
   onAddTab: (panelId: string, task: TypesSpecTask) => void
+  onAddDesktop: (panelId: string, sessionId: string, title?: string) => void
   onTaskCreated: (panelId: string, task: TypesSpecTask) => void
   onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
@@ -389,6 +394,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onTabClose,
   onTabRename,
   onAddTab,
+  onAddDesktop,
   onTaskCreated,
   onSplitPanel,
   onDropTab,
@@ -399,6 +405,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const account = useAccount()
+  const streaming = useStreaming()
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createPrompt, setCreatePrompt] = useState('')
@@ -682,7 +689,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
         {/* Panel actions */}
         <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5 }}>
-          <Tooltip title="Add task">
+          <Tooltip title="Add task or desktop">
             <IconButton
               size="small"
               onClick={(e) => setMenuAnchor(e.currentTarget)}
@@ -691,13 +698,22 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               <AddIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Split panel">
+          <Tooltip title="Split horizontally">
             <IconButton
               size="small"
               onClick={() => onSplitPanel(panel.id, 'horizontal')}
               sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
             >
               <SplitVerticalIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Split vertically">
+            <IconButton
+              size="small"
+              onClick={() => onSplitPanel(panel.id, 'vertical')}
+              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              <SplitHorizontalIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
           {panelCount > 1 && (
@@ -718,7 +734,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           anchorEl={menuAnchor}
           open={Boolean(menuAnchor)}
           onClose={() => setMenuAnchor(null)}
-          slotProps={{ paper: { sx: { maxHeight: 350, width: 250 } } }}
+          slotProps={{ paper: { sx: { maxHeight: 400, width: 280 } } }}
         >
           {/* Create new task option */}
           {projectId && (
@@ -741,12 +757,67 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               <Divider />
             </>
           )}
+
+          {/* Team Desktop sessions from active tasks */}
+          {(() => {
+            const tasksWithSessions = tasks.filter(t => t.planning_session_id)
+            if (tasksWithSessions.length > 0) {
+              return (
+                <>
+                  <Typography variant="caption" sx={{ px: 2, py: 0.5, color: 'text.secondary', display: 'block' }}>
+                    Team Desktop
+                  </Typography>
+                  {tasksWithSessions.slice(0, 5).map(task => {
+                    const desktopTabId = `desktop-${task.planning_session_id}`
+                    const alreadyOpen = panel.tabs.some(t => t.id === desktopTabId)
+                    return (
+                      <MenuItem
+                        key={`desktop-${task.id}`}
+                        onClick={() => {
+                          if (!alreadyOpen) {
+                            // Add desktop tab
+                            const newTab: TabData = {
+                              id: desktopTabId,
+                              type: 'desktop',
+                              sessionId: task.planning_session_id!,
+                              desktopTitle: task.user_short_title || task.short_title || task.name?.substring(0, 20) || 'Team Desktop',
+                            }
+                            // We need to use onAddDesktop callback
+                            onAddDesktop(panel.id, task.planning_session_id!, newTab.desktopTitle)
+                          }
+                          setMenuAnchor(null)
+                        }}
+                        disabled={alreadyOpen}
+                      >
+                        <ListItemIcon>
+                          <DesktopIcon sx={{ fontSize: 16, color: alreadyOpen ? 'text.disabled' : 'success.main' }} />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={task.user_short_title || task.short_title || task.name?.substring(0, 25) || 'Team Desktop'}
+                          secondary={alreadyOpen ? 'Already open' : undefined}
+                          primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
+                          secondaryTypographyProps={{ fontSize: '0.7rem' }}
+                        />
+                      </MenuItem>
+                    )
+                  })}
+                  <Divider sx={{ my: 0.5 }} />
+                </>
+              )
+            }
+            return null
+          })()}
+
+          {/* Tasks section */}
+          <Typography variant="caption" sx={{ px: 2, py: 0.5, color: 'text.secondary', display: 'block' }}>
+            Tasks
+          </Typography>
           {unopenedTasks.length === 0 ? (
             <MenuItem disabled>
-              <ListItemText primary="All tasks are open" />
+              <ListItemText primary="All tasks are open" primaryTypographyProps={{ fontSize: '0.875rem' }} />
             </MenuItem>
           ) : (
-            unopenedTasks.slice(0, 20).map(task => (
+            unopenedTasks.slice(0, 15).map(task => (
               <MenuItem
                 key={task.id}
                 onClick={() => {
@@ -877,16 +948,30 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       <Box sx={{ flex: 1, overflow: 'hidden' }}>
         {activeTab ? (
           activeTab.type === 'desktop' && activeTab.sessionId ? (
-            <ExternalAgentDesktopViewer
-              key={activeTab.id}
-              sessionId={activeTab.sessionId}
-              sandboxId={activeTab.sessionId}
-              mode="stream"
-              showSessionPanel={true}
-              defaultPanelOpen={true}
-              projectId={projectId}
-              apiClient={api.getApiClient()}
-            />
+            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <ExternalAgentDesktopViewer
+                key={activeTab.id}
+                sessionId={activeTab.sessionId}
+                sandboxId={activeTab.sessionId}
+                mode="stream"
+              />
+              <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+                <RobustPromptInput
+                  sessionId={activeTab.sessionId}
+                  projectId={projectId}
+                  apiClient={api.getApiClient()}
+                  onSend={async (message: string, interrupt?: boolean) => {
+                    await streaming.NewInference({
+                      type: SESSION_TYPE_TEXT,
+                      message,
+                      sessionId: activeTab.sessionId!,
+                      interrupt: interrupt ?? true,
+                    })
+                  }}
+                  placeholder="Send message to agent..."
+                />
+              </Box>
+            </Box>
           ) : activeTab.type === 'review' && activeTab.taskId && activeTab.reviewId ? (
             <DesignReviewContent
               key={activeTab.id}
@@ -1385,6 +1470,29 @@ const TabsView: React.FC<TabsViewProps> = ({
     }))
   }, [])
 
+  // Handle adding a Team Desktop tab to a panel
+  const handleAddDesktop = useCallback((panelId: string, sessionId: string, title?: string) => {
+    const desktopTabId = `desktop-${sessionId}`
+    setPanels(prev => prev.map(p => {
+      if (p.id !== panelId) return p
+      // Check if already open
+      if (p.tabs.some(t => t.id === desktopTabId)) {
+        return { ...p, activeTabId: desktopTabId }
+      }
+      // Add new desktop tab
+      return {
+        ...p,
+        tabs: [...p.tabs, {
+          id: desktopTabId,
+          type: 'desktop' as const,
+          sessionId,
+          desktopTitle: title || 'Team Desktop',
+        }],
+        activeTabId: desktopTabId,
+      }
+    }))
+  }, [])
+
   // Handle opening a review in a new tab (called from SpecTaskDetailContent)
   const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string) => {
     const tabId = `review-${taskId}-${reviewId}`
@@ -1486,6 +1594,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 onTabClose={handleTabClose}
                 onTabRename={handleTabRename}
                 onAddTab={handleAddTab}
+                onAddDesktop={handleAddDesktop}
                 onTaskCreated={handleTaskCreated}
                 onSplitPanel={handleSplitPanel}
                 onDropTab={handleDropTab}

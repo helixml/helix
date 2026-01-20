@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useRef } from 'react'
 import { useRoute } from 'react-router5'
 import {
   Box,
@@ -16,9 +16,13 @@ import {
 
 import Page from '../components/system/Page'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
+import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../components/session/EmbeddedSessionView'
+import RobustPromptInput from '../components/common/RobustPromptInput'
 import { useGetProject } from '../services'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
+import { useStreaming } from '../contexts/streaming'
+import { SESSION_TYPE_TEXT } from '../types'
 
 /**
  * TeamDesktopPage - Standalone page for the Team Desktop (exploratory session)
@@ -32,6 +36,8 @@ const TeamDesktopPage: FC = () => {
   const { route } = useRoute()
   const account = useAccount()
   const api = useApi()
+  const streaming = useStreaming()
+  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   const projectId = route.params.id as string
   const sessionId = route.params.sessionId as string
@@ -123,17 +129,29 @@ const TeamDesktopPage: FC = () => {
         </Tooltip>
       </Box>
 
-      {/* Desktop viewer content */}
-      <Box sx={{ flex: 1, overflow: 'hidden', height: 'calc(100vh - 120px)' }}>
+      {/* Desktop viewer with chat below - matches SpecTaskDetailContent layout */}
+      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <ExternalAgentDesktopViewer
           sessionId={sessionId}
           sandboxId={sessionId}
           mode="stream"
-          showSessionPanel={true}
-          defaultPanelOpen={true}
-          projectId={projectId}
-          apiClient={api.getApiClient()}
         />
+        <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+          <RobustPromptInput
+            sessionId={sessionId}
+            projectId={projectId}
+            apiClient={api.getApiClient()}
+            onSend={async (message: string, interrupt?: boolean) => {
+              await streaming.NewInference({
+                type: SESSION_TYPE_TEXT,
+                message,
+                sessionId,
+                interrupt: interrupt ?? true,
+              })
+            }}
+            placeholder="Send message to agent..."
+          />
+        </Box>
       </Box>
     </Page>
   )
