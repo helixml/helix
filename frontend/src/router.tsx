@@ -23,6 +23,8 @@ import Secrets from './pages/Secrets'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
+import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
+import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -176,6 +178,28 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-detail',
+    path: routePrefix + '/projects/:id/tasks/:taskId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Task Details',
+    },
+    render: () => (
+      <SpecTaskDetailPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-review',
+    path: routePrefix + '/projects/:id/tasks/:taskId/review/:reviewId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Spec Review',
+    },
+    render: () => (
+      <SpecTaskReviewPage />
     ),
   }, {
     name: namePrefix + 'project-settings',

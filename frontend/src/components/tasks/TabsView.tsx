@@ -42,8 +42,8 @@ import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import { useQuery } from '@tanstack/react-query'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
-import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import ArchiveConfirmDialog from './ArchiveConfirmDialog'
+import useAccount from '../../hooks/useAccount'
 
 // Pulse animation for active agent indicator
 const activePulse = keyframes`
@@ -370,6 +370,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
+  const account = useAccount()
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createPrompt, setCreatePrompt] = useState('')
@@ -378,10 +379,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const [dragOverEdge, setDragOverEdge] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [draggedFromPanelId, setDraggedFromPanelId] = useState<string | null>(null)
-
-  // Design review viewer state
-  const [designReviewOpen, setDesignReviewOpen] = useState(false)
-  const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
 
   // Archive/reject confirmation dialog state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
@@ -494,8 +491,12 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       const reviews = response.data?.reviews || []
       if (reviews.length > 0) {
         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-        setActiveReviewId(latestReview.id)
-        setDesignReviewOpen(true)
+        // Navigate to the review page
+        account.orgNavigate('project-task-review', {
+          id: projectId,
+          taskId: activeTask.id,
+          reviewId: latestReview.id,
+        })
       } else {
         snackbar.error('No design review found')
       }
@@ -917,19 +918,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Design Review Viewer */}
-      {designReviewOpen && activeTask && activeReviewId && (
-        <DesignReviewViewer
-          open={designReviewOpen}
-          onClose={() => {
-            setDesignReviewOpen(false)
-            setActiveReviewId(null)
-          }}
-          specTaskId={activeTask.id!}
-          reviewId={activeReviewId}
-        />
-      )}
-
       {/* Archive Confirmation Dialog */}
       <ArchiveConfirmDialog
         open={archiveConfirmOpen}
@@ -978,6 +966,7 @@ interface TabsViewProps {
   tasks: TypesSpecTask[]
   onCreateTask?: () => void
   onRefresh?: () => void
+  initialTaskId?: string // Task ID to open initially (from "Open in Workspace" button)
 }
 
 const TabsView: React.FC<TabsViewProps> = ({
@@ -985,6 +974,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   tasks,
   onCreateTask,
   onRefresh,
+  initialTaskId,
 }) => {
   const snackbar = useSnackbar()
   const updateSpecTask = useUpdateSpecTask()
@@ -994,24 +984,32 @@ const TabsView: React.FC<TabsViewProps> = ({
   const [panels, setPanels] = useState<PanelData[]>([])
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
 
-  // Initialize with first task
+  // Initialize with first task (or initialTaskId if provided)
   useEffect(() => {
     if (panels.length === 0 && tasks.length > 0) {
-      const sortedTasks = [...tasks].sort((a, b) => {
-        const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
-        const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
-        return bDate - aDate
-      })
-      const firstTask = sortedTasks[0]
-      if (firstTask?.id) {
+      // Prefer initialTaskId if provided, otherwise use most recently updated task
+      let taskToOpen = initialTaskId
+        ? tasks.find(t => t.id === initialTaskId)
+        : null
+
+      if (!taskToOpen) {
+        const sortedTasks = [...tasks].sort((a, b) => {
+          const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
+          const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
+          return bDate - aDate
+        })
+        taskToOpen = sortedTasks[0]
+      }
+
+      if (taskToOpen?.id) {
         setPanels([{
           id: generatePanelId(),
-          tabs: [{ id: firstTask.id, task: firstTask }],
-          activeTabId: firstTask.id,
+          tabs: [{ id: taskToOpen.id, task: taskToOpen }],
+          activeTabId: taskToOpen.id,
         }])
       }
     }
-  }, [tasks, panels.length])
+  }, [tasks, panels.length, initialTaskId])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setPanels(prev => prev.map(p =>

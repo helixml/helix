@@ -62,7 +62,6 @@ import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { getBrowserLocale } from '../../hooks/useBrowserLocale';
-import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
 import {
@@ -371,13 +370,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Use props for showArchived and showMetrics (controlled from parent)
   const showArchived = showArchivedProp;
   const showMetrics = showMetricsProp !== undefined ? showMetricsProp : true;
-
-  // Design review viewer state
-  const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
-  const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
-  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
-  const [designReviewInitialTab, setDesignReviewInitialTab] = useState<'requirements' | 'technical_design' | 'implementation_plan'>('requirements');
-
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
@@ -827,25 +819,22 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   };
 
-  // Handle reviewing documents - optionally open to a specific tab
-  // Default to 'requirements' since that's the natural starting point for review
-  const handleReviewDocs = async (task: SpecTaskWithExtras, initialTab: 'requirements' | 'technical_design' | 'implementation_plan' = 'requirements') => {
-    setReviewingTask(task);
-    setDesignReviewInitialTab(initialTab);
-
+  // Handle reviewing documents - navigates to the review page
+  const handleReviewDocs = async (task: SpecTaskWithExtras) => {
     // Fetch the latest design review for this task using generated client
     try {
       const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id);
-      console.log('Design reviews response:', response);
       const reviews = response.data?.reviews || [];
-      console.log('Reviews array:', reviews);
 
       if (reviews.length > 0) {
         // Get the latest non-superseded review
         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0];
-        console.log('Opening review:', latestReview.id, 'for task:', task.id);
-        setActiveReviewId(latestReview.id);
-        setDesignReviewViewerOpen(true);
+        // Navigate to the review page
+        account.orgNavigate('project-task-review', {
+          id: projectId,
+          taskId: task.id,
+          reviewId: latestReview.id,
+        });
       } else {
         // This shouldn't happen since we auto-create reviews on push
         console.error('No design review found for task:', task.id);
@@ -978,23 +967,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           />
         ))}
       </Box>
-
-      {/* Design Review Viewer - Floating window for spec review */}
-      {designReviewViewerOpen && reviewingTask && activeReviewId && (
-        <DesignReviewViewer
-          open={designReviewViewerOpen}
-          onClose={() => {
-            setDesignReviewViewerOpen(false);
-            setReviewingTask(null);
-            setActiveReviewId(null);
-            // Refresh tasks to update status
-            if (onRefresh) onRefresh();
-          }}
-          specTaskId={reviewingTask.id!}
-          reviewId={activeReviewId}
-          initialTab={designReviewInitialTab}
-        />
-      )}
 
       {/* Planning Dialog */}
       <Dialog open={planningDialogOpen} onClose={() => setPlanningDialogOpen(false)} maxWidth="md" fullWidth>

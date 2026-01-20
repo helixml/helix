@@ -36,7 +36,6 @@ import { Plus, X, Play, Settings, MoreHorizontal, Code, GitMerge } from 'lucide-
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
-import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
 import PreviewPanel from '../components/app/PreviewPanel';
@@ -134,14 +133,30 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // State for view management - persist preference in localStorage
-  const [viewMode, setViewMode] = useState<'kanban' | 'tabs' | 'audit'>(() => {
+  // Read query params for view mode override and task opening
+  const queryTab = router.params.tab as string | undefined;
+  const openTaskId = router.params.openTask as string | undefined;
+
+  // State for view management - prefer query param, then localStorage
+  const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
+    // Check query param first
+    if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
+      return queryTab;
+    }
+    // Fall back to localStorage (support legacy 'tabs' value)
     const saved = localStorage.getItem('helix_spectask_view_mode');
-    if (saved === 'kanban' || saved === 'tabs' || saved === 'audit') {
-      return saved;
+    if (saved === 'kanban' || saved === 'workspace' || saved === 'tabs' || saved === 'audit') {
+      return saved === 'tabs' ? 'workspace' : saved as 'kanban' | 'workspace' | 'audit';
     }
     return 'kanban';
   });
+
+  // Update view mode if query param changes
+  useEffect(() => {
+    if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
+      setViewMode(queryTab);
+    }
+  }, [queryTab]);
 
   // Persist view mode preference when it changes
   useEffect(() => {
@@ -223,7 +238,7 @@ const SpecTasksPage: FC = () => {
     localStorage.setItem('helix_chat_panel_open', chatPanelOpen ? 'true' : 'false');
   }, [chatPanelOpen]);
 
-  // Fetch tasks for TabsView
+  // Fetch tasks for Workspace view
   const { data: tasksData } = useQuery({
     queryKey: ['spec-tasks', projectId, refreshTrigger],
     queryFn: async () => {
@@ -232,7 +247,7 @@ const SpecTasksPage: FC = () => {
       });
       return response.data || [];
     },
-    enabled: !!projectId && viewMode === 'tabs',
+    enabled: !!projectId && viewMode === 'workspace',
     refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
@@ -294,9 +309,6 @@ const SpecTasksPage: FC = () => {
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [agentError, setAgentError] = useState('');
   // Repository configuration moved to project level - no task-level repo selection needed
-
-  // Task detail windows state - array to support multiple windows
-  const [openTaskWindows, setOpenTaskWindows] = useState<TypesSpecTask[]>([]);
 
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
@@ -872,17 +884,17 @@ const SpecTasksPage: FC = () => {
                 <KanbanIcon fontSize="small" color={viewMode === 'kanban' ? 'primary' : 'inherit'} />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Tabs View">
+            <Tooltip title="Workspace">
               <IconButton
                 size="small"
-                onClick={() => setViewMode('tabs')}
+                onClick={() => setViewMode('workspace')}
                 sx={{
-                  bgcolor: viewMode === 'tabs' ? 'background.paper' : 'transparent',
-                  boxShadow: viewMode === 'tabs' ? 1 : 0,
-                  '&:hover': { bgcolor: viewMode === 'tabs' ? 'background.paper' : 'action.selected' },
+                  bgcolor: viewMode === 'workspace' ? 'background.paper' : 'transparent',
+                  boxShadow: viewMode === 'workspace' ? 1 : 0,
+                  '&:hover': { bgcolor: viewMode === 'workspace' ? 'background.paper' : 'action.selected' },
                 }}
               >
-                <TabIcon fontSize="small" color={viewMode === 'tabs' ? 'primary' : 'inherit'} />
+                <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Audit Trail">
@@ -1102,12 +1114,8 @@ const SpecTasksPage: FC = () => {
                 projectId={projectId}
                 onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
-                  // Add to array of open windows if not already open
-                  setOpenTaskWindows(prev => {
-                    const alreadyOpen = prev.some(t => t.id === task.id);
-                    if (alreadyOpen) return prev;
-                    return [...prev, task];
-                  });
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId: task.id });
                 }}
                 onRefresh={() => {
                   setRefreshing(true);
@@ -1122,26 +1130,21 @@ const SpecTasksPage: FC = () => {
                 showMerged={showMerged}
               />
             )}
-            {viewMode === 'tabs' && (
+            {viewMode === 'workspace' && (
               <TabsView
                 projectId={projectId}
                 tasks={tasksData || []}
                 onCreateTask={handleOpenCreateDialog}
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
+                initialTaskId={openTaskId}
               />
             )}
             {viewMode === 'audit' && (
               <ProjectAuditTrail
                 projectId={projectId || ''}
                 onTaskClick={(taskId) => {
-                  // Fetch task and open in dialog
-                  // For now, we just need the ID to add a placeholder
-                  setOpenTaskWindows(prev => {
-                    const alreadyOpen = prev.some(t => t.id === taskId);
-                    if (alreadyOpen) return prev;
-                    // Create minimal task object for dialog
-                    return [...prev, { id: taskId } as TypesSpecTask];
-                  });
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId });
                 }}
               />
             )}
@@ -1717,18 +1720,6 @@ const SpecTasksPage: FC = () => {
         )}
 
       </Box>
-
-      {/* Task Detail Dialogs - one per open task */}
-      {openTaskWindows.map((task) => (
-        <SpecTaskDetailDialog
-          key={task.id}
-          task={task}
-          open={true}
-          onClose={() => {
-            setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
-          }}
-        />
-      ))}
 
     </Page>
   );

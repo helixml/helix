@@ -38,8 +38,8 @@ import TuneIcon from '@mui/icons-material/Tune'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
-import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
+import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import useApps from '../../hooks/useApps'
@@ -64,6 +64,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
+  const account = useAccount()
   const streaming = useStreaming()
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
@@ -155,8 +156,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false)
-  const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
-  const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
 
   // Session restart state
@@ -627,8 +626,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       const reviews = response.data?.reviews || []
                       if (reviews.length > 0) {
                         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-                        setActiveReviewId(latestReview.id)
-                        setDesignReviewViewerOpen(true)
+                        // Navigate to the review page
+                        account.orgNavigate('project-task-review', {
+                          id: task.project_id,
+                          taskId: task.id,
+                          reviewId: latestReview.id,
+                        })
                       } else {
                         snackbar.error('No design review found')
                       }
@@ -757,19 +760,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Box>
         )}
       </Box>
-
-      {/* Design Review Viewer */}
-      {designReviewViewerOpen && task && activeReviewId && (
-        <DesignReviewViewer
-          open={designReviewViewerOpen}
-          onClose={() => {
-            setDesignReviewViewerOpen(false)
-            setActiveReviewId(null)
-          }}
-          specTaskId={task.id!}
-          reviewId={activeReviewId}
-        />
-      )}
 
       {/* Restart Session Confirmation */}
       <Dialog open={restartConfirmOpen} onClose={() => setRestartConfirmOpen(false)}>
