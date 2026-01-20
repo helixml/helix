@@ -5911,6 +5911,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns git diff information from the running desktop container. Shows changes between the current working directory and base branch, including uncommitted changes.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsDiffDetail
+     * @summary Get file diff from container
+     * @request GET:/api/v1/external-agents/{sessionID}/diff
+     * @secure
+     */
+    v1ExternalAgentsDiffDetail: (
+      sessionId: string,
+      query?: {
+        /** Base branch to compare against (default: main) */
+        base?: string;
+        /** Include full diff content for each file (default: false) */
+        include_content?: boolean;
+        /** Filter to specific file path */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/diff`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
      *
      * @tags ExternalAgents

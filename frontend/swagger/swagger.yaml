@@ -9094,6 +9094,58 @@ paths:
       summary: Configure pending session (deprecated - no-op)
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/diff:
+    get:
+      description: |-
+        Returns git diff information from the running desktop container.
+        Shows changes between the current working directory and base branch,
+        including uncommitted changes.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: 'Base branch to compare against (default: main)'
+        in: query
+        name: base
+        type: string
+      - description: 'Include full diff content for each file (default: false)'
+        in: query
+        name: include_content
+        type: boolean
+      - description: Filter to specific file path
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Diff response with files list
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get file diff from container
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/exec:
     post:
       consumes:
