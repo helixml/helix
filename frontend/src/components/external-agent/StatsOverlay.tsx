@@ -21,6 +21,8 @@ export interface StatsOverlayProps {
   streamWidth?: number;
   streamHeight?: number;
   streamFps?: number;
+  // Keyboard debug event for iPad troubleshooting
+  debugKeyEvent?: string | null;
 }
 
 const StatsOverlay: React.FC<StatsOverlayProps> = ({
@@ -37,6 +39,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   streamWidth,
   streamHeight,
   streamFps,
+  debugKeyEvent,
 }) => {
   const mp4StreamUrl = sessionId ? `/api/v1/external-agents/${sessionId}/video.mp4` : null;
 
@@ -261,6 +264,20 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                 <span style={{ color: '#888' }}> (peak: {stats.input.maxEventLoopLatencyMs?.toFixed(0)}ms)</span>
               )}
               {(stats.input.maxEventLoopLatencyMs ?? 0) > 50 && <span style={{ color: '#ff6b6b' }}> Main thread blocked</span>}
+            </div>
+            {debugKeyEvent && (
+              <div>
+                <strong>Last Key:</strong> <span style={{ color: '#4fc3f7' }}>{debugKeyEvent}</span>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Keyboard debug when no input stats available */}
+        {!stats?.input && debugKeyEvent && (
+          <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+            <strong style={{ color: '#00ff00' }}>Input</strong>
+            <div>
+              <strong>Last Key:</strong> <span style={{ color: '#4fc3f7' }}>{debugKeyEvent}</span>
             </div>
           </div>
         )}

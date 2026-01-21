@@ -4246,29 +4246,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           streamWidth={width}
           streamHeight={height}
           streamFps={fps}
+          debugKeyEvent={debugKeyEvent}
         />
-      )}
-
-      {/* Debug Key Event Overlay - shows last keyboard event for iPad troubleshooting */}
-      {debugKeyEvent && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 60,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: '#0f0',
-            fontFamily: 'monospace',
-            fontSize: 12,
-            padding: '4px 8px',
-            borderRadius: 1,
-            zIndex: 2000,
-            pointerEvents: 'none',
-          }}
-        >
-          {debugKeyEvent}
-        </Box>
       )}
 
       {/* Adaptive Bitrate Charts Panel */}

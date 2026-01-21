@@ -120,6 +120,7 @@ const OrgSettings: FC = () => {
   return (
     <Page
       breadcrumbTitle={ organization ? `Settings` : 'Organization Settings' }
+      breadcrumbParent={{ title: 'Organizations', routeName: 'orgs', useOrgRouter: false }}
       breadcrumbShowHome={ true }
       orgBreadcrumbs={ true }
     >

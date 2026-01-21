@@ -113,10 +113,14 @@ const Page: React.FC<{
                       },
                     }}
                     onClick={ () => {
-                      if(orgBreadcrumbs) {
+                      // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
+                      const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
+                        ? breadcrumb.useOrgRouter
+                        : orgBreadcrumbs
+                      if(shouldUseOrgRouter) {
                         account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
                       } else {
-                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) 
+                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
                       }
                     }}
                   >

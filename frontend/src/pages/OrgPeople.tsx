@@ -130,6 +130,7 @@ const OrgPeople: FC = () => {
   return (
     <Page
       breadcrumbTitle={ organization ? `People` : 'Organization People' }
+      breadcrumbParent={{ title: 'Organizations', routeName: 'orgs', useOrgRouter: false }}
       breadcrumbShowHome={ true }
       orgBreadcrumbs={ true }
       topbarContent={isOrgOwner ? (
