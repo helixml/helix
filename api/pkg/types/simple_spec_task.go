@@ -308,29 +308,9 @@ const (
 	AgentWorkStateDone    AgentWorkState = "done"    // Agent finished its assigned task
 )
 
-// ExternalAgentActivity tracks activity for idle detection (per-agent, not per-session)
-type ExternalAgentActivity struct {
-	ExternalAgentID string    `json:"external_agent_id" gorm:"primaryKey;size:255"` // e.g., "zed-spectask-abc123"
-	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`  // Parent SpecTask
-	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
-	AgentType       string    `json:"agent_type" gorm:"size:50"`        // "spectask", "pde", "adhoc"
-	ContainerAppID  string    `json:"container_app_id" gorm:"size:255"` // Container app ID for termination
-	DevContainerID  string    `json:"dev_container_id" gorm:"size:255"` // Container ID for cleanup even after session deleted
-	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`    // Persistent workspace path
-	UserID          string    `json:"user_id" gorm:"size:255;index"`
-
-	// Work state tracking for reconciliation
-	AgentWorkState    AgentWorkState `json:"agent_work_state" gorm:"size:50;default:'idle'"` // idle, working, done
-	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"type:text"` // Last prompt sent (for context on continue)
-}
-
 // Table names
 func (SpecTaskExternalAgent) TableName() string {
 	return "spec_task_external_agents"
-}
-
-func (ExternalAgentActivity) TableName() string {
-	return "external_agent_activity"
 }
 
 type SpecTaskArchiveRequest struct {

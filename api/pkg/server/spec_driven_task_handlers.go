@@ -131,21 +131,6 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Populate agent activity data (work state for reconciliation UI)
-	if task.PlanningSessionID != "" {
-		// Get SessionUpdatedAt from session
-		session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
-		if err == nil && session != nil {
-			task.SessionUpdatedAt = &session.Updated
-		}
-		// Get AgentWorkState from activity record
-		activity, err := s.Store.GetExternalAgentActivity(ctx, task.PlanningSessionID)
-		if err == nil && activity != nil {
-			task.AgentWorkState = activity.AgentWorkState
-			task.LastPromptContent = activity.LastPromptContent
-		}
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -239,17 +224,6 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
-				}
-			}
-		}
-
-		// Also populate AgentWorkState and LastPromptContent from activity records
-		for _, task := range tasks {
-			if task.PlanningSessionID != "" {
-				activity, err := s.Store.GetExternalAgentActivity(ctx, task.PlanningSessionID)
-				if err == nil && activity != nil {
-					task.AgentWorkState = activity.AgentWorkState
-					task.LastPromptContent = activity.LastPromptContent
 				}
 			}
 		}
