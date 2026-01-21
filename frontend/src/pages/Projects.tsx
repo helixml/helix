@@ -512,7 +512,6 @@ const Projects: FC = () => {
     return (
       <Page
         breadcrumbTitle="Projects"
-        breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
         orgBreadcrumbs={true}
       >
         <Container maxWidth="lg">
@@ -541,7 +540,6 @@ const Projects: FC = () => {
   return (
     <Page
       breadcrumbTitle={getBreadcrumbTitle()}
-      breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (

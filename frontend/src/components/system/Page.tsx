@@ -68,11 +68,10 @@ const Page: React.FC<{
         title: account.organizationTools.organization?.name || '',
       })
     }
-    // Use custom parent breadcrumb if provided, otherwise default to "Projects"
-    useBreadcrumbTitles.unshift(breadcrumbParent || {
-      title: 'Projects',
-      routeName: 'projects',
-    })
+    // Only add parent breadcrumb if explicitly provided
+    if (breadcrumbParent) {
+      useBreadcrumbTitles.unshift(breadcrumbParent)
+    }
   }
   
   let useTopbarTitle = isBigScreen && useBreadcrumbTitles.length > 0 ? (

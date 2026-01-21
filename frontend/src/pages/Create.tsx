@@ -47,7 +47,6 @@ const Create: FC = () => {
   return (
     <Page
       orgBreadcrumbs={true}
-      breadcrumbShowHome={false}
       breadcrumbs={
         getNewSessionBreadcrumbs({
           mode,
