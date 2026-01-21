@@ -3,6 +3,7 @@ import {
   Box,
   Chip,
   CircularProgress,
+  IconButton,
   Tooltip,
 } from '@mui/material'
 import {
@@ -17,46 +18,85 @@ interface KoditStatusPillProps {
   data?: KoditIndexingStatus
   isLoading?: boolean
   error?: Error | null
+  onRefresh?: () => void
+  isRefreshing?: boolean
 }
 
 const KoditStatusPill: FC<KoditStatusPillProps> = ({
   data,
   isLoading,
   error,
+  onRefresh,
+  isRefreshing,
 }) => {
   const attrs = data?.data?.attributes
   const status = attrs?.status
   const message = attrs?.message
   const updatedAt = attrs?.updated_at
 
+  // Determine if refresh should be disabled (during indexing or when already refreshing)
+  const isIndexing = status === 'indexing' || status === 'in_progress' || status === 'queued' || status === 'pending'
+  const refreshDisabled = isRefreshing || isIndexing || isLoading
+
+  const refreshButton = onRefresh ? (
+    <Tooltip title={isIndexing ? 'Indexing in progress' : 'Refresh code intelligence'} arrow placement="top">
+      <span>
+        <IconButton
+          size="small"
+          onClick={onRefresh}
+          disabled={refreshDisabled}
+          sx={{
+            ml: 0.5,
+            p: 0.25,
+            '& svg': {
+              animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+              '@keyframes spin': {
+                '0%': { transform: 'rotate(0deg)' },
+                '100%': { transform: 'rotate(360deg)' },
+              },
+            },
+          }}
+        >
+          <RefreshCw size={14} />
+        </IconButton>
+      </span>
+    </Tooltip>
+  ) : null
+
   // Handle API errors first
   if (error) {
     return (
-      <Tooltip title={error.message || 'Failed to fetch status'} arrow placement="top">
-        <Chip
-          icon={<AlertCircle size={14} />}
-          label="Error"
-          size="small"
-          color="error"
-          sx={{
-            '& .MuiChip-icon': {
-              color: 'inherit',
-            },
-          }}
-        />
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Tooltip title={error.message || 'Failed to fetch status'} arrow placement="top">
+          <Chip
+            icon={<AlertCircle size={14} />}
+            label="Error"
+            size="small"
+            color="error"
+            sx={{
+              '& .MuiChip-icon': {
+                color: 'inherit',
+              },
+            }}
+          />
+        </Tooltip>
+        {refreshButton}
+      </Box>
     )
   }
 
   if (isLoading) {
     return (
-      <Chip
-        icon={<CircularProgress size={14} color="inherit" />}
-        label="Loading..."
-        size="small"
-        color="default"
-        variant="outlined"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Chip
+          icon={<CircularProgress size={14} color="inherit" />}
+          label="Loading..."
+          size="small"
+          color="default"
+          variant="outlined"
+        />
+        {refreshButton}
+      </Box>
     )
   }
 
@@ -67,98 +107,113 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
       : 'Repository is indexed and up to date'
 
     return (
-      <Tooltip title={tooltipContent} arrow placement="top">
-        <Chip
-          icon={<Check size={14} />}
-          label={formattedDate ? `Synced ${formattedDate}` : 'Up to date'}
-          size="small"
-          color="success"
-          sx={{
-            '& .MuiChip-icon': {
-              color: 'inherit',
-            },
-          }}
-        />
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Tooltip title={tooltipContent} arrow placement="top">
+          <Chip
+            icon={<Check size={14} />}
+            label={formattedDate ? `Synced ${formattedDate}` : 'Up to date'}
+            size="small"
+            color="success"
+            sx={{
+              '& .MuiChip-icon': {
+                color: 'inherit',
+              },
+            }}
+          />
+        </Tooltip>
+        {refreshButton}
+      </Box>
     )
   }
 
   if (status === 'failed') {
     return (
-      <Tooltip title={message || 'Indexing failed'} arrow placement="top">
-        <Chip
-          icon={<AlertCircle size={14} />}
-          label="Error"
-          size="small"
-          color="error"
-          sx={{
-            '& .MuiChip-icon': {
-              color: 'inherit',
-            },
-          }}
-        />
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Tooltip title={message || 'Indexing failed'} arrow placement="top">
+          <Chip
+            icon={<AlertCircle size={14} />}
+            label="Error"
+            size="small"
+            color="error"
+            sx={{
+              '& .MuiChip-icon': {
+                color: 'inherit',
+              },
+            }}
+          />
+        </Tooltip>
+        {refreshButton}
+      </Box>
     )
   }
 
   if (status === 'indexing' || status === 'in_progress') {
     return (
-      <Tooltip title={message || 'Repository is being indexed...'} arrow placement="top">
-        <Chip
-          icon={
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                animation: 'spin 1.5s linear infinite',
-                '@keyframes spin': {
-                  '0%': { transform: 'rotate(0deg)' },
-                  '100%': { transform: 'rotate(360deg)' },
-                },
-              }}
-            >
-              <RefreshCw size={14} />
-            </Box>
-          }
-          label="Indexing..."
-          size="small"
-          color="warning"
-          sx={{
-            '& .MuiChip-icon': {
-              color: 'inherit',
-            },
-          }}
-        />
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Tooltip title={message || 'Repository is being indexed...'} arrow placement="top">
+          <Chip
+            icon={
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  animation: 'spin 1.5s linear infinite',
+                  '@keyframes spin': {
+                    '0%': { transform: 'rotate(0deg)' },
+                    '100%': { transform: 'rotate(360deg)' },
+                  },
+                }}
+              >
+                <RefreshCw size={14} />
+              </Box>
+            }
+            label="Indexing..."
+            size="small"
+            color="warning"
+            sx={{
+              '& .MuiChip-icon': {
+                color: 'inherit',
+              },
+            }}
+          />
+        </Tooltip>
+        {refreshButton}
+      </Box>
     )
   }
 
   if (status === 'queued' || status === 'pending') {
     return (
-      <Tooltip title={message || 'Repository is queued for indexing'} arrow placement="top">
-        <Chip
-          icon={<Clock size={14} />}
-          label="Queued"
-          size="small"
-          color="info"
-          sx={{
-            '& .MuiChip-icon': {
-              color: 'inherit',
-            },
-          }}
-        />
-      </Tooltip>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Tooltip title={message || 'Repository is queued for indexing'} arrow placement="top">
+          <Chip
+            icon={<Clock size={14} />}
+            label="Queued"
+            size="small"
+            color="info"
+            sx={{
+              '& .MuiChip-icon': {
+                color: 'inherit',
+              },
+            }}
+          />
+        </Tooltip>
+        {refreshButton}
+      </Box>
     )
   }
 
   // Default: unknown state
   return (
-    <Chip
-      label="Unknown"
-      size="small"
-      color="default"
-      variant="outlined"
-    />
+    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Chip
+        label="Unknown"
+        size="small"
+        color="default"
+        variant="outlined"
+      />
+      {refreshButton}
+    </Box>
   )
 }
 

@@ -7824,18 +7824,8 @@ definitions:
       zed_instance_id:
         type: string
     type: object
-host: app.helix.ml
 info:
-  contact:
-    email: info@helix.ml
-    name: Helix support
-    url: https://app.helix.ml/
-  description: This is the HelixML API.
-  title: HelixML API reference
-  version: "0.1"
-  x-logo:
-    altText: Helix logo
-    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
+  contact: {}
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -10103,6 +10093,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository commits from Kodit
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/kodit-rescan:
+    post:
+      description: Trigger a rescan of a specific commit in Kodit to refresh code
+        intelligence
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit SHA to rescan
+        in: query
+        name: commit_sha
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Rescan repository commit
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:
@@ -16030,6 +16065,4 @@ paths:
             type: array
       security:
       - BearerAuth: []
-schemes:
-- https
 swagger: "2.0"

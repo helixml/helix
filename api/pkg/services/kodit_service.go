@@ -457,6 +457,32 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID stri
 	return parsed.JSON200, nil
 }
 
+// RescanCommit triggers a rescan of a specific commit in Kodit
+func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID string, commitSHA string) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+
+	if commitSHA == "" {
+		return fmt.Errorf("commit SHA is required")
+	}
+
+	resp, err := s.client.RescanCommitApiV1RepositoriesRepoIdCommitsCommitShaRescanPost(ctx, koditRepoID, commitSHA)
+	if err != nil {
+		return fmt.Errorf("failed to rescan commit: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 200 OK, 202 Accepted, 204 No Content are all valid success responses
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
+	}
+
+	log.Info().Str("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Triggered commit rescan in Kodit")
+	return nil
+}
+
 // filterAndConvertEnrichments filters out internal summaries and converts to simplified types
 func filterAndConvertEnrichments(enrichments []kodit.EnrichmentData) *KoditEnrichmentListResponse {
 	const maxContentLength = 500

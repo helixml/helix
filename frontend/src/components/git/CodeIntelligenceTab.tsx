@@ -48,6 +48,7 @@ import {
   useKoditCommits,
   useKoditStatus,
   useKoditSearch,
+  useKoditRescan,
   groupEnrichmentsByType,
   getEnrichmentTypeName,
   getEnrichmentSubtypeName,
@@ -80,6 +81,39 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
   const snackbar = useSnackbar()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
   const { data: koditStatusData, isLoading: koditStatusLoading, error: koditStatusError } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
+  const rescanMutation = useKoditRescan(repoId)
+
+  // Get the commit SHA to use for rescan - either the selected commit or the latest
+  const getRescanCommitSha = (): string | null => {
+    if (commitSha) {
+      return commitSha
+    }
+    // Use the latest commit if no specific commit is selected
+    if (commits.length > 0 && commits[0]?.id) {
+      return commits[0].id
+    }
+    return null
+  }
+
+  const handleRescan = () => {
+    const sha = getRescanCommitSha()
+    if (!sha) {
+      snackbar.error('No commit available to rescan')
+      return
+    }
+    // Reset local state before triggering rescan to avoid 404s on old enrichments
+    setSelectedEnrichmentId(null)
+    setSelectedSnippet(null)
+
+    rescanMutation.mutate(sha, {
+      onSuccess: () => {
+        snackbar.success('Code intelligence rescan triggered')
+      },
+      onError: (error: any) => {
+        snackbar.error(error?.message || 'Failed to trigger rescan')
+      },
+    })
+  }
 
   // Get user's API keys for MCP connection
   const { data: apiKeys = [] } = useGetUserAPIKeys()
@@ -266,6 +300,8 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                     data={koditStatusData}
                     isLoading={koditStatusLoading}
                     error={koditStatusError}
+                    onRefresh={handleRescan}
+                    isRefreshing={rescanMutation.isPending}
                   />
                 </Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5, ml: 4.5 }}>
