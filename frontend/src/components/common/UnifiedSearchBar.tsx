@@ -246,34 +246,34 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                 )}
               </InputAdornment>
             ),
-            endAdornment: (
-              <InputAdornment position="end" sx={{ minWidth: compact ? 24 : 56 }}>
-                {query ? (
-                  <CloseIcon
-                    sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
-                    onClick={() => {
-                      setQuery('')
-                      setOpen(false)
-                    }}
-                  />
-                ) : !compact ? (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                      color: 'text.disabled',
-                      fontSize: '0.75rem',
-                    }}
-                  >
-                    <KeyboardIcon sx={{ fontSize: 14 }} />
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+K
-                    </Typography>
-                  </Box>
-                ) : null}
+            endAdornment: query ? (
+              <InputAdornment position="end">
+                <CloseIcon
+                  sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
+                  onClick={() => {
+                    setQuery('')
+                    setOpen(false)
+                  }}
+                />
               </InputAdornment>
-            ),
+            ) : !compact ? (
+              <InputAdornment position="end">
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    color: 'text.disabled',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  <KeyboardIcon sx={{ fontSize: 14 }} />
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                    {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+K
+                  </Typography>
+                </Box>
+              </InputAdornment>
+            ) : undefined,
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
