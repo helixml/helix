@@ -444,7 +444,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.20" # Pin to specific version
+    tag: "0.5.22" # Pin to specific version
     # Use custom registry if needed
     # repository: "my-registry.example.com/helix/kodit"
 

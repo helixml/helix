@@ -46,7 +46,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.7
-	github.com/helixml/kodit/clients/go v0.0.0-20251201154443-20abc72ab496
+	github.com/helixml/kodit/clients/go v0.0.0-20260120145433-558d8218b081
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jfrog/froggit-go v1.20.1
