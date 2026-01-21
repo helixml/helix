@@ -4760,7 +4760,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4850,12 +4850,8 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title HelixML API reference
- * @version 0.1
- * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
- *
- * This is the HelixML API.
+ * @title No title
+ * @contact
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -6619,6 +6615,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, any>[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-commits`,
         method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of a specific commit in Kodit to refresh code intelligence
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKoditRescanCreate
+     * @summary Rescan repository commit
+     * @request POST:/api/v1/git/repositories/{id}/kodit-rescan
+     * @secure
+     */
+    v1GitRepositoriesKoditRescanCreate: (
+      id: string,
+      query: {
+        /** Commit SHA to rescan */
+        commit_sha: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/kodit-rescan`,
+        method: "POST",
         query: query,
         secure: true,
         format: "json",

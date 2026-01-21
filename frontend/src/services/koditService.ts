@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 
 /**
@@ -165,6 +165,31 @@ export function useKoditSearch(
     },
     enabled: options?.enabled !== false && !!repoId && !!query && query.trim().length > 0,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to trigger a rescan of a specific commit in Kodit
+ * This will refresh the code intelligence indexing for that commit
+ */
+export function useKoditRescan(repoId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (commitSha: string) => {
+      const response = await apiClient.v1GitRepositoriesKoditRescanCreate(repoId, { commit_sha: commitSha })
+      return response.data
+    },
+    onSuccess: () => {
+      // Remove all kodit data completely to force fresh fetches
+      // This ensures the UI shows loading states and fetches fresh data
+      queryClient.removeQueries({ queryKey: ['kodit', 'enrichments', repoId] })
+      queryClient.removeQueries({ queryKey: ['kodit', 'search', repoId] })
+      queryClient.removeQueries({ queryKey: ['kodit', 'status', repoId] })
+      queryClient.removeQueries({ queryKey: ['kodit', 'commits', repoId] })
+    },
   })
 }
 
