@@ -713,12 +713,8 @@ const KEY_VALUE_MAPPINGS: Record<string, number> = {
     '€': StreamKeys.VK_KEY_E,  // Euro on E key in most EU layouts
     '§': StreamKeys.VK_KEY_S,  // Section sign
     '°': StreamKeys.VK_KEY_0,  // Degree symbol
-
-    // French AZERTY unshifted number row characters
-    '&': StreamKeys.VK_KEY_7,  // Already covered above but AZERTY has it on 1
-    // Note: French keyboard has these on number keys unshifted:
-    // & é " ' ( - è _ ç à ) =
-    // We've already mapped the accented ones above
+    // Note: French AZERTY has & é " ' ( - è _ ç à ) = on number keys unshifted
+    // These accented chars are already mapped above
 }
 
 export function convertToKey(event: KeyboardEvent): number | null {
