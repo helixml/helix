@@ -77,7 +77,7 @@ func (apiServer *HelixAPIServer) handleFMP4Stream(res http.ResponseWriter, req *
 	}
 
 	// Parse optional resolution query parameters (default 1280x720 for PiP)
-	// Example: /video.mp4?width=1280&height=720
+	// Example: /video.mp4?width=1280&height=720&bitrate=2000&fps=30
 	width := 1280
 	height := 720
 	bitrate := 2000 // 2 Mbps default for PiP
@@ -98,6 +98,11 @@ func (apiServer *HelixAPIServer) handleFMP4Stream(res http.ResponseWriter, req *
 			bitrate = parsed
 		}
 	}
+	if f := req.URL.Query().Get("fps"); f != "" {
+		if parsed, err := strconv.Atoi(f); err == nil && parsed > 0 && parsed <= 120 {
+			fps = parsed
+		}
+	}
 
 	// Get RevDial connection to desktop container
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
@@ -108,6 +113,7 @@ func (apiServer *HelixAPIServer) handleFMP4Stream(res http.ResponseWriter, req *
 		Int("width", width).
 		Int("height", height).
 		Int("bitrate", bitrate).
+		Int("fps", fps).
 		Msg("Starting fMP4 video stream")
 
 	// Connect to screenshot-server via RevDial

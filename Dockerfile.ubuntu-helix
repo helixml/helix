@@ -104,6 +104,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # ====================================================================
+# CUDA libraries stage - extract libnvrtc for GStreamer cudascale
+# ====================================================================
+# cudascale element requires CUDA runtime compilation library (libnvrtc)
+# We copy just this library from NVIDIA's CUDA image to keep the image small
+FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs
+# libnvrtc is in /usr/local/cuda/lib64/
+
+# ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
 # Ubuntu 25.10 uses GNOME 47+ which has excellent Wayland support.
@@ -634,6 +642,13 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # NOTE: Rust code changes less frequently than Go, so it's placed before Go binaries
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+
+# CUDA runtime compilation library (libnvrtc) for GStreamer cudascale element
+# cudascale enables GPU-accelerated video scaling in the zero-copy pipeline
+COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so.12
+COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /usr/lib/x86_64-linux-gnu/libnvrtc-builtins.so.12.6
+RUN ln -sf libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so && \
+    ldconfig
 
 # Helix Go binaries (v2: socket wait fix)
 # NOTE: Go code changes most frequently, so it's placed last before Zed

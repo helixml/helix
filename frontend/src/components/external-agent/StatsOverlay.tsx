@@ -16,6 +16,7 @@ export interface StatsOverlayProps {
   shouldPollScreenshots: boolean;
   screenshotFps: number;
   screenshotQuality: number;
+  sessionId?: string;
 }
 
 const StatsOverlay: React.FC<StatsOverlayProps> = ({
@@ -28,7 +29,9 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   shouldPollScreenshots,
   screenshotFps,
   screenshotQuality,
+  sessionId,
 }) => {
+  const mp4StreamUrl = sessionId ? `/api/v1/external-agents/${sessionId}/video.mp4` : null;
   return (
     <Box
       sx={{
@@ -52,6 +55,50 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
 
       <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
         <div><strong>Transport:</strong> WebSocket</div>
+        {mp4StreamUrl && (
+          <div>
+            <strong>MP4 Stream:</strong>{' '}
+            <a
+              href={mp4StreamUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
+              title="1280x720 @ 30fps @ 2Mbps"
+            >
+              720p30
+            </a>
+            {' | '}
+            <a
+              href={`${mp4StreamUrl}?width=1920&height=1080&fps=30&bitrate=5000`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
+              title="1920x1080 @ 30fps @ 5Mbps"
+            >
+              1080p30
+            </a>
+            {' | '}
+            <a
+              href={`${mp4StreamUrl}?width=1920&height=1080&fps=60&bitrate=8000`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
+              title="1920x1080 @ 60fps @ 8Mbps"
+            >
+              1080p60
+            </a>
+            {' | '}
+            <a
+              href={`${mp4StreamUrl}?width=3840&height=2160&fps=60&bitrate=30000`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
+              title="3840x2160 @ 60fps @ 30Mbps"
+            >
+              4K60
+            </a>
+          </div>
+        )}
         {/* Active Connections Registry */}
         <div>
           <strong>Active:</strong>{' '}

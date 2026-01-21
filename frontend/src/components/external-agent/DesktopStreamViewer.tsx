@@ -4242,6 +4242,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           shouldPollScreenshots={shouldPollScreenshots}
           screenshotFps={screenshotFps}
           screenshotQuality={screenshotQuality}
+          sessionId={sessionId}
         />
       )}
 
