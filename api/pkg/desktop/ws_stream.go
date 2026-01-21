@@ -59,19 +59,28 @@ func getVideoMode(configOverride string) VideoMode {
 	}
 }
 
-// getGOPSize returns the configured GOP (Group of Pictures) size.
+// getDefaultGOPSize returns the default GOP (Group of Pictures) size.
 // Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30 seconds at 60fps).
 // Since we use TCP WebSocket (reliable transport), keyframes are mainly for:
 // - Initial connection (new encoder pipeline = fresh keyframe)
 // - Rare encoder state corruption recovery
 // Larger GOP = smoother bandwidth (keyframes are 5-10x larger than P-frames).
-func getGOPSize() int {
+func getDefaultGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
 	return 1800 // Default: 30 seconds at 60fps - TCP is reliable, keyframes mainly for error recovery
+}
+
+// getEffectiveGOPSize returns the GOP size to use for this stream.
+// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (1800)
+func (v *VideoStreamer) getEffectiveGOPSize() int {
+	if v.config.GOPSize > 0 {
+		return v.config.GOPSize
+	}
+	return getDefaultGOPSize()
 }
 
 // getRenderDevice returns the VA-API render device property string if configured.
@@ -144,6 +153,10 @@ type StreamConfig struct {
 	// VideoMode overrides the HELIX_VIDEO_MODE env var for this stream
 	// Valid values: "shm", "native", "zerocopy" (default: from env or "shm")
 	VideoMode string `json:"video_mode,omitempty"`
+	// GOPSize overrides the default keyframe interval (in frames)
+	// For live streaming, use short GOP (e.g., 30-60 frames = 0.5-1 second)
+	// Default is 1800 frames (30 seconds) if not specified
+	GOPSize int `json:"gop_size,omitempty"`
 	// User info for multi-player presence
 	UserID    string `json:"user_id,omitempty"`
 	UserName  string `json:"user_name,omitempty"`
@@ -579,7 +592,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"videoscale add-borders=true",
 				fmt.Sprintf("video/x-raw,format=RGBA,width=%d,height=%d", v.config.Width, v.config.Height),
 				"cudaupload",
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 			)
 		} else {
 			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → cudascale → nvh264enc
@@ -589,7 +602,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			parts = append(parts,
 				"cudascale add-borders=true",
 				fmt.Sprintf("video/x-raw(memory:CUDAMemory),width=%d,height=%d", v.config.Width, v.config.Height),
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 			)
 		}
 
@@ -599,7 +612,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		parts = append(parts,
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", getGOPSize(), v.config.Bitrate),
+			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cqp target-usage=6", v.getEffectiveGOPSize(), v.config.Bitrate),
 			"h264parse",
 			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
@@ -620,7 +633,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				v.config.Bitrate, v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
 			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
@@ -637,7 +650,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"vapostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
-				v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+				v.config.Bitrate, v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
 			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
 		)
@@ -652,7 +665,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"vaapipostproc add-borders=true",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
 			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
-				getGOPSize()),
+				v.getEffectiveGOPSize()),
 		)
 		// Log if render device is configured (even though legacy plugin uses env var instead)
 		if renderDevice := getRenderDevice(); renderDevice != "" {
@@ -666,7 +679,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
-			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
+			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 
 	case "x264":
@@ -676,7 +689,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
-			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
 	default:
@@ -686,7 +699,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
-			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, getGOPSize()),
+			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 	}
 

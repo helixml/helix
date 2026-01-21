@@ -32,7 +32,6 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
-import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
 import TuneIcon from '@mui/icons-material/Tune'
 import DifferenceIcon from '@mui/icons-material/Difference'
@@ -154,7 +153,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     apps.loadApps()
   }, [])
 
-  const [currentView, setCurrentView] = useState<'session' | 'desktop' | 'changes' | 'details'>('session')
+  const [currentView, setCurrentView] = useState<'desktop' | 'changes' | 'details'>('desktop')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
@@ -196,8 +195,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Default to appropriate view based on session state
   useEffect(() => {
     if (activeSessionId && currentView === 'details') {
-      // If there's an active session and we're on details, switch to session view
-      setCurrentView('session')
+      // If there's an active session and we're on details, switch to desktop view
+      setCurrentView('desktop')
     } else if (!activeSessionId && currentView !== 'details') {
       // If no active session, switch to details view
       setCurrentView('details')
@@ -492,13 +491,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           }}
         >
           {activeSessionId && (
-            <ToggleButton value="session" aria-label="Session view">
-              <Tooltip title="Session">
-                <ForumOutlinedIcon sx={{ fontSize: 18 }} />
-              </Tooltip>
-            </ToggleButton>
-          )}
-          {activeSessionId && (
             <ToggleButton value="desktop" aria-label="Desktop view">
               <Tooltip title="Desktop">
                 <ComputerIcon sx={{ fontSize: 18 }} />
@@ -593,12 +585,34 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Tab Content */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* Session View */}
-        {activeSessionId && currentView === 'session' && (
+        {/* Desktop View - combines desktop stream (left) with chat (right) */}
+        {activeSessionId && currentView === 'desktop' && (
           <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Left: Desktop stream */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+              <ExternalAgentDesktopViewer
+                sessionId={activeSessionId}
+                sandboxId={activeSessionId}
+                mode="stream"
+                onClientIdCalculated={setClientUniqueId}
+                displayWidth={displaySettings.width}
+                displayHeight={displaySettings.height}
+                displayFps={displaySettings.fps}
+              />
+            </Box>
+
+            {/* Right: Chat panel */}
+            <Box sx={{
+              width: 380,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              borderLeft: 1,
+              borderColor: 'divider',
+              overflow: 'hidden',
+            }}>
               <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-              <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                 <Box sx={{ flex: 1 }}>
                   <RobustPromptInput
                     sessionId={activeSessionId}
@@ -610,7 +624,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         type: SESSION_TYPE_TEXT,
                         message,
                         sessionId: activeSessionId,
-                        interrupt: interrupt ?? true, // Default to interrupt if not specified
+                        interrupt: interrupt ?? true,
                       })
                     }}
                     onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
@@ -628,6 +642,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Tooltip>
               </Box>
             </Box>
+
+            {/* Prompt library sidebar */}
             {showPromptLibrary && (
               <Box sx={{ width: 320, flexShrink: 0 }}>
                 <PromptLibrarySidebar
@@ -641,38 +657,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             )}
           </Box>
-        )}
-
-        {/* Desktop View */}
-        {activeSessionId && currentView === 'desktop' && (
-          <>
-            <ExternalAgentDesktopViewer
-              sessionId={activeSessionId}
-              sandboxId={activeSessionId}
-              mode="stream"
-              onClientIdCalculated={setClientUniqueId}
-              displayWidth={displaySettings.width}
-              displayHeight={displaySettings.height}
-              displayFps={displaySettings.fps}
-            />
-            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-              <RobustPromptInput
-                sessionId={activeSessionId}
-                specTaskId={task.id}
-                projectId={task.project_id}
-                apiClient={api.getApiClient()}
-                onSend={async (message: string, interrupt?: boolean) => {
-                  await streaming.NewInference({
-                    type: SESSION_TYPE_TEXT,
-                    message,
-                    sessionId: activeSessionId,
-                    interrupt: interrupt ?? true,
-                  })
-                }}
-                placeholder="Send message to agent..."
-              />
-            </Box>
-          </>
         )}
 
         {/* Changes View */}

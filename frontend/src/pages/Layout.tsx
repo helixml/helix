@@ -62,7 +62,6 @@ const Layout: FC<{
   const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [showLoginRegisterDialog, setShowLoginRegisterDialog] = useState(false)
   const userMenuHeight = useUserMenuHeight()
   const { data: config } = useGetConfig()
 
@@ -433,10 +432,6 @@ const Layout: FC<{
             )
           )
         }
-        <LoginRegisterDialog
-          open={showLoginRegisterDialog}
-          onClose={() => setShowLoginRegisterDialog(false)}
-        />
         {
           (account.serverConfig?.license && !account.serverConfig.license.valid) ||
           account.serverConfig?.deployment_id === "unknown" ?

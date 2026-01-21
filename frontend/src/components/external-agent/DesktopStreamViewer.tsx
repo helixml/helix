@@ -1084,10 +1084,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Toggle Picture-in-Picture mode - allows viewing stream while using other apps
   // Uses zero-copy VideoFrame path (Chrome) or fMP4 native video (Safari/iOS)
   const togglePiP = useCallback(async () => {
+    console.log('[PiP] togglePiP called');
     const video = videoRef.current as any;
     const canvas = canvasRef.current;
     const stream = streamRef.current;
-    if (!video || !canvas) return;
+    console.log('[PiP] video:', !!video, 'canvas:', !!canvas, 'stream:', !!stream);
+    if (!video || !canvas) {
+      console.log('[PiP] Early return - missing video or canvas');
+      return;
+    }
 
     try {
       if (isPiPActive) {
@@ -1101,11 +1106,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Safari fMP4 video
           (fmp4VideoRef.current as any).webkitSetPresentationMode('inline');
         }
-        // Cleanup fMP4 video if it was used
+        // Cleanup HLS video if it was used
         if (fmp4VideoRef.current) {
-          // Clear live edge interval
-          const intervalId = (fmp4VideoRef.current as any)._liveEdgeInterval;
-          if (intervalId) clearInterval(intervalId);
           fmp4VideoRef.current.pause();
           fmp4VideoRef.current.src = '';
           fmp4VideoRef.current.remove();
@@ -1128,100 +1130,113 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             await video.requestPictureInPicture();
           }
         } else {
-          // Use fMP4 native video stream for Safari/iOS
-          // This streams H.264 directly to a native video element, avoiding WebCodecs entirely
-          console.log('[PiP] Using fMP4 native video stream (Safari/iOS)');
+          // Use native HLS for Safari/iOS (no WebCodecs support)
+          // All other modern browsers use WebCodecs path above
+          console.log('[PiP] Using HLS stream (Safari/iOS)');
 
-          // Create fMP4 video element if not exists
           if (!fmp4VideoRef.current) {
-            const fmp4Video = document.createElement('video');
-            fmp4Video.style.position = 'absolute';
-            fmp4Video.style.top = '-9999px';
-            fmp4Video.style.left = '-9999px';
-            fmp4Video.style.width = '1px';
-            fmp4Video.style.height = '1px';
-            fmp4Video.muted = true;
-            fmp4Video.playsInline = true;
-            fmp4Video.autoplay = true;
-            document.body.appendChild(fmp4Video);
-            fmp4VideoRef.current = fmp4Video;
+            console.log('[PiP] Creating HLS video element...');
+            const hlsVideo = document.createElement('video');
+            // Position in bottom-right corner, visible for PiP
+            hlsVideo.style.position = 'fixed';
+            hlsVideo.style.bottom = '10px';
+            hlsVideo.style.right = '10px';
+            hlsVideo.style.width = '160px';
+            hlsVideo.style.height = '90px';
+            hlsVideo.style.zIndex = '9999';
+            hlsVideo.style.border = '2px solid #00ff00';
+            hlsVideo.style.backgroundColor = '#000';
+            hlsVideo.muted = true;
+            hlsVideo.playsInline = true;
+            hlsVideo.autoplay = true;
+            hlsVideo.controls = true;
+            (hlsVideo as any).webkitPlaysinline = true;
+            document.body.appendChild(hlsVideo);
+            fmp4VideoRef.current = hlsVideo;
 
-            // Build fMP4 stream URL with token and resolution for PiP
-            // Use 720p @ 2Mbps for PiP to reduce bandwidth and decode overhead
+            // Build HLS stream URL
             const token = account.token;
             const baseUrl = window.location.origin;
             const pipWidth = 1280;
             const pipHeight = 720;
-            const pipBitrate = 2000; // 2 Mbps
+            const pipBitrate = 2000;
             const params = new URLSearchParams();
             if (token) params.set('access_token', token);
             params.set('width', String(pipWidth));
             params.set('height', String(pipHeight));
             params.set('bitrate', String(pipBitrate));
-            const fmp4Url = `${baseUrl}/api/v1/external-agents/${sessionId}/video.mp4?${params.toString()}`;
-            console.log('[PiP] fMP4 stream URL:', fmp4Url.replace(token || '', '[REDACTED]'));
+            const hlsUrl = `${baseUrl}/api/v1/external-agents/${sessionId}/stream.m3u8?${params.toString()}`;
+            console.log('[PiP] HLS stream URL:', hlsUrl.replace(token || '', '[REDACTED]'));
 
-            fmp4Video.src = fmp4Url;
+            // Native HLS is supported in Safari and all WebKit-based browsers (iOS)
+            // Modern Chrome/Firefox/Edge use WebCodecs path above, so this is Safari-only
+            if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
+              console.log('[PiP] Using native HLS (Safari/iOS)');
+              hlsVideo.src = hlsUrl;
+              hlsVideo.play().catch((err: Error) => console.log('[PiP] HLS Video play failed:', err));
+            } else {
+              // This shouldn't happen - modern browsers either have WebCodecs (above) or native HLS
+              console.error('[PiP] Browser has neither WebCodecs nor native HLS - PiP not supported');
+              hlsVideo.remove();
+              fmp4VideoRef.current = null;
+              return;
+            }
 
-            // Wait for video to be ready
-            await new Promise<void>((resolve, reject) => {
-              const onCanPlay = () => {
-                fmp4Video.removeEventListener('canplay', onCanPlay);
-                fmp4Video.removeEventListener('error', onError);
-                resolve();
-              };
-              const onError = () => {
-                fmp4Video.removeEventListener('canplay', onCanPlay);
-                fmp4Video.removeEventListener('error', onError);
-                reject(new Error('fMP4 video failed to load'));
-              };
-              fmp4Video.addEventListener('canplay', onCanPlay);
-              fmp4Video.addEventListener('error', onError);
-              // Timeout after 10 seconds
-              setTimeout(() => {
-                fmp4Video.removeEventListener('canplay', onCanPlay);
-                fmp4Video.removeEventListener('error', onError);
-                reject(new Error('fMP4 video load timeout'));
-              }, 10000);
+            // Add PiP event listeners
+            hlsVideo.addEventListener('enterpictureinpicture', () => {
+              console.log('[PiP] HLS entered PiP');
+              setIsPiPActive(true);
+            });
+            hlsVideo.addEventListener('leavepictureinpicture', () => {
+              console.log('[PiP] HLS left PiP');
+              setIsPiPActive(false);
+            });
+            hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
+              const mode = (hlsVideo as any).webkitPresentationMode;
+              console.log('[PiP] HLS webkitPresentationMode changed to:', mode);
+              setIsPiPActive(mode === 'picture-in-picture');
+            });
+            hlsVideo.addEventListener('error', () => {
+              const error = hlsVideo.error;
+              console.error('[PiP] HLS video error:', {
+                code: error?.code,
+                message: error?.message,
+              });
             });
 
-            // For live streaming: seek to the live edge and stay there
-            // Check periodically and seek if we fall behind
-            const seekToLiveEdge = () => {
-              if (!fmp4Video || fmp4Video.paused) return;
-              const seekable = fmp4Video.seekable;
-              if (seekable && seekable.length > 0) {
-                const liveEdge = seekable.end(seekable.length - 1);
-                const currentTime = fmp4Video.currentTime;
-                const behindBy = liveEdge - currentTime;
-                // If more than 0.5 seconds behind, seek to live edge
-                if (behindBy > 0.5) {
-                  console.log(`[PiP] Seeking to live edge: ${currentTime.toFixed(2)} -> ${liveEdge.toFixed(2)} (was ${behindBy.toFixed(2)}s behind)`);
-                  fmp4Video.currentTime = liveEdge;
-                }
-              }
-            };
-
-            // Set up live edge seeking interval
-            const liveEdgeInterval = setInterval(seekToLiveEdge, 1000);
-            // Store interval ID on video element for cleanup
-            (fmp4Video as any)._liveEdgeInterval = liveEdgeInterval;
-
-            // Initial seek to live edge after play starts
-            fmp4Video.addEventListener('playing', () => {
-              seekToLiveEdge();
-            }, { once: true });
-
-            await fmp4Video.play().catch((err: Error) => console.log('[PiP] fMP4 Video play failed:', err));
+            console.log('[PiP] HLS setup initiated...');
           }
 
-          const fmp4Video = fmp4VideoRef.current as any;
-          if (fmp4Video.requestPictureInPicture) {
+          const hlsVideo = fmp4VideoRef.current as any;
+          console.log('[PiP] HLS video state:', {
+            readyState: hlsVideo.readyState,
+            readyStateDesc: ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'][hlsVideo.readyState],
+            paused: hlsVideo.paused,
+            currentTime: hlsVideo.currentTime,
+            bufferedLength: hlsVideo.buffered?.length,
+          });
+
+          // Only try PiP if video has enough data
+          if (hlsVideo.readyState < 2) {
+            console.log('[PiP] Video not ready yet (readyState < HAVE_CURRENT_DATA). Click PiP again once video loads.');
+            return;
+          }
+
+          if (hlsVideo.requestPictureInPicture) {
             // Standard API (Chrome, Edge, Firefox)
-            await fmp4Video.requestPictureInPicture();
-          } else if (fmp4Video.webkitSetPresentationMode) {
-            // Safari
-            fmp4Video.webkitSetPresentationMode('picture-in-picture');
+            console.log('[PiP] Using requestPictureInPicture API');
+            await hlsVideo.requestPictureInPicture();
+          } else if (hlsVideo.webkitSetPresentationMode) {
+            // Safari - must be synchronous from user gesture
+            console.log('[PiP] Using webkitSetPresentationMode API');
+            try {
+              hlsVideo.webkitSetPresentationMode('picture-in-picture');
+              console.log('[PiP] webkitSetPresentationMode called successfully');
+            } catch (e) {
+              console.error('[PiP] webkitSetPresentationMode failed:', e);
+            }
+          } else {
+            console.log('[PiP] No PiP API available on HLS video element');
           }
         }
       }
@@ -1229,8 +1244,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.error('[PiP] Failed to toggle Picture-in-Picture:', err);
       // Cleanup on error
       if (fmp4VideoRef.current) {
-        const intervalId = (fmp4VideoRef.current as any)._liveEdgeInterval;
-        if (intervalId) clearInterval(intervalId);
         fmp4VideoRef.current.pause();
         fmp4VideoRef.current.src = '';
         fmp4VideoRef.current.remove();
@@ -1376,8 +1389,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Check PiP support (Safari uses different API)
     const video = document.createElement('video');
-    const pipSupported = document.pictureInPictureEnabled ||
-      (video as any).webkitSupportsPresentationMode?.('picture-in-picture');
+    const standardPiP = !!document.pictureInPictureEnabled;
+    const webkitPiP = typeof (video as any).webkitSupportsPresentationMode === 'function'
+      ? (video as any).webkitSupportsPresentationMode('picture-in-picture')
+      : false;
+    const pipSupported = standardPiP || webkitPiP;
+    console.log('[PiP] Support check:', { standardPiP, webkitPiP, pipSupported });
     setIsPiPSupported(pipSupported);
   }, []);
 
@@ -2355,6 +2372,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
+      // Skip if clipboard API is not available (e.g., Safari without HTTPS)
+      if (!navigator.clipboard) {
+        return;
+      }
+
       try {
         const apiClient = helixApi.getApiClient();
         const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
@@ -3130,6 +3152,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               return;
             }
 
+            // Skip local clipboard sync if API not available (e.g., Safari without HTTPS)
+            if (!navigator.clipboard) {
+              showClipboardToast('Copied', 'success');
+              return;
+            }
+
             if (clipboardData.type === 'image') {
               const base64Data = clipboardData.data;
               const byteCharacters = atob(base64Data);
@@ -3177,6 +3205,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
         console.log(`[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`);
+
+        // Skip if clipboard API is not available (e.g., Safari without HTTPS)
+        if (!navigator.clipboard) {
+          console.warn('[Clipboard] Clipboard API not available');
+          showClipboardToast('Clipboard not available', 'error');
+          return;
+        }
 
         // Handle clipboard sync asynchronously (don't block keystroke processing)
         navigator.clipboard.read().then(clipboardItems => {

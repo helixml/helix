@@ -200,7 +200,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             onChange={(e) => setEmail(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
-              id: 'login-email',
               name: 'username',
               autoComplete: 'username',
               inputMode: 'email',
@@ -279,7 +278,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             onChange={(e) => setPassword(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
-              id: 'login-password',
               name: 'password',
               autoComplete: mode === 'login' ? 'current-password' : 'new-password',
               'data-1p-ignore': 'false',

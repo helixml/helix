@@ -164,12 +164,18 @@ func (apiServer *HelixAPIServer) handleFMP4Stream(res http.ResponseWriter, req *
 
 	// Send WebSocket init message with resolution config
 	// This tells the screenshot-server what resolution to encode at
+	// Use short GOP (1 second) for live streaming - ensures quick start and recovery
+	gopSize := fps // 1 second worth of frames
+	if gopSize < 30 {
+		gopSize = 30
+	}
 	initMsg := map[string]interface{}{
-		"type":    "init",
-		"width":   width,
-		"height":  height,
-		"fps":     fps,
-		"bitrate": bitrate,
+		"type":     "init",
+		"width":    width,
+		"height":   height,
+		"fps":      fps,
+		"bitrate":  bitrate,
+		"gop_size": gopSize, // Request frequent keyframes for live streaming
 	}
 	initJSON, err := json.Marshal(initMsg)
 	if err != nil {
@@ -187,12 +193,17 @@ func (apiServer *HelixAPIServer) handleFMP4Stream(res http.ResponseWriter, req *
 
 	log.Debug().RawJSON("init", initJSON).Msg("Sent init message to screenshot-server")
 
-	// Set response headers for streaming
+	// Set response headers for low-latency live streaming
 	res.Header().Set("Content-Type", "video/mp4")
 	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	res.Header().Set("Transfer-Encoding", "chunked")
-	// Important: Allow the video to start playing immediately
+	// Disable buffering at all layers (nginx, CDN, browser)
+	res.Header().Set("X-Accel-Buffering", "no")
 	res.Header().Set("X-Content-Type-Options", "nosniff")
+	// Hint that this is a live stream
+	res.Header().Set("X-Content-Duration", "Inf")
+	// Prevent range requests (not meaningful for live streams)
+	res.Header().Set("Accept-Ranges", "none")
 
 	// Flush headers
 	if flusher, ok := res.(http.Flusher); ok {
@@ -262,17 +273,17 @@ func (m *fMP4Muxer) processWebSocketStream(r *bufio.Reader, ctx context.Context)
 			continue
 		}
 
-		// Parse video frame header
-		// Format: type(1) + codec(1) + keyframe(1) + width(2) + height(2) + pts(8) + data
+		// Parse video frame header (matches ws_stream.go sendVideoFrame format)
+		// Format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
 		if len(frameData) < 15 {
 			continue
 		}
 
 		// codec := frameData[1]
 		isKeyframe := frameData[2] != 0
-		width := binary.LittleEndian.Uint16(frameData[3:5])
-		height := binary.LittleEndian.Uint16(frameData[5:7])
-		pts := binary.LittleEndian.Uint64(frameData[7:15])
+		pts := binary.BigEndian.Uint64(frameData[3:11])
+		width := binary.BigEndian.Uint16(frameData[11:13])
+		height := binary.BigEndian.Uint16(frameData[13:15])
 		nalData := frameData[15:]
 
 		if len(nalData) == 0 {
@@ -284,6 +295,17 @@ func (m *fMP4Muxer) processWebSocketStream(r *bufio.Reader, ctx context.Context)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to process NAL units")
 			continue
+		}
+
+		// Log every 60 frames
+		if m.frameNum%60 == 1 {
+			log.Debug().
+				Uint32("frame", m.frameNum).
+				Bool("keyframe", isKeyframe).
+				Uint16("width", width).
+				Uint16("height", height).
+				Int("nal_size", len(nalData)).
+				Msg("fMP4 frame processed")
 		}
 	}
 }
@@ -331,7 +353,7 @@ func (m *fMP4Muxer) processNALUnits(data []byte, isKeyframe bool, width, height 
 		return nil
 	}
 
-	// Filter out SPS/PPS from the actual frame data (they're in the init segment)
+	// Filter out SPS/PPS from the actual frame data (they're in the init segment for avc1)
 	var frameNALUs [][]byte
 	for _, nalu := range nalus {
 		if len(nalu) == 0 {
@@ -352,6 +374,7 @@ func (m *fMP4Muxer) processNALUnits(data []byte, isKeyframe bool, width, height 
 }
 
 // writeInitSegment writes the fMP4 initialization segment (ftyp + moov)
+// Optimized for Safari iOS PiP and low-latency live streaming
 func (m *fMP4Muxer) writeInitSegment() error {
 	// Parse SPS for actual dimensions
 	spsInfo, err := avc.ParseSPSNALUnit(m.sps, true)
@@ -363,9 +386,18 @@ func (m *fMP4Muxer) writeInitSegment() error {
 		m.height = uint32(spsInfo.Height)
 	}
 
-	// Create init segment
+	// Create init segment with custom ftyp for Safari/iOS compatibility
+	// Brands: isom (base), iso5 (fragmented), iso6 (CMAF), avc1 (H.264), mp41 (MP4 v1)
+	// These brands signal this is a fragmented MP4 suitable for live streaming
 	init := mp4.CreateEmptyInit()
+	init.Ftyp = mp4.NewFtyp("isom", 0, []string{"isom", "iso5", "iso6", "avc1", "mp41"})
 	init.AddEmptyTrack(fmp4Timescale, "video", "und")
+
+	// TweakSingleTrakLive removes mehd box which signals unknown duration (live stream)
+	// This helps players understand this is a live stream, not a file with fixed duration
+	if err := init.TweakSingleTrakLive(); err != nil {
+		log.Warn().Err(err).Msg("Failed to tweak init for live streaming")
+	}
 
 	// Set up AVC decoder configuration
 	trak := init.Moov.Trak
@@ -378,6 +410,8 @@ func (m *fMP4Muxer) writeInitSegment() error {
 	}
 
 	// Create visual sample entry
+	// Use avc1 for fragmented MP4 - better browser compatibility
+	// avc1 signals SPS/PPS are in the init segment (avcC box)
 	avcx := mp4.CreateVisualSampleEntryBox("avc1", uint16(m.width), uint16(m.height), avcC)
 	stsd.AddChild(avcx)
 
@@ -398,7 +432,8 @@ func (m *fMP4Muxer) writeInitSegment() error {
 	log.Info().
 		Uint32("width", m.width).
 		Uint32("height", m.height).
-		Msg("fMP4 init segment written")
+		Int("init_size", initBuf.Len()).
+		Msg("fMP4 init segment written (live stream mode)")
 
 	return nil
 }
@@ -407,15 +442,18 @@ func (m *fMP4Muxer) writeInitSegment() error {
 func (m *fMP4Muxer) writeMediaSegment(nalus [][]byte, isKeyframe bool, pts uint64) error {
 	m.frameNum++
 
-	// Calculate decode time (relative to base)
-	decodeTime := pts - m.baseTime
+	// Calculate decode time (relative to base) and convert from microseconds to 90kHz timescale
+	// pts is in microseconds, fMP4 uses 90kHz (90000 ticks per second)
+	decodeTime := (pts - m.baseTime) * fmp4Timescale / 1000000
 
-	// Calculate sample duration (assume 30fps = 3000 ticks at 90kHz)
-	var sampleDur uint32 = 3000
+	// Calculate sample duration based on actual frame timing
+	// Use real timing - variable framerate is expected with damage-based capture
+	var sampleDur uint32 = 3000 // default 33ms = 30fps for first frame
+
 	if m.lastTimestamp > 0 && pts > m.lastTimestamp {
-		sampleDur = uint32((pts - m.lastTimestamp) * fmp4Timescale / 1000000) // Convert from microseconds
+		sampleDur = uint32((pts - m.lastTimestamp) * fmp4Timescale / 1000000)
 		if sampleDur == 0 {
-			sampleDur = 3000
+			sampleDur = 1500 // minimum 1 tick to avoid division issues
 		}
 	}
 	m.lastTimestamp = pts
@@ -468,6 +506,17 @@ func (m *fMP4Muxer) writeMediaSegment(nalus [][]byte, isKeyframe bool, pts uint6
 
 	if m.flusher != nil {
 		m.flusher.Flush()
+	}
+
+	// Log first few fragments and then periodically
+	if m.frameNum <= 3 || m.frameNum%60 == 0 {
+		log.Debug().
+			Uint32("frame", m.frameNum).
+			Bool("keyframe", isKeyframe).
+			Int("fragment_bytes", fragBuf.Len()).
+			Uint32("duration", sampleDur).
+			Uint64("decode_time", decodeTime).
+			Msg("fMP4 fragment written")
 	}
 
 	return nil
@@ -532,6 +581,7 @@ func readWebSocketFrame(r *bufio.Reader) ([]byte, error) {
 
 // writeWebSocketFrame writes a WebSocket frame to the connection
 // isText determines if it's a text frame (opcode 1) or binary frame (opcode 2)
+// Client-to-server frames MUST be masked per RFC 6455
 func writeWebSocketFrame(w io.Writer, payload []byte, isText bool) error {
 	var opcode byte = 0x02 // Binary frame
 	if isText {
@@ -540,20 +590,29 @@ func writeWebSocketFrame(w io.Writer, payload []byte, isText bool) error {
 
 	payloadLen := len(payload)
 
-	// Build frame header
+	// Generate random mask key (required for client-to-server frames)
+	maskKey := make([]byte, 4)
+	rand.Read(maskKey)
+
+	// Build frame header with MASK bit set (0x80 in second byte)
 	var header []byte
 	if payloadLen < 126 {
-		header = []byte{0x80 | opcode, byte(payloadLen)}
+		header = make([]byte, 6)
+		header[0] = 0x80 | opcode
+		header[1] = 0x80 | byte(payloadLen) // MASK bit + length
+		copy(header[2:6], maskKey)
 	} else if payloadLen < 65536 {
-		header = make([]byte, 4)
+		header = make([]byte, 8)
 		header[0] = 0x80 | opcode
-		header[1] = 126
+		header[1] = 0x80 | 126 // MASK bit + 126
 		binary.BigEndian.PutUint16(header[2:4], uint16(payloadLen))
+		copy(header[4:8], maskKey)
 	} else {
-		header = make([]byte, 10)
+		header = make([]byte, 14)
 		header[0] = 0x80 | opcode
-		header[1] = 127
+		header[1] = 0x80 | 127 // MASK bit + 127
 		binary.BigEndian.PutUint64(header[2:10], uint64(payloadLen))
+		copy(header[10:14], maskKey)
 	}
 
 	// Write header
@@ -561,8 +620,12 @@ func writeWebSocketFrame(w io.Writer, payload []byte, isText bool) error {
 		return err
 	}
 
-	// Write payload
-	if _, err := w.Write(payload); err != nil {
+	// Mask and write payload
+	maskedPayload := make([]byte, len(payload))
+	for i := range payload {
+		maskedPayload[i] = payload[i] ^ maskKey[i%4]
+	}
+	if _, err := w.Write(maskedPayload); err != nil {
 		return err
 	}
 
