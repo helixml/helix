@@ -854,6 +854,7 @@ const SpecTasksPage: FC = () => {
         },
       ] : undefined}
       breadcrumbTitle={project ? undefined : "SpecTasks"}
+      breadcrumbShowHome={false}
       orgBreadcrumbs={true}
       showDrawerButton={true}
       topbarContent={
