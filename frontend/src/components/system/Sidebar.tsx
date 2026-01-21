@@ -269,7 +269,7 @@ const SidebarContentInner: React.FC<{
       >
         <SidebarContextHeader />
         {/* Global search - available on all pages */}
-        <Box sx={{ pl: 1, pr: 1, py: 1 }}>
+        <Box sx={{ px: 1, py: 1, width: '100%', boxSizing: 'border-box' }}>
           <UnifiedSearchBar compact placeholder="Search..." />
         </Box>
         <Divider sx={{ mb: 1 }} />

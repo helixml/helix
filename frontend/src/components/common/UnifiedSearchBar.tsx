@@ -248,30 +248,29 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
             ),
             endAdornment: (
               <InputAdornment position="end">
-                {query ? (
-                  <CloseIcon
-                    sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
-                    onClick={() => {
-                      setQuery('')
-                      setOpen(false)
-                    }}
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                      color: 'text.disabled',
-                      fontSize: '0.75rem',
-                    }}
-                  >
-                    <KeyboardIcon sx={{ fontSize: 14 }} />
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {navigator.platform.includes('Mac') ? '⌘' : '⌃'}K
+                <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  {query ? (
+                    <CloseIcon
+                      sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
+                      onClick={() => {
+                        setQuery('')
+                        setOpen(false)
+                      }}
+                    />
+                  ) : (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontFamily: 'monospace',
+                        color: 'text.disabled',
+                        fontSize: '0.7rem',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {navigator.platform.includes('Mac') ? '⌘K' : '^K'}
                     </Typography>
-                  </Box>
-                )}
+                  )}
+                </Box>
               </InputAdornment>
             ),
           }}
