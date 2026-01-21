@@ -40,7 +40,6 @@ import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
-import ProjectDropZone from '../components/project/ProjectDropZone';
 import PreviewPanel from '../components/app/PreviewPanel';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
@@ -1137,56 +1136,49 @@ const SpecTasksPage: FC = () => {
           )}
 
           {/* Main Content: Kanban Board, Tabs View, or Audit Trail */}
-          {/* Wrap with ProjectDropZone for drag-drop file upload (disabled for workspace which may have desktop tabs) */}
-          <ProjectDropZone
-            repositoryId={defaultRepoId}
-            branch="main"
-            disabled={viewMode === 'workspace'}
-          >
-            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-              {viewMode === 'kanban' && (
-                <SpecTaskKanbanBoard
-                  userId={account.user?.id}
-                  projectId={projectId}
-                  onCreateTask={handleOpenCreateDialog}
-                  onTaskClick={(task) => {
-                    // Navigate to task detail page
-                    account.orgNavigate('project-task-detail', { id: projectId, taskId: task.id });
-                  }}
-                  onRefresh={() => {
-                    setRefreshing(true);
-                    setTimeout(() => setRefreshing(false), 2000);
-                  }}
-                  refreshing={refreshing}
-                  refreshTrigger={refreshTrigger}
-                  focusTaskId={focusTaskId}
-                  hasExternalRepo={hasExternalRepo}
-                  showArchived={showArchived}
-                  showMetrics={showMetrics}
-                  showMerged={showMerged}
-                />
-              )}
-              {viewMode === 'workspace' && (
-                <TabsView
-                  projectId={projectId}
-                  tasks={tasksData || []}
-                  onCreateTask={handleOpenCreateDialog}
-                  onRefresh={() => setRefreshTrigger(prev => prev + 1)}
-                  initialTaskId={openTaskId}
-                  initialDesktopId={openDesktopId}
-                />
-              )}
-              {viewMode === 'audit' && (
-                <ProjectAuditTrail
-                  projectId={projectId || ''}
-                  onTaskClick={(taskId) => {
-                    // Navigate to task detail page
-                    account.orgNavigate('project-task-detail', { id: projectId, taskId });
-                  }}
-                />
-              )}
-            </Box>
-          </ProjectDropZone>
+          <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
+            {viewMode === 'kanban' && (
+              <SpecTaskKanbanBoard
+                userId={account.user?.id}
+                projectId={projectId}
+                onCreateTask={handleOpenCreateDialog}
+                onTaskClick={(task) => {
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId: task.id });
+                }}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  setTimeout(() => setRefreshing(false), 2000);
+                }}
+                refreshing={refreshing}
+                refreshTrigger={refreshTrigger}
+                focusTaskId={focusTaskId}
+                hasExternalRepo={hasExternalRepo}
+                showArchived={showArchived}
+                showMetrics={showMetrics}
+                showMerged={showMerged}
+              />
+            )}
+            {viewMode === 'workspace' && (
+              <TabsView
+                projectId={projectId}
+                tasks={tasksData || []}
+                onCreateTask={handleOpenCreateDialog}
+                onRefresh={() => setRefreshTrigger(prev => prev + 1)}
+                initialTaskId={openTaskId}
+                initialDesktopId={openDesktopId}
+              />
+            )}
+            {viewMode === 'audit' && (
+              <ProjectAuditTrail
+                projectId={projectId || ''}
+                onTaskClick={(taskId) => {
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId });
+                }}
+              />
+            )}
+          </Box>
         </Box>
 
         {/* RIGHT PANEL: New Spec Task - slides in from right */}

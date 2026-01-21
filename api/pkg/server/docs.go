@@ -2095,6 +2095,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/video.mp4": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams H.264 video from the desktop session as fragmented MP4.\nThis allows native video element playback with Picture-in-Picture support.",
+                "produces": [
+                    "video/mp4"
+                ],
+                "tags": [
+                    "external-agents"
+                ],
+                "summary": "Stream video as fragmented MP4",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/voice": {
             "post": {
                 "security": [
@@ -4151,6 +4209,65 @@ const docTemplate = `{
                     },
                     "502": {
                         "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/sync-all": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Syncs all branches from the upstream remote repository to the local repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Sync all branches from upstream",
+                "operationId": "syncAllBranches",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Force sync (default: false)",
+                        "name": "force",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SyncAllResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -15456,6 +15573,10 @@ const docTemplate = `{
                     "description": "Used for isolation and metrics tracking",
                     "type": "string"
                 },
+                "session_id": {
+                    "description": "Session this key is scoped to (ephemeral keys)",
+                    "type": "string"
+                },
                 "spec_task_id": {
                     "description": "Used for isolation and metrics tracking",
                     "type": "string"
@@ -22969,6 +23090,20 @@ const docTemplate = `{
                 "arguments": {
                     "type": "object",
                     "additionalProperties": true
+                }
+            }
+        },
+        "types.SyncAllResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
                 }
             }
         },

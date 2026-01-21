@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-git/go-billy/v6/osfs"
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/go-git/go-git/v6/storage"
@@ -360,17 +361,9 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 		return &types.User{ID: "test_user", Email: "test@example.com", Admin: false}, nil
 	}
 
-	if strings.HasPrefix(apiKey, "Basic ") {
-		encodedCreds := strings.TrimPrefix(apiKey, "Basic ")
-		decodedBytes, err := base64.StdEncoding.DecodeString(encodedCreds)
-		if err != nil {
-			return nil, fmt.Errorf("invalid Basic auth encoding")
-		}
-		parts := strings.SplitN(string(decodedBytes), ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid Basic auth format")
-		}
-		apiKey = parts[1]
+	apiKey = s.extractRawAPIKey(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("empty API key")
 	}
 
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: apiKey})
@@ -379,6 +372,84 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	}
 
 	return s.store.GetUser(ctx, &store.GetUserQuery{ID: apiKeyRecord.Owner})
+}
+
+// extractRawAPIKey extracts the raw API key from various auth formats
+func (s *GitHTTPServer) extractRawAPIKey(apiKey string) string {
+	if strings.HasPrefix(apiKey, "Basic ") {
+		encodedCreds := strings.TrimPrefix(apiKey, "Basic ")
+		decodedBytes, err := base64.StdEncoding.DecodeString(encodedCreds)
+		if err != nil {
+			return ""
+		}
+		parts := strings.SplitN(string(decodedBytes), ":", 2)
+		if len(parts) != 2 {
+			return ""
+		}
+		return parts[1]
+	}
+	return apiKey
+}
+
+// BranchRestriction holds the result of checking branch permissions for an API key
+type BranchRestriction struct {
+	IsAgentKey    bool   // True if this is a session-scoped agent key
+	AllowedBranch string // The only branch the agent can push to (empty = no push allowed)
+	ErrorMessage  string // Error message if push should be denied
+}
+
+// getBranchRestrictionForAPIKey checks if the API key is an agent key and what branch it can push to.
+// - Regular user keys: no restrictions (IsAgentKey=false)
+// - Agent keys with valid spec_task: can only push to task's branch
+// - Agent keys without spec_task or branch: cannot push at all
+func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKey string) (*BranchRestriction, error) {
+	if s.testMode {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	apiKey = s.extractRawAPIKey(apiKey)
+	if apiKey == "" {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: apiKey})
+	if err != nil || apiKeyRecord == nil {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	// Check if this is an agent key (has SessionID or SpecTaskID)
+	isAgentKey := apiKeyRecord.SessionID != "" || apiKeyRecord.SpecTaskID != ""
+	if !isAgentKey {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	// This is an agent key - it MUST have a valid spec_task with a branch
+	if apiKeyRecord.SpecTaskID == "" {
+		return &BranchRestriction{
+			IsAgentKey:   true,
+			ErrorMessage: "In order to make changes to this Git repo, please create a spec_task.",
+		}, nil
+	}
+
+	task, err := s.store.GetSpecTask(ctx, apiKeyRecord.SpecTaskID)
+	if err != nil {
+		return &BranchRestriction{
+			IsAgentKey:   true,
+			ErrorMessage: fmt.Sprintf("Failed to get spec task %s: %v", apiKeyRecord.SpecTaskID, err),
+		}, nil
+	}
+
+	if task.BranchName == "" {
+		return &BranchRestriction{
+			IsAgentKey:   true,
+			ErrorMessage: "Spec task does not have a branch assigned. Cannot push to Git.",
+		}, nil
+	}
+
+	return &BranchRestriction{
+		IsAgentKey:    true,
+		AllowedBranch: task.BranchName,
+	}, nil
 }
 
 // handleInfoRefs handles GET /info/refs
@@ -450,11 +521,23 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	st, _, err := s.getStorage(r.Context(), repoID)
+	st, repo, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get repository storage")
 		http.Error(w, "Failed to access repository", http.StatusInternalServerError)
 		return
+	}
+
+	// If this is an external repository, sync from upstream BEFORE serving the pull.
+	// This ensures users always get the latest data from the upstream repository.
+	if repo != nil && repo.ExternalURL != "" {
+		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+			// Log the error but don't fail the pull - serve what we have
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
+		} else {
+			log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
+		}
 	}
 
 	version := r.Header.Get("Git-Protocol")
@@ -506,6 +589,19 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// If this is an external repository, sync from upstream BEFORE accepting the push.
+	// This ensures our local state is up-to-date with any changes made in the upstream,
+	// so the push will properly fail if the agent's changes conflict with upstream.
+	if repo != nil && repo.ExternalURL != "" {
+		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
+			http.Error(w, fmt.Sprintf("Failed to sync from upstream repository: %v", err), http.StatusConflict)
+			return
+		}
+		log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before push")
+	}
+
 	// Get branches before push to detect what changed
 	branchesBefore := s.getBranchHashes(st)
 
@@ -541,13 +637,96 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
-	// Trigger post-push hooks asynchronously
+	// Check branch restrictions for agent API keys.
+	// Agents are only allowed to push to their assigned spec task branch.
+	// If they don't have a spec_task, they cannot push at all.
+	if len(pushedBranches) > 0 {
+		apiKey := s.extractAPIKey(r)
+		restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		}
+		if restriction != nil && restriction.IsAgentKey {
+			// Agent keys have restrictions
+			if restriction.ErrorMessage != "" {
+				// Agent is not allowed to push at all
+				log.Error().
+					Str("repo_id", repoID).
+					Str("error", restriction.ErrorMessage).
+					Msg("Agent push denied - rolling back")
+				s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+				return
+			}
+			// Agent can only push to their allowed branch
+			for _, branch := range pushedBranches {
+				if branch != restriction.AllowedBranch {
+					log.Error().
+						Str("repo_id", repoID).
+						Str("pushed_branch", branch).
+						Str("allowed_branch", restriction.AllowedBranch).
+						Msg("Agent attempted to push to unauthorized branch - rolling back")
+					s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+					return
+				}
+			}
+			log.Info().Str("repo_id", repoID).Str("allowed_branch", restriction.AllowedBranch).Msg("Agent branch restriction verified")
+		}
+	}
+
+	// For external repos, SYNCHRONOUSLY push to upstream before confirming success.
+	// If this fails, rollback the refs so the middle repo stays in sync with upstream.
+	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
+		upstreamPushFailed := false
+		for _, branch := range pushedBranches {
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream (synchronous)")
+			if err := s.gitRepoService.PushBranchToRemote(r.Context(), repoID, branch, false); err != nil {
+				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Failed to push branch to upstream - rolling back")
+				upstreamPushFailed = true
+				break
+			}
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Successfully pushed branch to upstream")
+		}
+
+		if upstreamPushFailed {
+			// Rollback: restore refs to their pre-push state
+			log.Warn().Str("repo_id", repoID).Msg("Rolling back refs due to upstream push failure")
+			s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+			// The git client already thinks push succeeded, but on next fetch/push
+			// they'll see they need to push again (and will get proper conflict errors)
+			return
+		}
+	}
+
+	// Trigger post-push hooks asynchronously (only if upstream push succeeded or no upstream)
 	if len(pushedBranches) > 0 && repo != nil {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
 		}()
+	}
+}
+
+// rollbackBranchRefs restores branch refs to their previous state
+func (s *GitHTTPServer) rollbackBranchRefs(st storage.Storer, previousHashes map[string]string, branches []string) {
+	for _, branch := range branches {
+		refName := plumbing.NewBranchReferenceName(branch)
+		if prevHash, existed := previousHashes[branch]; existed {
+			// Branch existed before - restore to previous hash
+			ref := plumbing.NewHashReference(refName, plumbing.NewHash(prevHash))
+			if err := st.SetReference(ref); err != nil {
+				log.Error().Err(err).Str("branch", branch).Str("hash", prevHash).Msg("Failed to rollback branch ref")
+			} else {
+				log.Info().Str("branch", branch).Str("hash", prevHash).Msg("Rolled back branch ref")
+			}
+		} else {
+			// Branch was newly created - delete it
+			if err := st.RemoveReference(refName); err != nil {
+				log.Error().Err(err).Str("branch", branch).Msg("Failed to remove newly created branch ref")
+			} else {
+				log.Info().Str("branch", branch).Msg("Removed newly created branch ref")
+			}
+		}
 	}
 }
 
@@ -699,16 +878,8 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
 			}(task)
-			if repo.ExternalURL != "" {
-				s.wg.Add(1)
-				go func(t *types.SpecTask) {
-					defer s.wg.Done()
-					log.Info().Str("spec_task_id", t.ID).Str("branch", pushedBranch).Msg("Pushing branch to external repository")
-					if err := s.gitRepoService.PushBranchToRemote(context.Background(), repo.ID, t.BranchName, false); err != nil {
-						log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to push branch")
-					}
-				}(task)
-			}
+			// Note: Push to upstream is now done synchronously in handleReceivePack
+			// before this hook runs, so we don't need to push again here.
 
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)

@@ -28,14 +28,14 @@ import (
 // This ensures RBAC is enforced - agent can only access repos the user can access.
 // Uses getAPIKeyForSession for consistent token selection logic across the codebase.
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
-	if agent.HelixSessionID == "" {
-		return fmt.Errorf("agent has no HelixSessionID - session must be created before adding API token")
+	if agent.SessionID == "" {
+		return fmt.Errorf("agent has no SessionID - session must be created before adding API token")
 	}
 
 	// Get the session to use for session-scoped API key
-	session, err := apiServer.Store.GetSession(ctx, agent.HelixSessionID)
+	session, err := apiServer.Store.GetSession(ctx, agent.SessionID)
 	if err != nil {
-		return fmt.Errorf("failed to get session %s: %w", agent.HelixSessionID, err)
+		return fmt.Errorf("failed to get session %s: %w", agent.SessionID, err)
 	}
 
 	// Get session-scoped ephemeral API key
@@ -54,7 +54,7 @@ func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, age
 
 	log.Debug().
 		Str("user_id", userID).
-		Str("session_id", agent.HelixSessionID).
+		Str("session_id", agent.SessionID).
 		Str("spec_task_id", agent.SpecTaskID).
 		Msg("Added session-scoped API tokens to agent for git and LLM operations")
 
@@ -228,8 +228,8 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	// Set the Helix session ID on the agent so container knows which session this serves
-	agent.HelixSessionID = createdSession.ID
+	// Set the session ID on the agent so container knows which session this serves
+	agent.SessionID = createdSession.ID
 
 	// Add user's API token for git operations
 	if err := apiServer.addUserAPITokenToAgent(req.Context(), &agent, user.ID); err != nil {

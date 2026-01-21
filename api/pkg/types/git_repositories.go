@@ -316,3 +316,9 @@ type PushResponse struct {
 	Success      bool   `json:"success"`
 	Message      string `json:"message"`
 }
+
+type SyncAllResponse struct {
+	RepositoryID string `json:"repository_id"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+}

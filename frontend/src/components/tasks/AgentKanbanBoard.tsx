@@ -861,12 +861,15 @@ const SortableTaskCard: FC<SortableTaskCardProps> = ({ task, sessions }) => {
               />
             )}
             {task.branchName && (
-              <Chip
-                label={task.branchName}
-                size="small"
-                icon={<BranchIcon />}
-                variant="outlined"
-              />
+              <Tooltip title="Spectask branch → pushes to upstream">
+                <Chip
+                  label={`${task.branchName} →`}
+                  size="small"
+                  icon={<BranchIcon />}
+                  variant="outlined"
+                  color="success"
+                />
+              </Tooltip>
             )}
           </Box>
           

@@ -1742,12 +1742,11 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	// Build the ZedAgent config for resume
 	agent := &types.DesktopAgent{
-		SessionID:      id,
-		UserID:         user.ID,
-		HelixSessionID: id, // This session already exists
-		Input:          "Resume session",
-		ProjectPath:    "workspace",
-		SpecTaskID:     specTaskID,
+		SessionID:   id,
+		UserID:      user.ID,
+		Input:       "Resume session",
+		ProjectPath: "workspace",
+		SpecTaskID:  specTaskID,
 		// WorkDir left empty - sandbox uses its own storage
 	}
 

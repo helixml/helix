@@ -893,6 +893,65 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	writeResponse(w, response, http.StatusOK)
 }
 
+// syncAllBranches syncs all branches from the upstream remote repository
+// @Summary Sync all branches from upstream
+// @Description Syncs all branches from the upstream remote repository to the local repository
+// @ID syncAllBranches
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param force query bool false "Force sync (default: false)"
+// @Success 200 {object} types.SyncAllResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/sync-all [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) syncAllBranches(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
+		return
+	}
+
+	if existing.ExternalURL == "" {
+		writeErrResponse(w, system.NewHTTPError400("repository is not connected to an upstream"), http.StatusBadRequest)
+		return
+	}
+
+	force := r.URL.Query().Get("force") == "true"
+
+	err = s.gitRepositoryService.SyncAllBranches(r.Context(), repoID, force)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Bool("force", force).Msg("Failed to sync all branches from remote")
+		http.Error(w, fmt.Sprintf("Failed to sync from upstream: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := types.SyncAllResponse{
+		RepositoryID: repoID,
+		Success:      true,
+		Message:      "Successfully synced all branches from upstream",
+	}
+
+	writeResponse(w, response, http.StatusOK)
+}
+
 // pullFromRemote pulls latest commits from the remote repository
 // @Summary Pull from remote repository
 // @Description Pulls latest commits from remote repository

@@ -495,7 +495,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
-		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
 		ProjectPath:         "workspace",        // Use relative path
@@ -515,7 +514,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
 	// Check if executor is nil
 	if s.externalAgentExecutor == nil {
@@ -885,7 +884,6 @@ Follow these guidelines when making changes:
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
-		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
 		ProjectPath:         "workspace",        // Use relative path
@@ -1537,9 +1535,8 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
-		SessionID:           session.ID,
-		HelixSessionID:      session.ID,
-		UserID:              task.CreatedBy,
+		SessionID: session.ID,
+		UserID:    task.CreatedBy,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,

@@ -1038,6 +1038,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/push-pull", apiServer.pushPullGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/pull", apiServer.pullFromRemote).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/push", apiServer.pushToRemote).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/sync-all", apiServer.syncAllBranches).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)

@@ -36,6 +36,7 @@ import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
 import TuneIcon from '@mui/icons-material/Tune'
 import DifferenceIcon from '@mui/icons-material/Difference'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -173,6 +174,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Just Do It mode state
   const [justDoItMode, setJustDoItMode] = useState(false)
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
+
+  // File upload state
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   // Initialize edit form data when task changes
   useEffect(() => {
@@ -390,6 +395,60 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, editFormData, updateSpecTask, snackbar])
 
+  // Handle file upload to sandbox
+  const handleUploadClick = useCallback(() => {
+    if (!activeSessionId) {
+      snackbar.error('Please start the task first before uploading files')
+      return
+    }
+    fileInputRef.current?.click()
+  }, [activeSessionId, snackbar])
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0 || !activeSessionId) return
+
+    setIsUploading(true)
+    let successCount = 0
+    let errorCount = 0
+
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const response = await fetch(`/api/v1/external-agents/${activeSessionId}/upload?open_file_manager=false`, {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (response.ok) {
+          successCount++
+        } else {
+          errorCount++
+        }
+      } catch (error) {
+        console.error(`Failed to upload ${file.name}:`, error)
+        errorCount++
+      }
+    }
+
+    setIsUploading(false)
+
+    if (successCount > 0 && errorCount === 0) {
+      snackbar.success(`Uploaded ${successCount} file${successCount > 1 ? 's' : ''} to ~/work/incoming`)
+    } else if (successCount > 0 && errorCount > 0) {
+      snackbar.warning(`Uploaded ${successCount}, ${errorCount} failed`)
+    } else if (errorCount > 0) {
+      snackbar.error(`Failed to upload ${errorCount} file${errorCount > 1 ? 's' : ''}`)
+    }
+
+    // Clear the input so the same file can be uploaded again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [activeSessionId, snackbar])
+
   if (!task) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -502,8 +561,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </IconButton>
                 </Tooltip>
               )}
+              <Tooltip title={activeSessionId ? "Upload files to sandbox" : "Start task to enable file upload"}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleUploadClick}
+                    disabled={isUploading || !activeSessionId}
+                    color="primary"
+                  >
+                    {isUploading ? <CircularProgress size={16} /> : <CloudUploadIcon sx={{ fontSize: 18 }} />}
+                  </IconButton>
+                </span>
+              </Tooltip>
             </>
           )}
+          {/* Hidden file input for upload */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+            multiple
+          />
           {onClose && (
             <IconButton size="small" onClick={onClose}>
               <CloseIcon sx={{ fontSize: 18 }} />
@@ -773,9 +852,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 Task ID: {task.id || 'N/A'}
               </Typography>
               {task.branch_name && (
-                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                  Branch: {task.branch_name}
-                </Typography>
+                <Tooltip title="Spectask branches push changes to upstream repository">
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+                    Branch: {task.branch_name} <Box component="span" sx={{ color: 'success.main' }}>→ PUSH</Box>
+                  </Typography>
+                </Tooltip>
+              )}
+              {task.base_branch && task.base_branch !== task.branch_name && (
+                <Tooltip title="Base branch pulls updates from upstream repository">
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+                    Base: {task.base_branch} <Box component="span" sx={{ color: 'info.main' }}>← PULL</Box>
+                  </Typography>
+                </Tooltip>
               )}
               {activeSessionId && (
                 <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>

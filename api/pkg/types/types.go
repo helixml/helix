@@ -1871,10 +1871,8 @@ type KeyPair struct {
 
 // DesktopAgent represents a Zed editor instance configuration
 type DesktopAgent struct {
-	// Session ID for tracking the desktop agent instance
+	// Session ID - the Helix session this desktop agent serves
 	SessionID string `json:"session_id"`
-	// Helix session ID - the actual Helix session this agent serves (if created by Helix)
-	HelixSessionID string `json:"helix_session_id,omitempty"`
 	// User ID for security validation and access control
 	UserID string `json:"user_id"`
 	// Initial prompt or task for the agent

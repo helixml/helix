@@ -1715,6 +1715,9 @@ definitions:
       project_id:
         description: Used for isolation and metrics tracking
         type: string
+      session_id:
+        description: Session this key is scoped to (ephemeral keys)
+        type: string
       spec_task_id:
         description: Used for isolation and metrics tracking
         type: string
@@ -7061,6 +7064,15 @@ definitions:
         additionalProperties: true
         type: object
     type: object
+  types.SyncAllResponse:
+    properties:
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
   types.SystemSettingsRequest:
     properties:
       huggingface_token:
@@ -9274,6 +9286,45 @@ paths:
       summary: Upload file to sandbox
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/video.mp4:
+    get:
+      description: |-
+        Streams H.264 video from the desktop session as fragmented MP4.
+        This allows native video element playback with Picture-in-Picture support.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - video/mp4
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Stream video as fragmented MP4
+      tags:
+      - external-agents
   /api/v1/external-agents/{sessionID}/voice:
     post:
       consumes:
@@ -10602,6 +10653,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Search repository snippets
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/sync-all:
+    post:
+      description: Syncs all branches from the upstream remote repository to the local
+        repository
+      operationId: syncAllBranches
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Force sync (default: false)'
+        in: query
+        name: force
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SyncAllResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Sync all branches from upstream
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/tree:

@@ -1094,8 +1094,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 				// Restart Zed agent with existing session
 				zedAgent := &types.DesktopAgent{
-					SessionID:           existingSession.ID,
-					UserID:              user.ID,
+					SessionID: existingSession.ID,
+					UserID:    user.ID,
 					Input:               fmt.Sprintf("Explore the %s project", project.Name),
 					ProjectPath:         "workspace",
 					SpecTaskID:          "",
@@ -1249,8 +1249,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.DesktopAgent{
-		SessionID:           createdSession.ID,
-		UserID:              user.ID,
+		SessionID: createdSession.ID,
+		UserID:    user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),
 		ProjectPath:         "workspace",
 		SpecTaskID:          "",        // No task - exploratory mode

@@ -344,9 +344,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Track session
 	session := &ZedSession{
-		SessionID:      agent.SessionID,
-		HelixSessionID: agent.HelixSessionID,
-		UserID:         agent.UserID,
+		SessionID: agent.SessionID,
+		UserID:    agent.UserID,
 		Status:         "running",
 		StartTime:      time.Now(),
 		LastAccess:     time.Now(),
@@ -603,7 +602,7 @@ func (h *HydraExecutor) FindContainerBySessionID(ctx context.Context, helixSessi
 
 	// First check our in-memory sessions
 	for _, session := range h.sessions {
-		if session.HelixSessionID == helixSessionID || session.SessionID == helixSessionID {
+		if session.SessionID == helixSessionID {
 			if session.ContainerName != "" {
 				return session.ContainerName, nil
 			}
@@ -766,8 +765,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	)
 
 	// Helix session ID for WebSocket communication
-	if agent.HelixSessionID != "" {
-		env = append(env, fmt.Sprintf("HELIX_SESSION_ID=%s", agent.HelixSessionID))
+	if agent.SessionID != "" {
+		env = append(env, fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID))
 	}
 
 	// Add project path if provided

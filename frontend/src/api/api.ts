@@ -1069,6 +1069,8 @@ export interface TypesApiKey {
   owner_type?: TypesOwnerType;
   /** Used for isolation and metrics tracking */
   project_id?: string;
+  /** Session this key is scoped to (ephemeral keys) */
+  session_id?: string;
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
   type?: TypesAPIKeyType;
@@ -4243,6 +4245,12 @@ export interface TypesStepInfoDetails {
   arguments?: Record<string, any>;
 }
 
+export interface TypesSyncAllResponse {
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
 export interface TypesSystemSettingsRequest {
   huggingface_token?: string;
   kodit_enrichment_model?: string;
@@ -6006,6 +6014,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams H.264 video from the desktop session as fragmented MP4. This allows native video element playback with Picture-in-Picture support.
+     *
+     * @tags external-agents
+     * @name V1ExternalAgentsVideoMp4Detail
+     * @summary Stream video as fragmented MP4
+     * @request GET:/api/v1/external-agents/{sessionID}/video.mp4
+     * @secure
+     */
+    v1ExternalAgentsVideoMp4Detail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/video.mp4`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Send audio for speech-to-text transcription and type the result at cursor position
      *
      * @tags ExternalAgents
@@ -6906,6 +6931,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServicesKoditSearchResult[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
         method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Syncs all branches from the upstream remote repository to the local repository
+     *
+     * @tags git-repositories
+     * @name SyncAllBranches
+     * @summary Sync all branches from upstream
+     * @request POST:/api/v1/git/repositories/{id}/sync-all
+     * @secure
+     */
+    syncAllBranches: (
+      id: string,
+      query?: {
+        /** Force sync (default: false) */
+        force?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSyncAllResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/sync-all`,
+        method: "POST",
         query: query,
         secure: true,
         format: "json",
