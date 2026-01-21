@@ -320,6 +320,32 @@ RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
     echo '    default.video.rate.denom = 1' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
     echo '}' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf
 
+# ====================================================================
+# OnlyOffice Desktop Editors - Office document support
+# ====================================================================
+# Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
+# Supports: .docx, .doc, .odt, .xlsx, .xls, .ods, .pptx, .ppt, .odp, .pdf
+# Placed early in Dockerfile for better layer caching (before COPY commands).
+RUN <<_INSTALL_ONLYOFFICE
+set -e
+echo "=== Installing OnlyOffice Desktop Editors ==="
+
+# Download OnlyOffice deb package
+cd /tmp
+wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
+
+# Install with dependency resolution
+apt-get update
+dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
+
+# Cleanup
+rm onlyoffice-desktopeditors_amd64.deb
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== OnlyOffice Desktop Editors installed ==="
+_INSTALL_ONLYOFFICE
+
 # Create retro user (from GOW base-app)
 # Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
 RUN <<_CREATE_USER
@@ -781,31 +807,6 @@ RUN mkdir -p /home/retro/.config/ghostty && \
     chown -R retro:retro /home/retro/.config
 COPY desktop/ubuntu-config/ghostty-config /home/retro/.config/ghostty/config
 RUN chown retro:retro /home/retro/.config/ghostty/config
-
-# ====================================================================
-# OnlyOffice Desktop Editors - Office document support
-# ====================================================================
-# Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
-# Supports: .docx, .doc, .odt, .xlsx, .xls, .ods, .pptx, .ppt, .odp, .pdf
-RUN <<_INSTALL_ONLYOFFICE
-set -e
-echo "=== Installing OnlyOffice Desktop Editors ==="
-
-# Download OnlyOffice deb package
-cd /tmp
-wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
-
-# Install with dependency resolution
-apt-get update
-dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
-
-# Cleanup
-rm onlyoffice-desktopeditors_amd64.deb
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-
-echo "=== OnlyOffice Desktop Editors installed ==="
-_INSTALL_ONLYOFFICE
 
 # ====================================================================
 # System-wide dconf defaults (Ubuntu branding)
