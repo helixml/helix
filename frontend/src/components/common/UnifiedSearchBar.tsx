@@ -282,13 +282,16 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
               fontSize: compact ? '0.875rem' : '1rem',
               '& fieldset': {
                 borderColor: 'divider',
+                borderWidth: 1,
               },
               '&:hover fieldset': {
                 borderColor: 'primary.main',
+                borderWidth: 1,
               },
               '&.Mui-focused fieldset': {
                 borderColor: 'primary.main',
-                borderWidth: 2,
+                borderWidth: 1,
+                boxShadow: '0 0 0 1px rgba(25, 118, 210, 0.5)',
               },
             },
           }}
