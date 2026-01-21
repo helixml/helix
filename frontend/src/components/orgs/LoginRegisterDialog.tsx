@@ -175,6 +175,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       fullWidth
       disablePortal
       keepMounted
+      disableEnforceFocus
       TransitionProps={{ tabIndex: 'none' } as any}
     >
       <DialogTitle sx={{ m: 0, p: 2 }}>
