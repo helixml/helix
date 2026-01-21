@@ -21,7 +21,6 @@ import SearchIcon from '@mui/icons-material/Search'
 import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
-import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { TypesProject } from '../../services'
 import type { ServerSampleProject } from '../../api/api'
 
@@ -82,13 +81,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         <Typography variant="body2" color="text.secondary">
           Each project has a workspace where both a Fleet of Agents work in parallel and a Team Desktop is available for manual testing.
         </Typography>
-      </Box>
-
-      {/* Unified search bar - searches across all entities */}
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
-        <UnifiedSearchBar
-          placeholder="Search everything... (Cmd/Ctrl+K)"
-        />
       </Box>
 
       {/* Local project filter */}
