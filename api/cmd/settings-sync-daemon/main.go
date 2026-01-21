@@ -103,6 +103,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
+				"name":    "qwen", // Required: Zed expects a name field for agent_servers
 				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
