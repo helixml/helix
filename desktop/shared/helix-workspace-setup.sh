@@ -364,6 +364,13 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                     echo "  Design docs worktree ready at ~/work/helix-specs"
                     CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current)
                     echo "  Current branch: $CURRENT_BRANCH"
+
+                    # Pre-create task directory if specified (prevents "parent directory doesn't exist" errors)
+                    if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
+                        TASK_DIR="$WORKTREE_PATH/design/tasks/$HELIX_SPEC_DIR_NAME"
+                        mkdir -p "$TASK_DIR"
+                        echo "  Created task directory: design/tasks/$HELIX_SPEC_DIR_NAME"
+                    fi
                 else
                     echo "  Warning: Failed to create worktree"
                 fi
@@ -371,6 +378,13 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                 echo "  Design docs worktree already exists"
                 CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current 2>/dev/null || echo "unknown")
                 echo "  Current branch: $CURRENT_BRANCH"
+
+                # Pre-create task directory if specified (prevents "parent directory doesn't exist" errors)
+                if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
+                    TASK_DIR="$WORKTREE_PATH/design/tasks/$HELIX_SPEC_DIR_NAME"
+                    mkdir -p "$TASK_DIR"
+                    echo "  Created task directory: design/tasks/$HELIX_SPEC_DIR_NAME"
+                fi
             fi
         fi
     else

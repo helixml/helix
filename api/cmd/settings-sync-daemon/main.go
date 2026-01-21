@@ -52,6 +52,16 @@ type CodeAgentConfig struct {
 	Runtime   string `json:"runtime"` // "zed_agent" or "qwen_code"
 }
 
+// AvailableModel represents a model entry for IDE model configuration.
+// IDEs like Zed, VS Code, etc. require custom models to be explicitly listed.
+// The JSON tags use common conventions that work across multiple IDEs.
+type AvailableModel struct {
+	Name            string `json:"name"`
+	DisplayName     string `json:"display_name"`
+	MaxTokens       int    `json:"max_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
+}
+
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
 type helixConfigResponse struct {
 	ContextServers  map[string]interface{} `json:"context_servers"`
@@ -160,6 +170,86 @@ func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[str
 		if extURL, ok := wsSync["external_url"].(string); ok {
 			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
 		}
+	}
+}
+
+// injectLanguageModelAPIKey adds the API token to language_models config.
+// Zed reads api_key from settings.json to authenticate LLM API calls.
+// The token comes from HELIX_API_TOKEN env var (set by Hydra when starting the desktop).
+func (d *SettingsDaemon) injectLanguageModelAPIKey() {
+	if d.apiToken == "" {
+		log.Printf("Warning: HELIX_API_TOKEN not set, language models may not authenticate")
+		return
+	}
+
+	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Inject api_key into each provider's config
+	for provider, config := range languageModels {
+		if providerConfig, ok := config.(map[string]interface{}); ok {
+			providerConfig["api_key"] = d.apiToken
+			log.Printf("Injected api_key into language_models.%s", provider)
+		}
+	}
+}
+
+// injectAvailableModels adds the configured model to the provider's available_models list.
+// Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
+// in available_models. Without this, custom models like "helix/qwen3:8b" are rejected.
+func (d *SettingsDaemon) injectAvailableModels() {
+	if d.codeAgentConfig == nil || d.codeAgentConfig.Model == "" {
+		return
+	}
+
+	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Determine which provider to add the model to based on APIType
+	providerName := d.codeAgentConfig.APIType
+	if providerName == "" {
+		providerName = "openai" // Default to OpenAI-compatible
+	}
+
+	providerConfig, ok := languageModels[providerName].(map[string]interface{})
+	if !ok {
+		providerConfig = make(map[string]interface{})
+		languageModels[providerName] = providerConfig
+	}
+
+	// Create available_models entry with our custom model
+	modelEntry := AvailableModel{
+		Name:            d.codeAgentConfig.Model,
+		DisplayName:     d.codeAgentConfig.Model, // Use model name as display name
+		MaxTokens:       131072,                  // Default to 128K context
+		MaxOutputTokens: 16384,                   // Default output limit
+	}
+
+	// Get existing available_models or create new slice
+	var availableModels []interface{}
+	if existing, ok := providerConfig["available_models"].([]interface{}); ok {
+		availableModels = existing
+	}
+
+	// Check if model already exists
+	modelExists := false
+	for _, m := range availableModels {
+		if model, ok := m.(map[string]interface{}); ok {
+			if model["name"] == d.codeAgentConfig.Model {
+				modelExists = true
+				break
+			}
+		}
+	}
+
+	if !modelExists {
+		availableModels = append(availableModels, modelEntry)
+		providerConfig["available_models"] = availableModels
+		log.Printf("Added %s to available_models for %s provider", d.codeAgentConfig.Model, providerName)
 	}
 }
 
@@ -306,11 +396,12 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		"context_servers": config.ContextServers,
 	}
 
-	// Inject user API key into Kodit context_server's Authorization header
+	// Inject API keys and custom models before writing settings
 	d.injectKoditAuth()
-
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
+		d.injectLanguageModelAPIKey()
+		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
 	}
 	if config.Assistant != nil {
 		d.helixSettings["assistant"] = config.Assistant
@@ -621,8 +712,10 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
 
-		// Inject user API key into Kodit context_server
+		// Inject API keys and custom models
 		d.injectKoditAuth()
+		d.injectLanguageModelAPIKey()
+		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)

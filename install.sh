@@ -1693,9 +1693,9 @@ HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
 SERVER_URL=${API_HOST}
-# SANDBOX_API_URL is used by the API when generating Zed config for sandboxes.
-# Uses Docker network hostname since sandboxes run in containers on the same network.
-SANDBOX_API_URL=http://api:8080
+# SANDBOX_API_URL is only needed for co-located installs (controlplane + sandbox on same machine).
+# Remote sandboxes use SERVER_URL via the Helix API's fallback logic.
+$(if [ "$CONTROLPLANE" = "true" ] && [ "$SANDBOX" = "true" ]; then echo "SANDBOX_API_URL=http://api:8080"; else echo "# SANDBOX_API_URL not set - remote sandbox uses SERVER_URL"; fi)
 
 # Docker Compose profiles
 COMPOSE_PROFILES=$COMPOSE_PROFILES

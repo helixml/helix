@@ -726,10 +726,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		// GPU/input device passthrough
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 
-		// LLM proxy configuration
-		// ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with dev container token
-		// Only set the base URL here
+		// LLM proxy configuration for Zed's built-in agents
+		// SECURITY: ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with session-scoped token
+		// (see addUserAPITokenToAgent). Only set the base URLs here - NOT the runner token.
 		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", h.helixAPIURL),
 
 		// Zed sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true",

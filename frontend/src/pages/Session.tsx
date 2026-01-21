@@ -65,25 +65,6 @@ const useSandboxState = (sessionId: string) => {
   const api = useApi();
   const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
-  React.useEffect(() => {
-    const apiClient = api.getApiClient();
-    const fetchState = async () => {
-      try {
-        // API endpoint still named WolfAppState for backwards compatibility
-        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
-        if (response.data) {
-          setSandboxState(response.data.state || 'absent');
-        }
-      } catch (err) {
-        console.error('Failed to fetch sandbox state:', err);
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [sessionId]); // Removed 'api' - getApiClient() is stable
-
   const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
   const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
   // Only show paused state when truly absent (not loading or starting)
@@ -133,7 +114,7 @@ const ExternalAgentDesktopViewer: React.FC<{
   const handleResume = async () => {
     setIsResuming(true);
     try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      await api.post(`/api/v1/sessions/${sessionId}/resume`, {});
       snackbar.success('External agent started successfully');
     } catch (error: any) {
       console.error('Failed to resume agent:', error);
