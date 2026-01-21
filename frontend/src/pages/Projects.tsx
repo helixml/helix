@@ -540,6 +540,7 @@ const Projects: FC = () => {
   return (
     <Page
       breadcrumbTitle={getBreadcrumbTitle()}
+      breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (
