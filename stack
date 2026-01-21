@@ -572,94 +572,96 @@ function start() {
   tmux -2 new-session -d -s "$TMUX_SESSION"
 
   # Create a 3x2 grid layout with full-width hacking terminal at bottom
+  # IMPORTANT: All tmux commands must explicitly target $TMUX_SESSION to avoid
+  # clobbering the user's current tmux session if they're running inside one
   # First create top and middle rows for logs
-  tmux split-window -v -d
-  tmux split-window -v -d
+  tmux split-window -t "$TMUX_SESSION" -v -d
+  tmux split-window -t "$TMUX_SESSION" -v -d
 
   # Split the top row into 3 columns (Frontend, API, Haystack)
-  tmux select-pane -t 0
-  tmux split-window -h -d
-  tmux select-pane -t 1
-  tmux split-window -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.0"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.1"
+  tmux split-window -t "$TMUX_SESSION" -h -d
 
   # Split the middle row into 3 columns (Zed Agent, Zed Process, GPU Runner)
-  tmux select-pane -t 3
-  tmux split-window -h -d
-  tmux select-pane -t 4
-  tmux split-window -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.3"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.4"
+  tmux split-window -t "$TMUX_SESSION" -h -d
 
   # Bottom pane (6) stays full-width for hacking terminal
 
   # Set pane titles and start processes in 3x2 + full-width layout
   # Top row (0-2): Frontend, API, Haystack
-  tmux select-pane -t 0 -T "Frontend Logs"
-  tmux send-keys -t 0 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.0" -T "Frontend Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.0" 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
 
-  tmux select-pane -t 1 -T "API Logs"
-  tmux send-keys -t 1 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.1" -T "API Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.1" 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
 
-  tmux select-pane -t 2 -T "Haystack Logs"
-  tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
     # WITH_RUNNER mode: Sandbox logs in pane 3
-    tmux select-pane -t 3 -T "Sandbox Logs"
-    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
+    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
+    tmux send-keys -t "$TMUX_SESSION:0.3" "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
     if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
-      tmux select-pane -t 4 -T "Kodit Logs"
-      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
     else
-      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
     fi
 
     # GPU runner logs with air hot reloading
-    tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
-    tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
+    tmux select-pane -t "$TMUX_SESSION:0.5" -T "GPU Runner ($RUNNER_CONTAINER)"
+    tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
   else
     # WITHOUT_RUNNER mode: Sandbox logs
-    tmux select-pane -t 3 -T "Sandbox Logs"
-    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
+    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
+    tmux send-keys -t "$TMUX_SESSION:0.3" "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
     if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
-      tmux select-pane -t 4 -T "Kodit Logs"
-      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
     else
-      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
     fi
 
     # Middle right pane (5) - contextual based on demos
     if [[ -n "$WITH_DEMOS" ]]; then
       # Demos interactive session
-      tmux select-pane -t 5 -T "Demos"
-      tmux send-keys -t 5 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.5" -T "Demos"
+      tmux send-keys -t "$TMUX_SESSION:0.5" 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
     else
       # Hacking terminal
-      tmux select-pane -t 5 -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t 5 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+      tmux select-pane -t "$TMUX_SESSION:0.5" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
     fi
   fi
 
   # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
-  tmux select-pane -t 6 -T "🔨 HACKING TERMINAL"
-  tmux send-keys -t 6 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.6" -T "🔨 HACKING TERMINAL"
+  tmux send-keys -t "$TMUX_SESSION:0.6" 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
 
   if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
     echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
   fi
 
   # Enable pane titles display
-  tmux set-option -g pane-border-status top
-  tmux set-option -g pane-border-format "#{pane_index}: #{pane_title}"
+  tmux set-option -t "$TMUX_SESSION" pane-border-status top
+  tmux set-option -t "$TMUX_SESSION" pane-border-format "#{pane_index}: #{pane_title}"
 
   # Make all panes equal size
-  tmux select-layout even-horizontal
-  tmux select-layout tiled
+  tmux select-layout -t "$TMUX_SESSION" even-horizontal
+  tmux select-layout -t "$TMUX_SESSION" tiled
 
   tmux -2 attach-session -t $TMUX_SESSION
 }
