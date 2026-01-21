@@ -341,13 +341,6 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 			// Check if agent was working before disconnect (to determine if continue prompt needed)
 			needsContinue := false
-			activity, actErr := apiServer.Store.GetExternalAgentActivity(ctx, helixSessionID)
-			if actErr == nil && activity != nil && activity.AgentWorkState == types.AgentWorkStateWorking {
-				needsContinue = true
-				log.Info().
-					Str("session_id", helixSessionID).
-					Msg("🔄 [READINESS] Agent was working before disconnect, will send continue prompt when ready")
-			}
 
 			// Initialize readiness tracking - we'll wait for agent_ready before sending continue prompt
 			// This prevents race conditions where we send prompts before the agent is ready
@@ -415,13 +408,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 									Str("request_id", requestID).
 									Str("helix_session_id", helixSessionID).
 									Msg("✅ [HELIX] Queued initial chat_message for Zed (will send when agent_ready)")
-								// Update agent work state to working
-								if activity, actErr := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID); actErr == nil && activity != nil {
-									activity.AgentWorkState = types.AgentWorkStateWorking
-									activity.LastPromptContent = fullMessage
-									activity.LastInteraction = time.Now()
-									apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
-								}
+
 							} else {
 								log.Warn().
 									Str("agent_session_id", agentID).
@@ -540,16 +527,16 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 
 	// Update activity tracking to prevent idle timeout for active sessions
 	// Get activity record to update last_interaction timestamp
-	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sessionID)
-	if err == nil && activity != nil {
-		// Activity record exists - update it to extend idle timeout
-		activity.LastInteraction = time.Now()
-		err = apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to update activity for WebSocket message")
-			// Non-fatal - continue processing message
-		}
-	}
+	// activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sessionID)
+	// if err == nil && activity != nil {
+	// 	// Activity record exists - update it to extend idle timeout
+	// 	activity.LastInteraction = time.Now()
+	// 	err = apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+	// 	if err != nil {
+	// 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to update activity for WebSocket message")
+	// 		// Non-fatal - continue processing message
+	// 	}
+	// }
 	// If no activity record exists, that's OK - might be an old session or non-external-agent session
 
 	// Process sync message directly
@@ -1242,21 +1229,6 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 			Str("command_type", command.Type).
 			Msg("✅ Sent command to specific external Zed agent")
 
-		// Update agent work state to working when sending chat messages
-		if command.Type == "chat_message" {
-			msg, _ := command.Data["message"].(string) // Safe type assertion
-			go func(sid string, promptContent string) {
-				activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sid)
-				if err == nil && activity != nil {
-					activity.AgentWorkState = types.AgentWorkStateWorking
-					if promptContent != "" {
-						activity.LastPromptContent = promptContent
-					}
-					activity.LastInteraction = time.Now()
-					apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
-				}
-			}(sessionID, msg)
-		}
 		return nil
 	default:
 		return fmt.Errorf("external agent send channel full for session %s", sessionID)
@@ -1748,18 +1720,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("final_response_length", len(targetInteraction.ResponseMessage)).
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
-
-	// Update agent work state to idle (agent is done working on this message)
-	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID)
-	if err == nil && activity != nil {
-		activity.AgentWorkState = types.AgentWorkStateIdle
-		activity.LastInteraction = time.Now()
-		if updateErr := apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity); updateErr != nil {
-			log.Warn().Err(updateErr).Str("session_id", helixSessionID).Msg("Failed to update agent work state to idle")
-		} else {
-			log.Debug().Str("session_id", helixSessionID).Msg("Updated agent work state to idle")
-		}
-	}
 
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
@@ -2477,27 +2437,9 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 // sendContinuePromptIfNeeded checks agent work state and sends continue prompt if agent was working
 // Called when WebSocket reconnects after container restart
 func (apiServer *HelixAPIServer) sendContinuePromptIfNeeded(ctx context.Context, sessionID string, wsConn *ExternalAgentWSConnection) {
-	// Get activity record to check work state
-	activity, err := apiServer.Store.GetExternalAgentActivity(ctx, sessionID)
-	if err != nil || activity == nil {
-		log.Debug().
-			Str("session_id", sessionID).
-			Msg("No activity record found, skipping continue prompt")
-		return
-	}
-
-	// Only send continue prompt if agent was actively working
-	if activity.AgentWorkState != types.AgentWorkStateWorking {
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("work_state", string(activity.AgentWorkState)).
-			Msg("Agent was not working, no continue prompt needed")
-		return
-	}
-
 	log.Info().
 		Str("session_id", sessionID).
-		Str("spec_task_id", activity.SpecTaskID).
+		// Str("spec_task_id", activity.SpecTaskID).
 		Msg("Agent was working before disconnect, sending continue prompt")
 
 	// Get session for thread ID and agent config

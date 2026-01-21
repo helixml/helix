@@ -2,13 +2,10 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 // SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
@@ -106,86 +103,4 @@ func (s *PostgresStore) ListSpecTaskExternalAgents(ctx context.Context, userID s
 	}
 
 	return agents, nil
-}
-
-// External Agent Activity methods (idle detection)
-
-func (s *PostgresStore) UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error {
-	// Update last_interaction timestamp
-	activity.LastInteraction = time.Now()
-
-	// Use GORM's Save which does upsert based on primary key
-	result := s.gdb.WithContext(ctx).Save(activity)
-	if result.Error != nil {
-		return fmt.Errorf("failed to upsert external agent activity: %w", result.Error)
-	}
-
-	return nil
-}
-
-func (s *PostgresStore) GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error) {
-	var activity types.ExternalAgentActivity
-	result := s.gdb.WithContext(ctx).
-		Where("external_agent_id = ?", agentID).
-		First(&activity)
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("activity not found for agent %s: %w", agentID, result.Error)
-	}
-
-	return &activity, nil
-}
-
-func (s *PostgresStore) GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error) {
-	var activities []*types.ExternalAgentActivity
-
-	query := s.gdb.WithContext(ctx).
-		Where("last_interaction < ?", cutoff)
-
-	if len(agentTypes) > 0 {
-		query = query.Where("agent_type IN ?", agentTypes)
-	}
-
-	result := query.Find(&activities)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get idle external agents: %w", result.Error)
-	}
-
-	log.Info().
-		Time("cutoff", cutoff).
-		Int("idle_count", len(activities)).
-		Msg("Found idle external agents")
-
-	return activities, nil
-}
-
-func (s *PostgresStore) DeleteExternalAgentActivity(ctx context.Context, agentID string) error {
-	result := s.gdb.WithContext(ctx).
-		Where("external_agent_id = ?", agentID).
-		Delete(&types.ExternalAgentActivity{})
-
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete external agent activity: %w", result.Error)
-	}
-
-	return nil
-}
-
-// GetExternalAgentActivityByLobbyID retrieves external agent activity by Wolf lobby ID
-// Used for admin cleanup when PIN is needed to stop lobbies
-func (s *PostgresStore) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) {
-	var activity types.ExternalAgentActivity
-
-	err := s.gdb.WithContext(ctx).
-		Where("dev_container_id = ?", lobbyID).
-		First(&activity).Error
-
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("no external agent activity found for lobby %s", lobbyID)
-		}
-		return nil, fmt.Errorf("failed to get external agent activity by lobby ID: %w", err)
-	}
-
-	return &activity, nil
 }

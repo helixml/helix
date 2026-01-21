@@ -13,6 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+//go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
+
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
@@ -98,6 +100,7 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 			types.TaskStatusBacklog,
 			types.TaskStatusQueuedSpecGeneration,
 			types.TaskStatusQueuedImplementation,
+			types.TaskStatusDone, // For shutdown
 		},
 	}, func(task *types.SpecTask) error {
 		taskCh <- task
@@ -205,6 +208,8 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 		return o.handleImplementation(ctx, task)
 	case types.TaskStatusPullRequest:
 		return o.handlePullRequest(ctx, task)
+	case types.TaskStatusDone:
+		return o.handleDone(ctx, task)
 	default:
 		return nil
 	}
@@ -604,4 +609,18 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("**All work persists in `/home/retro/work/` across sessions.**")
 
 	return promptBuilder.String()
+}
+
+func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
+	// Terminate the desktop
+	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to stop desktop: %w", err)
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Msg("Task in done status - stopping desktop")
+
+	return nil
 }
