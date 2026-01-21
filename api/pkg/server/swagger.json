@@ -1,8 +1,23 @@
 {
+    "schemes": [
+        "https"
+    ],
     "swagger": "2.0",
     "info": {
-        "contact": {}
+        "description": "This is the HelixML API.",
+        "title": "HelixML API reference",
+        "contact": {
+            "name": "Helix support",
+            "url": "https://app.helix.ml/",
+            "email": "info@helix.ml"
+        },
+        "version": "0.1",
+        "x-logo": {
+            "altText": "Helix logo",
+            "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
+        }
     },
+    "host": "app.helix.ml",
     "paths": {
         "/api/v1/admin/agent-sandboxes/debug": {
             "get": {
