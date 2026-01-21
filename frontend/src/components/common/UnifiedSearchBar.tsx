@@ -299,7 +299,11 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
           anchorEl={anchorRef.current}
           placement="bottom-start"
           transition
-          style={{ width: anchorRef.current?.offsetWidth, zIndex: 1300 }}
+          style={{
+            width: compact ? 'min(400px, 90vw)' : anchorRef.current?.offsetWidth,
+            minWidth: compact ? 300 : undefined,
+            zIndex: 1300
+          }}
         >
           {({ TransitionProps }) => (
             <Fade {...TransitionProps} timeout={200}>
