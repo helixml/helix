@@ -764,9 +764,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             if (tasksWithSessions.length > 0) {
               return (
                 <>
-                  <Typography variant="caption" sx={{ px: 2, py: 0.5, color: 'text.secondary', display: 'block' }}>
-                    Team Desktop
-                  </Typography>
                   {tasksWithSessions.slice(0, 5).map(task => {
                     const desktopTabId = `desktop-${task.planning_session_id}`
                     const alreadyOpen = panel.tabs.some(t => t.id === desktopTabId)
@@ -775,15 +772,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                         key={`desktop-${task.id}`}
                         onClick={() => {
                           if (!alreadyOpen) {
-                            // Add desktop tab
-                            const newTab: TabData = {
-                              id: desktopTabId,
-                              type: 'desktop',
-                              sessionId: task.planning_session_id!,
-                              desktopTitle: task.user_short_title || task.short_title || task.name?.substring(0, 20) || 'Team Desktop',
-                            }
-                            // We need to use onAddDesktop callback
-                            onAddDesktop(panel.id, task.planning_session_id!, newTab.desktopTitle)
+                            onAddDesktop(panel.id, task.planning_session_id!, 'Team Desktop')
                           }
                           setMenuAnchor(null)
                         }}
@@ -793,9 +782,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                           <DesktopIcon sx={{ fontSize: 16, color: alreadyOpen ? 'text.disabled' : 'success.main' }} />
                         </ListItemIcon>
                         <ListItemText
-                          primary={task.user_short_title || task.short_title || task.name?.substring(0, 25) || 'Team Desktop'}
+                          primary="Team Desktop"
                           secondary={alreadyOpen ? 'Already open' : undefined}
-                          primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
+                          primaryTypographyProps={{ fontSize: '0.875rem' }}
                           secondaryTypographyProps={{ fontSize: '0.7rem' }}
                         />
                       </MenuItem>
