@@ -159,7 +159,6 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SpecTaskWorkSession{},
 		&types.SpecTaskZedThread{},
 		&types.SpecTaskExternalAgent{},
-		&types.ExternalAgentActivity{},
 		&types.SpecTaskDesignReview{},
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},

@@ -520,13 +520,6 @@ type Store interface {
 	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
 	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
 
-	// External Agent Activity methods (idle detection)
-	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
-	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
-	GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error)
-	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
-	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
-
 	// Agent runner methods
 	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
 	GetAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
