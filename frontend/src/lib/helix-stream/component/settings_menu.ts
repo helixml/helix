@@ -10,7 +10,7 @@ export type VideoMode = 'native' | 'zerocopy' | 'shm';
 
 // Stream settings interface
 export interface StreamSettings {
-  videoSize: '720p' | '1080p' | '1440p' | '4k' | '5k' | 'native' | 'custom';
+  videoSize: '720p' | '1080p' | '1440p' | '4k' | '5k' | 'iphone15pro' | 'ipadair11' | 'macbook13' | 'native' | 'custom';
   videoSizeCustom: { width: number; height: number };
   bitrate: number;
   packetSize: number;

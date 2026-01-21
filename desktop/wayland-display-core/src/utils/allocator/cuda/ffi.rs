@@ -110,11 +110,10 @@ pub(crate) const EGL_HEIGHT: EGLint = 0x3056;
 pub(crate) const EGL_LINUX_DRM_FOURCC_EXT: EGLint = 0x3271;
 pub(crate) const EGL_NONE: EGLint = 0x3038;
 
-unsafe extern "C" {
-    // CUDA Driver API
-    fn CuMemcpy2DAsync(pCopy: *const CUDA_MEMCPY2D, stream: CUstream) -> CUresult;
-    fn cuStreamSynchronize(stream: CUstream) -> CUresult;
-}
+// Dynamic function pointer types for CUDA Driver API (loaded at runtime)
+pub(crate) type CuMemcpy2DAsyncFn =
+    unsafe extern "C" fn(pCopy: *const CUDA_MEMCPY2D, stream: CUstream) -> CUresult;
+pub(crate) type CuStreamSynchronizeFn = unsafe extern "C" fn(stream: CUstream) -> CUresult;
 
 // Add dynamic function pointer types for CUDA-EGL interop
 pub(crate) type CuGraphicsEGLRegisterImageFn = unsafe extern "C" fn(
@@ -133,23 +132,40 @@ pub(crate) type CuGraphicsResourceGetMappedEglFrameFn = unsafe extern "C" fn(
     mipLevel: c_uint,
 ) -> CUresult;
 
-// Structure to hold dynamically loaded EGL interop functions
+// Structure to hold dynamically loaded CUDA functions
 pub(crate) struct CudaEglFunctions {
     // Keep the library handle alive so the symbols remain valid
     _lib: Arc<Library>,
+    // CUDA Driver API functions
+    pub memcpy2d_async: CuMemcpy2DAsyncFn,
+    pub stream_synchronize: CuStreamSynchronizeFn,
+    // EGL interop functions
     pub register_image: CuGraphicsEGLRegisterImageFn,
     pub unregister_resource: CuGraphicsUnregisterResourceFn,
     pub get_mapped_frame: CuGraphicsResourceGetMappedEglFrameFn,
 }
 
 impl CudaEglFunctions {
-    /// Load CUDA-EGL interop functions dynamically from the CUDA library
+    /// Load CUDA functions dynamically from the CUDA library
     pub fn load() -> Result<Self, String> {
         unsafe {
             // Try to open the CUDA library
             let lib = Library::new("libcuda.so.1")
                 .or_else(|_| Library::new("libcuda.so"))
                 .map_err(|e| format!("Failed to open CUDA library: {}", e))?;
+
+            // Load cuMemcpy2DAsync_v2 (v2 is the current ABI)
+            let memcpy2d_async: Symbol<CuMemcpy2DAsyncFn> = lib
+                .get(b"cuMemcpy2DAsync_v2")
+                .or_else(|_| lib.get(b"cuMemcpy2DAsync"))
+                .map_err(|e| format!("Failed to load cuMemcpy2DAsync: {}", e))?;
+            let memcpy2d_async = *memcpy2d_async;
+
+            // Load cuStreamSynchronize
+            let stream_synchronize: Symbol<CuStreamSynchronizeFn> = lib
+                .get(b"cuStreamSynchronize")
+                .map_err(|e| format!("Failed to load cuStreamSynchronize: {}", e))?;
+            let stream_synchronize = *stream_synchronize;
 
             // Load cuGraphicsEGLRegisterImage
             let register_image: Symbol<CuGraphicsEGLRegisterImageFn> = lib
@@ -173,6 +189,8 @@ impl CudaEglFunctions {
 
             Ok(CudaEglFunctions {
                 _lib: Arc::new(lib),
+                memcpy2d_async,
+                stream_synchronize,
                 register_image,
                 unregister_resource,
                 get_mapped_frame,
@@ -493,6 +511,7 @@ pub(crate) fn copy_to_gst_buffer(
     egl_frame: CUeglFrame,
     gst_buffer: &mut gst::Buffer,
     cuda_context: &CUDAContext,
+    cuda_fns: &CudaEglFunctions,
 ) -> Result<gst_video::VideoInfo, Box<dyn std::error::Error>> {
     let stream_handle = cuda_context
         .stream()
@@ -558,14 +577,20 @@ pub(crate) fn copy_to_gst_buffer(
             * video_info.comp_pstride(plane as u8) as usize;
         copy_params.Height = video_info.comp_height(plane as u8) as usize;
 
-        cuda_call!(CuMemcpy2DAsync(&copy_params, stream_handle))?;
+        let result = unsafe { (cuda_fns.memcpy2d_async)(&copy_params, stream_handle) };
+        if result != CUDA_SUCCESS {
+            return Err(format!("cuMemcpy2DAsync failed: {}", cuda_result_to_string(result)).into());
+        }
     }
 
     // CRITICAL: Wait for the async CUDA copy to complete before returning!
     // Without this, we return the DmaBuf to PipeWire (via queue_raw_buffer) while
     // the GPU is still reading from it, causing Mutter to overwrite the buffer
     // mid-copy and resulting in frame reordering/corruption during fast animations.
-    cuda_call!(cuStreamSynchronize(stream_handle))?;
+    let result = unsafe { (cuda_fns.stream_synchronize)(stream_handle) };
+    if result != CUDA_SUCCESS {
+        return Err(format!("cuStreamSynchronize failed: {}", cuda_result_to_string(result)).into());
+    }
 
     unsafe { gst_ffi::gst_memory_unmap(gst_memory, &mut map_info) };
     Ok(video_info)

@@ -326,6 +326,18 @@ export class WebSocketStream {
     } else if (this.settings.videoSize === "5k") {
       width = 5120
       height = 2880
+    } else if (this.settings.videoSize === "iphone15pro") {
+      // iPhone 15 Pro: 1179 x 2556 (portrait)
+      width = 1179
+      height = 2556
+    } else if (this.settings.videoSize === "ipadair11") {
+      // iPad Air 11" M3: 2360 x 1640
+      width = 2360
+      height = 1640
+    } else if (this.settings.videoSize === "macbook13") {
+      // MacBook Pro 13": 2560 x 1600
+      width = 2560
+      height = 1600
     } else if (this.settings.videoSize === "custom") {
       width = this.settings.videoSizeCustom.width
       height = this.settings.videoSizeCustom.height

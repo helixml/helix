@@ -498,7 +498,14 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				if v.pipeWireFd > 0 {
 					srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
 				}
-				parts = []string{srcPart}
+
+				if bufferType == "dmabuf" {
+					// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
+					// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
+					parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+				} else {
+					parts = []string{srcPart}
+				}
 			}
 
 		case VideoModeNative:
@@ -565,9 +572,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			os.Getenv("SWAYSOCK") != ""
 		isZeroCopyCuda := v.videoMode == VideoModePlugin && !isSway // Case 1 only
 
-		// Target resolution caps (used for scaling if client requests different size)
-		nvencCaps := fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height)
-
 		if !isZeroCopyCuda {
 			// SHM path: system memory → videoconvert → videoscale → cudaupload → nvh264enc
 			parts = append(parts,
@@ -580,9 +584,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		} else {
 			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → cudascale → nvh264enc
 			// cudascale performs GPU-accelerated scaling using CUDA
+			// NOTE: CUDAMemory caps filter is added earlier in source parts (before queue)
+			// to ensure proper caps negotiation
 			parts = append(parts,
 				"cudascale add-borders=true",
-				nvencCaps,
+				fmt.Sprintf("video/x-raw(memory:CUDAMemory),width=%d,height=%d", v.config.Width, v.config.Height),
 				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true bframes=0 gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		}

@@ -17,6 +17,10 @@ export interface StatsOverlayProps {
   screenshotFps: number;
   screenshotQuality: number;
   sessionId?: string;
+  // Configured stream resolution for MP4 links
+  streamWidth?: number;
+  streamHeight?: number;
+  streamFps?: number;
 }
 
 const StatsOverlay: React.FC<StatsOverlayProps> = ({
@@ -30,8 +34,24 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   screenshotFps,
   screenshotQuality,
   sessionId,
+  streamWidth,
+  streamHeight,
+  streamFps,
 }) => {
   const mp4StreamUrl = sessionId ? `/api/v1/external-agents/${sessionId}/video.mp4` : null;
+
+  // Helper to build MP4 URL with params
+  const buildMp4Url = (width: number, height: number, fps: number, bitrate: number) => {
+    if (!mp4StreamUrl) return null;
+    return `${mp4StreamUrl}?width=${width}&height=${height}&fps=${fps}&bitrate=${bitrate}`;
+  };
+
+  // Get bitrate estimate based on resolution and fps
+  const estimateBitrate = (width: number, height: number, fps: number) => {
+    const pixels = width * height;
+    const baseBitrate = pixels > 3840 * 2160 ? 30000 : pixels > 1920 * 1080 ? 15000 : pixels > 1280 * 720 ? 5000 : 2000;
+    return fps > 30 ? Math.round(baseBitrate * 1.5) : baseBitrate;
+  };
   return (
     <Box
       sx={{
@@ -58,45 +78,51 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
         {mp4StreamUrl && (
           <div>
             <strong>MP4 Stream:</strong>{' '}
-            <a
-              href={mp4StreamUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
-              title="1280x720 @ 30fps @ 2Mbps"
-            >
-              720p30
-            </a>
-            {' | '}
-            <a
-              href={`${mp4StreamUrl}?width=1920&height=1080&fps=30&bitrate=5000`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
-              title="1920x1080 @ 30fps @ 5Mbps"
-            >
-              1080p30
-            </a>
-            {' | '}
-            <a
-              href={`${mp4StreamUrl}?width=1920&height=1080&fps=60&bitrate=8000`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
-              title="1920x1080 @ 60fps @ 8Mbps"
-            >
-              1080p60
-            </a>
-            {' | '}
-            <a
-              href={`${mp4StreamUrl}?width=3840&height=2160&fps=60&bitrate=30000`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#4fc3f7', textDecoration: 'underline' }}
-              title="3840x2160 @ 60fps @ 30Mbps"
-            >
-              4K60
-            </a>
+            {/* Primary link: configured stream resolution */}
+            {streamWidth && streamHeight && streamFps ? (
+              <a
+                href={buildMp4Url(streamWidth, streamHeight, streamFps, estimateBitrate(streamWidth, streamHeight, streamFps)) || ''}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#00ff00', textDecoration: 'underline', fontWeight: 'bold' }}
+                title={`${streamWidth}x${streamHeight} @ ${streamFps}fps @ ${estimateBitrate(streamWidth, streamHeight, streamFps)/1000}Mbps (configured)`}
+              >
+                {streamWidth}x{streamHeight}@{streamFps}
+              </a>
+            ) : (
+              <a
+                href={mp4StreamUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#00ff00', textDecoration: 'underline', fontWeight: 'bold' }}
+                title="720p @ 30fps @ 2Mbps (default)"
+              >
+                720p30
+              </a>
+            )}
+            <br />
+            <span style={{ color: '#888', fontSize: '0.65rem' }}>Presets: </span>
+            {[
+              { label: '720p30', w: 1280, h: 720, fps: 30, bitrate: 2000 },
+              { label: '1080p60', w: 1920, h: 1080, fps: 60, bitrate: 8000 },
+              { label: '4K60', w: 3840, h: 2160, fps: 60, bitrate: 30000 },
+              { label: 'iPhone', w: 1179, h: 2556, fps: 120, bitrate: 8000 },
+              { label: 'iPad', w: 2360, h: 1640, fps: 60, bitrate: 10000 },
+              { label: 'MacBook', w: 2560, h: 1600, fps: 60, bitrate: 10000 },
+            ].map((preset, i) => (
+              <span key={preset.label}>
+                {i > 0 && ' '}
+                <a
+                  href={buildMp4Url(preset.w, preset.h, preset.fps, preset.bitrate) || ''}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#4fc3f7', textDecoration: 'underline', fontSize: '0.65rem' }}
+                  title={`${preset.w}x${preset.h} @ ${preset.fps}fps @ ${preset.bitrate/1000}Mbps`}
+                >
+                  {preset.label}
+                </a>
+              </span>
+            ))}
           </div>
         )}
         {/* Active Connections Registry */}

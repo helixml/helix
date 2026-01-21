@@ -739,7 +739,15 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         let output_mode = g
             .as_ref()
             .map(|s| s.output_mode)
-            .unwrap_or(OutputMode::System);
+            .unwrap_or_else(|| {
+                // State not initialized yet (caps negotiation before start())
+                // Determine output mode from settings (buffer-type property)
+                let settings = self.settings.lock();
+                match settings.buffer_type {
+                    BufferType::DmaBuf => OutputMode::Cuda, // dmabuf → CUDA output
+                    BufferType::Shm => OutputMode::System,
+                }
+            });
         drop(g);
 
         let formats = [
