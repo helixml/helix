@@ -247,7 +247,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
               </InputAdornment>
             ),
             endAdornment: (
-              <InputAdornment position="end">
+              <InputAdornment position="end" sx={{ minWidth: compact ? 24 : 56 }}>
                 {query ? (
                   <CloseIcon
                     sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
@@ -256,7 +256,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                       setOpen(false)
                     }}
                   />
-                ) : (
+                ) : !compact ? (
                   <Box
                     sx={{
                       display: 'flex',
@@ -271,7 +271,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                       {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+K
                     </Typography>
                   </Box>
-                )}
+                ) : null}
               </InputAdornment>
             ),
           }}
