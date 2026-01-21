@@ -246,34 +246,34 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                 )}
               </InputAdornment>
             ),
-            endAdornment: query ? (
+            endAdornment: (
               <InputAdornment position="end">
-                <CloseIcon
-                  sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
-                  onClick={() => {
-                    setQuery('')
-                    setOpen(false)
-                  }}
-                />
+                {query ? (
+                  <CloseIcon
+                    sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
+                    onClick={() => {
+                      setQuery('')
+                      setOpen(false)
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      color: 'text.disabled',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <KeyboardIcon sx={{ fontSize: 14 }} />
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                      {navigator.platform.includes('Mac') ? '⌘' : '⌃'}K
+                    </Typography>
+                  </Box>
+                )}
               </InputAdornment>
-            ) : !compact ? (
-              <InputAdornment position="end">
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    color: 'text.disabled',
-                    fontSize: '0.75rem',
-                  }}
-                >
-                  <KeyboardIcon sx={{ fontSize: 14 }} />
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                    {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+K
-                  </Typography>
-                </Box>
-              </InputAdornment>
-            ) : undefined,
+            ),
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
