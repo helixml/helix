@@ -1779,13 +1779,33 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// CRITICAL: Publish final session update to frontend so it gets the complete state
 	// Without this, the frontend never receives the final update with state=complete
-	helixSession.Interactions = append(helixSession.Interactions[:0], targetInteraction)
-	err = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+	// Must reload session and list ALL interactions to avoid sending stale/partial data
+	reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 	if err != nil {
-		log.Error().Err(err).
-			Str("session_id", helixSessionID).
-			Str("interaction_id", targetInteraction.ID).
-			Msg("Failed to publish final session update to frontend")
+		log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session for final publish")
+	} else {
+		allInteractions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: reloadedSession.GenerationID,
+			PerPage:      1000,
+		})
+		if err == nil && len(allInteractions) > 0 {
+			reloadedSession.Interactions = allInteractions
+			log.Info().
+				Str("session_id", helixSessionID).
+				Int("interaction_count", len(allInteractions)).
+				Int("last_interaction_response_len", len(allInteractions[len(allInteractions)-1].ResponseMessage)).
+				Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
+				Msg("🔍 [DEBUG] Publishing final session update after message_completed")
+
+			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", targetInteraction.ID).
+					Msg("Failed to publish final session update to frontend")
+			}
+		}
 	}
 
 	// FINALIZE COMMENT RESPONSE

@@ -357,6 +357,25 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// CRITICAL: For external agent sessions, publish session update to frontend immediately
+	// This ensures the frontend receives the new interaction (with user's prompt_message)
+	// without waiting for the 2-second refetch interval
+	if agentType == "zed_external" && len(session.Interactions) > 0 {
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		if err := s.publishSessionUpdateToFrontend(session, lastInteraction); err != nil {
+			log.Error().Err(err).
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Msg("Failed to publish initial session update to frontend for external agent")
+		} else {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Int("prompt_message_len", len(lastInteraction.PromptMessage)).
+				Msg("📤 [HELIX] Published initial session update to frontend for external agent")
+		}
+	}
+
 	// Notify external agents ONLY of NEW interactions (not replaying history)
 	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
 		interaction := session.Interactions[i]
