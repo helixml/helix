@@ -929,9 +929,8 @@ Follow these guidelines when making changes:
 // buildEnvWithLocale constructs the environment variable array for desktop containers
 // Includes the API token and optional locale settings (keyboard layout, timezone)
 func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []string {
-	env := []string{
-		fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
-	}
+	// Use shared helper for API-related env vars (same as addUserAPITokenToAgent in external_agent_handlers.go)
+	env := types.DesktopAgentAPIEnvVars(userAPIKey)
 
 	// Add keyboard layout if specified (from browser locale detection)
 	if opts.KeyboardLayout != "" {

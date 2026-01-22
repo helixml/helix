@@ -780,6 +780,19 @@ export interface ServerSandboxInstanceInfo {
   status?: string;
 }
 
+export interface ServerSendMessageRequest {
+  content?: string;
+  /** If true, interrupt current work; if false, queue after current work */
+  interrupt?: boolean;
+}
+
+export interface ServerSendMessageResponse {
+  interaction_id?: string;
+  session_id?: string;
+  /** "queued" or "sent" */
+  status?: string;
+}
+
 export interface ServerSessionSandboxStateResponse {
   container_id?: string;
   session_id?: string;
@@ -4827,7 +4840,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4917,8 +4930,12 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title No title
- * @contact
+ * @title HelixML API reference
+ * @version 0.1
+ * @baseUrl https://app.helix.ml
+ * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
+ *
+ * This is the HelixML API.
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -5724,17 +5741,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns random uncompressible data for measuring available bandwidth before session creation. Used by adaptive bitrate to determine optimal initial bitrate before connecting. Only requires authentication, not session ownership.
+     * @description Returns random uncompressible data for measuring available bandwidth. Used by adaptive bitrate algorithm to probe network throughput. Only requires authentication, not session ownership.
      *
      * @tags ExternalAgents
      * @name V1BandwidthProbeList
-     * @summary Initial bandwidth probe (no session required)
+     * @summary Bandwidth probe for adaptive bitrate
      * @request GET:/api/v1/bandwidth-probe
      * @secure
      */
     v1BandwidthProbeList: (
       query?: {
-        /** Size of data to return in bytes (default 524288 = 512KB) */
+        /** Size of data to return in bytes (default 524288 = 512KB, max 2MB) */
         size?: number;
       },
       params: RequestParams = {},
@@ -5817,31 +5834,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesDashboardData, any>({
         path: `/api/v1/dashboard`,
         method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsBandwidthProbeDetail
-     * @summary Bandwidth probe for adaptive bitrate
-     * @request GET:/api/v1/external-agents/{sessionID}/bandwidth-probe
-     * @secure
-     */
-    v1ExternalAgentsBandwidthProbeDetail: (
-      sessionId: string,
-      query?: {
-        /** Size of data to return in bytes (default 524288 = 512KB) */
-        size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<File, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/bandwidth-probe`,
-        method: "GET",
-        query: query,
         secure: true,
         ...params,
       }),
@@ -5974,6 +5966,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Streams H.264 video from the desktop session as Low-Latency HLS. This allows iOS Safari video playback with Picture-in-Picture support.
+     *
+     * @tags external-agents
+     * @name V1ExternalAgentsStreamM3U8Detail
+     * @summary Stream video as HLS
+     * @request GET:/api/v1/external-agents/{sessionID}/stream.m3u8
+     * @secure
+     */
+    v1ExternalAgentsStreamM3U8Detail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/stream.m3u8`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -9473,6 +9482,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/interactions/${interactionId}/feedback`,
         method: "POST",
         body: feedback,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Send a message to a session. Creates an interaction and kicks off agent processing. Returns immediately with 200 if the message was saved to the database. The actual agent response will come via WebSocket subscription to the session.
+     *
+     * @tags interactions
+     * @name V1SessionsMessageCreate
+     * @summary Send a message to a session (non-blocking)
+     * @request POST:/api/v1/sessions/{id}/message
+     * @secure
+     */
+    v1SessionsMessageCreate: (id: string, message: ServerSendMessageRequest, params: RequestParams = {}) =>
+      this.request<ServerSendMessageResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/message`,
+        method: "POST",
+        body: message,
         secure: true,
         type: ContentType.Json,
         format: "json",

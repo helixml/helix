@@ -1222,6 +1222,25 @@ definitions:
       status:
         type: string
     type: object
+  server.SendMessageRequest:
+    properties:
+      content:
+        type: string
+      interrupt:
+        description: If true, interrupt current work; if false, queue after current
+          work
+        type: boolean
+    type: object
+  server.SendMessageResponse:
+    properties:
+      interaction_id:
+        type: string
+      session_id:
+        type: string
+      status:
+        description: '"queued" or "sent"'
+        type: string
+    type: object
   server.SessionSandboxStateResponse:
     properties:
       container_id:
@@ -8871,11 +8890,12 @@ paths:
   /api/v1/bandwidth-probe:
     get:
       description: |-
-        Returns random uncompressible data for measuring available bandwidth before session creation.
-        Used by adaptive bitrate to determine optimal initial bitrate before connecting.
+        Returns random uncompressible data for measuring available bandwidth.
+        Used by adaptive bitrate algorithm to probe network throughput.
         Only requires authentication, not session ownership.
       parameters:
-      - description: Size of data to return in bytes (default 524288 = 512KB)
+      - description: Size of data to return in bytes (default 524288 = 512KB, max
+          2MB)
         in: query
         name: size
         type: integer
@@ -8892,7 +8912,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Initial bandwidth probe (no session required)
+      summary: Bandwidth probe for adaptive bitrate
       tags:
       - ExternalAgents
   /api/v1/clone-groups/{groupId}/progress:
@@ -8963,42 +8983,6 @@ paths:
             $ref: '#/definitions/types.DashboardData'
       security:
       - BearerAuth: []
-  /api/v1/external-agents/{sessionID}/bandwidth-probe:
-    get:
-      description: |-
-        Returns random uncompressible data for measuring available bandwidth.
-        This endpoint starts sending bytes immediately, unlike screenshot which
-        has capture latency. Used by adaptive bitrate algorithm to probe throughput.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      - description: Size of data to return in bytes (default 524288 = 512KB)
-        in: query
-        name: size
-        type: integer
-      produces:
-      - application/octet-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Bandwidth probe for adaptive bitrate
-      tags:
-      - ExternalAgents
   /api/v1/external-agents/{sessionID}/clipboard:
     get:
       description: Fetch current clipboard content from remote desktop
@@ -9233,6 +9217,45 @@ paths:
       summary: Send input events to sandbox
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/stream.m3u8:
+    get:
+      description: |-
+        Streams H.264 video from the desktop session as Low-Latency HLS.
+        This allows iOS Safari video playback with Picture-in-Picture support.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - application/vnd.apple.mpegurl
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Stream video as HLS
+      tags:
+      - external-agents
   /api/v1/external-agents/{sessionID}/upload:
     post:
       consumes:
@@ -14062,6 +14085,50 @@ paths:
       security:
       - BearerAuth: []
       summary: Provide feedback for an interaction
+      tags:
+      - interactions
+  /api/v1/sessions/{id}/message:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Send a message to a session. Creates an interaction and kicks off agent processing.
+        Returns immediately with 200 if the message was saved to the database.
+        The actual agent response will come via WebSocket subscription to the session.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message to send
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/server.SendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SendMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Send a message to a session (non-blocking)
       tags:
       - interactions
   /api/v1/sessions/{id}/rdp-connection:

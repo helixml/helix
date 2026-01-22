@@ -284,7 +284,7 @@ Examples:
 func stopSession(apiURL, token, sessionID string) error {
 	fmt.Printf("Stopping session %s...\n", sessionID)
 
-	url := fmt.Sprintf("%s/api/v1/external-agents/%s", apiURL, sessionID)
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/stop-external-agent", apiURL, sessionID)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err

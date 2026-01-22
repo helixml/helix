@@ -1954,6 +1954,18 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	return width, height, refreshRate
 }
 
+// DesktopAgentAPIEnvVars returns the standard API-related environment variables
+// that desktop agents need for LLM access and Git operations.
+// This function ensures consistent env var names across all code paths.
+func DesktopAgentAPIEnvVars(apiKey string) []string {
+	return []string{
+		"USER_API_TOKEN=" + apiKey,    // Git operations and RevDial
+		"ANTHROPIC_API_KEY=" + apiKey, // Zed built-in agent (Anthropic)
+		"OPENAI_API_KEY=" + apiKey,    // Zed built-in agent (OpenAI)
+		"ZED_HELIX_TOKEN=" + apiKey,   // Zed external sync WebSocket auth
+	}
+}
+
 // DesktopAgentResponse represents the response from a Zed agent execution
 type DesktopAgentResponse struct {
 	// Session ID of the Zed instance

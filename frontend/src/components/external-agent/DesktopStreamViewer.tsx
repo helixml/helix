@@ -41,22 +41,6 @@ import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
 import CursorRenderer from './CursorRenderer';
 
-// Default cursor - standard arrow pointer as SVG data URL
-// Used until server sends the actual cursor image
-const DEFAULT_CURSOR: CursorImageData = {
-  cursorId: 0,
-  hotspotX: 0,
-  hotspotY: 0,
-  width: 24,
-  height: 24,
-  // Standard arrow cursor SVG
-  imageUrl: 'data:image/svg+xml,' + encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-      <path fill="white" stroke="black" stroke-width="1" d="M0,0 L0,17 L4,13 L7,20 L10,19 L7,12 L12,12 Z"/>
-    </svg>
-  `.trim()),
-};
-
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -116,8 +100,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false); // Track if mouse is over canvas for cursor visibility
   // Client-side cursor rendering state
-  const [cursorImage, setCursorImage] = useState<CursorImageData | null>(DEFAULT_CURSOR);
-  const [cursorCssName, setCursorCssName] = useState<string | null>(null); // CSS cursor name fallback (GNOME headless)
+  // Initialize with null/default to show native system pointer until server sends cursor
+  const [cursorImage, setCursorImage] = useState<CursorImageData | null>(null);
+  const [cursorCssName, setCursorCssName] = useState<string | null>('default'); // CSS cursor name fallback (GNOME headless)
   const [cursorVisible, setCursorVisible] = useState(true);
   // Multi-player cursor state
   const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
@@ -2009,7 +1994,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // unlike screenshot which has capture latency before bytes start flowing
   // Returns measured throughput in Mbps (0 on failure)
   const runBandwidthProbe = useCallback(async (): Promise<number> => {
-    if (!sessionId || bandwidthProbeInProgressRef.current) {
+    if (bandwidthProbeInProgressRef.current) {
       return 0;
     }
 
@@ -2024,9 +2009,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const probeSize = 524288; // 512KB per request
       const startTime = performance.now();
 
-      // Fire all requests simultaneously
+      // Fire all requests simultaneously (uses generic endpoint, no session required)
       const probePromises = Array.from({ length: probeCount }, (_, i) =>
-        fetch(`/api/v1/external-agents/${sessionId}/bandwidth-probe?size=${probeSize}`)
+        fetch(`/api/v1/bandwidth-probe?size=${probeSize}`)
           .then(response => {
             if (!response.ok) {
               console.warn(`[AdaptiveBitrate] Probe request ${i + 1} failed: ${response.status}`);
@@ -2056,7 +2041,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     } finally {
       bandwidthProbeInProgressRef.current = false;
     }
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
     if (!isConnected || !streamRef.current) {

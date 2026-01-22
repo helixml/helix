@@ -693,33 +693,24 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 
-	// External agent routes
-	authRouter.HandleFunc("/external-agents", apiServer.createExternalAgent).Methods("POST")
-	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
-	// Specific routes must come before parametric routes
-	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
-	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
-	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")
-	authRouter.HandleFunc("/bandwidth-probe", apiServer.getInitialBandwidthProbe).Methods("GET") // Initial probe (no session required)
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/voice", apiServer.sendVoiceInput).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")            // Execute safe commands in sandbox (vkcube, glxgears)
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // Direct WebSocket input
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // Direct WebSocket video streaming
-	authRouter.HandleFunc("/external-agents/{sessionID}/video.mp4", apiServer.handleFMP4Stream).Methods("GET")                     // fMP4 video stream for MSE playback
-	authRouter.HandleFunc("/external-agents/{sessionID}/stream.m3u8", apiServer.handleHLSStream).Methods("GET")                  // HLS manifest for native playback (Safari/iOS)
-	authRouter.PathPrefix("/external-agents/{sessionID}/stream/").HandlerFunc(apiServer.handleHLSStream).Methods("GET")          // HLS segments
-	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET") // Git diff from container
+	// External agent routes - desktop streaming and Zed agent communication
+	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
+	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                // WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET") // Desktop screenshots for previews and fallback display
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                           // Network throughput measurement for adaptive video bitrate
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")  // Read remote desktop clipboard to sync locally
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST") // Write local clipboard to remote desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/voice", apiServer.sendVoiceInput).Methods("POST")           // Voice input transcription
+	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")    // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")  // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/video.mp4", apiServer.handleFMP4Stream).Methods("GET")      // fMP4 video stream for MSE playback
+	authRouter.HandleFunc("/external-agents/{sessionID}/stream.m3u8", apiServer.handleHLSStream).Methods("GET")     // HLS manifest for Safari/iOS native playback
+	authRouter.PathPrefix("/external-agents/{sessionID}/stream/").HandlerFunc(apiServer.handleHLSStream).Methods("GET") // HLS segments
+	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
+	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
 
 	// Sandbox instance registry routes (multi-sandbox support)
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")

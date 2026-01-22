@@ -1461,18 +1461,18 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns random uncompressible data for measuring available bandwidth before session creation.\nUsed by adaptive bitrate to determine optimal initial bitrate before connecting.\nOnly requires authentication, not session ownership.",
+                "description": "Returns random uncompressible data for measuring available bandwidth.\nUsed by adaptive bitrate algorithm to probe network throughput.\nOnly requires authentication, not session ownership.",
                 "produces": [
                     "application/octet-stream"
                 ],
                 "tags": [
                     "ExternalAgents"
                 ],
-                "summary": "Initial bandwidth probe (no session required)",
+                "summary": "Bandwidth probe for adaptive bitrate",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
+                        "description": "Size of data to return in bytes (default 524288 = 512KB, max 2MB)",
                         "name": "size",
                         "in": "query"
                     }
@@ -1599,58 +1599,6 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.DashboardData"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/external-agents/{sessionID}/bandwidth-probe": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns random uncompressible data for measuring available bandwidth.\nThis endpoint starts sending bytes immediately, unlike screenshot which\nhas capture latency. Used by adaptive bitrate algorithm to probe throughput.",
-                "produces": [
-                    "application/octet-stream"
-                ],
-                "tags": [
-                    "ExternalAgents"
-                ],
-                "summary": "Bandwidth probe for adaptive bitrate",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
-                        "name": "size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -1982,6 +1930,64 @@
                         "description": "success response with processed count",
                         "schema": {
                             "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/stream.m3u8": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams H.264 video from the desktop session as Low-Latency HLS.\nThis allows iOS Safari video playback with Picture-in-Picture support.",
+                "produces": [
+                    "application/vnd.apple.mpegurl"
+                ],
+                "tags": [
+                    "external-agents"
+                ],
+                "summary": "Stream video as HLS",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     },
                     "401": {
@@ -9613,6 +9619,70 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/message": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send a message to a session. Creates an interaction and kicks off agent processing.\nReturns immediately with 200 if the message was saved to the database.\nThe actual agent response will come via WebSocket subscription to the session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Send a message to a session (non-blocking)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message to send",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SendMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -14907,6 +14977,33 @@
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SendMessageRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "interrupt": {
+                    "description": "If true, interrupt current work; if false, queue after current work",
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.SendMessageResponse": {
+            "type": "object",
+            "properties": {
+                "interaction_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"queued\" or \"sent\"",
                     "type": "string"
                 }
             }
