@@ -834,10 +834,6 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 			// Our RooCodeBridge serves this endpoint at /api/extension/bridge/config
 			env = append(env, "ROO_CODE_API_URL=http://localhost:9879")
 		}
-
-		// For Cursor mode, no special env vars needed
-		// CURSOR_API_KEY should be set via the user's agent config or .cursor/settings.json
-		// The CursorBridge in desktop-bridge handles subprocess communication
 	}
 
 	// Add GPU-specific environment variables

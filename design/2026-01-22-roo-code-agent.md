@@ -1,21 +1,17 @@
-# Roo Code + Cursor Agent Integration
+# Roo Code Agent Integration
 
-> **IMPORTANT: READ THIS FIRST AFTER CONTEXT COMPACTION**
->
-> **Worktree:** `/prod/home/luke/pm/helix.2` (NOT `/prod/home/luke/pm/helix`)
-> **Branch:** `feat/roo-code-agent`
-> **Date:** 2026-01-22
-> **Status:** In Progress - Adding Cursor support
+**Date:** 2026-01-22
+**Branch:** `feat/roo-code-agent`
+**Worktree:** `/prod/home/luke/pm/helix.2`
+**Status:** In Progress
 
 ## Overview
 
-Add alternative code agents alongside Zed:
-1. **Zed Agent** - Zed's built-in agent panel
-2. **Qwen Code** - Qwen Code agent in Zed via ACP
-3. **VS Code + Roo Code** - VS Code with Roo Code extension
-4. **Cursor** - Cursor IDE with built-in AI agent (in progress)
+Add Roo Code (VS Code + Roo Code extension) as a third agent type alongside:
+- Zed Agent (Zed's built-in agent)
+- Qwen Code (ACP agent inside Zed)
 
-This allows users to choose their preferred IDE + agent combination for desktop coding sessions.
+This allows users to choose VS Code + Roo Code instead of Zed for their desktop coding sessions.
 
 ## Architecture
 
@@ -213,78 +209,5 @@ All paths are relative to `/prod/home/luke/pm/helix.2`:
 **Container Image:**
 - `Dockerfile.ubuntu-helix` - Install VS Code + Roo Code extension ✓
 - `desktop/ubuntu-config/startup-app.sh` - Editor selection logic (zed/vscode/headless) ✓
-- `desktop/ubuntu-config/start-vscode-helix.sh` - Minimal VS Code startup (14 lines) ✓
+- `desktop/ubuntu-config/start-vscode-helix.sh` - Minimal VS Code startup (47 lines) ✓
 - `desktop/shared/start-agenthost-core.sh` - Extended with `start_vscode_helix()` and generic `run_editor_restart_loop()` ✓
-
-## Phase 5: Cursor IDE Integration (In Progress)
-
-### Cursor Architecture
-
-Unlike Roo Code (Socket.IO server ↔ extension), Cursor uses a subprocess-based CLI:
-
-```
-[Helix API] <--(WebSocket)--> [AgentClient] <--(subprocess)--> [cursor-agent CLI]
-```
-
-**Key differences from Roo Code:**
-- Cursor CLI is a subprocess, not a persistent connection
-- Each task spawns a new `cursor-agent -p "prompt" --output-format stream-json` process
-- No persistent session state between tasks (unlike Roo Code's Socket.IO)
-- MCP servers configured via `.cursor/mcp.json` (same pattern as Roo Code)
-
-### Cursor CLI Modes
-
-| Flag | Description |
-|------|-------------|
-| `-p` / `--print` | Non-interactive (print) mode for automation |
-| `--output-format json` | Single JSON result object |
-| `--output-format stream-json` | NDJSON events (system, delta, tool_call, result) |
-| `--force` | Allow file changes without confirmation |
-
-### Known Cursor CLI Issues
-
-1. **Terminal hang bug**: CLI may not release terminal even with `-p` flag
-   - Workaround: CursorBridge uses context timeout + process.Kill()
-
-2. **Initial trust required**: CLI may need interactive session first to trust directory
-   - Workaround: Pre-trust `/home/retro/work` during container build
-
-### Files Added for Cursor
-
-**Desktop Bridge:**
-- `api/pkg/desktop/cursor.go` - CursorBridge (subprocess management)
-- `api/pkg/desktop/agent_client.go` - Updated with Cursor support
-
-**Container Image:**
-- `Dockerfile.ubuntu-helix` - Install Cursor IDE + CLI
-- `desktop/ubuntu-config/start-cursor-helix.sh` - Cursor startup script
-- `desktop/ubuntu-config/startup-app.sh` - Added cursor case to editor selection
-
-**Frontend:**
-- `frontend/src/contexts/apps.tsx` - Added `cursor_agent` to AgentConfiguration
-- `frontend/src/components/agent/AgentConfigurationSelector.tsx` - Added Cursor option
-
-### MCP Server Configuration
-
-Both Roo Code and Cursor support MCP servers:
-
-| Tool | Global Config | Project Config |
-|------|--------------|----------------|
-| Roo Code | `mcp_settings.json` | `.roo/mcp.json` |
-| Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
-
-### WebSocket Sync Protocol Compatibility
-
-| Feature | Roo Code | Cursor CLI |
-|---------|----------|------------|
-| Persistent session | Yes (Socket.IO) | No (subprocess) |
-| Real-time streaming | Yes | Partial (NDJSON) |
-| Context between messages | Yes | Limited (working dir only) |
-| Stop mid-task | Yes | Yes (process.Kill) |
-
-### Licensing
-
-Cursor is proprietary software. Users must have their own Cursor account/license.
-- Cursor IDE: Proprietary (user must agree to terms)
-- cursor-agent CLI: Same license as IDE
-- We're using the CLI in headless mode, not bypassing licensing

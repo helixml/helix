@@ -135,7 +135,6 @@ const (
 //   - AgentHostTypeZed + CodeAgentRuntimeQwenCode = Qwen Code agent inside Zed
 //   - AgentHostTypeZed + CodeAgentRuntimeZedAgent = Zed's built-in agent
 //   - AgentHostTypeVSCode = Roo Code extension (CodeAgentRuntime ignored)
-//   - AgentHostTypeCursor = Cursor CLI agent (CodeAgentRuntime ignored)
 //   - AgentHostTypeHeadless = Custom Go ACP client (future)
 type AgentHostType string
 
@@ -147,10 +146,6 @@ const (
 	// AgentHostTypeVSCode uses VS Code with the Roo Code extension.
 	// Roo Code IS the agent - CodeAgentRuntime is ignored for this host type.
 	AgentHostTypeVSCode AgentHostType = "vscode"
-
-	// AgentHostTypeCursor uses Cursor IDE with its built-in AI agent.
-	// Uses the cursor-agent CLI in print mode for non-interactive operation.
-	AgentHostTypeCursor AgentHostType = "cursor"
 
 	// AgentHostTypeHeadless runs agents without a graphical IDE (future).
 	// Uses a custom Go-based ACP client that directly implements tool execution.

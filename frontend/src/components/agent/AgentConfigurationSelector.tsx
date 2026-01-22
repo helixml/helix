@@ -57,14 +57,6 @@ export const AgentConfigurationSelector: FC<AgentConfigurationSelectorProps> = (
             </Typography>
           </Box>
         </MenuItem>
-        <MenuItem value="cursor_agent">
-          <Box>
-            <Typography variant="body2">Cursor</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Cursor IDE with built-in AI agent
-            </Typography>
-          </Box>
-        </MenuItem>
       </Select>
     </FormControl>
   )
