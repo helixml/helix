@@ -828,11 +828,22 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		agentHostType := types.GetAgentHostType(agent.AgentHostType)
 		env = append(env, fmt.Sprintf("HELIX_AGENT_HOST_TYPE=%s", agentHostType))
 
-		// For VS Code + Roo Code mode, configure Roo Code to use our local bridge
+		// For VS Code + Roo Code mode, configure Roo Code communication protocol
 		if agentHostType == types.AgentHostTypeVSCode {
-			// ROO_CODE_API_URL tells Roo Code extension where to fetch bridge config
-			// Our RooCodeBridge serves this endpoint at /api/extension/bridge/config
-			env = append(env, "ROO_CODE_API_URL=http://localhost:9879")
+			rooCodeProtocol := types.GetRooCodeProtocol(agent.RooCodeProtocol)
+			env = append(env, fmt.Sprintf("HELIX_ROOCODE_PROTOCOL=%s", rooCodeProtocol))
+
+			switch rooCodeProtocol {
+			case types.RooCodeProtocolIPC:
+				// IPC mode: Roo Code connects via Unix socket
+				// The socket path is shared between the extension and our IPC client
+				env = append(env, "ROO_CODE_IPC_SOCKET_PATH=/tmp/roo-code.sock")
+			default:
+				// Socket.IO mode: Roo Code connects to our bridge server
+				// ROO_CODE_API_URL tells the extension where to fetch bridge config
+				// Our RooCodeBridge serves this endpoint at /api/extension/bridge/config
+				env = append(env, "ROO_CODE_API_URL=http://localhost:9879")
+			}
 		}
 	}
 

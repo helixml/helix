@@ -490,6 +490,9 @@ type ExternalAgentConfig struct {
 	// Agent host environment
 	AgentHostType AgentHostType `json:"agent_host_type,omitempty"` // "zed" (default), "vscode", or "headless"
 
+	// Roo Code protocol (only for AgentHostTypeVSCode)
+	RooCodeProtocol RooCodeProtocol `json:"roocode_protocol,omitempty"` // "socketio" (default) or "ipc"
+
 	// Video capture/encoding mode
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
@@ -1915,7 +1918,8 @@ type DesktopAgent struct {
 	DesktopType   string        `json:"desktop_type,omitempty"`    // Desktop environment: "ubuntu" (default) or "sway"
 	ZoomLevel     int           `json:"zoom_level,omitempty"`      // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale  int           `json:"display_scale,omitempty"`   // KDE/Qt display scale factor (1=100%, 2=200%)
-	AgentHostType AgentHostType `json:"agent_host_type,omitempty"` // "zed" (default), "vscode", or "headless"
+	AgentHostType   AgentHostType   `json:"agent_host_type,omitempty"`   // "zed" (default), "vscode", or "headless"
+	RooCodeProtocol RooCodeProtocol `json:"roocode_protocol,omitempty"` // "socketio" (default) or "ipc" (only for vscode)
 
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox

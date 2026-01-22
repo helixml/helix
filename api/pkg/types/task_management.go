@@ -160,6 +160,30 @@ func GetAgentHostType(hostType AgentHostType) AgentHostType {
 	return hostType
 }
 
+// RooCodeProtocol specifies which protocol to use for Roo Code communication.
+// This is only relevant when AgentHostType is "vscode".
+type RooCodeProtocol string
+
+const (
+	// RooCodeProtocolSocketIO uses Socket.IO to communicate with the Roo Code extension.
+	// We run a Socket.IO server that the extension connects to via ROO_CODE_API_URL.
+	// This mimics the Roomote cloud bridge protocol.
+	RooCodeProtocolSocketIO RooCodeProtocol = "socketio"
+
+	// RooCodeProtocolIPC uses Unix domain sockets to communicate with the Roo Code extension.
+	// This is the local IPC protocol used by roo-cli and roo-ipc.
+	// Requires ROO_CODE_IPC_SOCKET_PATH to be set when starting VS Code.
+	RooCodeProtocolIPC RooCodeProtocol = "ipc"
+)
+
+// GetRooCodeProtocol returns the Roo Code protocol with default fallback to Socket.IO.
+func GetRooCodeProtocol(protocol RooCodeProtocol) RooCodeProtocol {
+	if protocol == "" {
+		return RooCodeProtocolSocketIO
+	}
+	return protocol
+}
+
 // CodeAgentRuntime specifies which code agent runtime to use inside Zed.
 // This determines how the LLM is configured within the Zed editor.
 type CodeAgentRuntime string

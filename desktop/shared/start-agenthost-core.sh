@@ -292,10 +292,22 @@ start_vscode_helix() {
     # =========================================
     # Step 3: Configure Roo Code extension
     # =========================================
-    # ROO_CODE_API_URL tells the extension where to connect
-    # The RooCodeBridge in desktop-bridge serves the config on port 9879
-    export ROO_CODE_API_URL="http://localhost:9879"
-    echo "ROO_CODE_API_URL=$ROO_CODE_API_URL"
+    # Protocol is set by hydra_executor via HELIX_ROOCODE_PROTOCOL env var
+    # - socketio (default): Uses Socket.IO to communicate via ROO_CODE_API_URL
+    # - ipc: Uses Unix domain socket via ROO_CODE_IPC_SOCKET_PATH
+    echo "HELIX_ROOCODE_PROTOCOL=${HELIX_ROOCODE_PROTOCOL:-socketio}"
+
+    if [ "${HELIX_ROOCODE_PROTOCOL}" = "ipc" ]; then
+        # IPC mode: The extension connects via Unix socket
+        # ROO_CODE_IPC_SOCKET_PATH should already be set by hydra_executor
+        export ROO_CODE_IPC_SOCKET_PATH="${ROO_CODE_IPC_SOCKET_PATH:-/tmp/roo-code.sock}"
+        echo "ROO_CODE_IPC_SOCKET_PATH=$ROO_CODE_IPC_SOCKET_PATH"
+    else
+        # Socket.IO mode (default): The extension fetches bridge config from our local server
+        # The RooCodeBridge in desktop-bridge serves the config on port 9879
+        export ROO_CODE_API_URL="${ROO_CODE_API_URL:-http://localhost:9879}"
+        echo "ROO_CODE_API_URL=$ROO_CODE_API_URL"
+    fi
 
     # =========================================
     # Step 4: Launch VS Code with auto-restart

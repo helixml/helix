@@ -20,18 +20,20 @@ import (
 // AgentClient handles the WebSocket connection to Helix API for receiving commands
 // and translates them to the appropriate agent backend (Zed, Roo Code, or headless).
 type AgentClient struct {
-	apiURL     string
-	sessionID  string
-	token      string
-	hostType   types.AgentHostType
-	rooBridge  *RooCodeBridge
-	conn       *websocket.Conn
-	sendChan   chan interface{}
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	reconnect  bool
-	onReady    func() // Called when agent is ready
+	apiURL          string
+	sessionID       string
+	token           string
+	hostType        types.AgentHostType
+	rooCodeProtocol types.RooCodeProtocol
+	rooBridge       *RooCodeBridge // Socket.IO bridge (for RooCodeProtocolSocketIO)
+	rooIPC          *RooCodeIPC    // IPC client (for RooCodeProtocolIPC)
+	conn            *websocket.Conn
+	sendChan        chan interface{}
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.Mutex
+	reconnect       bool
+	onReady         func() // Called when agent is ready
 }
 
 // AgentClientConfig contains configuration for the agent client
@@ -48,8 +50,15 @@ type AgentClientConfig struct {
 	// HostType determines which agent backend to use ("zed", "vscode", "headless")
 	HostType string
 
-	// RooCodeSocketURL is the Socket.IO port for Roo Code (only for vscode host type)
-	RooCodeSocketURL string
+	// RooCodeProtocol determines which protocol to use for Roo Code ("socketio" or "ipc")
+	// Only relevant when HostType is "vscode"
+	RooCodeProtocol string
+
+	// RooCodeSocketPort is the Socket.IO port for Roo Code (for socketio protocol)
+	RooCodeSocketPort string
+
+	// RooCodeIPCPath is the Unix socket path for Roo Code (for ipc protocol)
+	RooCodeIPCPath string
 }
 
 // NewAgentClient creates a new agent client
@@ -62,48 +71,101 @@ func NewAgentClient(cfg AgentClientConfig) (*AgentClient, error) {
 		hostType = types.AgentHostTypeZed
 	}
 
+	// Convert string to RooCodeProtocol
+	rooCodeProtocol := types.RooCodeProtocol(cfg.RooCodeProtocol)
+	if rooCodeProtocol == "" {
+		rooCodeProtocol = types.RooCodeProtocolSocketIO
+	}
+
 	client := &AgentClient{
-		apiURL:    cfg.APIURL,
-		sessionID: cfg.SessionID,
-		token:     cfg.Token,
-		hostType:  hostType,
-		sendChan:  make(chan interface{}, 100),
-		ctx:       ctx,
-		cancel:    cancel,
-		reconnect: true,
+		apiURL:          cfg.APIURL,
+		sessionID:       cfg.SessionID,
+		token:           cfg.Token,
+		hostType:        hostType,
+		rooCodeProtocol: rooCodeProtocol,
+		sendChan:        make(chan interface{}, 100),
+		ctx:             ctx,
+		cancel:          cancel,
+		reconnect:       true,
 	}
 
 	// Initialize the appropriate agent backend
 	switch hostType {
 	case types.AgentHostTypeVSCode:
-		// RooCodeBridge is a Socket.IO SERVER that Roo Code connects to
-		// Port for the bridge (Roo Code API mock + Socket.IO server)
-		bridgePort := cfg.RooCodeSocketURL
-		if bridgePort == "" {
-			bridgePort = "9879"
-		}
+		// Initialize Roo Code communication based on protocol
+		switch rooCodeProtocol {
+		case types.RooCodeProtocolIPC:
+			// IPC mode: Connect to Roo Code via Unix socket
+			ipcPath := cfg.RooCodeIPCPath
+			if ipcPath == "" {
+				ipcPath = "/tmp/roo-code.sock"
+			}
 
-		rooBridge, err := NewRooCodeBridge(RooCodeBridgeConfig{
-			Port:      bridgePort,
-			SessionID: cfg.SessionID,
-			OnAgentReady: func() {
-				client.sendAgentReady()
-			},
-			OnMessageAdded: func(content string, isComplete bool) {
-				client.sendMessageAdded(content, isComplete)
-			},
-			OnMessageUpdated: func(content string) {
-				// Not used yet - for streaming updates
-			},
-			OnError: func(err error) {
-				log.Error().Err(err).Str("session_id", cfg.SessionID).Msg("[AgentClient] Roo Code error")
-			},
-		})
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create Roo Code bridge: %w", err)
+			log.Info().
+				Str("session_id", cfg.SessionID).
+				Str("protocol", "ipc").
+				Str("socket_path", ipcPath).
+				Msg("[AgentClient] Using Roo Code IPC protocol")
+
+			rooIPC, err := NewRooCodeIPC(RooCodeIPCConfig{
+				SocketPath: ipcPath,
+				SessionID:  cfg.SessionID,
+				OnAgentReady: func() {
+					client.sendAgentReady()
+				},
+				OnMessageAdded: func(content string, isComplete bool) {
+					client.sendMessageAdded(content, isComplete)
+				},
+				OnMessageUpdated: func(content string) {
+					// For streaming updates
+				},
+				OnError: func(err error) {
+					log.Error().Err(err).Str("session_id", cfg.SessionID).Msg("[AgentClient] Roo Code IPC error")
+				},
+			})
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to create Roo Code IPC client: %w", err)
+			}
+			client.rooIPC = rooIPC
+
+		case types.RooCodeProtocolSocketIO:
+			fallthrough
+		default:
+			// Socket.IO mode: Run a Socket.IO server that Roo Code connects to
+			bridgePort := cfg.RooCodeSocketPort
+			if bridgePort == "" {
+				bridgePort = "9879"
+			}
+
+			log.Info().
+				Str("session_id", cfg.SessionID).
+				Str("protocol", "socketio").
+				Str("port", bridgePort).
+				Msg("[AgentClient] Using Roo Code Socket.IO protocol")
+
+			rooBridge, err := NewRooCodeBridge(RooCodeBridgeConfig{
+				Port:      bridgePort,
+				SessionID: cfg.SessionID,
+				OnAgentReady: func() {
+					client.sendAgentReady()
+				},
+				OnMessageAdded: func(content string, isComplete bool) {
+					client.sendMessageAdded(content, isComplete)
+				},
+				OnMessageUpdated: func(content string) {
+					// Not used yet - for streaming updates
+				},
+				OnError: func(err error) {
+					log.Error().Err(err).Str("session_id", cfg.SessionID).Msg("[AgentClient] Roo Code Socket.IO error")
+				},
+			})
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to create Roo Code Socket.IO bridge: %w", err)
+			}
+			client.rooBridge = rooBridge
 		}
-		client.rooBridge = rooBridge
 
 	case types.AgentHostTypeHeadless:
 		// TODO: Implement headless ACP client
@@ -125,11 +187,17 @@ func (c *AgentClient) Start() error {
 		return nil
 	}
 
-	// Start RooCodeBridge server (if applicable)
-	// The Roo Code extension will connect to this server
+	// Start the appropriate Roo Code communication backend
 	if c.rooBridge != nil {
+		// Socket.IO mode: Start the bridge server that Roo Code connects to
 		if err := c.rooBridge.Start(); err != nil {
-			return fmt.Errorf("failed to start Roo Code bridge: %w", err)
+			return fmt.Errorf("failed to start Roo Code Socket.IO bridge: %w", err)
+		}
+	}
+	if c.rooIPC != nil {
+		// IPC mode: Connect to the Roo Code IPC socket
+		if err := c.rooIPC.Start(); err != nil {
+			return fmt.Errorf("failed to start Roo Code IPC client: %w", err)
 		}
 	}
 
@@ -257,9 +325,14 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 		// Route to appropriate backend
 		switch c.hostType {
 		case types.AgentHostTypeVSCode:
-			if c.rooBridge != nil {
+			// Route based on protocol
+			if c.rooIPC != nil {
+				if err := c.rooIPC.SendMessage(message); err != nil {
+					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Roo Code via IPC")
+				}
+			} else if c.rooBridge != nil {
 				if err := c.rooBridge.SendMessage(message); err != nil {
-					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Roo Code")
+					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Roo Code via Socket.IO")
 				}
 			}
 		case types.AgentHostTypeHeadless:
@@ -268,7 +341,9 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 		}
 
 	case "stop":
-		if c.rooBridge != nil {
+		if c.rooIPC != nil {
+			_ = c.rooIPC.StopTask()
+		} else if c.rooBridge != nil {
 			_ = c.rooBridge.StopTask()
 		}
 
@@ -356,7 +431,10 @@ func (c *AgentClient) Stop() error {
 	c.reconnect = false
 	c.cancel()
 
-	// Close Roo Code bridge
+	// Close Roo Code communication backend
+	if c.rooIPC != nil {
+		_ = c.rooIPC.Close()
+	}
 	if c.rooBridge != nil {
 		_ = c.rooBridge.Close()
 	}
