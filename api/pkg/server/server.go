@@ -704,11 +704,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")    // WebSocket: keyboard/mouse input stream
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")  // WebSocket: H.264 video stream (primary)
-	authRouter.HandleFunc("/external-agents/{sessionID}/video.mp4", apiServer.handleFMP4Stream).Methods("GET")      // fMP4 video stream for MSE playback
-	authRouter.HandleFunc("/external-agents/{sessionID}/stream.m3u8", apiServer.handleHLSStream).Methods("GET")     // HLS manifest for Safari/iOS native playback
-	authRouter.PathPrefix("/external-agents/{sessionID}/stream/").HandlerFunc(apiServer.handleHLSStream).Methods("GET") // HLS segments
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // WebSocket: H.264 video stream (primary)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
 

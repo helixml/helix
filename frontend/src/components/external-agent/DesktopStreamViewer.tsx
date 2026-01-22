@@ -17,7 +17,6 @@ import {
   CameraAlt,
   TouchApp,
   PanTool,
-  PictureInPictureAlt,
 } from '@mui/icons-material';
 import {
   WebSocketStream,
@@ -66,7 +65,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   className = '',
   suppressOverlay = false,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
@@ -182,13 +180,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isIOS, setIsIOS] = useState(false);
   // iOS custom fullscreen mode (not native video fullscreen - our custom overlay with full interaction)
   const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
-  // Picture-in-Picture state
-  const [isPiPActive, setIsPiPActive] = useState(false);
-  const [isPiPSupported, setIsPiPSupported] = useState(false);
-  // Capture stream for video element (iOS fullscreen + PiP)
-  const captureStreamRef = useRef<MediaStream | null>(null);
-  // fMP4 video element for Safari PiP (native video playback without WebCodecs)
-  const fmp4VideoRef = useRef<HTMLVideoElement | null>(null);
 
   // Toolbar icon sizes - larger on touch devices for easier tapping
   const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
@@ -1066,177 +1057,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [isFullscreen, isIOSFullscreen, isIOS]);
 
-  // Toggle Picture-in-Picture mode - allows viewing stream while using other apps
-  // Uses zero-copy VideoFrame path (Chrome) or fMP4 native video (Safari/iOS)
-  const togglePiP = useCallback(async () => {
-    console.log('[PiP] togglePiP called');
-    const video = videoRef.current as any;
-    const canvas = canvasRef.current;
-    const stream = streamRef.current;
-    console.log('[PiP] video:', !!video, 'canvas:', !!canvas, 'stream:', !!stream);
-    if (!video || !canvas) {
-      console.log('[PiP] Early return - missing video or canvas');
-      return;
-    }
-
-    try {
-      if (isPiPActive) {
-        // Exit PiP - cleanup handled by event listener
-        if (document.pictureInPictureElement) {
-          await document.exitPictureInPicture();
-        } else if (video.webkitSetPresentationMode) {
-          // Safari
-          video.webkitSetPresentationMode('inline');
-        } else if (fmp4VideoRef.current?.webkitSetPresentationMode) {
-          // Safari fMP4 video
-          (fmp4VideoRef.current as any).webkitSetPresentationMode('inline');
-        }
-        // Cleanup HLS video if it was used
-        if (fmp4VideoRef.current) {
-          fmp4VideoRef.current.pause();
-          fmp4VideoRef.current.src = '';
-          fmp4VideoRef.current.remove();
-          fmp4VideoRef.current = null;
-        }
-      } else {
-        // Enter PiP - try zero-copy first (Chrome), then fMP4 native video (Safari/iOS)
-        // Try zero-copy PiP via WebSocketStream (writes VideoFrames directly to track)
-        // This avoids copying ~33MB per frame at 4K on CPU
-        const zeroCopyStream = stream?.enablePiP?.();
-        if (zeroCopyStream) {
-          captureStreamRef.current = zeroCopyStream;
-          console.log('[PiP] Using zero-copy VideoFrame path (Chrome)');
-          video.srcObject = captureStreamRef.current;
-          video.muted = true;
-          video.playsInline = true;
-          await video.play().catch((err: Error) => console.log('[PiP] Video play failed:', err));
-
-          if (video.requestPictureInPicture) {
-            await video.requestPictureInPicture();
-          }
-        } else {
-          // Use native HLS for Safari/iOS (no WebCodecs support)
-          // All other modern browsers use WebCodecs path above
-          console.log('[PiP] Using HLS stream (Safari/iOS)');
-
-          if (!fmp4VideoRef.current) {
-            console.log('[PiP] Creating HLS video element...');
-            const hlsVideo = document.createElement('video');
-            // Position in bottom-right corner, visible for PiP
-            hlsVideo.style.position = 'fixed';
-            hlsVideo.style.bottom = '10px';
-            hlsVideo.style.right = '10px';
-            hlsVideo.style.width = '160px';
-            hlsVideo.style.height = '90px';
-            hlsVideo.style.zIndex = '9999';
-            hlsVideo.style.border = '2px solid #00ff00';
-            hlsVideo.style.backgroundColor = '#000';
-            hlsVideo.muted = true;
-            hlsVideo.playsInline = true;
-            hlsVideo.autoplay = true;
-            hlsVideo.controls = true;
-            (hlsVideo as any).webkitPlaysinline = true;
-            document.body.appendChild(hlsVideo);
-            fmp4VideoRef.current = hlsVideo;
-
-            // Build HLS stream URL
-            const token = account.token;
-            const baseUrl = window.location.origin;
-            const pipWidth = 1280;
-            const pipHeight = 720;
-            const pipBitrate = 2000;
-            const params = new URLSearchParams();
-            if (token) params.set('access_token', token);
-            params.set('width', String(pipWidth));
-            params.set('height', String(pipHeight));
-            params.set('bitrate', String(pipBitrate));
-            const hlsUrl = `${baseUrl}/api/v1/external-agents/${sessionId}/stream.m3u8?${params.toString()}`;
-            console.log('[PiP] HLS stream URL:', hlsUrl.replace(token || '', '[REDACTED]'));
-
-            // Native HLS is supported in Safari and all WebKit-based browsers (iOS)
-            // Modern Chrome/Firefox/Edge use WebCodecs path above, so this is Safari-only
-            if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
-              console.log('[PiP] Using native HLS (Safari/iOS)');
-              hlsVideo.src = hlsUrl;
-              hlsVideo.play().catch((err: Error) => console.log('[PiP] HLS Video play failed:', err));
-            } else {
-              // This shouldn't happen - modern browsers either have WebCodecs (above) or native HLS
-              console.error('[PiP] Browser has neither WebCodecs nor native HLS - PiP not supported');
-              hlsVideo.remove();
-              fmp4VideoRef.current = null;
-              return;
-            }
-
-            // Add PiP event listeners
-            hlsVideo.addEventListener('enterpictureinpicture', () => {
-              console.log('[PiP] HLS entered PiP');
-              setIsPiPActive(true);
-            });
-            hlsVideo.addEventListener('leavepictureinpicture', () => {
-              console.log('[PiP] HLS left PiP');
-              setIsPiPActive(false);
-            });
-            hlsVideo.addEventListener('webkitpresentationmodechanged', () => {
-              const mode = (hlsVideo as any).webkitPresentationMode;
-              console.log('[PiP] HLS webkitPresentationMode changed to:', mode);
-              setIsPiPActive(mode === 'picture-in-picture');
-            });
-            hlsVideo.addEventListener('error', () => {
-              const error = hlsVideo.error;
-              console.error('[PiP] HLS video error:', {
-                code: error?.code,
-                message: error?.message,
-              });
-            });
-
-            console.log('[PiP] HLS setup initiated...');
-          }
-
-          const hlsVideo = fmp4VideoRef.current as any;
-          console.log('[PiP] HLS video state:', {
-            readyState: hlsVideo.readyState,
-            readyStateDesc: ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'][hlsVideo.readyState],
-            paused: hlsVideo.paused,
-            currentTime: hlsVideo.currentTime,
-            bufferedLength: hlsVideo.buffered?.length,
-          });
-
-          // Only try PiP if video has enough data
-          if (hlsVideo.readyState < 2) {
-            console.log('[PiP] Video not ready yet (readyState < HAVE_CURRENT_DATA). Click PiP again once video loads.');
-            return;
-          }
-
-          if (hlsVideo.requestPictureInPicture) {
-            // Standard API (Chrome, Edge, Firefox)
-            console.log('[PiP] Using requestPictureInPicture API');
-            await hlsVideo.requestPictureInPicture();
-          } else if (hlsVideo.webkitSetPresentationMode) {
-            // Safari - must be synchronous from user gesture
-            console.log('[PiP] Using webkitSetPresentationMode API');
-            try {
-              hlsVideo.webkitSetPresentationMode('picture-in-picture');
-              console.log('[PiP] webkitSetPresentationMode called successfully');
-            } catch (e) {
-              console.error('[PiP] webkitSetPresentationMode failed:', e);
-            }
-          } else {
-            console.log('[PiP] No PiP API available on HLS video element');
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[PiP] Failed to toggle Picture-in-Picture:', err);
-      // Cleanup on error
-      if (fmp4VideoRef.current) {
-        fmp4VideoRef.current.pause();
-        fmp4VideoRef.current.src = '';
-        fmp4VideoRef.current.remove();
-        fmp4VideoRef.current = null;
-      }
-    }
-  }, [isPiPActive, account.token, sessionId]);
-
   // Voice input: send audio to backend for transcription
   // Stores recording in buffer for retry on failure
   const sendAudioForTranscription = useCallback(async (audioBlob: Blob, isRetry = false) => {
@@ -1359,7 +1179,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, []);
 
-  // Detect touch capability, iOS, and PiP support on mount
+  // Detect touch capability and iOS on mount
   useEffect(() => {
     // Check for touch support: touchscreen or coarse pointer (touch/stylus)
     const hasTouch = 'ontouchstart' in window ||
@@ -1371,78 +1191,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     setIsIOS(iOS);
-
-    // Check PiP support (Safari uses different API)
-    const video = document.createElement('video');
-    const standardPiP = !!document.pictureInPictureEnabled;
-    const webkitPiP = typeof (video as any).webkitSupportsPresentationMode === 'function'
-      ? (video as any).webkitSupportsPresentationMode('picture-in-picture')
-      : false;
-    const pipSupported = standardPiP || webkitPiP;
-    console.log('[PiP] Support check:', { standardPiP, webkitPiP, pipSupported });
-    setIsPiPSupported(pipSupported);
   }, []);
-
-  // Set up PiP event listeners (but don't create capture stream yet - it's expensive at 4K)
-  // The capture stream is created on-demand when user requests PiP
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Handle PiP state changes
-    const handlePiPEnter = () => setIsPiPActive(true);
-    const handlePiPLeave = () => {
-      setIsPiPActive(false);
-      // Disable zero-copy PiP on the stream (stops writing VideoFrames to track)
-      streamRef.current?.disablePiP?.();
-      // Stop the capture stream when exiting PiP to save resources
-      if (captureStreamRef.current) {
-        captureStreamRef.current.getTracks().forEach(track => track.stop());
-        captureStreamRef.current = null;
-        video.srcObject = null;
-        console.log('[PiP] Stopped capture stream on PiP exit');
-      }
-    };
-
-    video.addEventListener('enterpictureinpicture', handlePiPEnter);
-    video.addEventListener('leavepictureinpicture', handlePiPLeave);
-    // Safari uses different events
-    const handleSafariPiP = () => {
-      const mode = (video as any).webkitPresentationMode;
-      if (mode === 'picture-in-picture') {
-        setIsPiPActive(true);
-      } else {
-        setIsPiPActive(false);
-        // Disable zero-copy PiP on the stream
-        streamRef.current?.disablePiP?.();
-        // Stop capture stream on Safari PiP exit too
-        if (captureStreamRef.current) {
-          captureStreamRef.current.getTracks().forEach(track => track.stop());
-          captureStreamRef.current = null;
-          video.srcObject = null;
-          console.log('[PiP] Stopped capture stream on Safari PiP exit');
-        }
-      }
-    };
-    video.addEventListener('webkitpresentationmodechanged', handleSafariPiP);
-
-    return () => {
-      video.removeEventListener('enterpictureinpicture', handlePiPEnter);
-      video.removeEventListener('leavepictureinpicture', handlePiPLeave);
-      video.removeEventListener('webkitpresentationmodechanged', handleSafariPiP);
-      // Disable zero-copy PiP on cleanup
-      streamRef.current?.disablePiP?.();
-      if (captureStreamRef.current) {
-        captureStreamRef.current.getTracks().forEach(track => track.stop());
-        captureStreamRef.current = null;
-      }
-    };
-  }, []);
-
-  // Auto-PiP disabled - it required running captureStream() constantly which caused
-  // massive performance overhead at 4K (copying ~1GB/sec of pixel data).
-  // Users can still use PiP manually via the toolbar button.
-  // The previous implementation also rarely worked because browsers require a user gesture.
 
   // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
   useEffect(() => {
@@ -1534,6 +1283,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log(`[DesktopStreamViewer] Touch mode changed to ${touchMode} (stream: ${streamTouchMode})`);
     }
   }, [touchMode]);
+
+  // Initialize cursor position at center of stream when entering trackpad mode on touch devices
+  // Also re-initialize when stream connects (canvas may not exist until connected)
+  useEffect(() => {
+    if (touchMode === 'trackpad' && hasTouchCapability && isConnected && containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      // Get stream rect from the canvas or video element
+      const streamRect = containerRef.current.querySelector('canvas, video')?.getBoundingClientRect();
+      if (streamRect && streamRect.width > 0 && streamRect.height > 0) {
+        // Position cursor at center of stream
+        const centerX = (streamRect.x - containerRect.x) + streamRect.width / 2;
+        const centerY = (streamRect.y - containerRect.y) + streamRect.height / 2;
+        setCursorPosition({ x: centerX, y: centerY });
+        // Mark as moved so cursor is visible
+        setHasMouseMoved(true);
+        console.log(`[DesktopStreamViewer] Initialized trackpad cursor at center: (${centerX.toFixed(0)}, ${centerY.toFixed(0)})`);
+      }
+    }
+  }, [touchMode, hasTouchCapability, isConnected]);
 
   // Track previous quality mode for hot-switching
   const previousQualityModeRef = useRef<'video' | 'screenshot'>(qualityMode);
@@ -2451,14 +2219,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       container.removeEventListener('wheel', wheelHandler);
     };
   }, []);
-
-  // Handle audio toggle
-  useEffect(() => {
-    if (videoRef.current) {
-      // Mute/unmute video element
-      videoRef.current.muted = !audioEnabled;
-    }
-  }, [audioEnabled]);
 
   // Apply debug throttle ratio override to WebSocketStream
   useEffect(() => {
@@ -3756,18 +3516,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             {isFullscreen ? <FullscreenExit fontSize={toolbarFontSize as 'small' | 'medium'} /> : <Fullscreen fontSize={toolbarFontSize as 'small' | 'medium'} />}
           </IconButton>
         </Tooltip>
-        {/* Picture-in-Picture button - allows viewing stream while using other apps */}
-        {isPiPSupported && isConnected && (
-          <Tooltip title={isPiPActive ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-            <IconButton
-              size={toolbarIconSize as 'small' | 'medium'}
-              onClick={togglePiP}
-              sx={{ color: isPiPActive ? '#00D4FF' : 'white' }}
-            >
-              <PictureInPictureAlt fontSize={toolbarFontSize as 'small' | 'medium'} />
-            </IconButton>
-          </Tooltip>
-        )}
         {/* Discreet bandwidth recommendation indicator */}
         {bitrateRecommendation && isConnected && (
           <Tooltip
@@ -3957,41 +3705,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           onClearError={() => setError(null)}
         />
       )}
-
-      {/* Video element for Picture-in-Picture (auto-PiP when leaving page) */}
-      {/* This video is fed by canvas.captureStream() and enables:
-          1. Picture-in-Picture mode on all platforms
-          2. Auto-PiP when navigating away from the browser (swipe home, etc.)
-          The video is positioned behind the canvas but visible enough for auto-PiP to work */}
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        autoPlay
-        // @ts-ignore - autopictureinpicture is experimental Chrome attribute (lowercase for React)
-        autopictureinpicture=""
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchCancel}
-        onClick={() => {
-          containerRef.current?.focus();
-        }}
-        style={{
-          // Positioned behind canvas but visible enough for auto-PiP detection
-          // Browser needs to "see" a playing video to enable auto-PiP on page hide
-          position: 'absolute',
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: canvasDisplaySize ? canvasDisplaySize.width : '100%',
-          height: canvasDisplaySize ? canvasDisplaySize.height : '100%',
-          objectFit: 'contain',
-          pointerEvents: 'none',
-          zIndex: 5, // Behind canvas (zIndex 20) but visible in DOM
-          opacity: 0.01, // Nearly invisible but browser still considers it "visible"
-        }}
-      />
 
       {/* Canvas Element - centered with proper aspect ratio */}
       <canvas
@@ -4185,7 +3898,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       {/* Local cursor for trackpad mode on touch devices (iPad) */}
       {/* Native CSS cursor doesn't work well on iPad, so we render an overlay cursor */}
-      {isConnected && touchMode === 'trackpad' && hasTouchCapability && cursorVisible && (
+      {/* Only show after cursor position is initialized (hasMouseMoved) to avoid flash at (0,0) */}
+      {isConnected && touchMode === 'trackpad' && hasTouchCapability && cursorVisible && hasMouseMoved && (
         <CursorRenderer
           x={cursorPosition.x}
           y={cursorPosition.y}
@@ -4260,10 +3974,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           shouldPollScreenshots={shouldPollScreenshots}
           screenshotFps={screenshotFps}
           screenshotQuality={screenshotQuality}
-          sessionId={sessionId}
-          streamWidth={width}
-          streamHeight={height}
-          streamFps={fps}
           debugKeyEvent={debugKeyEvent}
         />
       )}
