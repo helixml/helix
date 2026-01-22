@@ -229,14 +229,20 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
   ) &
 fi
 
-# Launch Zed after GNOME Shell is ready - it needs wayland-0
-if [ -x /zed-build/zed ]; then
-  (
-    gow_log "[start] Waiting for GNOME Wayland socket before launching Zed..."
+# Launch code editor after GNOME Shell is ready - it needs wayland-0
+# HELIX_AGENT_HOST_TYPE controls which editor to launch:
+#   - zed (default): Launch Zed IDE with Qwen Code agent
+#   - vscode: Launch VS Code with Roo Code extension
+#   - headless: No editor (future: custom ACP client)
+AGENT_HOST_TYPE="\${HELIX_AGENT_HOST_TYPE:-zed}"
+gow_log "[start] Agent host type: \$AGENT_HOST_TYPE"
+
+(
+    gow_log "[start] Waiting for GNOME Wayland socket before launching editor..."
     # Wait for wayland-0 socket instead of pgrep - more reliable
     for i in \$(seq 1 60); do
       if [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-        gow_log "[start] wayland-0 socket ready, launching Zed..."
+        gow_log "[start] wayland-0 socket ready, launching editor..."
         break
       fi
       if [ \$((i % 10)) -eq 0 ]; then
@@ -245,11 +251,30 @@ if [ -x /zed-build/zed ]; then
       sleep 1
     done
     if [ ! -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-      gow_log "[start] WARNING: wayland-0 not found after 60s, launching Zed anyway..."
+      gow_log "[start] WARNING: wayland-0 not found after 60s, launching editor anyway..."
     fi
-    WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
-  ) &
-fi
+
+    export WAYLAND_DISPLAY=wayland-0
+
+    case "\$AGENT_HOST_TYPE" in
+      vscode)
+        gow_log "[start] Launching VS Code with Roo Code extension..."
+        # Use the VS Code startup script (handles workspace setup, Roo Code config, restart loop)
+        /usr/local/bin/start-vscode-helix.sh
+        ;;
+      headless)
+        gow_log "[start] Headless mode - no editor launched (ACP client runs in desktop-bridge)"
+        ;;
+      zed|*)
+        if [ -x /zed-build/zed ]; then
+          gow_log "[start] Launching Zed IDE..."
+          /usr/local/bin/start-zed-helix.sh
+        else
+          gow_log "[start] WARNING: Zed binary not found at /zed-build/zed"
+        fi
+        ;;
+    esac
+) &
 
 gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
 

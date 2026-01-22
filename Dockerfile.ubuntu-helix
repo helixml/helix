@@ -636,6 +636,7 @@ RUN chmod +x /opt/gow/startup.sh
 
 # Helix helper scripts
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/ubuntu-config/start-vscode-helix.sh /usr/local/bin/start-vscode-helix.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 # Shared scripts (used by both Sway and Ubuntu)
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
@@ -646,7 +647,8 @@ ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.s
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-vscode-helix.sh \
+    /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
@@ -807,6 +809,73 @@ RUN mkdir -p /home/retro/.config/ghostty && \
     chown -R retro:retro /home/retro/.config
 COPY desktop/ubuntu-config/ghostty-config /home/retro/.config/ghostty/config
 RUN chown retro:retro /home/retro/.config/ghostty/config
+
+# ====================================================================
+# VS Code + Roo Code Extension (for HELIX_AGENT_HOST_TYPE=vscode)
+# ====================================================================
+# Install VS Code and pre-install Roo Code extension for AI-driven coding.
+# This provides an alternative to Zed for desktop coding sessions.
+# When HELIX_AGENT_HOST_TYPE=vscode, startup-app.sh launches VS Code instead of Zed.
+RUN <<_INSTALL_VSCODE
+set -e
+echo "=== Installing VS Code ==="
+
+# Import Microsoft GPG key and repository
+apt-get update
+apt-get install -y wget gpg apt-transport-https
+
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
+install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list
+rm /tmp/packages.microsoft.gpg
+
+# Install VS Code
+apt-get update
+apt-get install -y code
+
+# Cleanup
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== VS Code installed ==="
+code --version || echo "VS Code installation check"
+_INSTALL_VSCODE
+
+# Pre-install Roo Code extension for the retro user
+# The extension is installed at build time so it's immediately available
+# VS Code requires a display for extension install, so we use --force flag
+RUN mkdir -p /home/retro/.vscode/extensions && \
+    chown -R retro:retro /home/retro/.vscode
+
+# Install Roo Code extension using code CLI
+# Note: code --install-extension works without a display when run as user
+RUN gosu retro code --install-extension rooveterinaryinc.roo-cline --force || \
+    echo "Warning: Extension install may have failed - will retry at runtime"
+
+# VS Code settings for Roo Code integration
+# ROO_CODE_API_URL environment variable tells the extension where to connect
+# The desktop-bridge RooCodeBridge runs on port 9879 and serves the config
+RUN mkdir -p /home/retro/.config/Code/User && \
+    chown -R retro:retro /home/retro/.config/Code
+COPY <<'_VSCODE_SETTINGS' /home/retro/.config/Code/User/settings.json
+{
+    "telemetry.telemetryLevel": "off",
+    "update.mode": "none",
+    "extensions.autoUpdate": false,
+    "extensions.autoCheckUpdates": false,
+    "workbench.startupEditor": "none",
+    "workbench.tips.enabled": false,
+    "workbench.welcomePage.walkthroughs.openOnInstall": false,
+    "window.restoreWindows": "none",
+    "security.workspace.trust.enabled": false,
+    "git.enableSmartCommit": true,
+    "git.confirmSync": false,
+    "editor.fontFamily": "'Ubuntu Mono', 'Droid Sans Mono', monospace",
+    "editor.fontSize": 14,
+    "workbench.colorTheme": "Default Dark Modern"
+}
+_VSCODE_SETTINGS
+RUN chown retro:retro /home/retro/.config/Code/User/settings.json
 
 # ====================================================================
 # System-wide dconf defaults (Ubuntu branding)

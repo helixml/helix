@@ -16,7 +16,8 @@ import (
 // It translates between Helix commands and Roo Code's bridge protocol.
 //
 // Architecture:
-//   [Helix API] <--(WebSocket)--> [RooCodeBridge (this)] <--(Socket.IO)--> [Roo Code Extension]
+//
+//	[Helix API] <--(WebSocket)--> [RooCodeBridge (this)] <--(Socket.IO)--> [Roo Code Extension]
 //
 // The Roo Code extension (running in VS Code inside the container) connects outbound
 // to this server, which allows us to send commands and receive events.
@@ -25,12 +26,12 @@ import (
 // - Extension channel: start_task, stop_task, resume_task (lifecycle)
 // - Task channel: message, approve_ask, deny_ask (interaction)
 type RooCodeBridge struct {
-	server    *socketio.Server
+	io        *socketio.Io
 	port      string
 	sessionID string
 
 	// Connected extension state
-	extensionSocket socketio.Socket
+	extensionSocket *socketio.Socket
 	instanceID      string
 	socketMu        sync.RWMutex
 
@@ -169,15 +170,15 @@ func (b *RooCodeBridge) Start() error {
 		Str("port", b.port).
 		Msg("[RooCodeBridge] Starting Socket.IO server")
 
-	// Create Socket.IO server
-	server := socketio.NewServer(nil)
-	b.server = server
+	// Create Socket.IO server using correct API
+	io := socketio.New()
+	b.io = io
 
 	// Set up event handlers for the default namespace
-	server.OnConnection(func(s socketio.Socket) {
+	io.OnConnection(func(s *socketio.Socket) {
 		log.Info().
 			Str("session_id", b.sessionID).
-			Str("socket_id", s.Id()).
+			Str("socket_id", s.Id).
 			Msg("[RooCodeBridge] Extension connected")
 
 		b.setupSocketHandlers(s)
@@ -185,12 +186,12 @@ func (b *RooCodeBridge) Start() error {
 
 	// Create HTTP server
 	mux := http.NewServeMux()
-	mux.Handle("/socket.io/", server.ServeHandler(nil))
+	mux.Handle("/socket.io/", io.HttpHandler())
 
 	// Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
 	// Bridge config endpoint - Roo Code extension fetches this to get the Socket.IO URL
@@ -201,7 +202,7 @@ func (b *RooCodeBridge) Start() error {
 			"enabled":         true,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(config)
+		_ = json.NewEncoder(w).Encode(config)
 		log.Debug().Str("session_id", b.sessionID).Msg("[RooCodeBridge] Served bridge config")
 	})
 
@@ -213,7 +214,7 @@ func (b *RooCodeBridge) Start() error {
 			"extensionBridgeEnabled": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(user)
+		_ = json.NewEncoder(w).Encode(user)
 	})
 
 	b.httpServer = &http.Server{
@@ -240,14 +241,15 @@ func (b *RooCodeBridge) Start() error {
 }
 
 // setupSocketHandlers configures event handlers for a connected extension
-func (b *RooCodeBridge) setupSocketHandlers(s socketio.Socket) {
+func (b *RooCodeBridge) setupSocketHandlers(s *socketio.Socket) {
 	// Store the connected socket
 	b.socketMu.Lock()
 	b.extensionSocket = s
 	b.socketMu.Unlock()
 
 	// Extension registration
-	s.On(SocketExtRegister, func(data string) {
+	s.On(SocketExtRegister, func(event *socketio.EventPayload) {
+		data := b.getFirstDataString(event)
 		var registerData map[string]interface{}
 		if err := json.Unmarshal([]byte(data), &registerData); err != nil {
 			log.Warn().Err(err).Msg("[RooCodeBridge] Failed to parse register data")
@@ -270,31 +272,34 @@ func (b *RooCodeBridge) setupSocketHandlers(s socketio.Socket) {
 			"success":   true,
 			"timestamp": time.Now().UnixMilli(),
 		})
-		s.Emit("extension:registered", string(ackData))
+		_ = s.Emit("extension:registered", string(ackData))
 	})
 
 	// Extension events (lifecycle)
-	s.On(SocketExtEvent, func(data string) {
-		var event ExtensionBridgeEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+	s.On(SocketExtEvent, func(event *socketio.EventPayload) {
+		data := b.getFirstDataString(event)
+		var extEvent ExtensionBridgeEvent
+		if err := json.Unmarshal([]byte(data), &extEvent); err != nil {
 			log.Warn().Err(err).Msg("[RooCodeBridge] Failed to parse extension event")
 			return
 		}
-		b.handleExtensionEvent(event)
+		b.handleExtensionEvent(extEvent)
 	})
 
 	// Task events (messages, state changes)
-	s.On(SocketTaskEvent, func(data string) {
-		var event TaskBridgeEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+	s.On(SocketTaskEvent, func(event *socketio.EventPayload) {
+		data := b.getFirstDataString(event)
+		var taskEvent TaskBridgeEvent
+		if err := json.Unmarshal([]byte(data), &taskEvent); err != nil {
 			log.Warn().Err(err).Msg("[RooCodeBridge] Failed to parse task event")
 			return
 		}
-		b.handleTaskEvent(event)
+		b.handleTaskEvent(taskEvent)
 	})
 
 	// Task join (extension joining a task room)
-	s.On(SocketTaskJoin, func(data string) {
+	s.On(SocketTaskJoin, func(event *socketio.EventPayload) {
+		data := b.getFirstDataString(event)
 		var joinData map[string]interface{}
 		if err := json.Unmarshal([]byte(data), &joinData); err != nil {
 			log.Warn().Err(err).Msg("[RooCodeBridge] Failed to parse join data")
@@ -313,11 +318,11 @@ func (b *RooCodeBridge) setupSocketHandlers(s socketio.Socket) {
 			"taskId":    taskID,
 			"timestamp": time.Now().UnixMilli(),
 		})
-		s.Emit("task:joined", string(respData))
+		_ = s.Emit("task:joined", string(respData))
 	})
 
-	// Handle disconnection
-	s.OnDisconnect(func() {
+	// Handle disconnection using standard "disconnect" event
+	s.On("disconnect", func(event *socketio.EventPayload) {
 		log.Warn().
 			Str("session_id", b.sessionID).
 			Msg("[RooCodeBridge] Extension disconnected")
@@ -327,6 +332,19 @@ func (b *RooCodeBridge) setupSocketHandlers(s socketio.Socket) {
 		b.instanceID = ""
 		b.socketMu.Unlock()
 	})
+}
+
+// getFirstDataString extracts the first data element as a string from an event
+func (b *RooCodeBridge) getFirstDataString(event *socketio.EventPayload) string {
+	if len(event.Data) == 0 {
+		return ""
+	}
+	if str, ok := event.Data[0].(string); ok {
+		return str
+	}
+	// Try to marshal if it's not a string
+	data, _ := json.Marshal(event.Data[0])
+	return string(data)
 }
 
 // handleExtensionEvent processes lifecycle events from Roo Code
@@ -466,7 +484,7 @@ func (b *RooCodeBridge) StartTask(prompt string) error {
 		return err
 	}
 
-	socket.Emit(SocketExtRelayedCommand, string(data))
+	_ = socket.Emit(SocketExtRelayedCommand, string(data))
 
 	log.Info().
 		Str("session_id", b.sessionID).
@@ -509,7 +527,7 @@ func (b *RooCodeBridge) SendMessage(message string) error {
 		return err
 	}
 
-	socket.Emit(SocketTaskRelayedCommand, string(data))
+	_ = socket.Emit(SocketTaskRelayedCommand, string(data))
 
 	log.Debug().
 		Str("task_id", taskID).
@@ -541,7 +559,7 @@ func (b *RooCodeBridge) approveAsk(taskID string, response string) {
 	}
 
 	data, _ := json.Marshal(cmd)
-	socket.Emit(SocketTaskRelayedCommand, string(data))
+	_ = socket.Emit(SocketTaskRelayedCommand, string(data))
 
 	log.Debug().
 		Str("task_id", taskID).
@@ -582,7 +600,7 @@ func (b *RooCodeBridge) StopTask() error {
 		return err
 	}
 
-	socket.Emit(SocketExtRelayedCommand, string(data))
+	_ = socket.Emit(SocketExtRelayedCommand, string(data))
 
 	log.Info().
 		Str("task_id", taskID).
@@ -600,8 +618,8 @@ func (b *RooCodeBridge) Close() error {
 		}
 	}
 
-	if b.server != nil {
-		b.server.Close()
+	if b.io != nil {
+		b.io.Close()
 	}
 
 	log.Info().

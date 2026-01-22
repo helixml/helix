@@ -157,27 +157,28 @@ Note: VS Code supports `${env:VAR}` syntax in settings.json for environment vari
 
 ### Phase 1: Types and Configuration
 - [x] Create design doc
-- [ ] Add `AgentHostType` to types (task_management.go)
-- [ ] Add `AgentHostType` to ExternalAgentConfig (types.go)
-- [ ] Add `HELIX_AGENT_HOST_TYPE` env var in hydra_executor.go
+- [x] Add `AgentHostType` to types (task_management.go)
+- [x] Add `AgentHostType` to ExternalAgentConfig (types.go)
+- [x] Add `HELIX_AGENT_HOST_TYPE` env var in hydra_executor.go
 
 ### Phase 2: Desktop Bridge Extension
-- [ ] Add Socket.IO client dependency to go.mod
-- [ ] Create `api/pkg/desktop/roocode.go` with RooCodeBridge
-- [ ] Implement command translation (Helix → Roo Code)
-- [ ] Implement event translation (Roo Code → Helix)
-- [ ] Update `api/cmd/desktop-bridge/main.go` to start RooCodeBridge when HELIX_AGENT_HOST_TYPE=vscode
+- [x] Add Socket.IO server dependency to go.mod (note: server not client - we are the server)
+- [x] Create `api/pkg/desktop/roocode.go` with RooCodeBridge (Socket.IO server)
+- [x] Implement command translation (Helix → Roo Code)
+- [x] Implement event translation (Roo Code → Helix)
+- [x] Create `api/pkg/desktop/agent_client.go` for Helix API WebSocket client
+- [x] Update `api/cmd/desktop-bridge/main.go` to start AgentClient when HELIX_AGENT_HOST_TYPE=vscode
 
 ### Phase 3: Container Integration
-- [ ] Add VS Code installation to helix-ubuntu Dockerfile
-- [ ] Add Roo Code extension pre-installation
-- [ ] Create default VS Code settings.json with env var substitution
-- [ ] Update startup-app.sh for editor selection (zed vs code)
+- [x] Add VS Code installation to helix-ubuntu Dockerfile
+- [x] Add Roo Code extension pre-installation
+- [x] Create default VS Code settings.json (inline in Dockerfile)
+- [x] Update startup-app.sh for editor selection (zed vs code vs headless)
 
 ### Phase 4: Testing & Refinement
-- [ ] Test Zed mode still works (regression)
-- [ ] Test VS Code + Roo Code mode
-- [ ] Add auto-approve handling for Roo Code asks
+- [ ] Build and test Zed mode still works (regression)
+- [ ] Build and test VS Code + Roo Code mode
+- [ ] Add auto-approve handling for Roo Code asks (implemented in roocode.go)
 - [ ] Add frontend support for editor selection (optional)
 
 ## Licensing
@@ -188,23 +189,23 @@ Roo Code extension is Apache 2.0 licensed. We are:
 - NOT using Roo Code Cloud service
 - NOT bypassing any paid features (Roomote is their cloud feature)
 
-## Files to Modify
+## Files Modified
 
 All paths are relative to `/prod/home/luke/pm/helix.2`:
 
 **Go Types:**
-- `api/pkg/types/task_management.go` - Add AgentHostType enum
-- `api/pkg/types/types.go` - Add AgentHostType to ExternalAgentConfig, DesktopAgent
+- `api/pkg/types/task_management.go` - Added AgentHostType enum ✓
+- `api/pkg/types/types.go` - Added AgentHostType to ExternalAgentConfig, DesktopAgent ✓
 
 **Desktop Bridge:**
-- `api/pkg/desktop/roocode.go` - New file: RooCodeBridge implementation
-- `api/cmd/desktop-bridge/main.go` - Start RooCodeBridge when HELIX_AGENT_HOST_TYPE=vscode
-- `api/go.mod` - Add Socket.IO client dependency
+- `api/pkg/desktop/roocode.go` - New file: RooCodeBridge (Socket.IO server) ✓
+- `api/pkg/desktop/agent_client.go` - New file: Helix API WebSocket client ✓
+- `api/cmd/desktop-bridge/main.go` - Start AgentClient when HELIX_AGENT_HOST_TYPE=vscode ✓
+- `api/go.mod` - Added Socket.IO server dependency ✓
 
 **Hydra/Container Config:**
-- `api/pkg/external-agent/hydra_executor.go` - Set HELIX_AGENT_HOST_TYPE env var
+- `api/pkg/external-agent/hydra_executor.go` - Set HELIX_AGENT_HOST_TYPE + ROO_CODE_API_URL env vars ✓
 
 **Container Image:**
-- `sandbox-images/helix-ubuntu/Dockerfile` - Install VS Code + Roo Code extension
-- `sandbox-images/helix-ubuntu/startup-app.sh` - Editor selection logic
-- `sandbox-images/helix-ubuntu/vscode-settings.json` - Default VS Code/Roo Code config (new)
+- `Dockerfile.ubuntu-helix` - Install VS Code + Roo Code extension ✓
+- `desktop/ubuntu-config/startup-app.sh` - Editor selection logic (zed/vscode/headless) ✓
