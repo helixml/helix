@@ -124,11 +124,14 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     const resizeObserver = new ResizeObserver(() => {
       // If user hasn't scrolled up, scroll to bottom when content grows
       if (!userScrolledUpRef.current) {
+        // Mark as resizing so scroll handler ignores the programmatic scroll
+        isResizingRef.current = true
         requestAnimationFrame(() => {
           if (containerRef.current) {
             containerRef.current.scrollTop = containerRef.current.scrollHeight
             isAtBottomRef.current = true
           }
+          isResizingRef.current = false
         })
       }
     })
