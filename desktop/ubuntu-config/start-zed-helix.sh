@@ -9,6 +9,6 @@ launch_terminal() {
 }
 
 for p in /usr/local/bin /helix-dev/shared; do
-    [ -f "$p/start-zed-core.sh" ] && source "$p/start-zed-core.sh" && start_zed_helix && exit 0
+    [ -f "$p/start-agenthost-core.sh" ] && source "$p/start-agenthost-core.sh" && start_zed_helix && exit 0
 done
-echo "ERROR: start-zed-core.sh not found!" && exit 1
+echo "ERROR: start-agenthost-core.sh not found!" && exit 1

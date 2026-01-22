@@ -48,12 +48,12 @@ pre_zed_launch() {
 # =========================================
 
 # Find and source the shared core script
-CORE_SCRIPT="/usr/local/bin/start-zed-core.sh"
+CORE_SCRIPT="/usr/local/bin/start-agenthost-core.sh"
 if [ ! -f "$CORE_SCRIPT" ]; then
-    CORE_SCRIPT="/helix-dev/shared/start-zed-core.sh"
+    CORE_SCRIPT="/helix-dev/shared/start-agenthost-core.sh"
 fi
 if [ ! -f "$CORE_SCRIPT" ]; then
-    echo "ERROR: start-zed-core.sh not found!"
+    echo "ERROR: start-agenthost-core.sh not found!"
     exit 1
 fi
 

@@ -646,13 +646,13 @@ ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
-ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+ADD desktop/shared/start-agenthost-core.sh /usr/local/bin/start-agenthost-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-vscode-helix.sh \
     /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-agenthost-core.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini

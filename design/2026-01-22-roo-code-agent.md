@@ -210,4 +210,4 @@ All paths are relative to `/prod/home/luke/pm/helix.2`:
 - `Dockerfile.ubuntu-helix` - Install VS Code + Roo Code extension ✓
 - `desktop/ubuntu-config/startup-app.sh` - Editor selection logic (zed/vscode/headless) ✓
 - `desktop/ubuntu-config/start-vscode-helix.sh` - Minimal VS Code startup (47 lines) ✓
-- `desktop/shared/start-zed-core.sh` - Extended with `start_vscode_helix()` and generic `run_editor_restart_loop()` ✓
+- `desktop/shared/start-agenthost-core.sh` - Extended with `start_vscode_helix()` and generic `run_editor_restart_loop()` ✓

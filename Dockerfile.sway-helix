@@ -743,12 +743,12 @@ ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
-ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+ADD desktop/shared/start-agenthost-core.sh /usr/local/bin/start-agenthost-core.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-agenthost-core.sh
 
 # Docker group init script
 ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

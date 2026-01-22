@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# start-zed-core.sh - Core editor startup logic (shared between desktops)
+# start-agenthost-core.sh - Core agent host startup logic (shared between desktops)
 #
-# This script contains the common startup logic for all desktops and editors.
+# This script contains the common startup logic for all desktops and agent hosts (Zed, VS Code).
 # It should be sourced by desktop-specific start-zed-helix.sh or start-vscode-helix.sh scripts.
 #
 # Desktop-specific scripts must:
