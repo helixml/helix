@@ -637,6 +637,7 @@ RUN chmod +x /opt/gow/startup.sh
 # Helix helper scripts
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/ubuntu-config/start-vscode-helix.sh /usr/local/bin/start-vscode-helix.sh
+ADD desktop/ubuntu-config/start-cursor-helix.sh /usr/local/bin/start-cursor-helix.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 # Shared scripts (used by both Sway and Ubuntu)
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
@@ -648,7 +649,7 @@ ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-s
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-agenthost-core.sh /usr/local/bin/start-agenthost-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-vscode-helix.sh \
-    /usr/local/bin/start-gnome-bridge.sh \
+    /usr/local/bin/start-cursor-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
@@ -876,6 +877,61 @@ COPY <<'_VSCODE_SETTINGS' /home/retro/.config/Code/User/settings.json
 }
 _VSCODE_SETTINGS
 RUN chown retro:retro /home/retro/.config/Code/User/settings.json
+
+# ====================================================================
+# Cursor IDE + CLI (for HELIX_AGENT_HOST_TYPE=cursor)
+# ====================================================================
+# Install Cursor IDE and the cursor-agent CLI for AI-driven coding.
+# The cursor-agent CLI supports headless/print mode for automation.
+# When HELIX_AGENT_HOST_TYPE=cursor, startup-app.sh launches Cursor instead of Zed.
+RUN <<_INSTALL_CURSOR
+set -e
+echo "=== Installing Cursor IDE ==="
+
+# Download and install Cursor AppImage
+curl -fsSL "https://download.cursor.sh/linux/appImage/x64" -o /tmp/cursor.AppImage
+chmod +x /tmp/cursor.AppImage
+
+# Extract AppImage to /opt/cursor
+cd /opt
+/tmp/cursor.AppImage --appimage-extract
+mv squashfs-root cursor
+ln -sf /opt/cursor/cursor /usr/local/bin/cursor
+
+# Install cursor-agent CLI (for headless/print mode)
+# The CLI is distributed separately from the IDE
+curl -fsSL https://cursor.com/install | bash -s -- --cli-only
+
+# Symlink cursor-agent to PATH if not already there
+if [ -f ~/.cursor/bin/cursor-agent ]; then
+    ln -sf ~/.cursor/bin/cursor-agent /usr/local/bin/cursor-agent
+fi
+
+rm /tmp/cursor.AppImage
+
+echo "=== Cursor IDE installed ==="
+cursor --version || echo "Cursor installation check"
+cursor-agent --version || echo "cursor-agent CLI check"
+_INSTALL_CURSOR
+
+# Setup Cursor configuration directory for retro user
+RUN mkdir -p /home/retro/.cursor && \
+    chown -R retro:retro /home/retro/.cursor
+
+# Cursor settings for headless operation
+# CURSOR_API_KEY is passed at runtime via environment variables
+COPY <<'_CURSOR_SETTINGS' /home/retro/.cursor/settings.json
+{
+    "telemetry.telemetryLevel": "off",
+    "update.mode": "none",
+    "security.workspace.trust.enabled": false,
+    "workbench.startupEditor": "none",
+    "window.restoreWindows": "none",
+    "editor.fontFamily": "'Ubuntu Mono', 'Droid Sans Mono', monospace",
+    "editor.fontSize": 14
+}
+_CURSOR_SETTINGS
+RUN chown retro:retro /home/retro/.cursor/settings.json
 
 # ====================================================================
 # System-wide dconf defaults (Ubuntu branding)

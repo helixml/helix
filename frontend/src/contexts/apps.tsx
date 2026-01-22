@@ -31,16 +31,17 @@ export interface IAppsQuery {
 export type CodeAgentRuntime = 'zed_agent' | 'qwen_code'
 
 // Agent host type options
-export type AgentHostType = 'zed' | 'vscode' | 'headless'
+export type AgentHostType = 'zed' | 'vscode' | 'cursor' | 'headless'
 
 // Combined agent configuration - represents a specific IDE + agent combination
-export type AgentConfiguration = 'zed_agent' | 'qwen_code' | 'vscode_roocode'
+export type AgentConfiguration = 'zed_agent' | 'qwen_code' | 'vscode_roocode' | 'cursor_agent'
 
 // Display names for agent configurations (shown in UI dropdown)
 export const AGENT_CONFIGURATION_DISPLAY_NAMES: Record<AgentConfiguration, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
   'vscode_roocode': 'VS Code + Roo Code',
+  'cursor_agent': 'Cursor',
 }
 
 // Convert agent configuration to host type and runtime
@@ -48,6 +49,8 @@ export function agentConfigToHostAndRuntime(config: AgentConfiguration): { hostT
   switch (config) {
     case 'vscode_roocode':
       return { hostType: 'vscode', runtime: 'zed_agent' } // runtime ignored for vscode
+    case 'cursor_agent':
+      return { hostType: 'cursor', runtime: 'zed_agent' } // runtime ignored for cursor
     case 'qwen_code':
       return { hostType: 'zed', runtime: 'qwen_code' }
     case 'zed_agent':
@@ -59,6 +62,7 @@ export function agentConfigToHostAndRuntime(config: AgentConfiguration): { hostT
 // Convert host type and runtime back to agent configuration
 export function hostAndRuntimeToAgentConfig(hostType?: AgentHostType, runtime?: CodeAgentRuntime): AgentConfiguration {
   if (hostType === 'vscode') return 'vscode_roocode'
+  if (hostType === 'cursor') return 'cursor_agent'
   if (runtime === 'qwen_code') return 'qwen_code'
   return 'zed_agent'
 }

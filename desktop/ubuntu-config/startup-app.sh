@@ -233,6 +233,7 @@ fi
 # HELIX_AGENT_HOST_TYPE controls which editor to launch:
 #   - zed (default): Launch Zed IDE with Qwen Code agent
 #   - vscode: Launch VS Code with Roo Code extension
+#   - cursor: Launch Cursor IDE with built-in AI agent
 #   - headless: No editor (future: custom ACP client)
 AGENT_HOST_TYPE="\${HELIX_AGENT_HOST_TYPE:-zed}"
 gow_log "[start] Agent host type: \$AGENT_HOST_TYPE"
@@ -261,6 +262,11 @@ gow_log "[start] Agent host type: \$AGENT_HOST_TYPE"
         gow_log "[start] Launching VS Code with Roo Code extension..."
         # Use the VS Code startup script (handles workspace setup, Roo Code config, restart loop)
         /usr/local/bin/start-vscode-helix.sh
+        ;;
+      cursor)
+        gow_log "[start] Launching Cursor IDE..."
+        # Use the Cursor startup script (handles workspace setup, Cursor CLI config, restart loop)
+        /usr/local/bin/start-cursor-helix.sh
         ;;
       headless)
         gow_log "[start] Headless mode - no editor launched (ACP client runs in desktop-bridge)"

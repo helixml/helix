@@ -18,20 +18,21 @@ import (
 )
 
 // AgentClient handles the WebSocket connection to Helix API for receiving commands
-// and translates them to the appropriate agent backend (Zed, Roo Code, or headless).
+// and translates them to the appropriate agent backend (Zed, Roo Code, Cursor, or headless).
 type AgentClient struct {
-	apiURL     string
-	sessionID  string
-	token      string
-	hostType   types.AgentHostType
-	rooBridge  *RooCodeBridge
-	conn       *websocket.Conn
-	sendChan   chan interface{}
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	reconnect  bool
-	onReady    func() // Called when agent is ready
+	apiURL       string
+	sessionID    string
+	token        string
+	hostType     types.AgentHostType
+	rooBridge    *RooCodeBridge
+	cursorBridge *CursorBridge
+	conn         *websocket.Conn
+	sendChan     chan interface{}
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	reconnect    bool
+	onReady      func() // Called when agent is ready
 }
 
 // AgentClientConfig contains configuration for the agent client
@@ -105,6 +106,29 @@ func NewAgentClient(cfg AgentClientConfig) (*AgentClient, error) {
 		}
 		client.rooBridge = rooBridge
 
+	case types.AgentHostTypeCursor:
+		// CursorBridge uses subprocess-based communication with cursor-agent CLI
+		cursorBridge, err := NewCursorBridge(CursorBridgeConfig{
+			SessionID: cfg.SessionID,
+			OnAgentReady: func() {
+				client.sendAgentReady()
+			},
+			OnMessageAdded: func(content string, isComplete bool) {
+				client.sendMessageAdded(content, isComplete)
+			},
+			OnMessageUpdated: func(content string) {
+				// Not used yet - for streaming updates
+			},
+			OnError: func(err error) {
+				log.Error().Err(err).Str("session_id", cfg.SessionID).Msg("[AgentClient] Cursor error")
+			},
+		})
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create Cursor bridge: %w", err)
+		}
+		client.cursorBridge = cursorBridge
+
 	case types.AgentHostTypeHeadless:
 		// TODO: Implement headless ACP client
 		log.Warn().Msg("[AgentClient] Headless mode not yet implemented")
@@ -130,6 +154,13 @@ func (c *AgentClient) Start() error {
 	if c.rooBridge != nil {
 		if err := c.rooBridge.Start(); err != nil {
 			return fmt.Errorf("failed to start Roo Code bridge: %w", err)
+		}
+	}
+
+	// Start CursorBridge (if applicable)
+	if c.cursorBridge != nil {
+		if err := c.cursorBridge.Start(); err != nil {
+			return fmt.Errorf("failed to start Cursor bridge: %w", err)
 		}
 	}
 
@@ -262,6 +293,12 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Roo Code")
 				}
 			}
+		case types.AgentHostTypeCursor:
+			if c.cursorBridge != nil {
+				if err := c.cursorBridge.SendMessage(message); err != nil {
+					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Cursor")
+				}
+			}
 		case types.AgentHostTypeHeadless:
 			// TODO: Route to headless ACP client
 			log.Warn().Msg("[AgentClient] Headless mode not yet implemented")
@@ -270,6 +307,9 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 	case "stop":
 		if c.rooBridge != nil {
 			_ = c.rooBridge.StopTask()
+		}
+		if c.cursorBridge != nil {
+			_ = c.cursorBridge.StopTask()
 		}
 
 	default:
@@ -359,6 +399,11 @@ func (c *AgentClient) Stop() error {
 	// Close Roo Code bridge
 	if c.rooBridge != nil {
 		_ = c.rooBridge.Close()
+	}
+
+	// Close Cursor bridge
+	if c.cursorBridge != nil {
+		_ = c.cursorBridge.Close()
 	}
 
 	// Close WebSocket
