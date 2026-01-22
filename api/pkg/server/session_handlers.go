@@ -360,6 +360,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	// Notify external agents ONLY of NEW interactions (not replaying history)
 	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
 		interaction := session.Interactions[i]
+		// DIAGNOSTIC: Log when we're about to call NotifyExternalAgentOfNewInteraction
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("interaction_id", interaction.ID).
+			Str("agent_type", agentType).
+			Int("interaction_index", i).
+			Msg("🟠 [DIAG] About to call NotifyExternalAgentOfNewInteraction")
 		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
 			log.Warn().Err(err).
 				Str("session_id", session.ID).
@@ -1212,6 +1219,14 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	// Determine which agent to use based on the spec task's code agent config
 	agentName := s.getAgentNameForSession(ctx, session)
 
+	// DIAGNOSTIC: Log this code path with distinctive marker
+	log.Warn().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Str("request_id", requestID).
+		Str("zed_thread_id", session.Metadata.ZedThreadID).
+		Msg("🔵 [DIAG] streamFromExternalAgent CALLED - PATH B (NO role field)")
+
 	// Send chat message to external agent
 	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
 	command := types.ExternalAgentCommand{
@@ -1238,7 +1253,18 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	if s.sessionToWaitingInteraction == nil {
 		s.sessionToWaitingInteraction = make(map[string]string)
 	}
+	// DIAGNOSTIC: Check if we're overwriting an existing mapping (potential bug!)
+	s.contextMappingsMutex.Lock()
+	oldInteractionID, wasOverwritten := s.sessionToWaitingInteraction[session.ID]
 	s.sessionToWaitingInteraction[session.ID] = interaction.ID
+	s.contextMappingsMutex.Unlock()
+	if wasOverwritten && oldInteractionID != interaction.ID {
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("old_interaction_id", oldInteractionID).
+			Str("new_interaction_id", interaction.ID).
+			Msg("⚠️ [DIAG] sessionToWaitingInteraction OVERWRITTEN - responses to old interaction may go to wrong place!")
+	}
 	log.Info().
 		Str("session_id", session.ID).
 		Str("interaction_id", interaction.ID).

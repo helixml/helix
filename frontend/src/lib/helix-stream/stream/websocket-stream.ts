@@ -1843,6 +1843,8 @@ export class WebSocketStream {
     avgRenderIntervalMs: number      // Average render interval
     // Debug flags
     usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
+    // Frame health monitoring (for iOS Safari stall detection)
+    lastFrameRenderTime: number      // performance.now() timestamp of last frame render (0 = no frames yet)
   } {
     return {
       fps: this.currentFps,
@@ -1904,6 +1906,8 @@ export class WebSocketStream {
         : 0,
       // Debug flags
       usingSoftwareDecoder: this.forceSoftwareDecoding,
+      // Frame health monitoring (for iOS Safari stall detection)
+      lastFrameRenderTime: this.lastFrameRenderTime,
     }
   }
 

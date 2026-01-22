@@ -60,12 +60,11 @@ const CURSOR_FINGERPRINTS = {
     '12,8': 'zoom-out',
 
     // Resize cursors (each direction has unique hotspot)
-    // NOTE: text cursor is at 12,14 (NOT 12,12) to avoid collision with resize cursors
     '12,9': 'ns-resize',      // Vertical resize (north-south)
     '12,10': 'ew-resize',     // Horizontal resize (east-west)
-    '12,11': 'nwse-resize',   // Diagonal resize (NW-SE / backslash)
-    '12,12': 'nesw-resize',   // Diagonal resize (NE-SW / forward slash)
-    '12,14': 'text',          // Text cursor / I-beam
+    '12,11': 'nwse-resize',   // Diagonal resize (NW-SE / backslash) - top_left_corner, bottom_right_corner
+    '12,12': 'text',          // Text cursor / I-beam
+    '12,13': 'nesw-resize',   // Diagonal resize (NE-SW / forward slash) - top_right_corner, bottom_left_corner
 };
 
 export default class HelixCursorExtension extends Extension {

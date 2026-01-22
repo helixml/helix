@@ -683,7 +683,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     px: 1.5,
-                    py: 0.5,
+                    py: 0.75,
+                    minHeight: 40,
                     borderBottom: '1px solid',
                     borderColor: 'divider',
                     backgroundColor: 'background.paper',
@@ -743,7 +744,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Panel>
 
             {/* Resize handle */}
-            <PanelResizeHandle style={{ width: 6, background: 'transparent', cursor: 'col-resize' }} />
+            <PanelResizeHandle style={{
+              width: 6,
+              background: 'rgba(255, 255, 255, 0.08)',
+              cursor: 'col-resize',
+              transition: 'background 0.15s',
+            }}>
+              <div style={{
+                width: 2,
+                height: '100%',
+                margin: '0 auto',
+                background: 'rgba(255, 255, 255, 0.12)',
+                borderRadius: 1,
+              }} />
+            </PanelResizeHandle>
 
             {/* Right: Content panel - switches between desktop/changes/details */}
             <Panel defaultSize={70} minSize={25} style={{ overflow: 'hidden' }}>
@@ -756,6 +770,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     justifyContent: 'space-between',
                     px: 1.5,
                     py: 0.75,
+                    minHeight: 40,
                     borderBottom: '1px solid',
                     borderColor: 'divider',
                     backgroundColor: 'background.paper',
@@ -886,7 +901,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Prompt library sidebar */}
             {showPromptLibrary && (
               <>
-                <PanelResizeHandle style={{ width: 4, background: 'transparent', cursor: 'col-resize' }} />
+                <PanelResizeHandle style={{
+                  width: 6,
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  cursor: 'col-resize',
+                  transition: 'background 0.15s',
+                }}>
+                  <div style={{
+                    width: 2,
+                    height: '100%',
+                    margin: '0 auto',
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    borderRadius: 1,
+                  }} />
+                </PanelResizeHandle>
                 <Panel defaultSize={20} minSize={15}>
                   <PromptLibrarySidebar
                     pinnedPrompts={promptHistory.history.filter(h => h.pinned)}

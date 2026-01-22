@@ -931,6 +931,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
 
+    // Clear presence state - other users are no longer visible when disconnected
+    setRemoteUsers(new Map());
+    setRemoteCursors(new Map());
+    setRemoteTouches(new Map());
+    setAgentCursor(null);
+    setSelfUser(null);
+    setSelfClientId(null);
+    selfClientIdRef.current = null;
+
     // Clear all connection registrations
     clearAllConnections();
     currentWebSocketStreamIdRef.current = null;
@@ -1486,6 +1495,75 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount/unmount
+
+  // iOS Safari fix: Force reconnect when page becomes visible
+  // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isConnected) {
+        console.log('[DesktopStreamViewer] Page became visible, checking stream health...');
+        // Check if the stream is still healthy by looking at the WebSocket state
+        const stream = streamRef.current;
+        if (stream) {
+          const ws = (stream as any).ws as WebSocket | undefined;
+          if (ws && (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING)) {
+            console.log('[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect');
+            reconnect(500, 'Reconnecting after page visibility change...');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isConnected, reconnect]);
+
+  // iOS Safari frame stall detection
+  // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
+  // leaving the canvas black while React still thinks we're connected.
+  // This health check monitors lastFrameRenderTime and forces reconnection if frames stop.
+  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall
+  const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
+  useEffect(() => {
+    // Only run health check in video mode when connected
+    if (!isConnected || qualityMode === 'screenshot' || isConnecting) {
+      return;
+    }
+
+    const checkFrameHealth = () => {
+      const stream = streamRef.current;
+      if (!stream || !(stream instanceof WebSocketStream)) return;
+
+      // Check WebSocket state first (belt and suspenders with visibility handler)
+      const ws = (stream as any).ws as WebSocket | undefined;
+      if (ws && (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING)) {
+        console.log('[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect');
+        reconnect(500, 'Reconnecting (connection lost)...');
+        return;
+      }
+
+      // Check if frames have been rendered recently
+      const stats = stream.getStats();
+      const now = performance.now();
+      const timeSinceLastFrame = stats.lastFrameRenderTime > 0 ? now - stats.lastFrameRenderTime : 0;
+
+      // Only trigger stall detection after we've received at least one frame (lastFrameRenderTime > 0)
+      // and if we've been connected long enough for frames to be expected
+      if (stats.lastFrameRenderTime > 0 && timeSinceLastFrame > FRAME_STALL_THRESHOLD_MS) {
+        console.log(`[DesktopStreamViewer] Frame stall detected: ${Math.round(timeSinceLastFrame)}ms since last frame, forcing reconnect`);
+        console.log('[DesktopStreamViewer] Stats at stall:', {
+          fps: stats.fps,
+          framesDecoded: stats.framesDecoded,
+          decodeQueueSize: stats.decodeQueueSize,
+          wsReadyState: ws?.readyState,
+        });
+        reconnect(500, 'Reconnecting (video stalled)...');
+      }
+    };
+
+    const intervalId = setInterval(checkFrameHealth, FRAME_STALL_CHECK_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [isConnected, qualityMode, isConnecting, reconnect]);
 
   // Auto-focus container when stream connects for keyboard input
   useEffect(() => {
@@ -3383,13 +3461,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           backgroundColor: 'rgba(0,0,0,0.7)',
           borderRadius: 1,
           display: 'flex',
-          gap: 1,
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: 0.5,
+          px: 0.5,
+          py: 0.5,
+          maxWidth: 'calc(100vw - 16px)',
           cursor: 'default', // Show normal cursor in toolbar for usability
           pointerEvents: 'auto', // Ensure toolbar captures pointer events on iPad
         }}
         onClick={(e) => e.stopPropagation()} // Prevent clicks from reaching canvas
         onPointerDown={(e) => e.stopPropagation()} // Prevent pointer events from reaching canvas
       >
+        {/* Control icons group - stays together, doesn't wrap internally */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
@@ -3625,29 +3710,34 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           </Tooltip>
         )}
 
+        </Box>
+        {/* End control icons group */}
+
         {/* Presence indicators - connected users + agent */}
+        {/* This group can wrap to a new line on narrow screens */}
         {isConnected && remoteUsers.size > 0 && (
-          <>
-            <Box sx={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)', mx: 0.5 }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              {Array.from(remoteUsers.values()).map((user) => (
-                <Tooltip key={user.userId} title={user.userName} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-                  <Box
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: '50%',
-                      backgroundColor: user.color,
-                      border: user.userId === selfClientId ? '2px solid white' : 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 10,
-                      fontWeight: 'bold',
-                      color: 'white',
-                      cursor: 'default',
-                    }}
-                  >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {Array.from(remoteUsers.values()).map((user) => (
+              <Tooltip key={user.userId} title={user.userName} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+                <Box
+                  sx={{
+                    width: 22,
+                    height: 22,
+                    minWidth: 22,
+                    minHeight: 22,
+                    borderRadius: '50%',
+                    backgroundColor: user.color,
+                    border: user.userId === selfClientId ? '2px solid white' : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    color: 'white',
+                    cursor: 'default',
+                    flexShrink: 0,
+                  }}
+                >
                     {user.avatarUrl ? (
                       <Box
                         component="img"
@@ -3660,27 +3750,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </Box>
                 </Tooltip>
               ))}
-              {/* Agent indicator */}
-              <Tooltip title="AI Agent" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-                <Box
-                  sx={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    backgroundColor: '#00D4FF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    cursor: 'default',
-                    opacity: agentCursor ? 1 : 0.5,
-                  }}
-                >
-                  🤖
-                </Box>
-              </Tooltip>
-            </Box>
-          </>
+            {/* Agent indicator */}
+            <Tooltip title="AI Agent" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+              <Box
+                sx={{
+                  width: 22,
+                  height: 22,
+                  minWidth: 22,
+                  minHeight: 22,
+                  borderRadius: '50%',
+                  backgroundColor: '#00D4FF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 11,
+                  cursor: 'default',
+                  flexShrink: 0,
+                  opacity: agentCursor ? 1 : 0.5,
+                }}
+              >
+                🤖
+              </Box>
+            </Tooltip>
+          </Box>
         )}
       </Box>
 

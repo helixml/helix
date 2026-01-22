@@ -169,15 +169,15 @@ type VideoStreamer struct {
 	nodeID       uint32
 	cursorNodeID uint32    // Separate node for cursor monitoring (avoids multi-consumer conflict)
 	pipeWireFd   int       // PipeWire FD from portal (required for ScreenCast access)
-	videoMode  VideoMode // Video capture mode (shm, native, zerocopy)
-	config     StreamConfig
-	ws         *websocket.Conn
-	logger     *slog.Logger
-	gstPipeline *GstPipeline // GStreamer pipeline with appsink
-	running     atomic.Bool
-	cancel      context.CancelFunc
-	mu          sync.Mutex // Protects Start/Stop
-	wsMu        sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
+	videoMode    VideoMode // Video capture mode (shm, native, zerocopy)
+	config       StreamConfig
+	ws           *websocket.Conn
+	logger       *slog.Logger
+	gstPipeline  *GstPipeline // GStreamer pipeline with appsink
+	running      atomic.Bool
+	cancel       context.CancelFunc
+	mu           sync.Mutex // Protects Start/Stop
+	wsMu         sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
 
 	// Frame tracking
 	frameCount uint64
@@ -400,20 +400,24 @@ func checkGstElement(element string) bool {
 // ============================================================================
 //
 // Case 1: GNOME + NVIDIA (true zero-copy CUDA)
-//   capture-source=pipewire buffer-type=dmabuf
-//   Output: CUDAMemory → nvh264enc (0 CPU copies)
+//
+//	capture-source=pipewire buffer-type=dmabuf
+//	Output: CUDAMemory → nvh264enc (0 CPU copies)
 //
 // Case 2: GNOME + AMD (SHM → VA encoder)
-//   capture-source=pipewire buffer-type=shm
-//   Output: System memory → vapostproc → vah264enc
+//
+//	capture-source=pipewire buffer-type=shm
+//	Output: System memory → vapostproc → vah264enc
 //
 // Case 3: Sway + NVIDIA
-//   capture-source=wayland buffer-type=shm
-//   Output: System memory → cudaupload → nvh264enc
+//
+//	capture-source=wayland buffer-type=shm
+//	Output: System memory → cudaupload → nvh264enc
 //
 // Case 4: Sway + AMD
-//   capture-source=wayland buffer-type=shm
-//   Output: System memory → vapostproc → vah264enc
+//
+//	capture-source=wayland buffer-type=shm
+//	Output: System memory → vapostproc → vah264enc
 //
 // GPU optimization notes:
 // - NVIDIA: cudaupload gets frames into CUDA memory, nvh264enc does colorspace on GPU
@@ -429,109 +433,109 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	// PipeWire connection doesn't have access to portal ScreenCast nodes.
 
 	switch v.videoMode {
-		case VideoModePlugin:
-			// pipewirezerocopysrc: Zero-copy via GPU memory sharing
-			// Requires gst-plugin-pipewire-zerocopy to be installed
-			//
-			// EXPLICIT CONTROL: We tell the element exactly what to do:
-			// - capture-source: "pipewire" (GNOME) or "wayland" (Sway ext-image-copy-capture)
-			// - buffer-type: "dmabuf" (GNOME+NVIDIA CUDA) or "shm" (everything else)
-			//
-			// No probing, no fallbacks, no guessing. Go code knows the environment.
+	case VideoModePlugin:
+		// pipewirezerocopysrc: Zero-copy via GPU memory sharing
+		// Requires gst-plugin-pipewire-zerocopy to be installed
+		//
+		// EXPLICIT CONTROL: We tell the element exactly what to do:
+		// - capture-source: "pipewire" (GNOME) or "wayland" (Sway ext-image-copy-capture)
+		// - buffer-type: "dmabuf" (GNOME+NVIDIA CUDA) or "shm" (everything else)
+		//
+		// No probing, no fallbacks, no guessing. Go code knows the environment.
 
-			// Detect compositor: Sway uses ext-image-copy-capture, GNOME uses PipeWire ScreenCast
-			isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
-				os.Getenv("SWAYSOCK") != ""
+		// Detect compositor: Sway uses ext-image-copy-capture, GNOME uses PipeWire ScreenCast
+		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
+			os.Getenv("SWAYSOCK") != ""
 
-			// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
-			isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
+		// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
+		isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
 
-			// GNOME + AMD/Intel: Fall back to native pipewiresrc
-			// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
-			// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
-			// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
-			isAmdGnome := !isSway && !isNvidiaGnome
+		// GNOME + AMD/Intel: Fall back to native pipewiresrc
+		// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
+		// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
+		// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
+		isAmdGnome := !isSway && !isNvidiaGnome
 
-			if isAmdGnome {
-				// Case 2: GNOME + AMD/Intel → use native pipewiresrc with always-copy=true
-				// This forces SHM path (like Sway) instead of DmaBuf which has latency issues.
-				// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
-				// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
-				// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
-				slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
-				srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true", v.nodeID)
-				if v.pipeWireFd > 0 {
-					srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
-				}
-				parts = []string{srcPart}
-				// Use realtime clock so PTS can be compared to time.Now() for latency measurement
-				v.useRealtimeClock = true
+		if isAmdGnome {
+			// Case 2: GNOME + AMD/Intel → use native pipewiresrc with always-copy=true
+			// This forces SHM path (like Sway) instead of DmaBuf which has latency issues.
+			// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
+			// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
+			// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
+			slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true", v.nodeID)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{srcPart}
+			// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+			v.useRealtimeClock = true
+		} else {
+			// Set explicit properties based on the remaining cases
+			var captureSource, bufferType string
+			if isSway {
+				// Cases 3 & 4: Sway always uses ext-image-copy-capture (Wayland protocol)
+				captureSource = "wayland"
+				bufferType = "shm"
 			} else {
-				// Set explicit properties based on the remaining cases
-				var captureSource, bufferType string
-				if isSway {
-					// Cases 3 & 4: Sway always uses ext-image-copy-capture (Wayland protocol)
-					captureSource = "wayland"
-					bufferType = "shm"
-				} else {
-					// Case 1: GNOME + NVIDIA → true zero-copy CUDA
-					captureSource = "pipewire"
-					bufferType = "dmabuf"
-				}
-
-				srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
-					v.nodeID, captureSource, bufferType)
-				// Add render-node for multi-GPU systems
-				if renderNode := getRenderDevice(); renderNode != "" {
-					srcPart += fmt.Sprintf(" render-node=%s", renderNode)
-				}
-				// Add fd property if we have portal FD (required for ScreenCast access)
-				if v.pipeWireFd > 0 {
-					srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
-				}
-
-				if bufferType == "dmabuf" {
-					// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
-					// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
-					parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
-				} else {
-					parts = []string{srcPart}
-				}
+				// Case 1: GNOME + NVIDIA → true zero-copy CUDA
+				captureSource = "pipewire"
+				bufferType = "dmabuf"
 			}
 
-		case VideoModeNative:
-			// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
-			// Works on GStreamer 1.24+ with proper driver support
-			// Falls back gracefully to system memory if DMA-BUF unavailable
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
+				v.nodeID, captureSource, bufferType)
+			// Add render-node for multi-GPU systems
+			if renderNode := getRenderDevice(); renderNode != "" {
+				srcPart += fmt.Sprintf(" render-node=%s", renderNode)
+			}
 			// Add fd property if we have portal FD (required for ScreenCast access)
 			if v.pipeWireFd > 0 {
-				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
 			}
-			parts = []string{
-				srcPart,
-				// Let pipewiresrc negotiate best format - prefer DMA-BUF if available
-				// Explicit framerate prevents Mutter from defaulting to lower rate
-				fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
-			}
-			// Use realtime clock so PTS can be compared to time.Now() for latency measurement
-			v.useRealtimeClock = true
 
-		default: // VideoModeSHM
-			// Standard pipewiresrc path - most compatible
-			// Uses damage-based capture (only sends frames when screen changes)
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
-			// Add fd property if we have portal FD (required for ScreenCast access)
-			if v.pipeWireFd > 0 {
-				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			if bufferType == "dmabuf" {
+				// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
+				// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
+				parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+			} else {
+				parts = []string{srcPart}
 			}
-			parts = []string{
-				srcPart,
-				// Explicit framerate prevents Mutter from defaulting to lower rate
-				fmt.Sprintf("video/x-raw,format=BGRx,framerate=%d/1", v.config.FPS),
-			}
-			// Use realtime clock so PTS can be compared to time.Now() for latency measurement
-			v.useRealtimeClock = true
+		}
+
+	case VideoModeNative:
+		// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
+		// Works on GStreamer 1.24+ with proper driver support
+		// Falls back gracefully to system memory if DMA-BUF unavailable
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		// Add fd property if we have portal FD (required for ScreenCast access)
+		if v.pipeWireFd > 0 {
+			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+		}
+		parts = []string{
+			srcPart,
+			// Let pipewiresrc negotiate best format - prefer DMA-BUF if available
+			// Explicit framerate prevents Mutter from defaulting to lower rate
+			fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
+		}
+		// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+		v.useRealtimeClock = true
+
+	default: // VideoModeSHM
+		// Standard pipewiresrc path - most compatible
+		// Uses damage-based capture (only sends frames when screen changes)
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		// Add fd property if we have portal FD (required for ScreenCast access)
+		if v.pipeWireFd > 0 {
+			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+		}
+		parts = []string{
+			srcPart,
+			// Explicit framerate prevents Mutter from defaulting to lower rate
+			fmt.Sprintf("video/x-raw,format=BGRx,framerate=%d/1", v.config.FPS),
+		}
+		// Use realtime clock so PTS can be compared to time.Now() for latency measurement
+		v.useRealtimeClock = true
 	}
 
 	// Add leaky queue to decouple pipewiresrc from encoding pipeline
@@ -720,9 +724,9 @@ func (v *VideoStreamer) sendStreamInit() error {
 	binary.BigEndian.PutUint16(msg[2:4], uint16(v.config.Width))
 	binary.BigEndian.PutUint16(msg[4:6], uint16(v.config.Height))
 	msg[6] = byte(v.config.FPS)
-	msg[7] = 0                             // audio channels (0 = audio disabled)
+	msg[7] = 0                               // audio channels (0 = audio disabled)
 	binary.BigEndian.PutUint32(msg[8:12], 0) // sample rate (0 = audio disabled)
-	msg[12] = 1 // touch supported (GNOME only for now)
+	msg[12] = 1                              // touch supported (GNOME only for now)
 
 	_, err := v.writeMessage(websocket.BinaryMessage, msg)
 	return err
@@ -1510,6 +1514,11 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 				logger.Error("websocket read error", "err", err)
 			}
 			return
+		}
+
+		// Update client activity timestamp on any message to prevent stale client cleanup
+		if streamer.sessionClient != nil && config.SessionID != "" {
+			GetSessionRegistry().UpdateClientActivity(config.SessionID, streamer.sessionClient.ID)
 		}
 
 		if messageType == websocket.BinaryMessage && len(msg) > 0 {

@@ -393,9 +393,9 @@ func (s *GitHTTPServer) extractRawAPIKey(apiKey string) string {
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
-	IsAgentKey    bool   // True if this is a session-scoped agent key
-	AllowedBranch string // The only branch the agent can push to (empty = no push allowed)
-	ErrorMessage  string // Error message if push should be denied
+	IsAgentKey      bool     // True if this is a session-scoped agent key
+	AllowedBranches []string // The branches the agent can push to
+	ErrorMessage    string   // Error message if push should be denied
 }
 
 // getBranchRestrictionForAPIKey checks if the API key is an agent key and what branch it can push to.
@@ -439,16 +439,16 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		}, nil
 	}
 
-	if task.BranchName == "" {
-		return &BranchRestriction{
-			IsAgentKey:   true,
-			ErrorMessage: "Spec task does not have a branch assigned. Cannot push to Git.",
-		}, nil
+	// Agents can always push to helix-specs for design docs.
+	// If they also have a feature branch assigned, they can push to both.
+	allowedBranches := []string{"helix-specs"}
+	if task.BranchName != "" {
+		allowedBranches = append(allowedBranches, task.BranchName)
 	}
 
 	return &BranchRestriction{
-		IsAgentKey:    true,
-		AllowedBranch: task.BranchName,
+		IsAgentKey:      true,
+		AllowedBranches: allowedBranches,
 	}, nil
 }
 
@@ -657,19 +657,26 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 				s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
 				return
 			}
-			// Agent can only push to their allowed branch
+			// Agent can only push to their allowed branches
 			for _, branch := range pushedBranches {
-				if branch != restriction.AllowedBranch {
+				allowed := false
+				for _, ab := range restriction.AllowedBranches {
+					if branch == ab {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
 					log.Error().
 						Str("repo_id", repoID).
 						Str("pushed_branch", branch).
-						Str("allowed_branch", restriction.AllowedBranch).
+						Strs("allowed_branches", restriction.AllowedBranches).
 						Msg("Agent attempted to push to unauthorized branch - rolling back")
 					s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
 					return
 				}
 			}
-			log.Info().Str("repo_id", repoID).Str("allowed_branch", restriction.AllowedBranch).Msg("Agent branch restriction verified")
+			log.Info().Str("repo_id", repoID).Strs("allowed_branches", restriction.AllowedBranches).Msg("Agent branch restriction verified")
 		}
 	}
 

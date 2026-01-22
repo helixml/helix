@@ -14,7 +14,7 @@ import { useGetSession, useListSessionSteps } from '../../services/sessionServic
 import { useStreaming } from '../../contexts/streaming'
 import { TypesInteractionState } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
-import { SESSION_TYPE_TEXT } from '../../types'
+import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 
 interface EmbeddedSessionViewProps {
   sessionId: string
@@ -363,6 +363,8 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
         {session.interactions.map((interaction, index) => {
           const isLastInteraction = index === session.interactions!.length - 1
           const isLive = isLastInteraction && interaction.state === TypesInteractionState.InteractionStateWaiting
+          // Regenerate doesn't work for external agents, so disable it
+          const isExternalAgent = session.config?.agent_type === AGENT_TYPE_ZED_EXTERNAL
 
           return (
             <Interaction
@@ -372,7 +374,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
               session={session}
               highlightAllFiles={false}
               onReloadSession={handleReloadSession}
-              onRegenerate={handleRegenerate}
+              onRegenerate={isExternalAgent ? undefined : handleRegenerate}
               isLastInteraction={isLastInteraction}
               isOwner={isOwner}
               isAdmin={account.admin}

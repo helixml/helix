@@ -695,13 +695,24 @@ const CodeBlockWithCopy: FC<{ children: string; language?: string }> = ({ childr
           </IconButton>
         </Tooltip>
       </Box>
-      <SyntaxHighlighter
-        language={language}
-        style={oneDark}
-        PreTag="div"
+      <Box
+        sx={{
+          overflowY: 'clip',
+          overflowX: 'auto',
+        }}
       >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            overflow: 'visible',
+          }}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </Box>
     </Box>
   );
 };
@@ -778,7 +789,11 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           '& pre': {
             padding: '1em',
             borderRadius: '4px',
+            // Only allow horizontal scroll (for wide code)
+            // Vertical scroll must go to parent container to prevent "getting stuck"
+            // when scrolling the chat and momentum stops inside a code block
             overflowX: 'auto',
+            overflowY: 'visible',
             position: 'relative',
           },
           '& code': {
