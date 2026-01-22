@@ -3,8 +3,8 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 
-// DEBUG: Temporary debug overlay to diagnose scroll issues on iOS Safari
-const DEBUG_SCROLL = true
+// DEBUG: Set to true to show scroll debug overlay
+const DEBUG_SCROLL = false
 
 import Interaction from './Interaction'
 import InteractionLiveStream from './InteractionLiveStream'
