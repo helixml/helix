@@ -144,7 +144,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       container.removeEventListener('scroll', onNativeScroll)
       container.removeEventListener('wheel', onWheel)
     }
-  }, [checkIsAtBottom, session])
+  }, [checkIsAtBottom])
 
   // Scroll to bottom - always works, no conditions
   const scrollToBottom = useCallback(() => {
