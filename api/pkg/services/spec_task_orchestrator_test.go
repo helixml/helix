@@ -1,13 +1,56 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
+
+func TestSpecTaskOrchestratorTestSuite(t *testing.T) {
+	suite.Run(t, new(SpecTaskOrchestratorTestSuite))
+}
+
+type SpecTaskOrchestratorTestSuite struct {
+	suite.Suite
+	ctrl         *gomock.Controller
+	store        *store.MockStore
+	executor     *MockContainerExecutor
+	orchestrator *SpecTaskOrchestrator
+}
+
+func (s *SpecTaskOrchestratorTestSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.executor = NewMockContainerExecutor(s.ctrl)
+	s.orchestrator = &SpecTaskOrchestrator{
+		store:             s.store,
+		containerExecutor: s.executor,
+		testMode:          true,
+	}
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TearDownTest() {
+	s.ctrl.Finish()
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-123",
+		PlanningSessionID: "session-456",
+		Status:            types.TaskStatusDone,
+	}
+
+	s.executor.EXPECT().StopDesktop(ctx, "session-456").Return(nil)
+
+	err := s.orchestrator.handleDone(ctx, task)
+	s.Require().NoError(err)
+}
 
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite

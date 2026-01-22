@@ -599,7 +599,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/sessions/{id}/idle-status", system.Wrapper(apiServer.getSessionIdleStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 
 	// Session TOC and turn-based navigation for agent context retrieval
@@ -1033,6 +1032,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/kodit-commits", apiServer.getRepositoryKoditCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/search-snippets", apiServer.searchRepositorySnippets).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/kodit-status", apiServer.getRepositoryIndexingStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/kodit-rescan", apiServer.rescanRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/push-pull", apiServer.pushPullGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/pull", apiServer.pullFromRemote).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/push", apiServer.pushToRemote).Methods(http.MethodPost)

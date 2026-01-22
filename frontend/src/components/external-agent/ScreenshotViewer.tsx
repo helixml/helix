@@ -43,6 +43,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamingMode, setStreamingMode] = useState<'screenshot' | 'stream'>('screenshot');
+  const [sessionUnavailable, setSessionUnavailable] = useState(false); // Stop polling when session ends
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mountTimeRef = React.useRef<Date>(new Date());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -80,7 +81,10 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch screenshot: ${response.status} ${response.statusText}`);
+        // Create error with status code accessible
+        const error = new Error(`Failed to fetch screenshot: ${response.status} ${response.statusText}`);
+        (error as any).status = response.status;
+        throw error;
       }
 
       const blob = await response.blob();
@@ -115,6 +119,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       img.src = newUrl;
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to fetch screenshot';
+      const statusCode = err.status;
 
       // During initial loading (first 60 seconds), suppress errors
       // Container takes time to start and screenshot server to initialize
@@ -122,9 +127,17 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         // Keep loading state, don't show error yet
         setIsLoading(true);
       } else {
-        // After grace period, show actual errors
-        setError(errorMsg);
-        onError?.(errorMsg);
+        // After grace period, show user-friendly errors based on status code
+        let displayError = errorMsg;
+        if (statusCode === 503) {
+          displayError = 'Session ended - desktop is no longer available';
+          setSessionUnavailable(true); // Stop polling
+        } else if (statusCode === 404) {
+          displayError = 'Session not found';
+          setSessionUnavailable(true); // Stop polling
+        }
+        setError(displayError);
+        onError?.(errorMsg); // Pass original error to callback for debugging
         setIsLoading(false);
       }
     }
@@ -137,7 +150,8 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Auto-refresh screenshot with RAF for higher priority
   useEffect(() => {
-    if (!autoRefresh || streamingMode !== 'screenshot') return;
+    // Don't poll if auto-refresh disabled, not in screenshot mode, or session is unavailable
+    if (!autoRefresh || streamingMode !== 'screenshot' || sessionUnavailable) return;
 
     let timeoutId: NodeJS.Timeout;
     let rafId: number;
@@ -156,7 +170,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       clearTimeout(timeoutId);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [autoRefresh, refreshInterval, streamingMode]);
+  }, [autoRefresh, refreshInterval, streamingMode, sessionUnavailable]);
 
   // Initial fetch
   useEffect(() => {

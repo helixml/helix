@@ -357,3 +357,53 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
+
+// rescanRepository triggers a rescan of a specific commit in Kodit
+// @Summary Rescan repository commit
+// @Description Trigger a rescan of a specific commit in Kodit to refresh code intelligence
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param commit_sha query string true "Commit SHA to rescan"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/kodit-rescan [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) rescanRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	commitSHA := r.URL.Query().Get("commit_sha")
+	if commitSHA == "" {
+		http.Error(w, "commit_sha query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get repository and ensure kodit_repo_id is set (re-registers if missing)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return // Error already written to response
+	}
+
+	// Trigger rescan in Kodit for the specific commit
+	err := apiServer.koditService.RescanCommit(r.Context(), koditRepoID, commitSHA)
+	if err != nil {
+		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Failed to trigger rescan in Kodit")
+		handleKoditError(w, err, "Failed to trigger rescan")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":     "accepted",
+		"message":    "Rescan triggered successfully",
+		"commit_sha": commitSHA,
+	})
+}
