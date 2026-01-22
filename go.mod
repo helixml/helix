@@ -104,12 +104,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
-	github.com/abema/go-mp4 v1.4.1 // indirect
-	github.com/asticode/go-astikit v0.30.0 // indirect
-	github.com/asticode/go-astits v1.14.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/bluenviron/gohlslib/v2 v2.2.4 // indirect
-	github.com/bluenviron/mediacommon/v2 v2.5.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251022180443-0feb69152e9f // indirect

@@ -56,8 +56,6 @@ export class WebSocketStream {
 
   // WebCodecs decoders
   private videoDecoder: VideoDecoder | null = null
-  private audioDecoder: AudioDecoder | null = null
-  private audioContext: AudioContext | null = null
 
   // Input handling
   private input: StreamInput
@@ -557,10 +555,6 @@ export class WebSocketStream {
         // Awaiting creates microtasks that queue up and cause frame batching
         this.handleVideoFrame(data)
         break
-      case WsMessageType.AudioFrame:
-        // Don't await - audioDecoder.decode() is synchronous
-        this.handleAudioFrame(data)
-        break
       case WsMessageType.StreamInit:
         this.handleStreamInit(data)
         break
@@ -706,13 +700,6 @@ export class WebSocketStream {
 
     // Initialize video decoder
     this.initVideoDecoder(codec, width, height)
-
-    // Initialize audio decoder (skip if no audio configured)
-    if (audioChannels > 0 && sampleRate > 0) {
-      this.initAudioDecoder(audioChannels, sampleRate)
-    } else {
-      console.log("[WebSocketStream] Audio disabled (no audio channels or sample rate)")
-    }
   }
 
   // Decoder generation counter - incremented each time we create a new decoder
@@ -948,17 +935,6 @@ export class WebSocketStream {
 
   // Track video enabled state to make setVideoEnabled idempotent
   private _videoEnabled = true
-
-  // Track audio enabled state to make setAudioEnabled idempotent
-  // Audio is disabled by default - user must explicitly enable via toolbar
-  private _audioEnabled = false
-
-  // Track mic enabled state to make setMicEnabled idempotent
-  // Mic is disabled by default - user must explicitly enable via toolbar
-  private _micEnabled = false
-  private micStream: MediaStream | null = null
-  private micAudioContext: AudioContext | null = null
-  private micWorklet: AudioWorkletNode | null = null
 
   // Track last video config for decoder recovery
   private lastVideoCodec: WsVideoCodecType | null = null
@@ -1227,145 +1203,6 @@ export class WebSocketStream {
       console.log(`[WebSocketStream] Manual throttle ratio set to ${ratio * 100}%`)
     } else {
       console.log(`[WebSocketStream] Returned to adaptive throttle (current: ${(this.adaptiveThrottleRatio * 100).toFixed(0)}%)`)
-    }
-  }
-
-  private async initAudioDecoder(channels: number, sampleRate: number) {
-    if (!("AudioDecoder" in window)) {
-      console.warn("[WebSocketStream] WebCodecs AudioDecoder not supported, trying Web Audio API")
-      // Fallback to opus-decoder library or Web Audio API decoding
-      return
-    }
-
-    console.log(`[WebSocketStream] Initializing audio decoder: Opus ${channels}ch@${sampleRate}Hz`)
-
-    // Initialize AudioContext
-    this.audioContext = new AudioContext({ sampleRate })
-
-    // Close existing decoder
-    if (this.audioDecoder) {
-      try {
-        this.audioDecoder.close()
-      } catch (e) {
-        // Ignore
-      }
-    }
-
-    this.audioDecoder = new AudioDecoder({
-      output: (data: AudioData) => {
-        this.playAudioData(data)
-      },
-      error: (e: Error) => {
-        console.error("[WebSocketStream] Audio decoder error:", e)
-      },
-    })
-
-    // Configure for Opus
-    this.audioDecoder.configure({
-      codec: "opus",
-      numberOfChannels: channels,
-      sampleRate: sampleRate,
-    })
-
-    console.log("[WebSocketStream] Audio decoder initialized")
-  }
-
-  // Audio scheduling state
-  private audioStartTime = 0 // AudioContext.currentTime when first audio was played
-  private audioPtsBase = 0 // PTS of first audio frame (microseconds)
-  private audioInitialized = false
-
-  private playAudioData(data: AudioData) {
-    if (!this.audioContext) {
-      data.close()
-      return
-    }
-
-    // Resume AudioContext if suspended (browser autoplay policy)
-    if (this.audioContext.state === "suspended") {
-      this.audioContext.resume().catch(e => {
-        console.warn("[WebSocketStream] Failed to resume AudioContext:", e)
-      })
-    }
-
-    // Create audio buffer from AudioData
-    const buffer = this.audioContext.createBuffer(
-      data.numberOfChannels,
-      data.numberOfFrames,
-      data.sampleRate
-    )
-
-    // Copy data to buffer
-    for (let i = 0; i < data.numberOfChannels; i++) {
-      const channelData = new Float32Array(data.numberOfFrames)
-      data.copyTo(channelData, { planeIndex: i, format: "f32-planar" })
-      buffer.copyToChannel(channelData, i)
-    }
-
-    // Schedule audio based on PTS timestamp
-    // data.timestamp is in microseconds
-    const ptsUs = data.timestamp
-
-    if (!this.audioInitialized) {
-      // First audio frame - establish timing baseline
-      this.audioStartTime = this.audioContext.currentTime
-      this.audioPtsBase = ptsUs
-      this.audioInitialized = true
-      console.log(`[WebSocketStream] Audio initialized: baseTime=${this.audioStartTime}, basePTS=${ptsUs}`)
-    }
-
-    // Calculate when this frame should play
-    // scheduledTime = audioStartTime + (framePTS - basePTS) / 1000000
-    const ptsDelta = (ptsUs - this.audioPtsBase) / 1_000_000 // Convert to seconds
-    const scheduledTime = this.audioStartTime + ptsDelta
-
-    // If we're too far behind, skip or catch up
-    const now = this.audioContext.currentTime
-    if (scheduledTime < now - 0.1) {
-      // Frame is more than 100ms in the past, skip it
-      data.close()
-      return
-    }
-
-    // Play audio at scheduled time
-    const source = this.audioContext.createBufferSource()
-    source.buffer = buffer
-    source.connect(this.audioContext.destination)
-
-    // Schedule for the correct time (or now if it should have already played)
-    const playTime = Math.max(scheduledTime, now)
-    source.start(playTime)
-
-    data.close()
-  }
-
-  private handleAudioFrame(data: Uint8Array) {
-    if (!this.audioDecoder || this.audioDecoder.state !== "configured") {
-      return
-    }
-
-    // Parse audio frame header
-    // Format: type(1) + channels(1) + pts(8) + data(...)
-    if (data.length < 10) {
-      console.error("[WebSocketStream] Audio frame too short")
-      return
-    }
-
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    const ptsUs = view.getBigUint64(2, false) // big-endian
-
-    const frameData = data.slice(10)
-
-    try {
-      const chunk = new EncodedAudioChunk({
-        type: "key", // Opus frames are always keyframes
-        timestamp: Number(ptsUs), // microseconds
-        data: frameData,
-      })
-
-      this.audioDecoder.decode(chunk)
-    } catch (e) {
-      console.error("[WebSocketStream] Failed to decode audio chunk:", e)
     }
   }
 
@@ -2123,11 +1960,6 @@ export class WebSocketStream {
   private resetStreamState() {
     // Reset video state
     this.receivedFirstKeyframe = false
-
-    // Reset audio state
-    this.audioInitialized = false
-    this.audioStartTime = 0
-    this.audioPtsBase = 0
   }
 
   private cleanupDecoders() {
@@ -2139,39 +1971,6 @@ export class WebSocketStream {
       }
       this.videoDecoder = null
     }
-
-    if (this.audioDecoder) {
-      try {
-        this.audioDecoder.close()
-      } catch (e) {
-        // Ignore
-      }
-      this.audioDecoder = null
-    }
-
-    if (this.audioContext) {
-      try {
-        this.audioContext.close()
-      } catch (e) {
-        // Ignore
-      }
-      this.audioContext = null
-    }
-
-    // Stop mic capture
-    if (this.micStream) {
-      this.micStream.getTracks().forEach(track => track.stop())
-      this.micStream = null
-    }
-    if (this.micAudioContext) {
-      try {
-        this.micAudioContext.close()
-      } catch (e) {
-        // Ignore
-      }
-      this.micAudioContext = null
-    }
-    this._micEnabled = false
   }
 
   private startHeartbeat() {
@@ -2273,141 +2072,6 @@ export class WebSocketStream {
     message.set(jsonBytes, 1)
 
     this.ws.send(message.buffer)
-  }
-
-  /**
-   * Enable or disable audio streaming from the server.
-   * Audio is disabled by default to avoid autoplay restrictions and save bandwidth.
-   * @param enabled - true to start audio streaming, false to stop
-   */
-  setAudioEnabled(enabled: boolean) {
-    // Idempotent check - don't send duplicate messages
-    if (this._audioEnabled === enabled) {
-      console.log(`[WebSocketStream] Audio already ${enabled ? 'enabled' : 'disabled'}, skipping`)
-      return
-    }
-
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn("[WebSocketStream] Cannot set audio enabled - WebSocket not connected")
-      // Still update local state so we don't spam when connection is restored
-      this._audioEnabled = enabled
-      return
-    }
-
-    console.log(`[WebSocketStream] Setting audio enabled: ${enabled}`)
-    this._audioEnabled = enabled
-
-    // Send control message to server
-    // Format: type(1) + JSON payload
-    const json = JSON.stringify({ set_audio_enabled: enabled })
-    const encoder = new TextEncoder()
-    const jsonBytes = encoder.encode(json)
-
-    const message = new Uint8Array(1 + jsonBytes.length)
-    message[0] = WsMessageType.ControlMessage
-    message.set(jsonBytes, 1)
-
-    this.ws.send(message.buffer)
-  }
-
-  /**
-   * Enable or disable microphone capture and streaming to the server.
-   * Mic is disabled by default - requires user permission.
-   * @param enabled - true to start mic capture, false to stop
-   */
-  async setMicEnabled(enabled: boolean) {
-    // Idempotent check - don't send duplicate messages
-    if (this._micEnabled === enabled) {
-      console.log(`[WebSocketStream] Mic already ${enabled ? 'enabled' : 'disabled'}, skipping`)
-      return
-    }
-
-    console.log(`[WebSocketStream] Setting mic enabled: ${enabled}`)
-    this._micEnabled = enabled
-
-    if (enabled) {
-      try {
-        // Request microphone access
-        this.micStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            sampleRate: 48000,
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          }
-        })
-
-        // Create AudioContext for processing
-        this.micAudioContext = new AudioContext({ sampleRate: 48000 })
-
-        // Create ScriptProcessorNode for audio capture (AudioWorklet would be better but needs more setup)
-        const source = this.micAudioContext.createMediaStreamSource(this.micStream)
-        const processor = this.micAudioContext.createScriptProcessor(4096, 1, 1)
-
-        processor.onaudioprocess = (e) => {
-          if (!this._micEnabled || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return
-          }
-
-          // Get raw audio samples (Float32Array, -1.0 to 1.0)
-          const inputData = e.inputBuffer.getChannelData(0)
-
-          // Convert to 16-bit signed PCM
-          const pcmData = new Int16Array(inputData.length)
-          for (let i = 0; i < inputData.length; i++) {
-            // Clamp to [-1, 1] and scale to [-32768, 32767]
-            const sample = Math.max(-1, Math.min(1, inputData[i]))
-            pcmData[i] = sample < 0 ? sample * 32768 : sample * 32767
-          }
-
-          // Send to server: type(1) + pcm_data(N)
-          const message = new Uint8Array(1 + pcmData.byteLength)
-          message[0] = WsMessageType.MicAudio
-          message.set(new Uint8Array(pcmData.buffer), 1)
-
-          this.ws.send(message.buffer)
-        }
-
-        source.connect(processor)
-        processor.connect(this.micAudioContext.destination) // Required for onaudioprocess to fire
-
-        console.log("[WebSocketStream] Mic capture started")
-
-      } catch (err) {
-        console.error("[WebSocketStream] Failed to start mic:", err)
-        this._micEnabled = false
-        return
-      }
-    } else {
-      // Stop mic capture
-      if (this.micStream) {
-        this.micStream.getTracks().forEach(track => track.stop())
-        this.micStream = null
-      }
-      if (this.micAudioContext) {
-        try {
-          this.micAudioContext.close()
-        } catch (e) {
-          // Ignore
-        }
-        this.micAudioContext = null
-      }
-      console.log("[WebSocketStream] Mic capture stopped")
-    }
-
-    // Send control message to server
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const json = JSON.stringify({ set_mic_enabled: enabled })
-      const encoder = new TextEncoder()
-      const jsonBytes = encoder.encode(json)
-
-      const message = new Uint8Array(1 + jsonBytes.length)
-      message[0] = WsMessageType.ControlMessage
-      message.set(jsonBytes, 1)
-
-      this.ws.send(message.buffer)
-    }
   }
 
   /**

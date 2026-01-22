@@ -427,9 +427,8 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/input", s.handleInput)
 	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
 	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec)          // Execute command in container (for benchmarking)
-	mux.HandleFunc("/voice", s.handleVoice)        // Voice input (speech-to-text via Whisper)
-	mux.HandleFunc("/diff", s.handleDiff)          // Git diff for live file changes
+	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
+	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
