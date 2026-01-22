@@ -786,6 +786,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     <>
       <Box
         sx={{
+          fontSize: '0.9rem',
           '& pre': {
             padding: '1em',
             borderRadius: '4px',
