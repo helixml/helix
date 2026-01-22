@@ -286,13 +286,16 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       ref={containerRef}
       onScroll={handleScroll}
       sx={{
+        // Use height: 0 + flex: 1 to force this to be the scrollable container
+        // Without height: 0, the container may expand to fit content on iOS
+        height: 0,
         flex: 1,
         overflow: 'auto',
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
         position: 'relative',
-        // Prevent iOS momentum scroll from causing issues
+        // Enable momentum scrolling on iOS
         WebkitOverflowScrolling: 'touch',
         ...lightTheme.scrollbar,
       }}
