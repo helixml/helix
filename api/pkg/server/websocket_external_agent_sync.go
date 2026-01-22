@@ -802,14 +802,6 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Str("agent_type", session.Metadata.AgentType).
 		Msg("Notifying external agent of new interaction")
 
-	// DIAGNOSTIC: Log this code path with distinctive marker
-	log.Warn().
-		Str("session_id", sessionID).
-		Str("interaction_id", interaction.ID).
-		Str("request_id_will_be", interaction.ID).
-		Str("zed_thread_id", session.Metadata.ZedThreadID).
-		Msg("🔴 [DIAG] NotifyExternalAgentOfNewInteraction CALLED - PATH A (sends role:user)")
-
 	// Build command data - include acp_thread_id if session already has one (for follow-up messages)
 	commandData := map[string]interface{}{
 		"message":    interaction.PromptMessage,
@@ -862,27 +854,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid role")
 	}
 
-	// DIAGNOSTIC: Enhanced logging for message tracking
 	log.Info().
 		Str("session_id", sessionID).
 		Str("context_id", contextID).
 		Str("message_id", messageID).
 		Str("role", role).
-		Int("content_len", len(content)).
-		Msg("📨 [DIAG] handleMessageAdded ENTRY")
+		Msg("External agent added message")
 
 	// Find the Helix session that corresponds to this Zed context
 	apiServer.contextMappingsMutex.RLock()
 	helixSessionID, exists := apiServer.contextMappings[contextID]
 	apiServer.contextMappingsMutex.RUnlock()
-
-	// DIAGNOSTIC: Log mapping status
-	log.Info().
-		Str("context_id", contextID).
-		Str("helix_session_id", helixSessionID).
-		Bool("mapping_exists", exists).
-		Str("role", role).
-		Msg("📊 [DIAG] contextMappings lookup result")
 	if !exists {
 		// FALLBACK: contextMappings may be empty after API restart
 		// Try to find session by ZedThreadID in database
@@ -892,23 +874,72 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
 		if err != nil || foundSession == nil {
-			// DIAGNOSTIC: Log when message is lost due to missing session mapping
-			log.Error().
+			// No session found for this thread. For user messages, create a session on-the-fly.
+			// This handles the race condition where MessageAdded(role=user) arrives before UserCreatedThread.
+			if role != "assistant" {
+				log.Info().
+					Str("context_id", contextID).
+					Str("agent_session_id", sessionID).
+					Msg("🔧 [HELIX] No session for user message - creating session on-the-fly")
+
+				// Get the existing agent session to copy config from
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+				if err != nil {
+					return fmt.Errorf("failed to load agent session to copy config: %w", err)
+				}
+
+				// Create new session with same config as agent session
+				newSession := &types.Session{
+					ID:             system.GenerateSessionID(),
+					Created:        time.Now(),
+					Updated:        time.Now(),
+					Mode:           types.SessionModeInference,
+					Type:           existingSession.Type,
+					ModelName:      existingSession.ModelName,
+					ParentApp:      existingSession.ParentApp,
+					OrganizationID: existingSession.OrganizationID,
+					Owner:          existingSession.Owner,
+					OwnerType:      existingSession.OwnerType,
+					Metadata: types.SessionMetadata{
+						ZedThreadID:         contextID,
+						AgentType:           existingSession.Metadata.AgentType,
+						ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+					},
+					Name: "Zed Chat", // Default name, will be updated by thread_title_changed
+				}
+
+				_, err = apiServer.Controller.Options.Store.CreateSession(ctx, *newSession)
+				if err != nil {
+					return fmt.Errorf("failed to create on-the-fly session: %w", err)
+				}
+
+				helixSessionID = newSession.ID
+				apiServer.contextMappingsMutex.Lock()
+				apiServer.contextMappings[contextID] = helixSessionID
+				apiServer.contextMappingsMutex.Unlock()
+
+				log.Info().
+					Str("context_id", contextID).
+					Str("helix_session_id", helixSessionID).
+					Msg("✅ [HELIX] Created on-the-fly session for user message")
+			} else {
+				// Assistant message with no session is an error - shouldn't happen
+				return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+			}
+		} else {
+			helixSessionID = foundSession.ID
+			// Restore the mapping for future messages
+			apiServer.contextMappingsMutex.Lock()
+			apiServer.contextMappings[contextID] = helixSessionID
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
 				Str("context_id", contextID).
-				Str("role", role).
-				Str("agent_session_id", sessionID).
-				Msg("🚨 [DIAG] MESSAGE LOST - No session found for context_id (race condition?)")
-			return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+				Str("helix_session_id", helixSessionID).
+				Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 		}
-		helixSessionID = foundSession.ID
-		// Restore the mapping for future messages
-		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[contextID] = helixSessionID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("context_id", contextID).
-			Str("helix_session_id", helixSessionID).
-			Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 	}
 
 	// Get the Helix session
@@ -940,16 +971,6 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		apiServer.contextMappingsMutex.RLock()
 		interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]
 		apiServer.contextMappingsMutex.RUnlock()
-
-		// DIAGNOSTIC: Log what interaction we're about to update
-		log.Warn().
-			Str("helix_session_id", helixSessionID).
-			Str("mapped_interaction_id", interactionID).
-			Bool("mapping_exists", exists).
-			Str("message_id", messageID).
-			Int("content_len", len(content)).
-			Msg("🟡 [DIAG] handleMessageAdded looking up interaction - will update THIS interaction")
-
 		if exists {
 			log.Info().
 				Str("helix_session_id", helixSessionID).
@@ -1000,18 +1021,6 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			lastMessageID := targetInteraction.LastZedMessageID
 			shouldAppend := false
 
-			// DIAGNOSTIC: Log the state BEFORE making any decisions
-			log.Warn().
-				Str("interaction_id", targetInteraction.ID).
-				Str("interaction_state", string(targetInteraction.State)).
-				Int("existing_response_len", len(existingContent)).
-				Str("existing_response_preview", truncateString(existingContent, 50)).
-				Str("last_zed_message_id", lastMessageID).
-				Str("incoming_message_id", messageID).
-				Int("incoming_content_len", len(content)).
-				Str("incoming_content_preview", truncateString(content, 50)).
-				Msg("🔍 [DIAG] BEFORE concatenation decision - target interaction state")
-
 			if lastMessageID == "" {
 				// First message for this interaction - overwrite
 				shouldAppend = false
@@ -1042,22 +1051,14 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			if shouldAppend && existingContent != "" {
 				// New distinct message - append it
 				targetInteraction.ResponseMessage = existingContent + "\n\n" + content
-				log.Warn().
+				log.Info().
 					Str("interaction_id", targetInteraction.ID).
 					Int("existing_len", len(existingContent)).
 					Int("new_len", len(content)).
-					Int("total_len", len(targetInteraction.ResponseMessage)).
-					Str("existing_preview", truncateString(existingContent, 80)).
-					Str("new_preview", truncateString(content, 80)).
-					Msg("🚨 [DIAG] APPENDING content to existing response - possible bug if this shouldn't happen!")
+					Msg("📝 [HELIX] Appending new message to interaction (multi-message response)")
 			} else {
 				// Cumulative update or first message - overwrite
 				targetInteraction.ResponseMessage = content
-				log.Info().
-					Str("interaction_id", targetInteraction.ID).
-					Int("content_len", len(content)).
-					Bool("was_empty", existingContent == "").
-					Msg("📝 [DIAG] OVERWRITING response (normal streaming behavior)")
 			}
 			targetInteraction.Updated = time.Now()
 
@@ -1358,13 +1359,9 @@ func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, need
 		NeedsContinue: needsContinue,
 	}
 
-	// Set up fallback timeout (5 seconds)
-	// If we don't receive agent_ready within 5s, assume ready and send anyway
-	// Note: This is short because there's currently a circular dependency where
-	// Zed only sends agent_ready after receiving a chat_message, but we queue
-	// the chat_message waiting for agent_ready. The proper fix is for Zed to
-	// send agent_ready immediately when the WebSocket connects.
-	state.TimeoutTimer = time.AfterFunc(5*time.Second, func() {
+	// Set up fallback timeout (60 seconds)
+	// If we don't receive agent_ready within 60s, assume ready and send anyway
+	state.TimeoutTimer = time.AfterFunc(60*time.Second, func() {
 		log.Warn().
 			Str("session_id", sessionID).
 			Msg("⏰ [READINESS] Timeout waiting for agent_ready, proceeding with queued messages")
@@ -2022,17 +2019,8 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	if apiServer.sessionToWaitingInteraction == nil {
 		apiServer.sessionToWaitingInteraction = make(map[string]string)
 	}
-	// DIAGNOSTIC: Check if we're overwriting an existing mapping (potential bug!)
-	oldInteractionID, wasOverwritten := apiServer.sessionToWaitingInteraction[sessionID]
 	apiServer.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
 	apiServer.contextMappingsMutex.Unlock()
-	if wasOverwritten && oldInteractionID != createdInteraction.ID {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("old_interaction_id", oldInteractionID).
-			Str("new_interaction_id", createdInteraction.ID).
-			Msg("⚠️ [DIAG] sessionToWaitingInteraction OVERWRITTEN in sendQueuedPromptToSession - responses may go to wrong interaction!")
-	}
 
 	// Determine agent name
 	agentName := apiServer.getAgentNameForSession(ctx, session)
@@ -2396,6 +2384,21 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	title, _ := syncMsg.Data["title"].(string)
 	if title == "" {
 		title = "New Chat" // Default title
+	}
+
+	// IDEMPOTENCY: Check if we already have a session for this thread
+	// This can happen if MessageAdded(role=user) arrived before UserCreatedThread
+	// and created the session on-the-fly
+	apiServer.contextMappingsMutex.RLock()
+	existingMappedSession, alreadyExists := apiServer.contextMappings[acpThreadID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if alreadyExists {
+		log.Info().
+			Str("acp_thread_id", acpThreadID).
+			Str("existing_session_id", existingMappedSession).
+			Msg("✅ [HELIX] Session already exists for thread (created on-the-fly), skipping creation")
+		return nil
 	}
 
 	// Get the existing Helix session (agentSessionID is the session ID)
