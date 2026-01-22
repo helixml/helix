@@ -50,7 +50,9 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const userScrolledUpRef = useRef(false) // Track if user explicitly scrolled up
   const lastScrollTopRef = useRef(0) // Track scroll direction
   const isResizingRef = useRef(false) // Track resize events
+  const userScrollTimeRef = useRef(0) // Timestamp of last user scroll (for cooldown)
   const SCROLL_THRESHOLD = 50 // Pixels from bottom to consider "at bottom"
+  const USER_SCROLL_COOLDOWN = 3000 // Don't auto-scroll for 3 seconds after user scrolls up
 
   // Check if currently at bottom
   const checkIsAtBottom = useCallback(() => {
@@ -79,6 +81,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     // This prevents auto-scroll from fighting with the user
     if (scrolledUp && scrollDelta > 5) {
       userScrolledUpRef.current = true
+      userScrollTimeRef.current = Date.now() // Record when user scrolled up
     }
 
     // If user scrolled back to bottom, re-enable auto-scroll
@@ -98,8 +101,11 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     const resizeObserver = new ResizeObserver(() => {
       isResizingRef.current = true
 
+      // Check if we're in cooldown period
+      const inCooldown = Date.now() - userScrollTimeRef.current < USER_SCROLL_COOLDOWN
+
       // If we were at bottom before resize and user hasn't scrolled up, scroll to bottom
-      if (!userScrolledUpRef.current) {
+      if (!userScrolledUpRef.current && !inCooldown) {
         requestAnimationFrame(() => {
           if (containerRef.current) {
             containerRef.current.scrollTop = containerRef.current.scrollHeight
@@ -127,8 +133,11 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     if (!content) return
 
     const resizeObserver = new ResizeObserver(() => {
-      // If user hasn't scrolled up, scroll to bottom when content grows
-      if (!userScrolledUpRef.current) {
+      // Check if we're in cooldown period
+      const inCooldown = Date.now() - userScrollTimeRef.current < USER_SCROLL_COOLDOWN
+
+      // If user hasn't scrolled up and not in cooldown, scroll to bottom when content grows
+      if (!userScrolledUpRef.current && !inCooldown) {
         // Mark as resizing so scroll handler ignores the programmatic scroll
         isResizingRef.current = true
         requestAnimationFrame(() => {
@@ -193,6 +202,9 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     // Don't auto-scroll if user has explicitly scrolled up (unless forced)
     if (!force && userScrolledUpRef.current) return
 
+    // Don't auto-scroll during cooldown period after user scroll (unless forced)
+    if (!force && Date.now() - userScrollTimeRef.current < USER_SCROLL_COOLDOWN) return
+
     // Mark as programmatic scroll so scroll handler ignores it
     isResizingRef.current = true
 
@@ -218,12 +230,23 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     scrollToBottom,
   }), [scrollToBottom])
 
-  // Scroll to bottom when interactions change
+  // Store scrollToBottom in a ref so we can call it without it being a useEffect dependency
+  // This prevents the effect from re-running when the callback is recreated
+  const scrollToBottomRef = useRef(scrollToBottom)
   useEffect(() => {
-    if (session?.interactions) {
-      scrollToBottom()
+    scrollToBottomRef.current = scrollToBottom
+  }, [scrollToBottom])
+
+  // Scroll to bottom when interactions change (only when count actually changes)
+  const prevInteractionCountRef = useRef(session?.interactions?.length ?? 0)
+  useEffect(() => {
+    const currentCount = session?.interactions?.length ?? 0
+    // Only scroll if there are actually new interactions
+    if (currentCount > prevInteractionCountRef.current) {
+      scrollToBottomRef.current()
     }
-  }, [session?.interactions?.length, scrollToBottom])
+    prevInteractionCountRef.current = currentCount
+  }, [session?.interactions?.length])
 
   // Scroll to bottom on initial mount (with slight delay to ensure DOM is ready)
   // Force scroll on initial mount - user hasn't had a chance to scroll yet
@@ -233,11 +256,13 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       hasInitiallyScrolledRef.current = true
       // Use a small timeout to ensure the container and content are fully rendered
       const timeoutId = setTimeout(() => {
-        scrollToBottom(true) // Force scroll on initial mount
+        scrollToBottomRef.current(true) // Force scroll on initial mount
       }, 100)
       return () => clearTimeout(timeoutId)
     }
-  }, [session?.interactions, scrollToBottom])
+    // Only depend on whether we have interactions, not the array reference
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!session?.interactions])
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
