@@ -65,23 +65,24 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     const container = containerRef.current
     if (!container) return
 
-    // Ignore scroll events during resize
+    // Ignore scroll events during resize/programmatic scrolls
     if (isResizingRef.current) return
 
     const { scrollTop } = container
-    const wasAtBottom = isAtBottomRef.current
     const isNowAtBottom = checkIsAtBottom()
 
     // Detect scroll direction
     const scrolledUp = scrollTop < lastScrollTopRef.current
+    const scrollDelta = Math.abs(scrollTop - lastScrollTopRef.current)
 
-    // If user scrolled up from the bottom, mark as user-initiated scroll up
-    if (scrolledUp && wasAtBottom && !isNowAtBottom) {
+    // If user scrolled up at all (more than 5px to filter noise), mark as user-initiated
+    // This prevents auto-scroll from fighting with the user
+    if (scrolledUp && scrollDelta > 5) {
       userScrolledUpRef.current = true
     }
 
     // If user scrolled back to bottom, re-enable auto-scroll
-    if (isNowAtBottom) {
+    if (isNowAtBottom && !scrolledUp) {
       userScrolledUpRef.current = false
     }
 
@@ -185,11 +186,18 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     // Don't auto-scroll if user has explicitly scrolled up (unless forced)
     if (!force && userScrolledUpRef.current) return
 
+    // Mark as programmatic scroll so scroll handler ignores it
+    isResizingRef.current = true
+
     // Use requestAnimationFrame to ensure DOM has updated
     requestAnimationFrame(() => {
-      if (!containerRef.current) return
+      if (!containerRef.current) {
+        isResizingRef.current = false
+        return
+      }
       containerRef.current.scrollTop = containerRef.current.scrollHeight
       isAtBottomRef.current = true
+      isResizingRef.current = false
     })
 
     onScrollToBottom?.()
