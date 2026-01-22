@@ -30,8 +30,9 @@ import EditIcon from '@mui/icons-material/Edit'
 
 import useAccount from '../../hooks/useAccount'
 
-import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName, CODE_AGENT_RUNTIME_DISPLAY_NAMES } from '../../contexts/apps'
+import { AppsContext, ICreateAgentParams, AgentConfiguration, generateAgentName } from '../../contexts/apps'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AgentConfigurationSelector } from '../agent/AgentConfigurationSelector'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
@@ -77,19 +78,19 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   const [createError, setCreateError] = useState<string>('')
 
   // Create agent form state
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [agentConfiguration, setAgentConfiguration] = useState<AgentConfiguration>('zed_agent')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedName, setUserModifiedName] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
 
-  // Auto-generate name when model or runtime changes (if user hasn't modified it)
+  // Auto-generate name when model or configuration changes (if user hasn't modified it)
   useEffect(() => {
     if (!userModifiedName) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+      setNewAgentName(generateAgentName(selectedModel, agentConfiguration))
     }
-  }, [selectedModel, codeAgentRuntime, userModifiedName])
+  }, [selectedModel, agentConfiguration, userModifiedName])
 
   // Load apps when modal opens
   useEffect(() => {
@@ -161,7 +162,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
+        agentConfiguration,
         model: selectedModel,
         // For zed_external, the generation model is what matters (that's what Zed uses)
         generationModelProvider: selectedProvider,
@@ -294,36 +295,15 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
             </Typography>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Code Agent Runtime
+              Code Agent
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-              Choose which code agent runtime to use inside Zed.
-            </Typography>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <Select
-                value={codeAgentRuntime}
-                onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
+            <Box sx={{ mb: 2 }}>
+              <AgentConfigurationSelector
+                value={agentConfiguration}
+                onChange={setAgentConfiguration}
                 disabled={isCreating}
-                size="small"
-              >
-                <MenuItem value="zed_agent">
-                  <Box>
-                    <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Uses Zed's native agent panel with direct API integration
-                    </Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="qwen_code">
-                  <Box>
-                    <Typography variant="body2">Qwen Code</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
+              />
+            </Box>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Code Agent Model

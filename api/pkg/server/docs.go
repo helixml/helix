@@ -1963,64 +1963,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/external-agents/{sessionID}/stream.m3u8": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Streams H.264 video from the desktop session as Low-Latency HLS.\nThis allows iOS Safari video playback with Picture-in-Picture support.",
-                "produces": [
-                    "application/vnd.apple.mpegurl"
-                ],
-                "tags": [
-                    "external-agents"
-                ],
-                "summary": "Stream video as HLS",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/external-agents/{sessionID}/upload": {
             "post": {
                 "security": [
@@ -2072,64 +2014,6 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/external-agents/{sessionID}/video.mp4": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Streams H.264 video from the desktop session as fragmented MP4.\nThis allows native video element playback with Picture-in-Picture support.",
-                "produces": [
-                    "video/mp4"
-                ],
-                "tags": [
-                    "external-agents"
-                ],
-                "summary": "Stream video as fragmented MP4",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
                         }
                     },
                     "401": {
@@ -15478,6 +15362,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentHostType": {
+            "type": "string",
+            "enum": [
+                "zed",
+                "vscode",
+                "headless"
+            ],
+            "x-enum-varnames": [
+                "AgentHostTypeZed",
+                "AgentHostTypeVSCode",
+                "AgentHostTypeHeadless"
+            ]
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -17378,6 +17275,14 @@ const docTemplate = `{
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
+                "agent_host_type": {
+                    "description": "Agent host environment",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentHostType"
+                        }
+                    ]
+                },
                 "desktop_type": {
                     "description": "Desktop environment",
                     "type": "string"

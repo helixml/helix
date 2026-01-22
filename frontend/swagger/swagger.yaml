@@ -1597,6 +1597,16 @@ definitions:
       new_password:
         type: string
     type: object
+  types.AgentHostType:
+    enum:
+    - zed
+    - vscode
+    - headless
+    type: string
+    x-enum-varnames:
+    - AgentHostTypeZed
+    - AgentHostTypeVSCode
+    - AgentHostTypeHeadless
   types.AgentType:
     enum:
     - helix_basic
@@ -2943,6 +2953,10 @@ definitions:
     type: object
   types.ExternalAgentConfig:
     properties:
+      agent_host_type:
+        allOf:
+        - $ref: '#/definitions/types.AgentHostType'
+        description: Agent host environment
       desktop_type:
         description: Desktop environment
         type: string
@@ -9204,45 +9218,6 @@ paths:
       summary: Send input events to sandbox
       tags:
       - ExternalAgents
-  /api/v1/external-agents/{sessionID}/stream.m3u8:
-    get:
-      description: |-
-        Streams H.264 video from the desktop session as Low-Latency HLS.
-        This allows iOS Safari video playback with Picture-in-Picture support.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      produces:
-      - application/vnd.apple.mpegurl
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Stream video as HLS
-      tags:
-      - external-agents
   /api/v1/external-agents/{sessionID}/upload:
     post:
       consumes:
@@ -9296,45 +9271,6 @@ paths:
       summary: Upload file to sandbox
       tags:
       - ExternalAgents
-  /api/v1/external-agents/{sessionID}/video.mp4:
-    get:
-      description: |-
-        Streams H.264 video from the desktop session as fragmented MP4.
-        This allows native video element playback with Picture-in-Picture support.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      produces:
-      - video/mp4
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Stream video as fragmented MP4
-      tags:
-      - external-agents
   /api/v1/external-agents/{sessionID}/voice:
     post:
       consumes:

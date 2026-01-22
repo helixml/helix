@@ -30,7 +30,40 @@ export interface IAppsQuery {
 // Code agent runtime options for zed_external agents
 export type CodeAgentRuntime = 'zed_agent' | 'qwen_code'
 
-// Display names for code agent runtimes (maintainable for future additions)
+// Agent host type options
+export type AgentHostType = 'zed' | 'vscode' | 'headless'
+
+// Combined agent configuration - represents a specific IDE + agent combination
+export type AgentConfiguration = 'zed_agent' | 'qwen_code' | 'vscode_roocode'
+
+// Display names for agent configurations (shown in UI dropdown)
+export const AGENT_CONFIGURATION_DISPLAY_NAMES: Record<AgentConfiguration, string> = {
+  'zed_agent': 'Zed Agent',
+  'qwen_code': 'Qwen Code',
+  'vscode_roocode': 'VS Code + Roo Code',
+}
+
+// Convert agent configuration to host type and runtime
+export function agentConfigToHostAndRuntime(config: AgentConfiguration): { hostType: AgentHostType, runtime: CodeAgentRuntime } {
+  switch (config) {
+    case 'vscode_roocode':
+      return { hostType: 'vscode', runtime: 'zed_agent' } // runtime ignored for vscode
+    case 'qwen_code':
+      return { hostType: 'zed', runtime: 'qwen_code' }
+    case 'zed_agent':
+    default:
+      return { hostType: 'zed', runtime: 'zed_agent' }
+  }
+}
+
+// Convert host type and runtime back to agent configuration
+export function hostAndRuntimeToAgentConfig(hostType?: AgentHostType, runtime?: CodeAgentRuntime): AgentConfiguration {
+  if (hostType === 'vscode') return 'vscode_roocode'
+  if (runtime === 'qwen_code') return 'qwen_code'
+  return 'zed_agent'
+}
+
+// Legacy display names for code agent runtimes (for backwards compatibility)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
@@ -96,12 +129,15 @@ export function getModelDisplayName(modelId: string): string {
   return modelId
 }
 
-// Generate an agent name from model and runtime
-export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
+// Generate an agent name from model and agent configuration
+export function generateAgentName(modelId: string, config: AgentConfiguration | CodeAgentRuntime): string {
   if (!modelId) return '-'  // Show dash when model not yet selected
   const modelName = getModelDisplayName(modelId)
-  const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
-  return `${modelName} in ${runtimeName}`
+  // Handle both new AgentConfiguration and legacy CodeAgentRuntime
+  const configName = AGENT_CONFIGURATION_DISPLAY_NAMES[config as AgentConfiguration]
+    || CODE_AGENT_RUNTIME_DISPLAY_NAMES[config as CodeAgentRuntime]
+    || config
+  return `${modelName} in ${configName}`
 }
 
 // Add new interface for agent creation parameters
@@ -114,7 +150,10 @@ export interface ICreateAgentParams {
   knowledge?: IKnowledgeSource[];
   agentType?: IAgentType; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
 
-  // Code agent runtime for zed_external agents
+  // Agent configuration (combined host type + runtime)
+  agentConfiguration?: AgentConfiguration;
+
+  // Legacy: Code agent runtime for zed_external agents (use agentConfiguration instead)
   codeAgentRuntime?: CodeAgentRuntime;
 
   // Default model for basic chat mode (non-agent mode)
@@ -201,6 +240,10 @@ export const useAppsContext = (): IAppsContext => {
       // Use the model from params, or fall back to generation_model if not provided
       const effectiveModel = params.model || params.generationModel || '';
 
+      // Get host type and runtime from agent configuration (or legacy codeAgentRuntime)
+      const agentConfig = params.agentConfiguration || (params.codeAgentRuntime as AgentConfiguration) || 'zed_agent';
+      const { hostType, runtime } = agentConfigToHostAndRuntime(agentConfig);
+
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
         organization_id: account.organizationTools.organization?.id || '',
         config: {
@@ -216,7 +259,8 @@ export const useAppsContext = (): IAppsContext => {
               description: '',
               agent_mode: false,
               agent_type: params.agentType || 'helix_basic',
-              code_agent_runtime: params.codeAgentRuntime || 'zed_agent',
+              code_agent_runtime: runtime,
+              agent_host_type: hostType,
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,

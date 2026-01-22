@@ -666,6 +666,11 @@ export interface IAssistantConfig {
    */
   code_agent_runtime?: 'zed_agent' | 'qwen_code';
   /**
+   * AgentHostType specifies the host environment for the AI code agent.
+   * Options: "zed" (Zed editor, default), "vscode" (VS Code + Roo Code), "headless" (future).
+   */
+  agent_host_type?: 'zed' | 'vscode' | 'headless';
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -890,6 +895,7 @@ export interface IAppFlatState {
   small_generation_model?: string
   small_generation_model_provider?: string
   code_agent_runtime?: 'zed_agent' | 'qwen_code'
+  agent_host_type?: 'zed' | 'vscode' | 'headless'
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number

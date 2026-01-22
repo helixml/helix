@@ -31,6 +31,8 @@ import {
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
+import { AgentConfiguration, agentConfigToHostAndRuntime, hostAndRuntimeToAgentConfig } from '../../contexts/apps'
+import { AgentConfigurationSelector } from '../agent/AgentConfigurationSelector'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
@@ -240,7 +242,9 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  const [agentConfiguration, setAgentConfiguration] = useState<AgentConfiguration>(
+    hostAndRuntimeToAgentConfig(app.agent_host_type as 'zed' | 'vscode' | 'headless', app.code_agent_runtime as 'zed_agent' | 'qwen_code')
+  )
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -281,7 +285,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
-      setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      setAgentConfiguration(hostAndRuntimeToAgentConfig(app.agent_host_type as 'zed' | 'vscode' | 'headless', app.code_agent_runtime as 'zed_agent' | 'qwen_code'))
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
       setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -629,37 +633,17 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Stack spacing={2} sx={{ mb: 3 }}>
             <Box>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                Agent Runtime
+                Code Agent
               </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={code_agent_runtime}
-                  onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
-                    setCodeAgentRuntime(newRuntime);
-                    onUpdate({ ...app, code_agent_runtime: newRuntime });
-                  }}
-                  disabled={readOnly}
-                  renderValue={(value) => value === 'zed_agent' ? 'Zed Agent' : 'Qwen Code'}
-                >
-                  <MenuItem value="zed_agent">
-                    <Box>
-                      <Typography variant="body2">Zed Agent</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Built-in, Anthropic & OpenAI compatible
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="qwen_code">
-                    <Box>
-                      <Typography variant="body2">Qwen Code</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Optimized for Qwen, including smaller models
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
+              <AgentConfigurationSelector
+                value={agentConfiguration}
+                onChange={(newConfig) => {
+                  setAgentConfiguration(newConfig);
+                  const { hostType, runtime } = agentConfigToHostAndRuntime(newConfig);
+                  onUpdate({ ...app, code_agent_runtime: runtime, agent_host_type: hostType });
+                }}
+                disabled={readOnly}
+              />
             </Box>
 
             <Box>

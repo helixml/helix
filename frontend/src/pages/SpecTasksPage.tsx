@@ -42,7 +42,8 @@ import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
 import PreviewPanel from '../components/app/PreviewPanel';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
-import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
+import { AgentConfigurationSelector } from '../components/agent/AgentConfigurationSelector';
+import { AgentConfiguration, generateAgentName, ICreateAgentParams } from '../contexts/apps';
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, SESSION_TYPE_TEXT } from '../types';
 import { useStreaming } from '../contexts/streaming';
 import { TypesSession } from '../api/api';
@@ -302,7 +303,7 @@ const SpecTasksPage: FC = () => {
 
   // Inline agent creation state (same UX as AgentSelectionModal)
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent');
+  const [agentConfiguration, setAgentConfiguration] = useState<AgentConfiguration>('zed_agent');
   const [selectedProvider, setSelectedProvider] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [newAgentName, setNewAgentName] = useState('-');
@@ -397,9 +398,9 @@ const SpecTasksPage: FC = () => {
   // Auto-generate agent name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
     if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
+      setNewAgentName(generateAgentName(selectedModel, agentConfiguration));
     }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
+  }, [selectedModel, agentConfiguration, userModifiedName, showCreateAgentForm]);
 
   // Load tasks and apps on mount
   useEffect(() => {
@@ -559,7 +560,7 @@ const SpecTasksPage: FC = () => {
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
+        agentConfiguration,
         model: selectedModel,
         generationModelProvider: selectedProvider,
         generationModel: selectedModel,
@@ -649,7 +650,7 @@ const SpecTasksPage: FC = () => {
         setShowBranchCustomization(false);
         // Reset inline agent creation form
         setShowCreateAgentForm(false);
-        setCodeAgentRuntime('zed_agent');
+        setAgentConfiguration('zed_agent');
         setSelectedProvider('');
         setSelectedModel('');
         setNewAgentName('-');
@@ -1418,32 +1419,13 @@ const SpecTasksPage: FC = () => {
                 ) : (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Typography variant="body2" color="text.secondary">
-                      Code Agent Runtime
+                      Code Agent
                     </Typography>
-                    <FormControl fullWidth size="small">
-                      <Select
-                        value={codeAgentRuntime}
-                        onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                        disabled={creatingAgent}
-                      >
-                        <MenuItem value="zed_agent">
-                          <Box>
-                            <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Uses Zed's native agent panel with direct API integration
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                        <MenuItem value="qwen_code">
-                          <Box>
-                            <Typography variant="body2">Qwen Code</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
+                    <AgentConfigurationSelector
+                      value={agentConfiguration}
+                      onChange={setAgentConfiguration}
+                      disabled={creatingAgent}
+                    />
 
                     <Typography variant="body2" color="text.secondary">
                       Code Agent Model
@@ -1571,7 +1553,7 @@ const SpecTasksPage: FC = () => {
               setShowBranchCustomization(false);
               // Reset inline agent creation form
               setShowCreateAgentForm(false);
-              setCodeAgentRuntime('zed_agent');
+              setAgentConfiguration('zed_agent');
               setSelectedProvider('');
               setSelectedModel('');
               setNewAgentName('-');

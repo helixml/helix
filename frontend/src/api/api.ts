@@ -1010,6 +1010,12 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
+export enum TypesAgentHostType {
+  AgentHostTypeZed = "zed",
+  AgentHostTypeVSCode = "vscode",
+  AgentHostTypeHeadless = "headless",
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -1810,6 +1816,8 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
+  /** Agent host environment */
+  agent_host_type?: TypesAgentHostType;
   /** Desktop environment */
   desktop_type?: string;
   /** Explicit height (default: 1080) */
@@ -5961,23 +5969,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Streams H.264 video from the desktop session as Low-Latency HLS. This allows iOS Safari video playback with Picture-in-Picture support.
-     *
-     * @tags external-agents
-     * @name V1ExternalAgentsStreamM3U8Detail
-     * @summary Stream video as HLS
-     * @request GET:/api/v1/external-agents/{sessionID}/stream.m3u8
-     * @secure
-     */
-    v1ExternalAgentsStreamM3U8Detail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<File, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/stream.m3u8`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
      *
      * @tags ExternalAgents
@@ -6006,23 +5997,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.FormData,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Streams H.264 video from the desktop session as fragmented MP4. This allows native video element playback with Picture-in-Picture support.
-     *
-     * @tags external-agents
-     * @name V1ExternalAgentsVideoMp4Detail
-     * @summary Stream video as fragmented MP4
-     * @request GET:/api/v1/external-agents/{sessionID}/video.mp4
-     * @secure
-     */
-    v1ExternalAgentsVideoMp4Detail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<File, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/video.mp4`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 

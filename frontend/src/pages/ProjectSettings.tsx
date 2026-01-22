@@ -45,7 +45,8 @@ import SavingToast from '../components/widgets/SavingToast'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
-import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../contexts/apps'
+import { AppsContext, ICreateAgentParams, AgentConfiguration, generateAgentName } from '../contexts/apps'
+import { AgentConfigurationSelector } from '../components/agent/AgentConfigurationSelector'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
@@ -187,7 +188,7 @@ const ProjectSettings: FC = () => {
   const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] = useState<string>('')
   const [selectedPullRequestReviewerAgentId, setSelectedPullRequestReviewerAgentId] = useState<string>('')
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [agentConfiguration, setAgentConfiguration] = useState<AgentConfiguration>('zed_agent')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState('-')
@@ -228,9 +229,9 @@ const ProjectSettings: FC = () => {
   // Auto-generate name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
     if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+      setNewAgentName(generateAgentName(selectedModel, agentConfiguration))
     }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+  }, [selectedModel, agentConfiguration, userModifiedName, showCreateAgentForm])
 
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
@@ -336,7 +337,7 @@ const ProjectSettings: FC = () => {
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
+        agentConfiguration,
         model: selectedModel,
         generationModelProvider: selectedProvider,
         generationModel: selectedModel,
@@ -726,32 +727,13 @@ const ProjectSettings: FC = () => {
                 <Typography variant="subtitle2">Create New Agent</Typography>
 
                 <Typography variant="body2" color="text.secondary">
-                  Code Agent Runtime
+                  Code Agent
                 </Typography>
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={codeAgentRuntime}
-                    onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                    disabled={creatingAgent}
-                  >
-                    <MenuItem value="zed_agent">
-                      <Box>
-                        <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses Zed's native agent panel with direct API integration
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                    <MenuItem value="qwen_code">
-                      <Box>
-                        <Typography variant="body2">Qwen Code</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  </Select>
-                </FormControl>
+                <AgentConfigurationSelector
+                  value={agentConfiguration}
+                  onChange={setAgentConfiguration}
+                  disabled={creatingAgent}
+                />
 
                 <Typography variant="body2" color="text.secondary">
                   Code Agent Model
