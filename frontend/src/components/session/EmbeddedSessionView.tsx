@@ -136,13 +136,31 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       })
     }
 
+    // Touch events for iOS - check if container is even receiving touch input
+    const onTouchMove = () => {
+      requestAnimationFrame(() => {
+        isAtBottomRef.current = checkIsAtBottom()
+        if (DEBUG_SCROLL) {
+          setDebugInfo(prev => ({
+            ...prev,
+            isAtBottom: isAtBottomRef.current,
+            scrollTop: Math.round(container.scrollTop),
+            lastEvent: `touch(h=${container.scrollHeight},st=${Math.round(container.scrollTop)})`,
+            scrollCount: prev.scrollCount + 1,
+          }))
+        }
+      })
+    }
+
     // Use passive: true for better scroll performance
     container.addEventListener('scroll', onNativeScroll, { passive: true })
     container.addEventListener('wheel', onWheel, { passive: true })
+    container.addEventListener('touchmove', onTouchMove, { passive: true })
 
     return () => {
       container.removeEventListener('scroll', onNativeScroll)
       container.removeEventListener('wheel', onWheel)
+      container.removeEventListener('touchmove', onTouchMove)
     }
   }, [checkIsAtBottom])
 
