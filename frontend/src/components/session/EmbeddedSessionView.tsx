@@ -168,6 +168,16 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const scrollToBottom = useCallback(() => {
     const container = containerRef.current
     if (!container) return
+
+    // DEBUG: Show what triggered the scroll
+    if (DEBUG_SCROLL) {
+      const stack = new Error().stack?.split('\n').slice(2, 4).join(' <- ') || 'unknown'
+      setDebugInfo(prev => ({
+        ...prev,
+        lastEvent: `SCROLL_TO_BOTTOM: ${stack.substring(0, 80)}`,
+      }))
+    }
+
     container.scrollTop = container.scrollHeight
     isAtBottomRef.current = true
     onScrollToBottom?.()
