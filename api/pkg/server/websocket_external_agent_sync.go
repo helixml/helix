@@ -1777,6 +1777,17 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// CRITICAL: Publish final session update to frontend so it gets the complete state
+	// Without this, the frontend never receives the final update with state=complete
+	helixSession.Interactions = append(helixSession.Interactions[:0], targetInteraction)
+	err = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("Failed to publish final session update to frontend")
+	}
+
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
