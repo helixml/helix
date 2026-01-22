@@ -108,7 +108,8 @@ const ProviderEndpointsTable: FC = () => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
-    setSelectedEndpoint(null);
+    // Don't clear selectedEndpoint here - it's needed by dialogs that open from menu items.
+    // The endpoint is cleared when dialogs close (handleDeleteDialogClose, handleEditDialogClose, etc.)
   };
 
   const handleDeleteClick = () => {
