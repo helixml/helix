@@ -1,7 +1,10 @@
-import React, { useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
+import React, { useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
+
+// DEBUG: Temporary debug overlay to diagnose scroll issues on iOS Safari
+const DEBUG_SCROLL = true
 
 import Interaction from './Interaction'
 import InteractionLiveStream from './InteractionLiveStream'
@@ -44,6 +47,17 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const isAtBottomRef = useRef(true)
   const SCROLL_THRESHOLD = 50
 
+  // DEBUG: State for debug overlay
+  const [debugInfo, setDebugInfo] = useState({
+    isAtBottom: true,
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+    lastEvent: 'init',
+    mutationCount: 0,
+    scrollCount: 0,
+  })
+
   // Check if currently at bottom
   const checkIsAtBottom = useCallback(() => {
     const container = containerRef.current
@@ -54,8 +68,83 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
 
   // Update isAtBottom on every scroll event
   const handleScroll = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
     isAtBottomRef.current = checkIsAtBottom()
+
+    if (DEBUG_SCROLL) {
+      setDebugInfo(prev => ({
+        ...prev,
+        isAtBottom: isAtBottomRef.current,
+        scrollTop: Math.round(container.scrollTop),
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+        lastEvent: 'scroll',
+        scrollCount: prev.scrollCount + 1,
+      }))
+    }
   }, [checkIsAtBottom])
+
+  // iOS Safari fix: Also track via native scroll event listener
+  // React's onScroll might not fire correctly on iOS
+  // Depends on session so it re-runs after the container is rendered
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({ ...prev, lastEvent: 'NO CONTAINER REF' }))
+      }
+      return
+    }
+
+    // Debug: mark that we attached the listener
+    if (DEBUG_SCROLL) {
+      setDebugInfo(prev => ({ ...prev, lastEvent: 'listener-attached' }))
+    }
+
+    const onNativeScroll = () => {
+      isAtBottomRef.current = checkIsAtBottom()
+
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({
+          ...prev,
+          isAtBottom: isAtBottomRef.current,
+          scrollTop: Math.round(container.scrollTop),
+          scrollHeight: container.scrollHeight,
+          clientHeight: container.clientHeight,
+          lastEvent: 'native-scroll',
+          scrollCount: prev.scrollCount + 1,
+        }))
+      }
+    }
+
+    // Also listen for wheel events directly (Magic Keyboard trackpad)
+    const onWheel = () => {
+      // Small delay to let scroll position update
+      requestAnimationFrame(() => {
+        isAtBottomRef.current = checkIsAtBottom()
+        if (DEBUG_SCROLL) {
+          setDebugInfo(prev => ({
+            ...prev,
+            isAtBottom: isAtBottomRef.current,
+            scrollTop: Math.round(container.scrollTop),
+            lastEvent: 'wheel',
+            scrollCount: prev.scrollCount + 1,
+          }))
+        }
+      })
+    }
+
+    // Use passive: true for better scroll performance
+    container.addEventListener('scroll', onNativeScroll, { passive: true })
+    container.addEventListener('wheel', onWheel, { passive: true })
+
+    return () => {
+      container.removeEventListener('scroll', onNativeScroll)
+      container.removeEventListener('wheel', onWheel)
+    }
+  }, [checkIsAtBottom, session])
 
   // Scroll to bottom - always works, no conditions
   const scrollToBottom = useCallback(() => {
@@ -103,34 +192,16 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     }
   }, [session?.interactions?.length, scrollToBottom])
 
-  // Auto-scroll when content height changes IF we were at the bottom
-  // This uses a MutationObserver on the container's children
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    // Track the previous scroll height to detect content growth
-    let prevScrollHeight = container.scrollHeight
-
-    const observer = new MutationObserver(() => {
-      const newScrollHeight = container.scrollHeight
-
-      // Only scroll if content actually grew AND we were at the bottom
-      if (newScrollHeight > prevScrollHeight && isAtBottomRef.current) {
-        container.scrollTop = container.scrollHeight
-      }
-
-      prevScrollHeight = newScrollHeight
-    })
-
-    observer.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    })
-
-    return () => observer.disconnect()
-  }, [])
+  // DISABLED: MutationObserver was causing constant scroll jumps
+  // because scroll events weren't being detected on iOS Safari,
+  // so isAtBottomRef stayed true and every mutation scrolled to bottom.
+  //
+  // Instead, we only scroll on:
+  // 1. Initial load
+  // 2. When interaction count increases (new message)
+  // 3. When InteractionLiveStream calls onMessageUpdate during streaming
+  //
+  // This is less "smooth" for streaming but more reliable.
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -202,11 +273,35 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        position: 'relative',
         // Prevent iOS momentum scroll from causing issues
         WebkitOverflowScrolling: 'touch',
         ...lightTheme.scrollbar,
       }}
     >
+      {/* DEBUG OVERLAY */}
+      {DEBUG_SCROLL && (
+        <Box
+          sx={{
+            position: 'sticky',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            padding: '4px 8px',
+            pointerEvents: 'none',
+          }}
+        >
+          <div>atBottom: {debugInfo.isAtBottom ? 'YES' : 'NO'} | scrollTop: {debugInfo.scrollTop}</div>
+          <div>scrollH: {debugInfo.scrollHeight} | clientH: {debugInfo.clientHeight}</div>
+          <div>last: {debugInfo.lastEvent}</div>
+          <div>mutations: {debugInfo.mutationCount} | scrolls: {debugInfo.scrollCount}</div>
+        </Box>
+      )}
       <Box
         sx={{
           width: '100%',

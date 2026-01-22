@@ -909,12 +909,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                px: 1.5,
-                py: 0.75,
+                flexWrap: 'wrap',
+                px: 1,
+                py: 0.5,
                 borderBottom: '1px solid',
                 borderColor: 'divider',
                 backgroundColor: 'background.paper',
-                gap: 1,
+                gap: 0.5,
+                minHeight: 'auto',
               }}
             >
               {/* Left: View toggle icons */}
@@ -924,9 +926,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onChange={(_, newView) => newView && setCurrentView(newView)}
                 size="small"
                 sx={{
+                  flexShrink: 0,
                   '& .MuiToggleButton-root': {
                     py: 0.25,
-                    px: 1,
+                    px: 0.75,
+                    minWidth: 32,
                     border: 'none',
                     borderRadius: '4px !important',
                     '&.Mui-selected': {
@@ -977,11 +981,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Tooltip>
               )}
 
-              {/* Spacer */}
-              <Box sx={{ flex: 1 }} />
+              {/* Spacer - hidden on very small screens to allow wrapping */}
+              <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
 
               {/* Right: Action buttons */}
-              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center', flexShrink: 0 }}>
                 {isEditMode ? (
                   <>
                     <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>

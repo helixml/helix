@@ -143,6 +143,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - 'direct': Touch position = cursor position (default for desktop UIs)
   // - 'trackpad': Drag finger = move cursor relatively, tap = click, double-tap-drag = drag (better for mobile)
   const [touchMode, setTouchMode] = useState<'direct' | 'trackpad'>('direct');
+  // Virtual keyboard height - used to shrink content when iOS/Android keyboard is open
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   // Track if device has touch capability (only show touch mode toggle on touch devices)
   const [hasTouchCapability, setHasTouchCapability] = useState(false);
   // Touch tracking refs for trackpad mode gestures
@@ -1078,7 +1080,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, []);
 
-  // Detect touch capability and iOS on mount
+  // Detect touch capability, iOS, and phone vs tablet on mount
+  const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
     // Check for touch support: touchscreen or coarse pointer (touch/stylus)
     const hasTouch = 'ontouchstart' in window ||
@@ -1090,7 +1093,53 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     setIsIOS(iOS);
+
+    // Detect phones (iPhone or Android phone) - for virtual keyboard handling
+    // Phones have narrow screens, tablets are wider
+    const isIPhone = /iPhone/.test(navigator.userAgent);
+    const isAndroidPhone = /Android/.test(navigator.userAgent) && /Mobile/.test(navigator.userAgent);
+    setIsPhone(isIPhone || isAndroidPhone);
   }, []);
+
+  // Track virtual keyboard height via visualViewport API (phones only)
+  // When keyboard opens on iOS/Android phones, visualViewport.height shrinks
+  // Also track viewport offset to handle zoom scenarios
+  const [viewportOffset, setViewportOffset] = useState(0);
+  useEffect(() => {
+    if (!window.visualViewport || !isPhone) return;
+
+    const handleResize = () => {
+      const viewport = window.visualViewport;
+      if (!viewport) return;
+
+      // Calculate keyboard height accounting for zoom
+      // visualViewport.height is the visible height after keyboard opens
+      // We need to use scale to handle pinch-zoom scenarios
+      const scale = viewport.scale || 1;
+      const visibleHeight = viewport.height;
+
+      // Keyboard height = difference between layout height and visible height
+      // Account for zoom by using the scaled visible height
+      const layoutHeight = window.innerHeight;
+      const kbHeight = Math.max(0, Math.round((layoutHeight - visibleHeight) * scale));
+
+      // Track viewport offset (how much the viewport has scrolled due to zoom/keyboard)
+      const offset = viewport.offsetTop || 0;
+
+      setKeyboardHeight(kbHeight);
+      setViewportOffset(offset);
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+    // Initial check
+    handleResize();
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
+    };
+  }, [isPhone]);
 
   // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
   useEffect(() => {
@@ -2638,11 +2687,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           handler.sendMouseButton?.(false, MOUSE_BUTTON_MIDDLE);
         } else if (totalFingers === 1 && !isDragging) {
           // Single tap = left click (but not if we just ended a drag)
+          // Check if cursor ALREADY indicates a text field (from hover position)
+          // Only focus hidden input if we're tapping on a text field to avoid keyboard flash
+          const cssName = cursorCssNameRef.current;
+          const imgCursor = cursorImageRef.current;
+          const isAlreadyTextCursor = cssName === 'text' ||
+            cssName === 'vertical-text' ||
+            imgCursor?.cursorName === 'text' ||
+            imgCursor?.cursorName === 'vertical-text' ||
+            imgCursor?.cursorName?.includes('xterm') ||
+            imgCursor?.cursorName?.includes('ibeam');
+
           // IMPORTANT: Focus hidden input IMMEDIATELY (within user gesture) for iOS keyboard
           // iOS only shows keyboard if focus happens directly from user gesture, not in setTimeout
-          if (hiddenInputRef.current && hasTouchCapability) {
+          // But ONLY focus if cursor indicates text field to avoid keyboard flash on every tap
+          // Only do this on phones (iPhone/Android), not tablets or desktops
+          if (hiddenInputRef.current && isPhone && isAlreadyTextCursor) {
             hiddenInputRef.current.focus();
-            console.log('[DesktopStreamViewer] Focused hidden input immediately on tap (for iOS keyboard)');
+            console.log('[DesktopStreamViewer] Focused hidden input on tap (text cursor detected, phone)');
           }
 
           // Delay the click to allow for double-tap-drag detection
@@ -2654,18 +2716,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
 
             // After click is sent, check cursor type after delay (wait for remote to update cursor)
-            // If NOT a text cursor, blur the input to dismiss keyboard
+            // If cursor changed to text, focus to show keyboard. If not text, ensure blurred.
             setTimeout(() => {
               if (hiddenInputRef.current) {
                 // Use refs to avoid stale closure values
-                const cssName = cursorCssNameRef.current;
-                const imgCursor = cursorImageRef.current;
-                const isTextCursor = cssName === 'text' ||
-                  cssName === 'vertical-text' ||
-                  imgCursor?.cursorName === 'text' ||
-                  imgCursor?.cursorName === 'vertical-text' ||
-                  imgCursor?.cursorName?.includes('xterm') ||
-                  imgCursor?.cursorName?.includes('ibeam');
+                const cssNameNow = cursorCssNameRef.current;
+                const imgCursorNow = cursorImageRef.current;
+                const isTextCursor = cssNameNow === 'text' ||
+                  cssNameNow === 'vertical-text' ||
+                  imgCursorNow?.cursorName === 'text' ||
+                  imgCursorNow?.cursorName === 'vertical-text' ||
+                  imgCursorNow?.cursorName?.includes('xterm') ||
+                  imgCursorNow?.cursorName?.includes('ibeam');
 
                 if (isTextCursor) {
                   console.log('[DesktopStreamViewer] Text cursor confirmed - keeping virtual keyboard');
@@ -3116,12 +3178,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isConnected, resetInputState]);
 
   // Focus container when clicking anywhere in the viewer
-  // On touch devices (iOS/iPad), show/hide virtual keyboard based on cursor type
+  // On phones (iPhone/Android), show/hide virtual keyboard based on cursor type
+  // This is disabled on tablets since they often have hardware keyboards
   const handleContainerClick = useCallback(() => {
-    // Detect touch device - iOS/iPad needs hidden input focused to show keyboard
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-    if (isTouchDevice && hiddenInputRef.current) {
+    if (isPhone && hiddenInputRef.current) {
       // Check if cursor is a text cursor (indicates text field is focused in remote desktop)
       // Text cursors: 'text', 'vertical-text', or cursorName containing 'text' or 'xterm'
       const isTextCursor = cursorCssName === 'text' ||
@@ -3132,20 +3192,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         cursorImage?.cursorName?.includes('ibeam');
 
       if (isTextCursor) {
-        // Focus hidden input to trigger iOS/iPad virtual keyboard
+        // Focus hidden input to trigger virtual keyboard
         hiddenInputRef.current.focus();
-        console.log('[DesktopStreamViewer] Text cursor detected - showing virtual keyboard');
+        console.log('[DesktopStreamViewer] Text cursor detected - showing virtual keyboard (phone)');
       } else {
         // Blur hidden input to dismiss virtual keyboard
         hiddenInputRef.current.blur();
         // Focus container for keyboard events (hardware keyboard still works)
         containerRef.current?.focus();
-        console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard');
+        console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard (phone)');
       }
     } else if (containerRef.current) {
       containerRef.current.focus();
     }
-  }, [cursorCssName, cursorImage]);
+  }, [cursorCssName, cursorImage, isPhone]);
 
   // Compute native CSS cursor style from cursor image or CSS name
   // Local user sees native cursor (no glowing overlay), remote users see glowing cursors
@@ -3178,16 +3238,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       sx={{
         // Normal mode: relative positioning within parent
         // iOS fullscreen mode: fixed positioning covering entire viewport
-        position: isIOSFullscreen ? 'fixed' : 'relative',
-        top: isIOSFullscreen ? 0 : undefined,
-        left: isIOSFullscreen ? 0 : undefined,
-        right: isIOSFullscreen ? 0 : undefined,
+        // When keyboard is open on phones, use fixed positioning to stay above keyboard
+        position: isIOSFullscreen ? 'fixed' : keyboardHeight > 0 ? 'fixed' : 'relative',
+        top: isIOSFullscreen ? 0 : keyboardHeight > 0 ? Math.max(0, viewportOffset) : undefined,
+        left: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
+        right: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
         bottom: isIOSFullscreen ? 0 : undefined,
-        width: isIOSFullscreen ? '100vw' : '100%',
+        width: isIOSFullscreen ? '100vw' : keyboardHeight > 0 ? '100vw' : '100%',
         // Use dvh (dynamic viewport height) for iOS Safari toolbar handling
         // Falls back to vh for older browsers
-        height: isIOSFullscreen ? '100dvh' : '100%',
-        minHeight: isIOSFullscreen ? undefined : 400,
+        // When virtual keyboard is open, use the visible viewport height
+        height: isIOSFullscreen
+          ? '100dvh'
+          : keyboardHeight > 0
+            ? `calc(100vh - ${keyboardHeight}px - ${viewportOffset}px)`
+            : '100%',
+        // Ensure content doesn't overflow above the visible area
+        maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px)` : undefined,
+        minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
+        zIndex: keyboardHeight > 0 ? 1000 : undefined,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
@@ -3245,12 +3314,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           e.preventDefault();
         }}
+        onBeforeInput={(e) => {
+          // Handle beforeinput for swipe/gesture typing (Gboard, SwiftKey, etc.)
+          // This fires before input, giving us access to the full text being inserted
+          const inputEvent = e.nativeEvent as InputEvent;
+          const inputType = inputEvent.inputType;
+          const data = inputEvent.data;
+
+          // insertText is used for swipe typing and autocomplete
+          if (data && (inputType === 'insertText' || inputType === 'insertCompositionText')) {
+            console.log('[DesktopStreamViewer] Hidden input beforeinput:', inputType, data);
+            const input = streamRef.current?.getInput();
+            if (input) {
+              // Send the complete text (handles multi-character swipe results)
+              for (const char of data) {
+                input.sendText(char);
+              }
+            }
+            e.preventDefault();
+          }
+        }}
         onInput={(e) => {
-          // Handle text input from virtual keyboard (iOS sends input events, not keydown)
+          // Fallback: Handle text input from virtual keyboard (iOS sends input events, not keydown)
+          // This may fire after beforeinput, but we prevent default in beforeinput to avoid duplicates
           const inputEvent = e.nativeEvent as InputEvent;
           const data = inputEvent.data;
-          if (data) {
-            console.log('[DesktopStreamViewer] Hidden input text:', data);
+          if (data && !e.defaultPrevented) {
+            console.log('[DesktopStreamViewer] Hidden input text (fallback):', data);
             const input = streamRef.current?.getInput();
             if (input) {
               // Send each character as a key event
@@ -3260,6 +3350,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }
           }
           // Clear the input to prevent accumulation
+          (e.target as HTMLInputElement).value = '';
+        }}
+        onCompositionEnd={(e) => {
+          // Handle composition end for IME and some swipe keyboards
+          // This fires when the user completes a composition (e.g., selects from IME suggestions)
+          const data = e.data;
+          if (data) {
+            console.log('[DesktopStreamViewer] Hidden input compositionEnd:', data);
+            const input = streamRef.current?.getInput();
+            if (input) {
+              // Send the complete composed text
+              for (const char of data) {
+                input.sendText(char);
+              }
+            }
+          }
+          // Clear the input
           (e.target as HTMLInputElement).value = '';
         }}
       />
