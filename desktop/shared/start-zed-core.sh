@@ -1,17 +1,23 @@
 #!/bin/bash
 #
-# start-zed-core.sh - Core Zed startup logic (shared between desktops)
+# start-zed-core.sh - Core editor startup logic (shared between desktops)
 #
-# This script contains the common startup logic for all desktops.
-# It should be sourced by desktop-specific start-zed-helix.sh scripts.
+# This script contains the common startup logic for all desktops and editors.
+# It should be sourced by desktop-specific start-zed-helix.sh or start-vscode-helix.sh scripts.
 #
 # Desktop-specific scripts must:
-# 1. Set HELIX_DESKTOP_NAME (for logging, e.g., "Sway" or "Ubuntu GNOME")
+# 1. Set HELIX_DESKTOP_NAME (for logging, e.g., "Sway" or "Ubuntu GNOME (VS Code)")
 # 2. Define launch_terminal() function
-# 3. Optionally set ZED_EXTRA_FILES array (e.g., user guide)
-# 4. Optionally define pre_zed_launch() hook
-# 5. Source this script
-# 6. Call start_zed_helix
+# 3. Source this script
+# 4. Call start_zed_helix or start_vscode_helix
+#
+# For Zed:
+#   - Optionally set ZED_EXTRA_FILES array (e.g., user guide)
+#   - Optionally define pre_zed_launch() hook
+#   - Call start_zed_helix
+#
+# For VS Code:
+#   - Call start_vscode_helix
 #
 # Required function to be defined by caller:
 #   launch_terminal <title> <working_dir> <command...>
@@ -22,7 +28,9 @@ WORK_DIR="$HOME/work"
 COMPLETE_SIGNAL="$HOME/.helix-setup-complete"
 FOLDERS_FILE="$HOME/.helix-zed-folders"
 
-# Will be populated by read_zed_folders
+# Will be populated by read_editor_folders
+EDITOR_FOLDERS=()
+# Legacy alias for Zed-specific code
 ZED_FOLDERS=()
 
 # =========================================
@@ -73,27 +81,35 @@ wait_for_zed_config() {
     return 1
 }
 
-read_zed_folders() {
-    ZED_FOLDERS=()
+read_editor_folders() {
+    local editor_name="${1:-Editor}"
+    EDITOR_FOLDERS=()
     if [ -f "$FOLDERS_FILE" ]; then
         while IFS= read -r folder; do
             if [ -n "$folder" ] && [ -d "$folder" ]; then
-                ZED_FOLDERS+=("$folder")
+                EDITOR_FOLDERS+=("$folder")
             fi
         done < "$FOLDERS_FILE"
     fi
 
-    # If no folders, setup failed - don't start Zed
-    if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
-        echo "ERROR: No folders to open - setup may have failed"
-        echo "Check the setup terminal for errors"
-        exit 1
+    # Fallback to work directory if no folders found
+    if [ ${#EDITOR_FOLDERS[@]} -eq 0 ]; then
+        echo "No folders found in $FOLDERS_FILE, falling back to $WORK_DIR"
+        EDITOR_FOLDERS=("$WORK_DIR")
     else
-        echo "Opening Zed with ${#ZED_FOLDERS[@]} folder(s):"
-        for folder in "${ZED_FOLDERS[@]}"; do
+        echo "Opening $editor_name with ${#EDITOR_FOLDERS[@]} folder(s):"
+        for folder in "${EDITOR_FOLDERS[@]}"; do
             echo "  - $(basename "$folder")"
         done
     fi
+
+    # Legacy alias for Zed
+    ZED_FOLDERS=("${EDITOR_FOLDERS[@]}")
+}
+
+# Legacy wrapper for Zed
+read_zed_folders() {
+    read_editor_folders "Zed"
 }
 
 launch_acp_log_viewer() {
@@ -108,19 +124,27 @@ launch_acp_log_viewer() {
     fi
 }
 
-run_zed_restart_loop() {
-    echo "Starting Zed with auto-restart loop..."
+run_editor_restart_loop() {
+    local editor_name="$1"
+    shift
+    local editor_cmd=("$@")
 
-    # Trap signals to prevent script exit when Zed is closed
+    echo "Starting $editor_name with auto-restart loop..."
+
+    # Trap signals to prevent script exit when editor is closed
     trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
     while true; do
-        echo "Launching Zed..."
-        # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
-        /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
-        echo "Zed exited, restarting in 2 seconds..."
+        echo "Launching $editor_name..."
+        "${editor_cmd[@]}" || true
+        echo "$editor_name exited, restarting in 2 seconds..."
         sleep 2
     done
+}
+
+run_zed_restart_loop() {
+    # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
+    run_editor_restart_loop "Zed" /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}"
 }
 
 # =========================================
@@ -206,4 +230,76 @@ start_zed_helix() {
 
     launch_acp_log_viewer
     run_zed_restart_loop
+}
+
+# =========================================
+# VS Code startup sequence
+# =========================================
+
+start_vscode_helix() {
+    echo "========================================="
+    echo "Helix Agent Startup (${HELIX_DESKTOP_NAME:-Unknown}) - $(date)"
+    echo "========================================="
+    echo ""
+
+    # Prevent duplicate instances
+    VSCODE_LOCK_FILE="/tmp/helix-vscode-startup.lock"
+    if [ -f "$VSCODE_LOCK_FILE" ]; then
+        OLD_PID=$(cat "$VSCODE_LOCK_FILE" 2>/dev/null)
+        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "VS Code startup already running (PID $OLD_PID) - exiting duplicate"
+            exit 0
+        fi
+        echo "Stale lock file found, removing..."
+        rm -f "$VSCODE_LOCK_FILE"
+    fi
+    echo $$ > "$VSCODE_LOCK_FILE"
+    trap 'rm -f "$VSCODE_LOCK_FILE"' EXIT
+
+    # Clean up old signal files
+    rm -f "$COMPLETE_SIGNAL"
+
+    # Find shared scripts
+    SHARED_SCRIPT_DIR="/usr/local/bin"
+    if [ ! -f "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh" ]; then
+        SHARED_SCRIPT_DIR="/helix-dev/shared"
+    fi
+    if [ ! -f "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh" ]; then
+        echo "ERROR: helix-workspace-setup.sh not found!"
+        exit 1
+    fi
+
+    echo "Using shared scripts from: $SHARED_SCRIPT_DIR"
+    echo ""
+
+    # Ensure work directory exists
+    mkdir -p "$WORK_DIR"
+
+    # =========================================
+    # Step 1: Run workspace setup in terminal (BLOCKS until complete)
+    # =========================================
+    echo "Launching setup terminal..."
+    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    echo "Setup terminal launched"
+
+    wait_for_setup_complete
+
+    # =========================================
+    # Step 2: Read folders to open
+    # =========================================
+    read_editor_folders "VS Code"
+
+    # =========================================
+    # Step 3: Configure Roo Code extension
+    # =========================================
+    # ROO_CODE_API_URL tells the extension where to connect
+    # The RooCodeBridge in desktop-bridge serves the config on port 9879
+    export ROO_CODE_API_URL="http://localhost:9879"
+    echo "ROO_CODE_API_URL=$ROO_CODE_API_URL"
+
+    # =========================================
+    # Step 4: Launch VS Code with auto-restart
+    # =========================================
+    # --disable-workspace-trust: Skip the trust dialog for mounted workspaces
+    run_editor_restart_loop "VS Code" code --disable-workspace-trust "${EDITOR_FOLDERS[@]}"
 }
