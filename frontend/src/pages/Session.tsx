@@ -1343,7 +1343,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id || ''}
-                      onRegenerate={onRegenerate}
+                      onRegenerate={isExternalAgent ? undefined : onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
                     />
                   )
@@ -1376,6 +1376,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     appID,
     memoizedInteractions,
     sessionSteps?.data,
+    isExternalAgent,
   ])
 
   useEffect(() => {
