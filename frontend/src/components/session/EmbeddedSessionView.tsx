@@ -164,17 +164,29 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     }
   }, [checkIsAtBottom])
 
-  // Scroll to bottom - always works, no conditions
-  const scrollToBottom = useCallback(() => {
+  // Scroll to bottom - only scrolls if we're already at the bottom (sticky scroll)
+  // Pass force=true to scroll regardless of current position
+  const scrollToBottom = useCallback((force = false) => {
     const container = containerRef.current
     if (!container) return
 
+    // Only scroll if we're already at the bottom (or forced)
+    // This implements "sticky scroll" - stay at bottom if you were there
+    if (!force && !isAtBottomRef.current) {
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({
+          ...prev,
+          lastEvent: `SCROLL_BLOCKED (not at bottom)`,
+        }))
+      }
+      return
+    }
+
     // DEBUG: Show what triggered the scroll
     if (DEBUG_SCROLL) {
-      const stack = new Error().stack?.split('\n').slice(2, 4).join(' <- ') || 'unknown'
       setDebugInfo(prev => ({
         ...prev,
-        lastEvent: `SCROLL_TO_BOTTOM: ${stack.substring(0, 80)}`,
+        lastEvent: `SCROLL_TO_BOTTOM (${force ? 'forced' : 'sticky'})`,
       }))
     }
 
@@ -215,7 +227,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       hasInitiallyScrolled.current = true
       // Small delay to ensure content is rendered
       requestAnimationFrame(() => {
-        scrollToBottom()
+        scrollToBottom(true) // Force scroll on initial load
       })
     }
   }, [session?.interactions?.length, scrollToBottom])

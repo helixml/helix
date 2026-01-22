@@ -874,17 +874,72 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
 		if err != nil || foundSession == nil {
-			return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+			// No session found for this thread. For user messages, create a session on-the-fly.
+			// This handles the race condition where MessageAdded(role=user) arrives before UserCreatedThread.
+			if role != "assistant" {
+				log.Info().
+					Str("context_id", contextID).
+					Str("agent_session_id", sessionID).
+					Msg("🔧 [HELIX] No session for user message - creating session on-the-fly")
+
+				// Get the existing agent session to copy config from
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+				if err != nil {
+					return fmt.Errorf("failed to load agent session to copy config: %w", err)
+				}
+
+				// Create new session with same config as agent session
+				newSession := &types.Session{
+					ID:             system.GenerateSessionID(),
+					Created:        time.Now(),
+					Updated:        time.Now(),
+					Mode:           types.SessionModeInference,
+					Type:           existingSession.Type,
+					ModelName:      existingSession.ModelName,
+					ParentApp:      existingSession.ParentApp,
+					OrganizationID: existingSession.OrganizationID,
+					Owner:          existingSession.Owner,
+					OwnerType:      existingSession.OwnerType,
+					Metadata: types.SessionMetadata{
+						ZedThreadID:         contextID,
+						AgentType:           existingSession.Metadata.AgentType,
+						ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+					},
+					Name: "Zed Chat", // Default name, will be updated by thread_title_changed
+				}
+
+				_, err = apiServer.Controller.Options.Store.CreateSession(ctx, *newSession)
+				if err != nil {
+					return fmt.Errorf("failed to create on-the-fly session: %w", err)
+				}
+
+				helixSessionID = newSession.ID
+				apiServer.contextMappingsMutex.Lock()
+				apiServer.contextMappings[contextID] = helixSessionID
+				apiServer.contextMappingsMutex.Unlock()
+
+				log.Info().
+					Str("context_id", contextID).
+					Str("helix_session_id", helixSessionID).
+					Msg("✅ [HELIX] Created on-the-fly session for user message")
+			} else {
+				// Assistant message with no session is an error - shouldn't happen
+				return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+			}
+		} else {
+			helixSessionID = foundSession.ID
+			// Restore the mapping for future messages
+			apiServer.contextMappingsMutex.Lock()
+			apiServer.contextMappings[contextID] = helixSessionID
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 		}
-		helixSessionID = foundSession.ID
-		// Restore the mapping for future messages
-		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[contextID] = helixSessionID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("context_id", contextID).
-			Str("helix_session_id", helixSessionID).
-			Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 	}
 
 	// Get the Helix session
@@ -2329,6 +2384,21 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	title, _ := syncMsg.Data["title"].(string)
 	if title == "" {
 		title = "New Chat" // Default title
+	}
+
+	// IDEMPOTENCY: Check if we already have a session for this thread
+	// This can happen if MessageAdded(role=user) arrived before UserCreatedThread
+	// and created the session on-the-fly
+	apiServer.contextMappingsMutex.RLock()
+	existingMappedSession, alreadyExists := apiServer.contextMappings[acpThreadID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if alreadyExists {
+		log.Info().
+			Str("acp_thread_id", acpThreadID).
+			Str("existing_session_id", existingMappedSession).
+			Msg("✅ [HELIX] Session already exists for thread (created on-the-fly), skipping creation")
+		return nil
 	}
 
 	// Get the existing Helix session (agentSessionID is the session ID)
