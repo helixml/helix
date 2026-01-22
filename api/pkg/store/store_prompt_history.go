@@ -9,10 +9,12 @@ import (
 )
 
 // SyncPromptHistory syncs prompt history entries from the frontend
-// Uses a simple union operation - new entries are added, existing ones are skipped
+// For new entries: creates them with all frontend fields
+// For existing entries: updates only frontend-owned fields (interrupt, queuePosition)
+// Backend-owned fields (status, retryCount, nextRetryAt) are preserved
 func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
 	synced := 0
-	existing := 0
+	updated := 0
 
 	for _, entry := range req.Entries {
 		// Convert timestamp from milliseconds to time.Time
@@ -30,35 +32,52 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			pinned = *entry.Pinned
 		}
 
-		dbEntry := &types.PromptHistoryEntry{
-			ID:            entry.ID,
-			UserID:        userID,
-			ProjectID:     req.ProjectID,
-			SpecTaskID:    req.SpecTaskID,
-			SessionID:     entry.SessionID,
-			Content:       entry.Content,
-			Status:        entry.Status,
-			Interrupt:     interrupt,
-			QueuePosition: entry.QueuePosition,
-			Pinned:        pinned,
-			Tags:          entry.Tags,
-			CreatedAt:     createdAt,
-			UpdatedAt:     time.Now(),
-		}
+		// Check if entry already exists
+		var existingEntry types.PromptHistoryEntry
+		result := s.gdb.WithContext(ctx).Where("id = ?", entry.ID).First(&existingEntry)
 
-		// Use ON CONFLICT DO NOTHING - if entry exists, skip it
-		result := s.gdb.WithContext(ctx).
-			Where("id = ?", entry.ID).
-			FirstOrCreate(dbEntry)
-
-		if result.Error != nil {
+		if result.Error != nil && result.Error.Error() != "record not found" {
 			return nil, result.Error
 		}
 
-		if result.RowsAffected > 0 {
+		if result.RowsAffected == 0 {
+			// Entry doesn't exist - create it with all frontend fields
+			dbEntry := &types.PromptHistoryEntry{
+				ID:            entry.ID,
+				UserID:        userID,
+				ProjectID:     req.ProjectID,
+				SpecTaskID:    req.SpecTaskID,
+				SessionID:     entry.SessionID,
+				Content:       entry.Content,
+				Status:        entry.Status,
+				Interrupt:     interrupt,
+				QueuePosition: entry.QueuePosition,
+				Pinned:        pinned,
+				Tags:          entry.Tags,
+				CreatedAt:     createdAt,
+				UpdatedAt:     time.Now(),
+			}
+
+			if err := s.gdb.WithContext(ctx).Create(dbEntry).Error; err != nil {
+				return nil, err
+			}
 			synced++
 		} else {
-			existing++
+			// Entry exists - only update frontend-owned fields
+			// Preserve backend-owned fields: status, retryCount, nextRetryAt
+			updateFields := map[string]interface{}{
+				"interrupt":      interrupt,
+				"queue_position": entry.QueuePosition,
+				"updated_at":     time.Now(),
+			}
+
+			if err := s.gdb.WithContext(ctx).
+				Model(&types.PromptHistoryEntry{}).
+				Where("id = ?", entry.ID).
+				Updates(updateFields).Error; err != nil {
+				return nil, err
+			}
+			updated++
 		}
 	}
 
@@ -76,7 +95,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 
 	return &types.PromptHistorySyncResponse{
 		Synced:   synced,
-		Existing: existing,
+		Existing: updated, // Number of existing entries that were updated
 		Entries:  allEntries,
 	}, nil
 }

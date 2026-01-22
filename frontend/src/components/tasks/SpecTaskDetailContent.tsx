@@ -79,7 +79,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
-  const isBigScreen = useIsBigScreen()
+  // Use md breakpoint (900px) to enable split view on tablets
+  const isBigScreen = useIsBigScreen({ breakpoint: 'md' })
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -673,7 +674,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup direction="horizontal" style={{ height: '100%', flex: 1 }}>
             {/* Left: Chat panel - always visible on desktop */}
-            <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden' }}>
+            <Panel defaultSize={30} minSize={15} style={{ overflow: 'hidden' }}>
               <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {/* Chat panel header with collapse button */}
                 <Box
@@ -745,7 +746,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <PanelResizeHandle style={{ width: 6, background: 'transparent', cursor: 'col-resize' }} />
 
             {/* Right: Content panel - switches between desktop/changes/details */}
-            <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden' }}>
+            <Panel defaultSize={70} minSize={25} style={{ overflow: 'hidden' }}>
               <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* View toggle header - above content area only */}
                 <Box
