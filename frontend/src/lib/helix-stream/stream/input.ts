@@ -169,13 +169,9 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
-        // Debug logging for iPad keyboard troubleshooting
-        console.log(`[StreamInput] ${isDown ? 'KeyDown' : 'KeyUp'}: key="${event.key}" code="${event.code}" keyCode=${event.keyCode}`)
-
         // Check if we should use keysym mode (iPad/iOS with empty event.code)
         if (this.config.useEvdevCodes && shouldUseKeysym(event)) {
             const keysym = convertToKeysym(event)
-            console.log(`[StreamInput] Keysym mode: keysym=${keysym}`)
             if (keysym) {
                 const modifiers = convertToEvdevModifiers(event)
                 this.sendKeysym(isDown, keysym, modifiers)
@@ -190,13 +186,11 @@ export class StreamInput {
         if (this.config.useEvdevCodes) {
             key = convertToEvdevKey(event)
             modifiers = convertToEvdevModifiers(event)
-            console.log(`[StreamInput] Evdev mode: key=${key} modifiers=${modifiers}`)
         } else {
             key = convertToKey(event)
             modifiers = convertToModifiers(event)
         }
         if (!key) {
-            console.log(`[StreamInput] No key mapping found, dropping event`)
             return
         }
 
@@ -370,16 +364,12 @@ export class StreamInput {
 
     // -- Mouse
     onMouseDown(event: MouseEvent, rect: DOMRect) {
-        console.log(`[StreamInput] onMouseDown: event.button=${event.button}, mouseMode=${this.config.mouseMode}`)
         const button = convertToButton(event)
         if (button == null) {
-            console.warn(`[StreamInput] onMouseDown: convertToButton returned null for event.button=${event.button}`)
             return
         }
-        console.log(`[StreamInput] onMouseDown: converted button=${button}`)
 
         if (this.config.mouseMode == "relative" || this.config.mouseMode == "follow") {
-            console.log(`[StreamInput] onMouseDown: calling sendMouseButton(true, ${button})`)
             this.sendMouseButton(true, button)
         } else if (this.config.mouseMode == "pointAndDrag") {
             this.sendMousePositionClientCoordinates(event.clientX, event.clientY, rect, button)
@@ -405,19 +395,11 @@ export class StreamInput {
             }
         }
     }
-    private scrollEventCount = 0;
-
     onMouseWheel(event: WheelEvent) {
         // Normalize wheel deltas to pixels, then pass through to backend.
         // Backend handles compositor-specific conversion (Mutter, Sway, etc.)
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
-
-        // Debug: log first 10 events and every 50th to see actual values
-        this.scrollEventCount++;
-        if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
-            console.log(`[Scroll] Event #${this.scrollEventCount}: deltaX=${deltaX.toFixed(3)}, deltaY=${deltaY.toFixed(3)}, deltaMode=${event.deltaMode}`);
-        }
 
         // Normalize deltaMode to pixels
         if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
@@ -436,9 +418,6 @@ export class StreamInput {
         if (this.config.mouseScrollMode == "highres") {
             // Pass through directly - browser already handles natural scrolling
             // direction based on OS settings (no negation needed)
-            if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
-                console.log(`[Scroll] Sending float: X=${deltaX.toFixed(3)}, Y=${deltaY.toFixed(3)}`);
-            }
             this.sendMouseWheelHighRes(deltaX, deltaY);
         } else if (this.config.mouseScrollMode == "normal") {
             // Normal mode uses Int8 (-128 to 127) - still integer-based
@@ -473,25 +452,11 @@ export class StreamInput {
 
         trySendChannel(this.mouseAbsolute, this.buffer)
     }
-    // Debug logging counter for mouse position
-    private mousePositionLogCount = 0;
 
     sendMousePositionClientCoordinates(clientX: number, clientY: number, rect: DOMRect, mouseButton?: number) {
         const position = this.calcNormalizedPosition(clientX, clientY, rect)
         if (position) {
             const [x, y] = position
-
-            // Debug logging: log first 5 and then every 100th
-            this.mousePositionLogCount++;
-            if (this.mousePositionLogCount <= 5 || this.mousePositionLogCount % 100 === 0) {
-                console.log(`[INPUT_DEBUG] sendMousePosition #${this.mousePositionLogCount}: ` +
-                    `client=(${clientX.toFixed(1)},${clientY.toFixed(1)}) ` +
-                    `rect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)} ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) ` +
-                    `normalized=(${x.toFixed(4)},${y.toFixed(4)}) ` +
-                    `scaled=(${(x * 4096).toFixed(0)},${(y * 4096).toFixed(0)} ref=4096x4096) ` +
-                    `streamerSize=(${this.streamerSize[0]}x${this.streamerSize[1]})`);
-            }
-
             this.sendMousePosition(x * 4096.0, y * 4096.0, 4096.0, 4096.0)
 
             if (mouseButton != undefined) {

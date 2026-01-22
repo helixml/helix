@@ -61,7 +61,7 @@ const SpecTaskReviewPage: FC = () => {
   }
 
   const handleOpenInWorkspace = () => {
-    // Navigate to project specs page with workspace view and open this review
+    // Navigate to project specs page with split screen view and open this review
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId, openReview: reviewId })
   }
 
@@ -131,7 +131,7 @@ const SpecTaskReviewPage: FC = () => {
           </Breadcrumbs>
         </Box>
 
-        <Tooltip title="Open in Workspace">
+        <Tooltip title="Split Screen">
           <IconButton onClick={handleOpenInWorkspace} size="small">
             <TiledIcon />
           </IconButton>

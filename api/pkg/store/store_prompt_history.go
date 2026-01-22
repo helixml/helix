@@ -96,15 +96,17 @@ func (s *PostgresStore) GetPromptHistoryEntry(ctx context.Context, id string) (*
 
 // GetNextPendingPrompt returns the next pending or failed non-interrupt prompt for a session
 // Used by the queue processor to send non-interrupt messages after the current conversation completes
-// Failed prompts are also included for automatic retry
+// Failed prompts are also included for automatic retry (only if next_retry_at has passed)
 func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or failed prompt for this session with interrupt=false
+	// Find the oldest pending or ready-to-retry prompt for this session with interrupt=false
 	// Order by queue_position (if set) then by created_at
-	// Include 'failed' status for automatic retry
+	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	now := time.Now()
 	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status IN (?, ?) AND interrupt = ?", sessionID, "pending", "failed", false).
+		Where("session_id = ? AND interrupt = ?", sessionID, false).
+		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
 		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
 		First(&entry)
 
@@ -124,10 +126,13 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or failed prompt for this session
+	// Find the oldest pending or ready-to-retry prompt for this session
 	// Order: interrupt first (DESC so true=1 comes before false=0), then queue_position, then created_at
+	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	now := time.Now()
 	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status IN (?, ?)", sessionID, "pending", "failed").
+		Where("session_id = ?", sessionID).
+		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
 		Order("interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC").
 		First(&entry)
 
@@ -147,10 +152,13 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or failed interrupt prompt for this session
+	// Find the oldest pending or ready-to-retry interrupt prompt for this session
 	// Only get interrupt=true prompts - queue prompts wait for message_completed
+	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	now := time.Now()
 	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status IN (?, ?) AND interrupt = ?", sessionID, "pending", "failed", true).
+		Where("session_id = ? AND interrupt = ?", sessionID, true).
+		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
 		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
 		First(&entry)
 
@@ -198,12 +206,30 @@ func (s *PostgresStore) MarkPromptAsSent(ctx context.Context, promptID string) e
 		Error
 }
 
-// MarkPromptAsFailed marks a prompt as failed
+// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry
 func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
+	// First get the current prompt to read retry count
+	var prompt types.PromptHistoryEntry
+	if err := s.gdb.WithContext(ctx).Where("id = ?", promptID).First(&prompt).Error; err != nil {
+		return err
+	}
+
+	// Calculate next retry time with exponential backoff (2s, 4s, 8s, 16s, max 30s)
+	newRetryCount := prompt.RetryCount + 1
+	backoffSeconds := 2 << (newRetryCount - 1) // 2, 4, 8, 16, 32...
+	if backoffSeconds > 30 {
+		backoffSeconds = 30
+	}
+	nextRetry := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
+
 	return s.gdb.WithContext(ctx).
 		Model(&types.PromptHistoryEntry{}).
 		Where("id = ?", promptID).
-		Update("status", "failed").
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"retry_count":   newRetryCount,
+			"next_retry_at": nextRetry,
+		}).
 		Error
 }
 

@@ -38,6 +38,9 @@ export interface PromptHistoryEntry {
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
   syncedToBackend?: boolean // If true, this entry has been synced to the backend
+  // Retry tracking
+  retryCount?: number       // Number of retry attempts
+  nextRetryAt?: number      // Timestamp when retry will happen
   // Library features
   pinned?: boolean          // User pinned this prompt for quick access
   usageCount?: number       // How many times this prompt was reused
@@ -284,9 +287,15 @@ export function usePromptHistory({
           const updated = prev.map(h => {
             const backendEntry = backendEntriesMap.get(h.id)
             if (backendEntry) {
-              // Merge status from backend - this is critical for queue items to disappear
-              // when the backend marks them as 'sent' after processing
-              return { ...h, status: backendEntry.status, syncedToBackend: true }
+              // Merge status and retry info from backend - this is critical for queue items
+              // to disappear when the backend marks them as 'sent' after processing
+              return {
+                ...h,
+                status: backendEntry.status,
+                retryCount: backendEntry.retryCount,
+                nextRetryAt: backendEntry.nextRetryAt,
+                syncedToBackend: true
+              }
             }
             return h
           })
@@ -402,9 +411,20 @@ export function usePromptHistory({
             let updated = false
             const newHistory = prev.map(h => {
               const backendEntry = backendEntriesMap.get(h.id)
-              if (backendEntry && h.status !== backendEntry.status) {
+              // Check if status or retry info changed
+              if (backendEntry && (
+                h.status !== backendEntry.status ||
+                h.retryCount !== backendEntry.retryCount ||
+                h.nextRetryAt !== backendEntry.nextRetryAt
+              )) {
                 updated = true
-                return { ...h, status: backendEntry.status, syncedToBackend: true }
+                return {
+                  ...h,
+                  status: backendEntry.status,
+                  retryCount: backendEntry.retryCount,
+                  nextRetryAt: backendEntry.nextRetryAt,
+                  syncedToBackend: true
+                }
               }
               return h
             })

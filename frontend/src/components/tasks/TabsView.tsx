@@ -1090,8 +1090,8 @@ interface TabsViewProps {
   tasks: TypesSpecTask[]
   onCreateTask?: () => void
   onRefresh?: () => void
-  initialTaskId?: string // Task ID to open initially (from "Open in Workspace" button)
-  initialDesktopId?: string // Desktop session ID to open initially (from "Open in Workspace" button)
+  initialTaskId?: string // Task ID to open initially (from "Split Screen" button)
+  initialDesktopId?: string // Desktop session ID to open initially (from "Split Screen" button)
 }
 
 // localStorage key for workspace state

@@ -513,12 +513,8 @@ export class WebSocketStream {
       if (this.rawMsgIntervals.length > 60) {
         this.rawMsgIntervals.shift()
       }
-      // Log every 60 frames (about 1 second at 60fps)
+      // Reset interval tracking every 60 frames
       if (this.rawMsgIntervals.length === 60) {
-        const min = Math.min(...this.rawMsgIntervals)
-        const max = Math.max(...this.rawMsgIntervals)
-        const avg = this.rawMsgIntervals.reduce((a, b) => a + b, 0) / this.rawMsgIntervals.length
-        console.log(`[WS_RAW] Message intervals: min=${min.toFixed(1)}ms avg=${avg.toFixed(1)}ms max=${max.toFixed(1)}ms`)
         this.rawMsgIntervals = []
       }
     }
@@ -947,14 +943,7 @@ export class WebSocketStream {
       this.lastFrameTime = now
 
       // Log jitter stats for debugging
-      const avgReceive = this.receiveIntervalSamples.length > 0
-        ? Math.round(this.receiveIntervalSamples.reduce((a, b) => a + b, 0) / this.receiveIntervalSamples.length)
-        : 0
-      const avgRender = this.renderIntervalSamples.length > 0
-        ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
-        : 0
-      console.log(`Receive Jitter: ${Math.round(this.minReceiveIntervalMs)}-${Math.round(this.maxReceiveIntervalMs)} ms (avg ${avgReceive}ms) ${this.currentFps}fps`)
-      console.log(`Render Jitter: ${Math.round(this.minRenderIntervalMs)}-${Math.round(this.maxRenderIntervalMs)} ms (avg ${avgRender}ms)`)
+      // Stats are available via getStreamStats() for the Stats for Nerds panel
 
       // Calculate bitrates
       if (this.lastBytesTime > 0) {
@@ -1088,7 +1077,6 @@ export class WebSocketStream {
         this.firstFramePtsUs = last.pts
         this.firstFrameArrivalTime = last.arrival
         this.currentFrameLatencyMs = 0
-        console.log(`[WebSocketStream] Frame drift baseline established (after ${this.BASELINE_SAMPLE_COUNT} stable frames)`)
       }
     } else if (this.firstFramePtsUs === null || this.firstFramePtsUs <= 0) {
       // Fallback: shouldn't reach here, but establish baseline if needed
@@ -1786,7 +1774,6 @@ export class WebSocketStream {
   }
 
   sendMouseButton(isDown: boolean, button: number) {
-    console.log(`[WebSocketStream] sendMouseButton: isDown=${isDown} button=${button} (1=left, 2=middle, 3=right)`)
     // Format: subType(1) + isDown(1) + button(1)
     this.inputBuffer[0] = 2 // sub-type for button
     this.inputBuffer[1] = isDown ? 1 : 0
@@ -2776,13 +2763,6 @@ export class WebSocketStream {
     }
 
     const cursorName = new TextDecoder().decode(data.slice(offset, offset + nameLen))
-
-    console.debug("[WebSocketStream] Cursor name received:", {
-      cursorName,
-      hotspotX,
-      hotspotY,
-      lastMoverID,
-    })
 
     // Emit cursor name event for CSS fallback rendering
     this.dispatchInfoEvent({

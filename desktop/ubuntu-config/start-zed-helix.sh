@@ -21,7 +21,8 @@ launch_terminal() {
     shift 2
     # Remaining args are the command
     # Ghostty options: --title, --working-directory, -e for command
-    ghostty --title="$title" --working-directory="$working_dir" -e "$@" &
+    # CRITICAL: --gtk-single-instance=false prevents D-Bus activation which loses our -e args
+    ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
 }
 
 # =========================================

@@ -422,10 +422,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for git operations (merges with any custom env vars)
+			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
 			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Warn().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token (continuing without git)")
-				// Don't fail - external agents can work without git
+				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
+				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
+				return
 			}
 
 			// Register session in executor so RDP endpoint can find it

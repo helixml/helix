@@ -51,7 +51,7 @@ const TeamDesktopPage: FC = () => {
   }
 
   const handleOpenInWorkspace = () => {
-    // Navigate to project specs page with workspace view and open this desktop
+    // Navigate to project specs page with split screen view and open this desktop
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openDesktop: sessionId })
   }
 
@@ -122,7 +122,7 @@ const TeamDesktopPage: FC = () => {
           </Breadcrumbs>
         </Box>
 
-        <Tooltip title="Open in Workspace">
+        <Tooltip title="Split Screen">
           <IconButton onClick={handleOpenInWorkspace} size="small">
             <WorkspaceIcon />
           </IconButton>

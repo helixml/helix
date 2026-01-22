@@ -9623,70 +9623,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sessions/{id}/message": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Send a message to a session. Creates an interaction and kicks off agent processing.\nReturns immediately with 200 if the message was saved to the database.\nThe actual agent response will come via WebSocket subscription to the session.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "interactions"
-                ],
-                "summary": "Send a message to a session (non-blocking)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Message to send",
-                        "name": "message",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.SendMessageRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SendMessageResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -14985,33 +14921,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.SendMessageRequest": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "interrupt": {
-                    "description": "If true, interrupt current work; if false, queue after current work",
-                    "type": "boolean"
-                }
-            }
-        },
-        "server.SendMessageResponse": {
-            "type": "object",
-            "properties": {
-                "interaction_id": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"queued\" or \"sent\"",
-                    "type": "string"
-                }
-            }
-        },
         "server.SessionSandboxStateResponse": {
             "type": "object",
             "properties": {
@@ -20277,6 +20186,10 @@ const docTemplate = `{
                     "description": "Last time reused",
                     "type": "string"
                 },
+                "next_retry_at": {
+                    "description": "When to retry (for exponential backoff)",
+                    "type": "string"
+                },
                 "pinned": {
                     "description": "Library features for prompt reuse",
                     "type": "boolean"
@@ -20287,6 +20200,10 @@ const docTemplate = `{
                 },
                 "queue_position": {
                     "description": "QueuePosition tracks ordering for drag-and-drop reordering\nLower values = earlier in queue. Null for sent messages.",
+                    "type": "integer"
+                },
+                "retry_count": {
+                    "description": "Retry tracking for failed prompts",
                     "type": "integer"
                 },
                 "session_id": {

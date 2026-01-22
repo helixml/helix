@@ -780,19 +780,6 @@ export interface ServerSandboxInstanceInfo {
   status?: string;
 }
 
-export interface ServerSendMessageRequest {
-  content?: string;
-  /** If true, interrupt current work; if false, queue after current work */
-  interrupt?: boolean;
-}
-
-export interface ServerSendMessageResponse {
-  interaction_id?: string;
-  session_id?: string;
-  /** "queued" or "sent" */
-  status?: string;
-}
-
 export interface ServerSessionSandboxStateResponse {
   container_id?: string;
   session_id?: string;
@@ -3001,6 +2988,8 @@ export interface TypesPromptHistoryEntry {
   is_template?: boolean;
   /** Last time reused */
   last_used_at?: string;
+  /** When to retry (for exponential backoff) */
+  next_retry_at?: string;
   /** Library features for prompt reuse */
   pinned?: boolean;
   /** For reference, but primary grouping is by spec_task */
@@ -3010,6 +2999,8 @@ export interface TypesPromptHistoryEntry {
    * Lower values = earlier in queue. Null for sent messages.
    */
   queue_position?: number;
+  /** Retry tracking for failed prompts */
+  retry_count?: number;
   /** Optional - which session this was sent to */
   session_id?: string;
   spec_task_id?: string;
@@ -9482,26 +9473,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/interactions/${interactionId}/feedback`,
         method: "POST",
         body: feedback,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Send a message to a session. Creates an interaction and kicks off agent processing. Returns immediately with 200 if the message was saved to the database. The actual agent response will come via WebSocket subscription to the session.
-     *
-     * @tags interactions
-     * @name V1SessionsMessageCreate
-     * @summary Send a message to a session (non-blocking)
-     * @request POST:/api/v1/sessions/{id}/message
-     * @secure
-     */
-    v1SessionsMessageCreate: (id: string, message: ServerSendMessageRequest, params: RequestParams = {}) =>
-      this.request<ServerSendMessageResponse, SystemHTTPError>({
-        path: `/api/v1/sessions/${id}/message`,
-        method: "POST",
-        body: message,
         secure: true,
         type: ContentType.Json,
         format: "json",

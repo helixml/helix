@@ -1620,11 +1620,14 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	// Ensure cleanup happens even if Start() fails - the pipeline may have
+	// allocated CUDA contexts before failing, which need to be freed
+	defer streamer.Stop()
+
 	if err := streamer.Start(ctx); err != nil {
 		logger.Error("failed to start streamer", "err", err)
 		return
 	}
-	defer streamer.Stop()
 
 	// Handle incoming messages (input events, ping/pong, etc.)
 	for {

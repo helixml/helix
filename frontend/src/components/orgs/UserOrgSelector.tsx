@@ -435,6 +435,35 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const renderCollapsedIcon = () => {
     const tiles = []
 
+    // Wait for auth context to initialize before showing user-specific content
+    // This prevents "?" flash during hot reload while auth state is loading
+    if (!account.initialized) {
+      return (
+        <Box
+          sx={{
+            position: 'relative',
+            width: AVATAR_SIZE,
+            height: AVATAR_SIZE,
+            cursor: 'pointer',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              bgcolor: 'grey.800',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+              border: '2px solid #4A5568',
+            }}
+          />
+        </Box>
+      )
+    }
+
     // Determine which organization/context is currently active
     const isPersonalActive = currentOrgSlug === 'default'
     const currentOrgData = listOrgs.find(org => org.name === currentOrgSlug)

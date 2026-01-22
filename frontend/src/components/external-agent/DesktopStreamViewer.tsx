@@ -1729,6 +1729,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Only auto-connect once
     if (hasConnectedRef.current) return;
 
+    // Wait for auth context to initialize before attempting connection
+    // This prevents "Not authenticated" errors during hot reload when auth state isn't loaded yet
+    if (!account.initialized) {
+      console.log('[DesktopStreamViewer] Waiting for auth context to initialize...');
+      return;
+    }
+
     // Wait for component to become visible before connecting
     // This prevents wasting bandwidth on hidden tabs/components
     if (!isVisible) {
@@ -1747,7 +1754,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     setRequestedBitrate(defaultBitrate);
     connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandboxId, sessionId, isVisible, width, height]); // Only trigger on props and visibility, not on function identity changes
+  }, [sandboxId, sessionId, isVisible, width, height, account.initialized]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
@@ -2632,10 +2639,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Input event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    const handler = getInputHandler();
-    const rect = getStreamRect();
-    console.log(`[DesktopStreamViewer] handleMouseDown: handler=${!!handler}, rect=${rect.width}x${rect.height}`);
-    handler?.onMouseDown(event.nativeEvent, rect);
+    getInputHandler()?.onMouseDown(event.nativeEvent, getStreamRect());
   }, [getStreamRect, getInputHandler]);
 
   const handleMouseUp = useCallback((event: React.MouseEvent) => {
@@ -3964,8 +3968,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         playsInline
         muted
         autoPlay
-        // @ts-ignore - autoPictureInPicture is experimental Chrome attribute
-        autoPictureInPicture
+        // @ts-ignore - autopictureinpicture is experimental Chrome attribute (lowercase for React)
+        autopictureinpicture=""
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -3992,14 +3996,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Canvas Element - centered with proper aspect ratio */}
       <canvas
         ref={canvasRef}
-        onMouseDown={(e) => {
-          console.log('[CANVAS] onMouseDown fired, button=', e.button);
-          handleMouseDown(e);
-        }}
-        onMouseUp={(e) => {
-          console.log('[CANVAS] onMouseUp fired, button=', e.button);
-          handleMouseUp(e);
-        }}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
         onMouseEnter={() => {
           resetInputState();

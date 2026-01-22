@@ -32,10 +32,13 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
 import TuneIcon from '@mui/icons-material/Tune'
 import DifferenceIcon from '@mui/icons-material/Difference'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -54,6 +57,8 @@ import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import PromptLibrarySidebar from '../common/PromptLibrarySidebar'
 import { usePromptHistory } from '../../hooks/usePromptHistory'
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 interface SpecTaskDetailContentProps {
   taskId: string
@@ -74,6 +79,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
+  const isBigScreen = useIsBigScreen()
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -95,6 +101,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+
+  // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
+  const [chatCollapsed, setChatCollapsed] = useState(false)
 
   // Sort apps: zed_external agents first, then others
   const sortedApps = useMemo(() => {
@@ -153,7 +162,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     apps.loadApps()
   }, [])
 
-  const [currentView, setCurrentView] = useState<'desktop' | 'changes' | 'details'>('desktop')
+  // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
+  const [currentView, setCurrentView] = useState<'chat' | 'desktop' | 'changes' | 'details'>('desktop')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
@@ -192,16 +202,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID
   const activeSessionId = task?.planning_session_id
 
-  // Default to appropriate view based on session state
+  // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === 'details') {
-      // If there's an active session and we're on details, switch to desktop view
-      setCurrentView('desktop')
+      // If there's an active session and we're on details, switch to appropriate view
+      // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
+      setCurrentView(isBigScreen ? 'desktop' : 'chat')
     } else if (!activeSessionId && currentView !== 'details') {
       // If no active session, switch to details view
       setCurrentView('details')
     }
-  }, [activeSessionId])
+  }, [activeSessionId, isBigScreen])
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
@@ -448,6 +459,194 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [activeSessionId, snackbar])
 
+  // Render the details content (used in both desktop left panel and mobile/no-session view)
+  const renderDetailsContent = () => (
+    <>
+      {/* Action Buttons */}
+      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+        {task?.status === 'backlog' && (
+          <>
+            <Button
+              variant="contained"
+              color={justDoItMode ? 'success' : 'warning'}
+              startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
+              onClick={handleStartPlanning}
+              disabled={isStartingPlanning}
+            >
+              {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
+            </Button>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={justDoItMode}
+                  onChange={handleToggleJustDoIt}
+                  disabled={updatingJustDoIt}
+                  color="warning"
+                  size="small"
+                />
+              }
+              label={<Typography variant="body2">Just Do It</Typography>}
+              sx={{ ml: 1 }}
+            />
+          </>
+        )}
+        {task?.status === 'spec_review' && (
+          <Button
+            variant="contained"
+            color="info"
+            startIcon={<Description />}
+            onClick={async () => {
+              try {
+                const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
+                const reviews = response.data?.reviews || []
+                if (reviews.length > 0) {
+                  const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+                  if (onOpenReview) {
+                    onOpenReview(task.id!, latestReview.id, task.name || 'Spec Review')
+                  } else {
+                    account.orgNavigate('project-task-review', {
+                      id: task.project_id,
+                      taskId: task.id,
+                      reviewId: latestReview.id,
+                    })
+                  }
+                } else {
+                  snackbar.error('No design review found')
+                }
+              } catch (error) {
+                console.error('Failed to fetch design reviews:', error)
+                snackbar.error('Failed to load design review')
+              }
+            }}
+          >
+            Review Spec
+          </Button>
+        )}
+        {task?.pull_request_url && (
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<LaunchIcon />}
+            onClick={() => window.open(task.pull_request_url, '_blank')}
+          >
+            View Pull Request
+          </Button>
+        )}
+      </Box>
+
+      <Divider sx={{ mb: 3 }} />
+
+      {/* Description */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Description
+        </Typography>
+        {isEditMode ? (
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={editFormData.description}
+            onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+            placeholder="Task description"
+          />
+        ) : (
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+            {task?.description || task?.original_prompt || 'No description provided'}
+          </Typography>
+        )}
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
+      {/* Priority */}
+      <Box sx={{ mb: 2 }}>
+        {isEditMode ? (
+          <FormControl fullWidth size="small">
+            <InputLabel>Priority</InputLabel>
+            <Select
+              value={editFormData.priority}
+              onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+              label="Priority"
+            >
+              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>Critical</MenuItem>
+              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>High</MenuItem>
+              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>Medium</MenuItem>
+              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>Low</MenuItem>
+            </Select>
+          </FormControl>
+        ) : (
+          <>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              Priority
+            </Typography>
+            <Chip label={task?.priority || 'Medium'} color={getPriorityColor(task?.priority)} size="small" />
+          </>
+        )}
+      </Box>
+
+      {/* Agent Selection */}
+      <Box sx={{ mb: 2 }}>
+        <FormControl fullWidth size="small">
+          <InputLabel>Agent</InputLabel>
+          <Select
+            value={selectedAgent}
+            onChange={(e) => handleAgentChange(e.target.value)}
+            label="Agent"
+            disabled={updatingAgent}
+            endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
+          >
+            {sortedApps.map((app) => (
+              <MenuItem key={app.id} value={app.id}>
+                {app.config?.helix?.name || 'Unnamed Agent'}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+
+      {/* Timestamps */}
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="caption" color="text.secondary" display="block">
+          Created: {task?.created_at ? new Date(task.created_at).toLocaleString() : 'N/A'}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          Updated: {task?.updated_at ? new Date(task.updated_at).toLocaleString() : 'N/A'}
+        </Typography>
+      </Box>
+
+      {/* Debug Info */}
+      <Divider sx={{ my: 2 }} />
+      <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
+        <Typography variant="caption" color="grey.400" display="block" gutterBottom>
+          Debug Information
+        </Typography>
+        <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+          Task ID: {task?.id || 'N/A'}
+        </Typography>
+        {task?.branch_name && (
+          <Tooltip title="Spectask branches push changes to upstream repository">
+            <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+              Branch: {task.branch_name} <Box component="span" sx={{ color: 'success.main' }}>→ PUSH</Box>
+            </Typography>
+          </Tooltip>
+        )}
+        {task?.base_branch && task.base_branch !== task.branch_name && (
+          <Tooltip title="Base branch pulls updates from upstream repository">
+            <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+              Base: {task.base_branch} <Box component="span" sx={{ color: 'info.main' }}>← PULL</Box>
+            </Typography>
+          </Tooltip>
+        )}
+        {activeSessionId && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            Session ID: {activeSessionId}
+          </Typography>
+        )}
+      </Box>
+    </>
+  )
+
   if (!task) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -458,404 +657,449 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header with view toggles */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 1.5,
-          py: 0.75,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          backgroundColor: 'background.paper',
-          gap: 1,
-        }}
-      >
-        {/* Left: View toggle icons */}
-        <ToggleButtonGroup
-          value={currentView}
-          exclusive
-          onChange={(_, newView) => newView && setCurrentView(newView)}
-          size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              py: 0.25,
-              px: 1,
-              border: 'none',
-              borderRadius: '4px !important',
-              '&.Mui-selected': {
-                backgroundColor: 'action.selected',
-              },
-            },
-          }}
-        >
-          {activeSessionId && (
-            <ToggleButton value="desktop" aria-label="Desktop view">
-              <Tooltip title="Desktop">
-                <ComputerIcon sx={{ fontSize: 18 }} />
-              </Tooltip>
-            </ToggleButton>
-          )}
-          {activeSessionId && (
-            <ToggleButton value="changes" aria-label="Changes view">
-              <Tooltip title="Changes">
-                <DifferenceIcon sx={{ fontSize: 18 }} />
-              </Tooltip>
-            </ToggleButton>
-          )}
-          <ToggleButton value="details" aria-label="Details view">
-            <Tooltip title="Details">
-              <TuneIcon sx={{ fontSize: 18 }} />
-            </Tooltip>
-          </ToggleButton>
-        </ToggleButtonGroup>
-
-        {/* Spacer */}
-        <Box sx={{ flex: 1 }} />
-
-        {/* Right: Action buttons */}
-        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-          {isEditMode ? (
-            <>
-              <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>
-                Cancel
-              </Button>
-              <Button
-                size="small"
-                color="secondary"
-                startIcon={<SaveIcon />}
-                onClick={handleSaveEdit}
-                disabled={updateSpecTask.isPending}
-                sx={{ fontSize: '0.75rem' }}
-              >
-                Save
-              </Button>
-            </>
-          ) : (
-            <>
-              {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
-                <Tooltip title="Edit task">
-                  <IconButton size="small" onClick={handleEditToggle}>
-                    <EditIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
-              {activeSessionId && (
-                <Tooltip title="Restart agent session">
-                  <IconButton
-                    size="small"
-                    onClick={() => setRestartConfirmOpen(true)}
-                    disabled={isRestarting}
-                    color="warning"
-                  >
-                    {isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon sx={{ fontSize: 18 }} />}
-                  </IconButton>
-                </Tooltip>
-              )}
-              <Tooltip title={activeSessionId ? "Upload files to sandbox" : "Start task to enable file upload"}>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={handleUploadClick}
-                    disabled={isUploading || !activeSessionId}
-                    color="primary"
-                  >
-                    {isUploading ? <CircularProgress size={16} /> : <CloudUploadIcon sx={{ fontSize: 18 }} />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </>
-          )}
-          {/* Hidden file input for upload */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-            multiple
-          />
-          {onClose && (
-            <IconButton size="small" onClick={onClose}>
-              <CloseIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          )}
-        </Box>
-      </Box>
+      {/* Hidden file input for upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+        multiple
+      />
 
       {/* Tab Content */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* Desktop View - combines desktop stream (left) with chat (right) */}
-        {activeSessionId && currentView === 'desktop' && (
-          <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            {/* Left: Desktop stream */}
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-              <ExternalAgentDesktopViewer
-                sessionId={activeSessionId}
-                sandboxId={activeSessionId}
-                mode="stream"
-                onClientIdCalculated={setClientUniqueId}
-                displayWidth={displaySettings.width}
-                displayHeight={displaySettings.height}
-                displayFps={displaySettings.fps}
-              />
-            </Box>
-
-            {/* Right: Chat panel */}
-            <Box sx={{
-              width: 380,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              borderLeft: 1,
-              borderColor: 'divider',
-              overflow: 'hidden',
-            }}>
-              <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-              <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <Box sx={{ flex: 1 }}>
-                  <RobustPromptInput
-                    sessionId={activeSessionId}
-                    specTaskId={task.id}
-                    projectId={task.project_id}
-                    apiClient={api.getApiClient()}
-                    onSend={async (message: string, interrupt?: boolean) => {
-                      await streaming.NewInference({
-                        type: SESSION_TYPE_TEXT,
-                        message,
-                        sessionId: activeSessionId,
-                        interrupt: interrupt ?? true,
-                      })
-                    }}
-                    onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                    placeholder="Send message to agent..."
-                  />
+        {/* Desktop layout: left panel (chat always visible) + right panel (content toggleable) */}
+        {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
+        {activeSessionId && isBigScreen && !chatCollapsed ? (
+          <PanelGroup direction="horizontal" style={{ height: '100%', flex: 1 }}>
+            {/* Left: Chat panel - always visible on desktop */}
+            <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden' }}>
+              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                {/* Chat panel header with collapse button */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    px: 1.5,
+                    py: 0.5,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    backgroundColor: 'background.paper',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary' }}>
+                    Chat
+                  </Typography>
+                  <Tooltip title="Collapse chat panel">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setChatCollapsed(true)
+                        // Switch to desktop view when collapsing chat
+                        if (currentView === 'chat') {
+                          setCurrentView('desktop')
+                        }
+                      }}
+                      sx={{ p: 0.25 }}
+                    >
+                      <ChevronLeftIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
-                <Tooltip title={showPromptLibrary ? 'Hide prompt library' : 'Show prompt library'}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setShowPromptLibrary(!showPromptLibrary)}
-                    sx={{ mt: 0.5, color: showPromptLibrary ? 'primary.main' : 'text.secondary' }}
-                  >
-                    <MenuBookIcon sx={{ fontSize: 20 }} />
-                  </IconButton>
-                </Tooltip>
+                <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
+                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <RobustPromptInput
+                      sessionId={activeSessionId}
+                      specTaskId={task.id}
+                      projectId={task.project_id}
+                      apiClient={api.getApiClient()}
+                      onSend={async (message: string, interrupt?: boolean) => {
+                        await streaming.NewInference({
+                          type: SESSION_TYPE_TEXT,
+                          message,
+                          sessionId: activeSessionId,
+                          interrupt: interrupt ?? true,
+                        })
+                      }}
+                      onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                      placeholder="Send message to agent..."
+                    />
+                  </Box>
+                  <Tooltip title={showPromptLibrary ? 'Hide prompt library' : 'Show prompt library'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowPromptLibrary(!showPromptLibrary)}
+                      sx={{ mt: 0.5, color: showPromptLibrary ? 'primary.main' : 'text.secondary' }}
+                    >
+                      <MenuBookIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
-            </Box>
+            </Panel>
+
+            {/* Resize handle */}
+            <PanelResizeHandle style={{ width: 6, background: 'transparent', cursor: 'col-resize' }} />
+
+            {/* Right: Content panel - switches between desktop/changes/details */}
+            <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden' }}>
+              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* View toggle header - above content area only */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    px: 1.5,
+                    py: 0.75,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    backgroundColor: 'background.paper',
+                    gap: 1,
+                  }}
+                >
+                  {/* Left: View toggle icons */}
+                  <ToggleButtonGroup
+                    value={currentView}
+                    exclusive
+                    onChange={(_, newView) => newView && setCurrentView(newView)}
+                    size="small"
+                    sx={{
+                      '& .MuiToggleButton-root': {
+                        py: 0.25,
+                        px: 1,
+                        border: 'none',
+                        borderRadius: '4px !important',
+                        '&.Mui-selected': {
+                          backgroundColor: 'action.selected',
+                        },
+                      },
+                    }}
+                  >
+                    <ToggleButton value="desktop" aria-label="Desktop view">
+                      <Tooltip title="Desktop">
+                        <ComputerIcon sx={{ fontSize: 18 }} />
+                      </Tooltip>
+                    </ToggleButton>
+                    <ToggleButton value="changes" aria-label="Changes view">
+                      <Tooltip title="Changes">
+                        <DifferenceIcon sx={{ fontSize: 18 }} />
+                      </Tooltip>
+                    </ToggleButton>
+                    <ToggleButton value="details" aria-label="Details view">
+                      <Tooltip title="Details">
+                        <TuneIcon sx={{ fontSize: 18 }} />
+                      </Tooltip>
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+
+                  {/* Spacer */}
+                  <Box sx={{ flex: 1 }} />
+
+                  {/* Right: Action buttons */}
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                    {isEditMode ? (
+                      <>
+                        <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          color="secondary"
+                          startIcon={<SaveIcon />}
+                          onClick={handleSaveEdit}
+                          disabled={updateSpecTask.isPending}
+                          sx={{ fontSize: '0.75rem' }}
+                        >
+                          Save
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
+                          <Tooltip title="Edit task">
+                            <IconButton size="small" onClick={handleEditToggle}>
+                              <EditIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="Restart agent session">
+                          <IconButton
+                            size="small"
+                            onClick={() => setRestartConfirmOpen(true)}
+                            disabled={isRestarting}
+                            color="warning"
+                          >
+                            {isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon sx={{ fontSize: 18 }} />}
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Upload files to sandbox">
+                          <IconButton
+                            size="small"
+                            onClick={handleUploadClick}
+                            disabled={isUploading}
+                            color="primary"
+                          >
+                            {isUploading ? <CircularProgress size={16} /> : <CloudUploadIcon sx={{ fontSize: 18 }} />}
+                          </IconButton>
+                        </Tooltip>
+                      </>
+                    )}
+                    {onClose && (
+                      <IconButton size="small" onClick={onClose}>
+                        <CloseIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    )}
+                  </Box>
+                </Box>
+
+                {currentView === 'desktop' && (
+                  <ExternalAgentDesktopViewer
+                    sessionId={activeSessionId}
+                    sandboxId={activeSessionId}
+                    mode="stream"
+                    onClientIdCalculated={setClientUniqueId}
+                    displayWidth={displaySettings.width}
+                    displayHeight={displaySettings.height}
+                    displayFps={displaySettings.fps}
+                  />
+                )}
+                {currentView === 'changes' && (
+                  <DiffViewer
+                    sessionId={activeSessionId}
+                    baseBranch="main"
+                    pollInterval={3000}
+                  />
+                )}
+                {currentView === 'details' && (
+                  <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+                    {renderDetailsContent()}
+                  </Box>
+                )}
+              </Box>
+            </Panel>
 
             {/* Prompt library sidebar */}
             {showPromptLibrary && (
-              <Box sx={{ width: 320, flexShrink: 0 }}>
-                <PromptLibrarySidebar
-                  pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
-                  recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
-                  onSelectPrompt={(content) => promptHistory.setDraft(content)}
-                  onPinPrompt={promptHistory.pinPrompt}
-                  onSearch={promptHistory.searchHistory}
-                  onClose={() => setShowPromptLibrary(false)}
+              <>
+                <PanelResizeHandle style={{ width: 4, background: 'transparent', cursor: 'col-resize' }} />
+                <Panel defaultSize={20} minSize={15}>
+                  <PromptLibrarySidebar
+                    pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
+                    recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
+                    onSelectPrompt={(content) => promptHistory.setDraft(content)}
+                    onPinPrompt={promptHistory.pinPrompt}
+                    onSearch={promptHistory.searchHistory}
+                    onClose={() => setShowPromptLibrary(false)}
+                  />
+                </Panel>
+              </>
+            )}
+          </PanelGroup>
+        ) : (
+          <>
+            {/* Mobile layout OR no active session: single view at a time */}
+            {/* View toggle header for mobile/no-session */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                px: 1.5,
+                py: 0.75,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                backgroundColor: 'background.paper',
+                gap: 1,
+              }}
+            >
+              {/* Left: View toggle icons */}
+              <ToggleButtonGroup
+                value={currentView}
+                exclusive
+                onChange={(_, newView) => newView && setCurrentView(newView)}
+                size="small"
+                sx={{
+                  '& .MuiToggleButton-root': {
+                    py: 0.25,
+                    px: 1,
+                    border: 'none',
+                    borderRadius: '4px !important',
+                    '&.Mui-selected': {
+                      backgroundColor: 'action.selected',
+                    },
+                  },
+                }}
+              >
+                {/* Chat tab - only on mobile when there's an active session */}
+                {activeSessionId && (
+                  <ToggleButton value="chat" aria-label="Chat view">
+                    <Tooltip title="Chat">
+                      <ForumOutlinedIcon sx={{ fontSize: 18 }} />
+                    </Tooltip>
+                  </ToggleButton>
+                )}
+                {activeSessionId && (
+                  <ToggleButton value="desktop" aria-label="Desktop view">
+                    <Tooltip title="Desktop">
+                      <ComputerIcon sx={{ fontSize: 18 }} />
+                    </Tooltip>
+                  </ToggleButton>
+                )}
+                {activeSessionId && (
+                  <ToggleButton value="changes" aria-label="Changes view">
+                    <Tooltip title="Changes">
+                      <DifferenceIcon sx={{ fontSize: 18 }} />
+                    </Tooltip>
+                  </ToggleButton>
+                )}
+                <ToggleButton value="details" aria-label="Details view">
+                  <Tooltip title="Details">
+                    <TuneIcon sx={{ fontSize: 18 }} />
+                  </Tooltip>
+                </ToggleButton>
+              </ToggleButtonGroup>
+
+              {/* Restore split view button - only on desktop when chat is collapsed */}
+              {isBigScreen && chatCollapsed && (
+                <Tooltip title="Restore split view">
+                  <IconButton
+                    size="small"
+                    onClick={() => setChatCollapsed(false)}
+                    sx={{ ml: 0.5 }}
+                  >
+                    <VerticalSplitIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+
+              {/* Spacer */}
+              <Box sx={{ flex: 1 }} />
+
+              {/* Right: Action buttons */}
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                {isEditMode ? (
+                  <>
+                    <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      color="secondary"
+                      startIcon={<SaveIcon />}
+                      onClick={handleSaveEdit}
+                      disabled={updateSpecTask.isPending}
+                      sx={{ fontSize: '0.75rem' }}
+                    >
+                      Save
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
+                      <Tooltip title="Edit task">
+                        <IconButton size="small" onClick={handleEditToggle}>
+                          <EditIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {activeSessionId && (
+                      <Tooltip title="Restart agent session">
+                        <IconButton
+                          size="small"
+                          onClick={() => setRestartConfirmOpen(true)}
+                          disabled={isRestarting}
+                          color="warning"
+                        >
+                          {isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon sx={{ fontSize: 18 }} />}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title={activeSessionId ? "Upload files to sandbox" : "Start task to enable file upload"}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={handleUploadClick}
+                          disabled={isUploading || !activeSessionId}
+                          color="primary"
+                        >
+                          {isUploading ? <CircularProgress size={16} /> : <CloudUploadIcon sx={{ fontSize: 18 }} />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </>
+                )}
+                {onClose && (
+                  <IconButton size="small" onClick={onClose}>
+                    <CloseIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                )}
+              </Box>
+            </Box>
+
+            {/* Chat View - mobile only */}
+            {activeSessionId && currentView === 'chat' && (
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
+                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <RobustPromptInput
+                      sessionId={activeSessionId}
+                      specTaskId={task.id}
+                      projectId={task.project_id}
+                      apiClient={api.getApiClient()}
+                      onSend={async (message: string, interrupt?: boolean) => {
+                        await streaming.NewInference({
+                          type: SESSION_TYPE_TEXT,
+                          message,
+                          sessionId: activeSessionId,
+                          interrupt: interrupt ?? true,
+                        })
+                      }}
+                      onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                      placeholder="Send message to agent..."
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            )}
+
+            {/* Desktop View - mobile */}
+            {activeSessionId && currentView === 'desktop' && (
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <ExternalAgentDesktopViewer
+                  sessionId={activeSessionId}
+                  sandboxId={activeSessionId}
+                  mode="stream"
+                  onClientIdCalculated={setClientUniqueId}
+                  displayWidth={displaySettings.width}
+                  displayHeight={displaySettings.height}
+                  displayFps={displaySettings.fps}
                 />
               </Box>
             )}
-          </Box>
-        )}
 
-        {/* Changes View */}
-        {activeSessionId && currentView === 'changes' && (
-          <DiffViewer
-            sessionId={activeSessionId}
-            baseBranch="main"
-            pollInterval={3000}
-          />
-        )}
-
-        {/* Details View */}
-        {currentView === 'details' && (
-          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-            {/* Action Buttons */}
-            <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              {task.status === 'backlog' && (
-                <>
-                  <Button
-                    variant="contained"
-                    color={justDoItMode ? 'success' : 'warning'}
-                    startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
-                    onClick={handleStartPlanning}
-                    disabled={isStartingPlanning}
-                  >
-                    {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
-                  </Button>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={justDoItMode}
-                        onChange={handleToggleJustDoIt}
-                        disabled={updatingJustDoIt}
-                        color="warning"
-                        size="small"
-                      />
-                    }
-                    label={<Typography variant="body2">Just Do It</Typography>}
-                    sx={{ ml: 1 }}
-                  />
-                </>
-              )}
-              {task.status === 'spec_review' && (
-                <Button
-                  variant="contained"
-                  color="info"
-                  startIcon={<Description />}
-                  onClick={async () => {
-                    try {
-                      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
-                      const reviews = response.data?.reviews || []
-                      if (reviews.length > 0) {
-                        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-                        // If onOpenReview is provided (Workspace mode), open in a tab instead of navigating
-                        if (onOpenReview) {
-                          onOpenReview(task.id!, latestReview.id, task.name || 'Spec Review')
-                        } else {
-                          // Navigate to the review page
-                          account.orgNavigate('project-task-review', {
-                            id: task.project_id,
-                            taskId: task.id,
-                            reviewId: latestReview.id,
-                          })
-                        }
-                      } else {
-                        snackbar.error('No design review found')
-                      }
-                    } catch (error) {
-                      console.error('Failed to fetch design reviews:', error)
-                      snackbar.error('Failed to load design review')
-                    }
-                  }}
-                >
-                  Review Spec
-                </Button>
-              )}
-              {task.pull_request_url && (
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={<LaunchIcon />}
-                  onClick={() => window.open(task.pull_request_url, '_blank')}
-                >
-                  View Pull Request
-                </Button>
-              )}
-            </Box>
-
-            <Divider sx={{ mb: 3 }} />
-
-            {/* Description */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Description
-              </Typography>
-              {isEditMode ? (
-                <TextField
-                  fullWidth
-                  multiline
-                  rows={4}
-                  value={editFormData.description}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Task description"
+            {/* Changes View - mobile */}
+            {activeSessionId && currentView === 'changes' && (
+              <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                <DiffViewer
+                  sessionId={activeSessionId}
+                  baseBranch="main"
+                  pollInterval={3000}
                 />
-              ) : (
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {task.description || task.original_prompt || 'No description provided'}
-                </Typography>
-              )}
-            </Box>
+              </Box>
+            )}
 
-            <Divider sx={{ my: 2 }} />
-
-            {/* Priority */}
-            <Box sx={{ mb: 2 }}>
-              {isEditMode ? (
-                <FormControl fullWidth size="small">
-                  <InputLabel>Priority</InputLabel>
-                  <Select
-                    value={editFormData.priority}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
-                    label="Priority"
-                  >
-                    <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>Critical</MenuItem>
-                    <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>High</MenuItem>
-                    <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>Medium</MenuItem>
-                    <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>Low</MenuItem>
-                  </Select>
-                </FormControl>
-              ) : (
-                <>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Priority
-                  </Typography>
-                  <Chip label={task.priority || 'Medium'} color={getPriorityColor(task.priority)} size="small" />
-                </>
-              )}
-            </Box>
-
-            {/* Agent Selection */}
-            <Box sx={{ mb: 2 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Agent</InputLabel>
-                <Select
-                  value={selectedAgent}
-                  onChange={(e) => handleAgentChange(e.target.value)}
-                  label="Agent"
-                  disabled={updatingAgent}
-                  endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
-                >
-                  {sortedApps.map((app) => (
-                    <MenuItem key={app.id} value={app.id}>
-                      {app.config?.helix?.name || 'Unnamed Agent'}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
-
-            {/* Timestamps */}
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Created: {task.created_at ? new Date(task.created_at).toLocaleString() : 'N/A'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Updated: {task.updated_at ? new Date(task.updated_at).toLocaleString() : 'N/A'}
-              </Typography>
-            </Box>
-
-            {/* Debug Info */}
-            <Divider sx={{ my: 2 }} />
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
-              <Typography variant="caption" color="grey.400" display="block" gutterBottom>
-                Debug Information
-              </Typography>
-              <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                Task ID: {task.id || 'N/A'}
-              </Typography>
-              {task.branch_name && (
-                <Tooltip title="Spectask branches push changes to upstream repository">
-                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                    Branch: {task.branch_name} <Box component="span" sx={{ color: 'success.main' }}>→ PUSH</Box>
-                  </Typography>
-                </Tooltip>
-              )}
-              {task.base_branch && task.base_branch !== task.branch_name && (
-                <Tooltip title="Base branch pulls updates from upstream repository">
-                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                    Base: {task.base_branch} <Box component="span" sx={{ color: 'info.main' }}>← PULL</Box>
-                  </Typography>
-                </Tooltip>
-              )}
-              {activeSessionId && (
-                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                  Session ID: {activeSessionId}
-                </Typography>
-              )}
-            </Box>
-          </Box>
+            {/* Details View - mobile/no session */}
+            {currentView === 'details' && (
+              <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+                {renderDetailsContent()}
+              </Box>
+            )}
+          </>
         )}
       </Box>
 

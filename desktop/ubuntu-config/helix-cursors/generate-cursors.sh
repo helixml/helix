@@ -89,10 +89,11 @@ generate_cursor "left_ptr_watch"  0  3
 generate_cursor "wait"            12 0
 generate_cursor "watch"           12 0
 
-# Text cursor / I-beam (centered for text selection)
-generate_cursor "text"            12 12
-generate_cursor "xterm"           12 12
-generate_cursor "ibeam"           12 12
+# Text cursor / I-beam (at 12,14 to avoid collision with resize cursor slots)
+generate_cursor "text"            12 14
+generate_cursor "xterm"           12 14
+generate_cursor "ibeam"           12 14
+generate_cursor "vertical-text"   12 14
 
 # Crosshair (centered)
 generate_cursor "crosshair"       12 1
@@ -141,6 +142,7 @@ generate_cursor "zoom_out"        12 8
 
 # North-South resize (vertical)
 generate_cursor "ns-resize"       12 9
+generate_cursor "ns_resize"       12 9
 generate_cursor "n-resize"        12 9
 generate_cursor "s-resize"        12 9
 generate_cursor "size_ver"        12 9
@@ -149,9 +151,11 @@ generate_cursor "v_double_arrow"  12 9
 generate_cursor "top_side"        12 9
 generate_cursor "bottom_side"     12 9
 generate_cursor "row-resize"      12 9
+generate_cursor "row_resize"      12 9
 
 # East-West resize (horizontal)
 generate_cursor "ew-resize"       12 10
+generate_cursor "ew_resize"       12 10
 generate_cursor "e-resize"        12 10
 generate_cursor "w-resize"        12 10
 generate_cursor "size_hor"        12 10
@@ -160,9 +164,11 @@ generate_cursor "h_double_arrow"  12 10
 generate_cursor "left_side"       12 10
 generate_cursor "right_side"      12 10
 generate_cursor "col-resize"      12 10
+generate_cursor "col_resize"      12 10
 
 # NW-SE resize (diagonal backslash)
 generate_cursor "nwse-resize"     12 11
+generate_cursor "nwse_resize"     12 11
 generate_cursor "nw-resize"       12 11
 generate_cursor "se-resize"       12 11
 generate_cursor "size_fdiag"      12 11
@@ -170,14 +176,15 @@ generate_cursor "bd_double_arrow" 12 11
 generate_cursor "top_left_corner" 12 11
 generate_cursor "bottom_right_corner" 12 11
 
-# NE-SW resize (diagonal slash)
-generate_cursor "nesw-resize"     12 13
-generate_cursor "ne-resize"       12 13
-generate_cursor "sw-resize"       12 13
-generate_cursor "size_bdiag"      12 13
-generate_cursor "fd_double_arrow" 12 13
-generate_cursor "top_right_corner" 12 13
-generate_cursor "bottom_left_corner" 12 13
+# NE-SW resize (diagonal slash) - at 12,12 (moved from 12,13 to keep resize cursors consecutive)
+generate_cursor "nesw-resize"     12 12
+generate_cursor "nesw_resize"     12 12
+generate_cursor "ne-resize"       12 12
+generate_cursor "sw-resize"       12 12
+generate_cursor "size_bdiag"      12 12
+generate_cursor "fd_double_arrow" 12 12
+generate_cursor "top_right_corner" 12 12
+generate_cursor "bottom_left_corner" 12 12
 
 # ============================================================================
 # Additional cursor aliases via symlinks

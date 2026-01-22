@@ -1890,37 +1890,32 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
+	// Once we start processing, mark it done so no other process picks it up.
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+		// Continue anyway - better to risk duplicate than lose the message
 	}
 
-	// Send the prompt to the session
-	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
-	if err != nil {
+	// Send the prompt to the session (creates interaction and sends to agent)
+	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
+		// Interaction creation failed - revert to 'failed' so it can be retried
 		log.Error().
 			Err(err).
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to send pending prompt to session")
-
-		// Mark as failed
+			Msg("Failed to create interaction for pending prompt - reverting to failed")
 		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
-	}
-
-	// Mark as sent
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("prompt_id", nextPrompt.ID).
 		Bool("interrupt", nextPrompt.Interrupt).
-		Msg("✅ [QUEUE] Successfully sent pending prompt to session")
+		Msg("✅ [QUEUE] Successfully processed pending prompt")
 }
 
 // sendQueuedPromptToSession sends a queued prompt to an external agent session
@@ -1930,6 +1925,12 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Check if session has required metadata for queue processing
+	// External agent sessions need ZedThreadID to route messages
+	if session.Metadata.ZedThreadID == "" {
+		return fmt.Errorf("session %s has no ZedThreadID - cannot process queued prompt (is this an external agent session?)", sessionID)
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
@@ -1994,7 +1995,21 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 
 	// Use the unified sendCommandToExternalAgent which handles connection lookup,
 	// adds session_id to data, and updates agent work state
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
+	//
+	// IMPORTANT: We don't return error if sending to agent fails, because the
+	// interaction was already created. The queue's job is to persist the message
+	// to the backend - which succeeded. Agent send failures are logged but don't
+	// affect the prompt status. The user will see the interaction in the session
+	// and can retry if needed.
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Str("interaction_id", createdInteraction.ID).
+			Str("prompt_id", prompt.ID).
+			Msg("❌ [QUEUE] Failed to send to agent, but interaction was created - prompt will be marked as sent")
+	}
+
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters

@@ -1222,25 +1222,6 @@ definitions:
       status:
         type: string
     type: object
-  server.SendMessageRequest:
-    properties:
-      content:
-        type: string
-      interrupt:
-        description: If true, interrupt current work; if false, queue after current
-          work
-        type: boolean
-    type: object
-  server.SendMessageResponse:
-    properties:
-      interaction_id:
-        type: string
-      session_id:
-        type: string
-      status:
-        description: '"queued" or "sent"'
-        type: string
-    type: object
   server.SessionSandboxStateResponse:
     properties:
       container_id:
@@ -4936,6 +4917,9 @@ definitions:
       last_used_at:
         description: Last time reused
         type: string
+      next_retry_at:
+        description: When to retry (for exponential backoff)
+        type: string
       pinned:
         description: Library features for prompt reuse
         type: boolean
@@ -4946,6 +4930,9 @@ definitions:
         description: |-
           QueuePosition tracks ordering for drag-and-drop reordering
           Lower values = earlier in queue. Null for sent messages.
+        type: integer
+      retry_count:
+        description: Retry tracking for failed prompts
         type: integer
       session_id:
         description: Optional - which session this was sent to
@@ -14085,50 +14072,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Provide feedback for an interaction
-      tags:
-      - interactions
-  /api/v1/sessions/{id}/message:
-    post:
-      consumes:
-      - application/json
-      description: |-
-        Send a message to a session. Creates an interaction and kicks off agent processing.
-        Returns immediately with 200 if the message was saved to the database.
-        The actual agent response will come via WebSocket subscription to the session.
-      parameters:
-      - description: Session ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Message to send
-        in: body
-        name: message
-        required: true
-        schema:
-          $ref: '#/definitions/server.SendMessageRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.SendMessageResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Send a message to a session (non-blocking)
       tags:
       - interactions
   /api/v1/sessions/{id}/rdp-connection:

@@ -142,7 +142,7 @@ const SpecTasksPage: FC = () => {
 
   // State for view management - always default to kanban, but respect query param
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
-    // Check query param - allows "Open in Workspace" links to work
+    // Check query param - allows "Split Screen" links to work
     if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
       return queryTab;
     }
@@ -892,7 +892,7 @@ const SpecTasksPage: FC = () => {
               <Tooltip
                 title={
                   <Box sx={{ p: 0.5 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Workspace View</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Split Screen</Typography>
                     <Typography variant="caption" component="div">
                       • Work on multiple tasks side-by-side<br />
                       • Drag dividers to resize panels<br />

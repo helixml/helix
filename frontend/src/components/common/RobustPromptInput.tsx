@@ -165,6 +165,15 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
 
   const isFailed = entry.status === 'failed'
 
+  // Force re-render every second for failed items with retry countdown
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    if (isFailed && entry.nextRetryAt && entry.nextRetryAt > Date.now()) {
+      const interval = setInterval(() => forceUpdate(n => n + 1), 1000)
+      return () => clearInterval(interval)
+    }
+  }, [isFailed, entry.nextRetryAt])
+
   return (
     <Box
       ref={setNodeRef}
@@ -323,7 +332,16 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Typography variant="caption" sx={{ color: 'error.main' }}>
-              Failed to send - will retry
+              {entry.nextRetryAt ? (
+                (() => {
+                  const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
+                  return secondsUntilRetry > 0
+                    ? `Failed - retrying in ${secondsUntilRetry}s`
+                    : 'Failed - retrying now...'
+                })()
+              ) : (
+                'Failed - will retry'
+              )}
             </Typography>
           )}
         </Box>
@@ -406,7 +424,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
   const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
-  const processingRef = useRef(false)
 
   // Editing state for queued messages
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -485,82 +502,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [])
 
-  // Check if backend queue processing is enabled
-  // When specTaskId, projectId, and apiClient are all provided, the backend handles queue processing
-  const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
-
-  // Process queue - send pending messages one at a time
-  // When backend queue processing is enabled, the backend handles sending after sync
-  // When disabled, frontend sends directly via onSend
-  const processQueue = useCallback(async () => {
-    // When backend queue is enabled, let the backend handle sending
-    // The backend processes the queue after sync (interrupt prompts immediately,
-    // queue prompts after message_completed events)
-    if (backendQueueEnabled) return
-
-    // Prevent concurrent processing
-    if (processingRef.current || !isOnline || disabled) return
-
-    // Build queue sorted: interrupt mode first, then queue mode, within each by timestamp
-    const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
-      const aInterrupt = a.interrupt !== false
-      const bInterrupt = b.interrupt !== false
-      if (aInterrupt && !bInterrupt) return -1
-      if (!aInterrupt && bInterrupt) return 1
-      return a.timestamp - b.timestamp
-    })
-
-    // If editing, find the index of the message being edited
-    // Block that message and everything after it (maintain ordering)
-    let editingIndex = -1
-    if (editingId) {
-      editingIndex = queuedMessages.findIndex(m => m.id === editingId)
-    }
-
-    // Find next message to send (only messages before the editing one)
-    const nextToSend = queuedMessages.find((m, index) => {
-      // Don't send if currently sending
-      if (m.id === sendingId) return false
-      // Don't send if already sent
-      if (m.status === 'sent') return false
-      // If editing, don't send this message or anything after it
-      if (editingIndex !== -1 && index >= editingIndex) return false
-      return true
-    })
-
-    if (!nextToSend) return
-
-    processingRef.current = true
-    setSendingId(nextToSend.id)
-
-    try {
-      // Pass interrupt flag to backend - true means interrupt current work, false means queue after
-      await onSend(nextToSend.content, nextToSend.interrupt !== false)
-      markAsSent(nextToSend.id)
-    } catch (error) {
-      console.error('Failed to send message:', error)
-      markAsFailed(nextToSend.id)
-    } finally {
-      setSendingId(null)
-      processingRef.current = false
-    }
-  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
-
-  // Auto-process queue when online and messages are pending
-  useEffect(() => {
-    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
-      const timer = setTimeout(processQueue, 500)
-      return () => clearTimeout(timer)
-    }
-  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
-
-  // Continue processing queue after each send
-  useEffect(() => {
-    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
-      const timer = setTimeout(processQueue, 300)
-      return () => clearTimeout(timer)
-    }
-  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  // Backend queue processing is ALWAYS enabled
+  // The backend handles processing prompts after they're synced via usePromptHistory
+  // Frontend only needs to save to history and sync - no direct sending or retry logic needed
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -625,12 +569,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       })
       return []
     })
-
-    // If online and nothing sending, start processing immediately
-    if (isOnline && !processingRef.current) {
-      setTimeout(processQueue, 100)
-    }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, isOnline, processQueue, interruptMode])
+    // Backend handles processing after sync - no need to call processQueue
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
 
   // Remove from queue
   const handleRemoveFromQueue = useCallback((entryId: string) => {
@@ -730,10 +670,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         })
         return []
       })
-
-      if (isOnline && !processingRef.current) {
-        setTimeout(processQueue, 100)
-      }
+      // Backend handles processing after sync
       return
     }
 
@@ -754,7 +691,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, isOnline, processQueue, navigateUp, navigateDown])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown])
 
   // Add a file as an attachment (queues for upload, uploads if online)
   const addFileAsAttachment = useCallback((file: File): string => {
@@ -1031,8 +968,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               {editingId
                 ? 'Editing - paused from here'
                 : isOnline
-                  ? 'Sending queue'
-                  : 'Offline - will send when connected'}
+                  ? 'Message queue (saved locally)'
+                  : 'Offline - saved locally, will send when connected'}
             </Typography>
             <Chip
               label={queuedMessages.length}
@@ -1053,25 +990,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 strategy={verticalListSortingStrategy}
               >
                 {queuedMessages.map((entry, index) => (
-                  <SortableQueueItem
-                    key={entry.id}
-                    entry={entry}
-                    index={index}
-                    totalCount={queuedMessages.length}
-                    isSending={entry.id === sendingId}
-                    isEditing={entry.id === editingId}
-                    editingContent={editingContent}
-                    setEditingContent={setEditingContent}
-                    editTextareaRef={editTextareaRef}
-                    handleEditKeyDown={handleEditKeyDown}
-                    handleSaveEdit={handleSaveEdit}
-                    handleCancelEdit={handleCancelEdit}
-                    handleStartEdit={handleStartEdit}
-                    handleRemoveFromQueue={handleRemoveFromQueue}
-                    handleToggleInterrupt={handleToggleInterrupt}
-                    truncateContent={truncateContent}
-                  />
-                ))}
+                    <SortableQueueItem
+                      key={entry.id}
+                      entry={entry}
+                      index={index}
+                      totalCount={queuedMessages.length}
+                      isSending={entry.id === sendingId}
+                      isEditing={entry.id === editingId}
+                      editingContent={editingContent}
+                      setEditingContent={setEditingContent}
+                      editTextareaRef={editTextareaRef}
+                      handleEditKeyDown={handleEditKeyDown}
+                      handleSaveEdit={handleSaveEdit}
+                      handleCancelEdit={handleCancelEdit}
+                      handleStartEdit={handleStartEdit}
+                      handleRemoveFromQueue={handleRemoveFromQueue}
+                      handleToggleInterrupt={handleToggleInterrupt}
+                      truncateContent={truncateContent}
+                    />
+                  ))}
               </SortableContext>
             </DndContext>
           </Box>
