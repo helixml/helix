@@ -342,13 +342,11 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 // findWorkspaceDir finds the git repository workspace directory
 // It checks common locations where the workspace might be mounted
 func findWorkspaceDir() string {
-	// Check common workspace paths in priority order
-	// /home/retro/work is the standard Helix workspace symlink
 	candidates := []string{
-		"/home/retro/work",       // Default Helix workspace symlink
+		"/home/retro/work",         // Default Helix workspace symlink
 		os.Getenv("WORKSPACE_DIR"), // Set by container executor
-		"/home/retro/workspace",  // Alternative name
-		"/workspace",             // Container workspace mount
+		"/home/retro/workspace",    // Alternative name
+		"/workspace",               // Container workspace mount
 	}
 
 	for _, dir := range candidates {
@@ -358,8 +356,29 @@ func findWorkspaceDir() string {
 		if isGitRepo(dir) {
 			return dir
 		}
+		if found := findGitRepoInDir(dir); found != "" {
+			return found
+		}
 	}
 
+	return ""
+}
+
+// findGitRepoInDir looks for a git repository in immediate subdirectories
+func findGitRepoInDir(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		subdir := filepath.Join(dir, entry.Name())
+		if isGitRepo(subdir) {
+			return subdir
+		}
+	}
 	return ""
 }
 
