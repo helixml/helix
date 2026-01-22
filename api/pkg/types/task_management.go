@@ -125,6 +125,41 @@ const (
 	AgentTypeZedExternal AgentType = "zed_external" // Zed-integrated agent
 )
 
+// AgentHostType specifies the host environment for the AI code agent.
+//
+// This is a two-level hierarchy:
+//   - AgentHostType determines the outer environment (IDE or headless)
+//   - CodeAgentRuntime determines which agent runs INSIDE Zed (only for AgentHostTypeZed)
+//
+// Examples:
+//   - AgentHostTypeZed + CodeAgentRuntimeQwenCode = Qwen Code agent inside Zed
+//   - AgentHostTypeZed + CodeAgentRuntimeZedAgent = Zed's built-in agent
+//   - AgentHostTypeVSCode = Roo Code extension (CodeAgentRuntime ignored)
+//   - AgentHostTypeHeadless = Custom Go ACP client (future)
+type AgentHostType string
+
+const (
+	// AgentHostTypeZed uses the Zed editor with ACP-based agents (default).
+	// The agent inside Zed is determined by CodeAgentRuntime (qwen_code, zed_agent, etc.).
+	AgentHostTypeZed AgentHostType = "zed"
+
+	// AgentHostTypeVSCode uses VS Code with the Roo Code extension.
+	// Roo Code IS the agent - CodeAgentRuntime is ignored for this host type.
+	AgentHostTypeVSCode AgentHostType = "vscode"
+
+	// AgentHostTypeHeadless runs agents without a graphical IDE (future).
+	// Uses a custom Go-based ACP client that directly implements tool execution.
+	AgentHostTypeHeadless AgentHostType = "headless"
+)
+
+// GetAgentHostType returns the agent host type with default fallback to Zed.
+func GetAgentHostType(hostType AgentHostType) AgentHostType {
+	if hostType == "" {
+		return AgentHostTypeZed
+	}
+	return hostType
+}
+
 // CodeAgentRuntime specifies which code agent runtime to use inside Zed.
 // This determines how the LLM is configured within the Zed editor.
 type CodeAgentRuntime string

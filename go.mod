@@ -105,6 +105,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
 	github.com/abema/go-mp4 v1.4.1 // indirect
+	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/asticode/go-astikit v0.30.0 // indirect
 	github.com/asticode/go-astits v1.14.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -116,16 +117,20 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v3 v3.0.0 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
+	github.com/doquangtan/socketio/v4 v4.1.6 // indirect
 	github.com/emirpasic/gods/v2 v2.0.0-alpha // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.35.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
+	github.com/fasthttp/websocket v1.5.3 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
 	github.com/go-git/gcfg/v2 v2.0.2 // indirect
 	github.com/go-git/go-git/v5 v5.16.4 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/goccy/go-json v0.10.2 // indirect
+	github.com/goccy/go-json v0.10.4 // indirect
+	github.com/gofiber/fiber/v2 v2.52.9 // indirect
+	github.com/gofiber/websocket/v2 v2.2.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
@@ -152,11 +157,15 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/savsgio/gotils v0.0.0-20230208104028-c358bd845dee // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasthttp v1.51.0 // indirect
+	github.com/valyala/tcplisten v1.0.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/yalue/native_endian v1.0.2 // indirect
@@ -254,7 +263,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pjbgf/sha1cd v0.5.0 // indirect
 	github.com/pkg/errors v0.9.1

@@ -823,6 +823,17 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		if agent.DisplayScale > 0 {
 			env = append(env, fmt.Sprintf("HELIX_DISPLAY_SCALE=%d", agent.DisplayScale))
 		}
+
+		// Agent host type (zed, vscode, headless)
+		agentHostType := types.GetAgentHostType(agent.AgentHostType)
+		env = append(env, fmt.Sprintf("HELIX_AGENT_HOST_TYPE=%s", agentHostType))
+
+		// For VS Code + Roo Code mode, configure Roo Code to use our local bridge
+		if agentHostType == types.AgentHostTypeVSCode {
+			// ROO_CODE_API_URL tells Roo Code extension where to fetch bridge config
+			// Our RooCodeBridge serves this endpoint at /api/extension/bridge/config
+			env = append(env, "ROO_CODE_API_URL=http://localhost:9879")
+		}
 	}
 
 	// Add GPU-specific environment variables

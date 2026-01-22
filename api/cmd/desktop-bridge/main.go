@@ -121,6 +121,37 @@ func main() {
 		logger.Warn("RevDial client disabled: missing HELIX_API_URL, HELIX_SESSION_ID, or USER_API_TOKEN")
 	}
 
+	// Start AgentClient for non-Zed agent host types (e.g., VS Code + Roo Code)
+	// This handles the WebSocket connection to Helix API and translation to the agent
+	agentHostType := os.Getenv("HELIX_AGENT_HOST_TYPE")
+	if agentHostType == "vscode" && apiURL != "" && sessionID != "" && runnerToken != "" {
+		logger.Info("starting AgentClient for VS Code + Roo Code mode",
+			"session_id", sessionID,
+			"api_url", apiURL)
+
+		agentClient, err := desktop.NewAgentClient(desktop.AgentClientConfig{
+			APIURL:           apiURL,
+			SessionID:        sessionID,
+			Token:            runnerToken,
+			HostType:         "vscode",
+			RooCodeSocketURL: "9879", // Port for RooCodeBridge Socket.IO server
+		})
+		if err != nil {
+			logger.Error("failed to create AgentClient", "err", err)
+		} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := agentClient.Start(); err != nil {
+					logger.Error("AgentClient error", "err", err)
+				}
+				<-ctx.Done()
+				agentClient.Stop()
+				logger.Info("AgentClient stopped")
+			}()
+		}
+	}
+
 	// Wait for all services to finish
 	wg.Wait()
 	logger.Info("desktop-bridge shutdown complete")

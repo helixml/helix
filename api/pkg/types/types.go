@@ -487,6 +487,9 @@ type ExternalAgentConfig struct {
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 
+	// Agent host environment
+	AgentHostType AgentHostType `json:"agent_host_type,omitempty"` // "zed" (default), "vscode", or "headless"
+
 	// Video capture/encoding mode
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
@@ -525,6 +528,11 @@ func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
 		return c.DesktopType
 	}
 	return "ubuntu" // Default to Ubuntu
+}
+
+// GetEffectiveAgentHostType returns the agent host type with default fallback to Zed.
+func (c *ExternalAgentConfig) GetEffectiveAgentHostType() AgentHostType {
+	return GetAgentHostType(c.AgentHostType)
 }
 
 // GetEffectiveZoomLevel returns the zoom level with auto-detection for high-res displays
@@ -1903,10 +1911,11 @@ type DesktopAgent struct {
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 
 	// Resolution and desktop configuration
-	Resolution   string `json:"resolution,omitempty"`    // Resolution preset: "1080p" (default), "4k", or "5k"
-	DesktopType  string `json:"desktop_type,omitempty"`  // Desktop environment: "ubuntu" (default) or "sway"
-	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
-	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
+	Resolution    string        `json:"resolution,omitempty"`      // Resolution preset: "1080p" (default), "4k", or "5k"
+	DesktopType   string        `json:"desktop_type,omitempty"`    // Desktop environment: "ubuntu" (default) or "sway"
+	ZoomLevel     int           `json:"zoom_level,omitempty"`      // GNOME zoom percentage (100 default, 200 for 4k/5k)
+	DisplayScale  int           `json:"display_scale,omitempty"`   // KDE/Qt display scale factor (1=100%, 2=200%)
+	AgentHostType AgentHostType `json:"agent_host_type,omitempty"` // "zed" (default), "vscode", or "headless"
 
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
