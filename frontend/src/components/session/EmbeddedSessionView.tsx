@@ -105,7 +105,11 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
             containerRef.current.scrollTop = containerRef.current.scrollHeight
             isAtBottomRef.current = true
           }
-          isResizingRef.current = false
+          // Delay resetting isResizingRef to allow scroll event to fire first
+          // Scroll events fire asynchronously after scrollTop is set
+          setTimeout(() => {
+            isResizingRef.current = false
+          }, 50)
         })
       } else {
         isResizingRef.current = false
@@ -132,7 +136,10 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
             containerRef.current.scrollTop = containerRef.current.scrollHeight
             isAtBottomRef.current = true
           }
-          isResizingRef.current = false
+          // Delay resetting isResizingRef to allow scroll event to fire first
+          setTimeout(() => {
+            isResizingRef.current = false
+          }, 50)
         })
       }
     })
@@ -197,7 +204,10 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       }
       containerRef.current.scrollTop = containerRef.current.scrollHeight
       isAtBottomRef.current = true
-      isResizingRef.current = false
+      // Delay resetting isResizingRef to allow scroll event to fire first
+      setTimeout(() => {
+        isResizingRef.current = false
+      }, 50)
     })
 
     onScrollToBottom?.()
