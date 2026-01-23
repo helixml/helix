@@ -27,11 +27,28 @@ type SandboxInstanceInfo struct {
 	ContainerID string `json:"container_id,omitempty"`
 }
 
-// DevContainerWithClients extends DevContainerResponse with connected clients
+// DevContainerWithClients extends DevContainerResponse with connected clients and video stats
 type DevContainerWithClients struct {
 	hydra.DevContainerResponse
-	SandboxID string       `json:"sandbox_id"`
-	Clients   []ClientInfo `json:"clients,omitempty"`
+	SandboxID  string              `json:"sandbox_id"`
+	Clients    []ClientInfo        `json:"clients,omitempty"`
+	VideoStats *VideoStreamingStats `json:"video_stats,omitempty"`
+}
+
+// VideoStreamingStats contains video streaming buffer statistics
+type VideoStreamingStats struct {
+	ClientCount    int                    `json:"client_count"`
+	FramesReceived uint64                 `json:"frames_received"`
+	GOPBufferSize  int                    `json:"gop_buffer_size"`
+	ClientBuffers  []ClientBufferStats    `json:"client_buffers,omitempty"`
+}
+
+// ClientBufferStats contains per-client buffer statistics
+type ClientBufferStats struct {
+	ClientID   uint64 `json:"client_id"`
+	BufferUsed int    `json:"buffer_used"`
+	BufferSize int    `json:"buffer_size"`
+	BufferPct  int    `json:"buffer_pct"`
 }
 
 // ClientInfo represents a connected WebSocket client
@@ -120,10 +137,13 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 					SandboxID:            sb.ID,
 				}
 
-				// Query desktop server for connected clients (only for running containers)
+				// Query desktop server for connected clients and video stats (only for running containers)
 				if dc.Status == hydra.DevContainerStatusRunning {
 					clients := apiServer.queryDesktopClients(ctx, hydraClient, dc.SessionID)
 					dcWithClients.Clients = clients
+
+					videoStats := apiServer.queryVideoStats(ctx, hydraClient, dc.SessionID)
+					dcWithClients.VideoStats = videoStats
 				}
 
 				allDevContainers = append(allDevContainers, dcWithClients)
@@ -167,6 +187,38 @@ func (apiServer *HelixAPIServer) queryDesktopClients(ctx context.Context, hydraC
 		}
 	}
 	return clients
+}
+
+// queryVideoStats queries the desktop server's /video/stats endpoint via Hydra proxy
+func (apiServer *HelixAPIServer) queryVideoStats(ctx context.Context, hydraClient *hydra.RevDialClient, sessionID string) *VideoStreamingStats {
+	ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	resp, err := hydraClient.GetDevContainerVideoStats(ctxTimeout, sessionID)
+	if err != nil {
+		// Not an error - container may not have video stats
+		return nil
+	}
+
+	// Aggregate stats from all sources (usually just one)
+	stats := &VideoStreamingStats{}
+	for _, src := range resp.Sources {
+		stats.ClientCount += src.ClientCount
+		stats.FramesReceived += src.FramesReceived
+		stats.GOPBufferSize = src.GOPBufferSize
+
+		// Convert client buffers
+		for _, cb := range src.Clients {
+			stats.ClientBuffers = append(stats.ClientBuffers, ClientBufferStats{
+				ClientID:   cb.ClientID,
+				BufferUsed: cb.BufferUsed,
+				BufferSize: cb.BufferSize,
+				BufferPct:  cb.BufferPct,
+			})
+		}
+	}
+
+	return stats
 }
 
 // @Summary Get sandbox real-time events (SSE)

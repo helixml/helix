@@ -201,6 +201,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -557,6 +558,77 @@ func (s *Server) handleGetDevContainerClients(w http.ResponseWriter, r *http.Req
 		}{
 			SessionID: sessionID,
 			Clients:   []interface{}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(emptyResp)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Forward the response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+}
+
+// handleGetDevContainerVideoStats proxies a request to the desktop container's /video/stats endpoint
+// to get video streaming statistics including per-client buffer usage
+func (s *Server) handleGetDevContainerVideoStats(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Get the dev container to find its IP address
+	container, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("dev container not found: %s", err), http.StatusNotFound)
+		return
+	}
+
+	if container.IPAddress == "" {
+		http.Error(w, "dev container has no IP address", http.StatusServiceUnavailable)
+		return
+	}
+
+	if container.Status != DevContainerStatusRunning {
+		http.Error(w, fmt.Sprintf("dev container not running (status: %s)", container.Status), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proxy request to the desktop container's /video/stats endpoint
+	desktopURL := fmt.Sprintf("http://%s:9876/video/stats", container.IPAddress)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", desktopURL, nil)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create request: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("desktop_url", desktopURL).
+			Msg("Failed to query desktop /video/stats endpoint")
+		// Return empty stats instead of error
+		emptyResp := struct {
+			SessionID string        `json:"session_id"`
+			Sources   []interface{} `json:"sources"`
+		}{
+			SessionID: sessionID,
+			Sources:   []interface{}{},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(emptyResp)

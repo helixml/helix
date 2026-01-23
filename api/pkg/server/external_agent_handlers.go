@@ -230,6 +230,81 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 
 }
 
+// getExternalAgentVideoStats handles GET /api/v1/external-agents/{sessionID}/video/stats
+// Returns video streaming statistics including per-client buffer usage
+func (apiServer *HelixAPIServer) getExternalAgentVideoStats(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for video stats")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership (or admin access)
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for video stats")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Str("session_id", sessionID).Msg("Failed to connect to sandbox via RevDial for video stats")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/video/stats", nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create video stats request")
+		http.Error(res, "Failed to create video stats request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send video stats request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	statsResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read video stats response from RevDial")
+		http.Error(res, "Failed to read video stats response", http.StatusInternalServerError)
+		return
+	}
+	defer statsResp.Body.Close()
+
+	// Check response status
+	if statsResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(statsResp.Body)
+		log.Error().Int("status", statsResp.StatusCode).Str("session_id", sessionID).Str("error_body", string(errorBody)).Msg("Video stats server returned error")
+		http.Error(res, "Failed to retrieve video stats from container", statsResp.StatusCode)
+		return
+	}
+
+	// Return JSON response directly
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	io.Copy(res, statsResp.Body)
+}
+
 // @Summary Execute command in sandbox
 // @Description Executes a command inside the sandbox container for benchmarking and debugging.
 // @Description Only specific safe commands are allowed (vkcube, glxgears, pkill).

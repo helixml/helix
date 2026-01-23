@@ -705,6 +705,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // WebSocket: keyboard/mouse input stream
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET") // Video streaming stats (buffer usage, client count)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
 

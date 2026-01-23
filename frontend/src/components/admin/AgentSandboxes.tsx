@@ -22,6 +22,7 @@ import ComputerIcon from '@mui/icons-material/Computer'
 import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
+import VideocamIcon from '@mui/icons-material/Videocam'
 import { useQuery } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 
@@ -48,6 +49,20 @@ interface ClientInfo {
   last_seen: string
 }
 
+interface ClientBufferStats {
+  client_id: number
+  buffer_used: number
+  buffer_size: number
+  buffer_pct: number
+}
+
+interface VideoStreamingStats {
+  client_count: number
+  frames_received: number
+  gop_buffer_size: number
+  client_buffers?: ClientBufferStats[]
+}
+
 interface DevContainerWithClients {
   session_id: string
   container_id: string
@@ -60,6 +75,7 @@ interface DevContainerWithClients {
   render_node?: string
   sandbox_id: string
   clients?: ClientInfo[]
+  video_stats?: VideoStreamingStats
 }
 
 interface SandboxInstanceInfo {
@@ -313,6 +329,42 @@ const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ containe
           </Typography>
         )}
       </Box>
+
+      {/* Video Streaming Buffer Stats */}
+      {container.video_stats && container.video_stats.client_buffers && container.video_stats.client_buffers.length > 0 && (
+        <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <VideocamIcon fontSize="small" color="info" />
+            <Typography variant="caption" color="text.secondary">
+              Video Buffer ({container.video_stats.client_count} streaming)
+            </Typography>
+          </Box>
+          {container.video_stats.client_buffers.map((cb) => (
+            <Box key={cb.client_id} sx={{ mb: 1 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Client #{cb.client_id}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: cb.buffer_pct > 50 ? 'error.main' : cb.buffer_pct > 10 ? 'warning.main' : 'success.main',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {cb.buffer_used} / {cb.buffer_size} ({cb.buffer_pct}%)
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={cb.buffer_pct}
+                color={cb.buffer_pct > 50 ? 'error' : cb.buffer_pct > 10 ? 'warning' : 'success'}
+                sx={{ height: 4, borderRadius: 2 }}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
     </Paper>
   )
 }
@@ -343,17 +395,28 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
     : devContainers
 
-  const runningSandboxes = sandboxes.filter((s) => s.status === 'running').length
-  const runningContainers = devContainers.filter((c) => c.status === 'running').length
-  const totalClients = devContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
+  // Filter sandboxes too for consistency
+  const filteredSandboxes = selectedSandboxId
+    ? sandboxes.filter((s) => s.id === selectedSandboxId)
+    : sandboxes
+
+  // Summary stats should reflect the current filter
+  const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'running').length
+  const runningContainers = filteredContainers.filter((c) => c.status === 'running').length
+  const totalClients = filteredContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h5">Agent Sandboxes</Typography>
+          <Typography variant="h5">
+            {selectedSandboxId ? `Sandbox: ${selectedSandboxId}` : 'All Agent Sandboxes'}
+          </Typography>
           <Typography variant="body2" color="text.secondary">
-            Hydra-managed dev containers with WebSocket video streaming
+            {selectedSandboxId
+              ? 'Dev containers and streaming stats for this sandbox'
+              : 'Aggregate view of all Hydra-managed dev containers'
+            }
           </Typography>
         </Box>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
@@ -438,59 +501,6 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
           </Card>
         </Grid>
 
-        {/* Sandboxes List */}
-        {sandboxes.length > 0 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardHeader
-                avatar={<ComputerIcon />}
-                title="Sandbox Instances"
-                subheader="Registered sandboxes with Hydra"
-              />
-              <CardContent>
-                <Grid container spacing={2}>
-                  {sandboxes.map((sandbox) => (
-                    <Grid item xs={12} sm={6} md={4} key={sandbox.id}>
-                      <Paper
-                        sx={{
-                          p: 2,
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          backgroundColor:
-                            selectedSandboxId === sandbox.id
-                              ? 'rgba(33, 150, 243, 0.1)'
-                              : 'rgba(255,255,255,0.02)',
-                          border: '1px solid',
-                          borderColor:
-                            selectedSandboxId === sandbox.id
-                              ? 'rgba(33, 150, 243, 0.5)'
-                              : 'rgba(255,255,255,0.1)',
-                        }}
-                      >
-                        <Box>
-                          <Typography variant="subtitle2" sx={{ fontFamily: 'monospace' }}>
-                            {sandbox.id}
-                          </Typography>
-                          {sandbox.container_id && (
-                            <Typography variant="caption" color="text.secondary">
-                              Container: {sandbox.container_id.slice(0, 12)}
-                            </Typography>
-                          )}
-                        </Box>
-                        <Chip
-                          label={sandbox.status}
-                          size="small"
-                          color={getStatusColor(sandbox.status)}
-                        />
-                      </Paper>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
       </Grid>
     </Box>
   )
