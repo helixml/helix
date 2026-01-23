@@ -31,8 +31,6 @@ services:
         ipv4_address: 172.19.0.20
     ports:
       - ${API_PORT:-8080}:8080
-      - "3478:3478/udp" # TURN server for WebRTC NAT traversal
-      - "3478:3478/tcp" # TURN server TCP transport (firewall fallback)
     restart: always
     env_file:
       - .env
@@ -100,13 +98,6 @@ services:
       - HELIX_DEV_MODE=true # Enable dev file bind-mounts for hot-reloading
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      # TURN server configuration for WebRTC
-      - TURN_ENABLED=true
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api} # Use 'api' hostname for local relay (auto-detects public IP)
-      - TURN_PORT=3478
-      - TURN_REALM=helix.ai
-      - TURN_USERNAME=helix
-      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:

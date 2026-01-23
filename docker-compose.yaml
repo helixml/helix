@@ -9,8 +9,6 @@ services:
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
-      - "3478:3478/udp" # TURN server for WebRTC (Helix Code)
-      - "3478:3478/tcp" # TURN server TCP transport (firewall fallback)
     restart: always
     env_file:
       - .env
@@ -50,13 +48,6 @@ services:
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      # TURN server configuration for WebRTC
-      - TURN_ENABLED=${TURN_ENABLED:-true}
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-      - TURN_PORT=${TURN_PORT:-3478}
-      - TURN_REALM=${TURN_REALM:-helix.ai}
-      - TURN_USERNAME=${TURN_USERNAME:-helix}
-      - TURN_PASSWORD=${TURN_PASSWORD:-}
       - KODIT_API_KEY=${KODIT_API_KEY:-default-kodit-api-key}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore

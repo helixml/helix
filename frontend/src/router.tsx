@@ -62,7 +62,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'projects',
     path: routePrefix + (routePrefix ? '' : '/'),
     meta: {
-      title: 'Projects',
+      title: 'Swarm',
       drawer: true,
       orgRouteAware: true,
     },

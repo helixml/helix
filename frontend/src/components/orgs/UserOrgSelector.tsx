@@ -360,10 +360,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     const baseButtons = [
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
+        tooltip: "View swarm",
         isActive: isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
-        label: "Projects",
+        label: "Swarm",
       },
       {
         icon: <Home size={NAV_BUTTON_SIZE} />,
