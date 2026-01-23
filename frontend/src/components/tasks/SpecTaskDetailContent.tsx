@@ -809,7 +809,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </ToggleButton>
                   </ToggleButtonGroup>
 
-                  {/* Review Spec button - prominent when in spec_review status */}
+                  {/* Status-specific action buttons */}
+                  {task.status === 'backlog' && (
+                    <Button
+                      variant="contained"
+                      color={justDoItMode ? 'success' : 'warning'}
+                      size="small"
+                      startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
+                      onClick={handleStartPlanning}
+                      disabled={isStartingPlanning}
+                      sx={{ ml: 1, fontSize: '0.75rem' }}
+                    >
+                      {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
+                    </Button>
+                  )}
                   {task.status === 'spec_review' && (
                     <Button
                       variant="contained"
@@ -828,6 +841,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       }}
                     >
                       Review Spec
+                    </Button>
+                  )}
+                  {task.pull_request_url && (
+                    <Button
+                      variant="outlined"
+                      color="secondary"
+                      size="small"
+                      startIcon={<LaunchIcon />}
+                      onClick={() => window.open(task.pull_request_url, '_blank')}
+                      sx={{ ml: 1, fontSize: '0.75rem' }}
+                    >
+                      View PR
                     </Button>
                   )}
 
@@ -999,7 +1024,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Tooltip>
               )}
 
-              {/* Review Spec button - prominent when in spec_review status */}
+              {/* Status-specific action buttons */}
+              {task.status === 'backlog' && (
+                <Button
+                  variant="contained"
+                  color={justDoItMode ? 'success' : 'warning'}
+                  size="small"
+                  startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
+                  onClick={handleStartPlanning}
+                  disabled={isStartingPlanning}
+                  sx={{ ml: 0.5, fontSize: '0.75rem' }}
+                >
+                  {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start')}
+                </Button>
+              )}
               {task.status === 'spec_review' && (
                 <Button
                   variant="contained"
@@ -1018,6 +1056,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   }}
                 >
                   Review Spec
+                </Button>
+              )}
+              {task.pull_request_url && (
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  size="small"
+                  startIcon={<LaunchIcon />}
+                  onClick={() => window.open(task.pull_request_url, '_blank')}
+                  sx={{ ml: 0.5, fontSize: '0.75rem' }}
+                >
+                  View PR
                 </Button>
               )}
 
