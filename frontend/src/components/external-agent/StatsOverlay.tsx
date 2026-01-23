@@ -87,7 +87,14 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               )}
             </div>
             <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
-            <div><strong>FPS:</strong> {stats.video.receiveFps} recv / {stats.video.fps} decoded</div>
+            <div>
+              <strong>FPS:</strong> {stats.video.receiveFps} recv / {stats.video.fps} decoded
+              {stats.video.fpsUpdatedAt && (
+                <span style={{ color: '#888' }}>
+                  {' '}({((Date.now() - stats.video.fpsUpdatedAt) / 1000).toFixed(1)}s ago)
+                </span>
+              )}
+            </div>
             <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
             <div><strong>Received:</strong> {stats.video.framesReceived} frames</div>
             <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>

@@ -89,10 +89,12 @@ export class WebSocketStream {
 
   // Frame timing and stats
   private lastFrameTime = 0
+  private lastFpsUpdateTimestamp = 0  // Wall clock time (Date.now()) when FPS was last calculated
   private frameCount = 0
   private currentFps = 0
   // Received FPS (frames arriving from WebSocket, before decode)
   private lastReceiveTime = 0
+  private lastReceiveFpsUpdateTimestamp = 0  // Wall clock time when receive FPS was last calculated
   private receiveCount = 0
   private currentReceiveFps = 0
   // Video payload bytes (H.264 data only, excluding protocol headers)
@@ -908,6 +910,7 @@ export class WebSocketStream {
       this.currentFps = this.frameCount
       this.frameCount = 0
       this.lastFrameTime = now
+      this.lastFpsUpdateTimestamp = Date.now() // Wall clock time for display
 
       // Log jitter stats for debugging
       // Stats are available via getStreamStats() for the Stats for Nerds panel
@@ -991,6 +994,7 @@ export class WebSocketStream {
       this.currentReceiveFps = this.receiveCount
       this.receiveCount = 0
       this.lastReceiveTime = now
+      this.lastReceiveFpsUpdateTimestamp = Date.now()
     }
 
     // DEBUG: Log first 10 frames received (before decode)
@@ -1846,9 +1850,15 @@ export class WebSocketStream {
     // Frame health monitoring (for iOS Safari stall detection)
     lastFrameRenderTime: number      // performance.now() timestamp of last frame render (0 = no frames yet)
   } {
+    // If FPS hasn't been updated in over 2 seconds, it's stale - report 0
+    const now = Date.now()
+    const fpsIsStale = this.lastFpsUpdateTimestamp > 0 && (now - this.lastFpsUpdateTimestamp) > 2000
+    const receiveFpsIsStale = this.lastReceiveFpsUpdateTimestamp > 0 && (now - this.lastReceiveFpsUpdateTimestamp) > 2000
+
     return {
-      fps: this.currentFps,
-      receiveFps: this.currentReceiveFps,
+      fps: fpsIsStale ? 0 : this.currentFps,
+      fpsUpdatedAt: this.lastFpsUpdateTimestamp,  // Wall clock timestamp for staleness check
+      receiveFps: receiveFpsIsStale ? 0 : this.currentReceiveFps,
       videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
       totalBitrateMbps: this.currentTotalBitrateMbps,
       framesDecoded: this.framesDecoded,
@@ -1908,6 +1918,11 @@ export class WebSocketStream {
       usingSoftwareDecoder: this.forceSoftwareDecoding,
       // Frame health monitoring (for iOS Safari stall detection)
       lastFrameRenderTime: this.lastFrameRenderTime,
+      // WebSocket data flow monitoring (for connection stall detection)
+      // Use this instead of lastFrameRenderTime - static screens have no frame output but connection is fine
+      lastWsMessageTime: this.lastMessageTime,
+      // Decoder state - "configured" = healthy, "closed" = crashed/died
+      decoderState: this.videoDecoder?.state || "unconfigured",
     }
   }
 

@@ -942,6 +942,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
+    setStats(null); // Clear stale stats on disconnect
 
     // Clear presence state - other users are no longer visible when disconnected
     setRemoteUsers(new Map());
@@ -1535,9 +1536,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
   // leaving the canvas black while React still thinks we're connected.
-  // This health check monitors lastFrameRenderTime and forces reconnection if frames stop.
-  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall
+  // This health check monitors decoder state and forces reconnection if decoder crashes.
+  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall (logged but not acted on)
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
+  const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
+  const lastDecoderCrashReconnectRef = useRef<number>(0);
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === 'screenshot' || isConnecting) {
@@ -1556,24 +1559,39 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Check if frames have been rendered recently
+      // Check decoder health
       const stats = stream.getStats();
-      const now = performance.now();
-      const timeSinceLastFrame = stats.lastFrameRenderTime > 0 ? now - stats.lastFrameRenderTime : 0;
 
-      // Only trigger stall detection after we've received at least one frame (lastFrameRenderTime > 0)
-      // and if we've been connected long enough for frames to be expected
-      if (stats.lastFrameRenderTime > 0 && timeSinceLastFrame > FRAME_STALL_THRESHOLD_MS) {
-        const stallMsg = `Frame stall: ${Math.round(timeSinceLastFrame)}ms, fps=${stats.fps}, decoded=${stats.framesDecoded}`;
-        console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
-        console.log('[DesktopStreamViewer] Stats at stall:', {
-          fps: stats.fps,
-          framesDecoded: stats.framesDecoded,
-          decodeQueueSize: stats.decodeQueueSize,
-          wsReadyState: ws?.readyState,
-        });
+      // Check decoder state - if closed, decoder crashed and we need to reconnect
+      const decoderState = (stats as any).decoderState;
+      if (decoderState === 'closed') {
+        const now = Date.now();
+        const timeSinceLastCrashReconnect = now - lastDecoderCrashReconnectRef.current;
+
+        if (timeSinceLastCrashReconnect < DECODER_CRASH_RECONNECT_COOLDOWN_MS) {
+          // Still in cooldown, don't spam reconnects
+          console.log(`[DesktopStreamViewer] Decoder closed but in cooldown (${Math.round(timeSinceLastCrashReconnect/1000)}s ago)`);
+          return;
+        }
+
+        const crashMsg = `Decoder crashed (state=closed)`;
+        console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
+        addConnectionLog(crashMsg);
+        lastDecoderCrashReconnectRef.current = now;
+        reconnect(500, 'Reconnecting (decoder crashed)...');
+        return;
+      }
+
+      // Check WebSocket data flow instead of frame renders - static screens have no frame output but connection is fine
+      const lastWsMessageTime = (stats as any).lastWsMessageTime || 0;
+      const timeSinceWsData = lastWsMessageTime > 0 ? Date.now() - lastWsMessageTime : 0;
+
+      // Only log if WebSocket data has stopped flowing (real connection issue)
+      if (lastWsMessageTime > 0 && timeSinceWsData > FRAME_STALL_THRESHOLD_MS) {
+        const stallMsg = `WS data stall: ${Math.round(timeSinceWsData)}ms since last message`;
+        console.log(`[DesktopStreamViewer] ${stallMsg}`);
         addConnectionLog(stallMsg);
-        reconnect(500, 'Reconnecting (video stalled)...');
+        // Don't reconnect here - the WebSocketStream has its own stale connection detection
       }
     };
 
@@ -2300,6 +2318,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             width: isScreenshotMode ? (width || 1920) : wsStats.width,
             height: isScreenshotMode ? (height || 1080) : wsStats.height,
             fps: isScreenshotMode ? screenshotFps : wsStats.fps,
+            fpsUpdatedAt: isScreenshotMode ? Date.now() : (wsStats as any).fpsUpdatedAt,
             receiveFps: isScreenshotMode ? 0 : wsStats.receiveFps,
             videoPayloadBitrate: isScreenshotMode ? 'N/A' : wsStats.videoPayloadBitrateMbps.toFixed(2),
             totalBitrate: isScreenshotMode ? 'N/A' : wsStats.totalBitrateMbps.toFixed(2),
@@ -2326,6 +2345,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
             // Debug flags
             usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
+            // Decoder health
+            decoderState: (wsStats as any).decoderState,
           },
           // Input buffer stats (detects TCP send buffer congestion)
           input: {
@@ -4032,9 +4053,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Input Hint - removed since auto-focus handles keyboard input */}
       {/* Presence Indicator - moved to toolbar above */}
 
-      {/* Connection Debug Log - fixed position, full screen overlay (for iPad without devtools) */}
-      {showStats && (
-        <Box
+      {/* Connection Debug Log - fixed position, always visible for debugging */}
+      <Box
           sx={{
             position: 'fixed',
             top: 8,
@@ -4052,7 +4072,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }}
         >
           <Typography sx={{ fontWeight: 'bold', fontSize: '11px', color: '#0f0', mb: 0.5 }}>
-            Connection: {isConnected ? '✓ Connected' : isConnecting ? '⏳ Connecting...' : '✗ Disconnected'}
+            {isConnected ? '✓ Connected' : isConnecting ? '⏳ Connecting...' : '✗ Disconnected'}
+            {stats?.video && ` | ${stats.video.fps ?? 0}fps | ${stats.video.framesDecoded ?? 0} dec | ${stats.video.decoderState || '?'}`}
           </Typography>
           {connectionLog.length === 0 ? (
             <Box sx={{ color: '#666', fontStyle: 'italic' }}>No events yet</Box>
@@ -4063,8 +4084,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               </Box>
             ))
           )}
-        </Box>
-      )}
+      </Box>
 
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'screenshot') && (

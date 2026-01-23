@@ -216,9 +216,9 @@ impl PipeWireStream {
         // When max_framerate>0, Mutter skips frames causing judder and caps FPS at ~30-40.
         // With max_framerate=0/1, Mutter sends all damage events without frame limiting.
         //
-        // Trade-off: Animations (alt-tab, etc) run at ~1 FPS without the follow-up mechanism.
-        // We accept this because the alternative (judder + 30-40 FPS cap) is worse.
-        // The 100ms keepalive provides 10 FPS minimum for static screens.
+        // Trade-off: Static screens produce zero frames from Mutter. The pipewirezerocopysrc
+        // keepalive mechanism (keepalive-time=500) resends the last buffer every 500ms,
+        // ensuring 2 FPS minimum on static screens to keep the stream alive.
         let negotiated_max_fps = 0;
         eprintln!(
             "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter), cuda={}",

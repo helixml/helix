@@ -172,7 +172,7 @@ impl Default for Settings {
             pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             cuda_device_id: -1,
-            keepalive_time_ms: 33, // ~30 FPS minimum to reduce typing latency in GNOME headless
+            keepalive_time_ms: 500, // 2 FPS minimum on static screens
             target_fps: 60,
             capture_source: CaptureSource::PipeWire,
             buffer_type: BufferType::Shm,
@@ -304,6 +304,8 @@ pub struct State {
     drm_format_string: Option<String>,
     timing: TimingStats,
     // Note: buffer_pool is now in CudaResources, passed to PipeWire thread
+    // Last buffer for keepalive - resent when no new frames arrive
+    last_buffer: Option<gst::Buffer>,
 }
 
 impl Default for State {
@@ -317,6 +319,7 @@ impl Default for State {
             dmabuf_allocator: None,
             drm_format_string: None,
             timing: TimingStats::default(),
+            last_buffer: None,
         }
     }
 }
@@ -378,7 +381,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                     .blurb("Resend last buffer after this many ms (0=disabled)")
                     .minimum(0)
                     .maximum(60000)
-                    .default_value(100) // 10 FPS minimum for GNOME headless mode animations
+                    .default_value(500) // 2 FPS minimum on static screens
                     .construct()
                     .build(),
                 glib::ParamSpecUInt::builder("target-fps")
@@ -797,12 +800,22 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         &self,
         _buffer: Option<&mut gst::BufferRef>,
     ) -> Result<CreateSuccess, gst::FlowError> {
+        // Get keepalive time from settings
+        let keepalive_time_ms = self.settings.lock().keepalive_time_ms;
+
         let mut g = self.state.lock();
         let state = g.as_mut().ok_or(gst::FlowError::Eos)?;
         let stream = state.stream.as_ref().ok_or(gst::FlowError::Error)?;
 
-        // Wait for frame from PipeWire with long timeout
-        let frame = match stream.recv_frame_timeout(Duration::from_secs(30)) {
+        // Use keepalive time as timeout if configured, otherwise 30 seconds
+        let timeout = if keepalive_time_ms > 0 {
+            Duration::from_millis(keepalive_time_ms as u64)
+        } else {
+            Duration::from_secs(30)
+        };
+
+        // Wait for frame from PipeWire with timeout
+        let frame = match stream.recv_frame_timeout(timeout) {
             Ok(f) => {
                 // Log periodically
                 static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -810,11 +823,42 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 if count < 5 || count % 60 == 0 {
                     eprintln!("[FRAME] Real frame #{}", count);
                 }
-                f
+                Some(f)
             }
             Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
+            Err(RecvError::Timeout) if keepalive_time_ms > 0 => {
+                // Timeout with keepalive enabled - resend last buffer
+                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if count < 5 || count % 60 == 0 {
+                    eprintln!("[KEEPALIVE] Resending last buffer #{}", count);
+                }
+                None // Signal to use last_buffer
+            }
             Err(_) => return Err(gst::FlowError::Error),
         };
+
+        // Handle keepalive case - resend last buffer with updated PTS
+        if frame.is_none() {
+            if let Some(ref last_buf) = state.last_buffer {
+                let mut buf = last_buf.copy();
+                // Update PTS to current wall clock time
+                let wall_clock_ns = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                if let Some(buffer_ref) = buf.get_mut() {
+                    buffer_ref.set_pts(gst::ClockTime::from_nseconds(wall_clock_ns));
+                }
+                return Ok(CreateSuccess::NewBuffer(buf));
+            } else {
+                // No last buffer yet, wait for first real frame
+                eprintln!("[KEEPALIVE] No last buffer available, waiting for first frame");
+                return Err(gst::FlowError::Error);
+            }
+        }
+
+        let frame = frame.unwrap();
 
         let (mut buffer, actual_format, width, height, pts_ns) = match frame {
             // NEW: CudaBuffer - CUDA processing already done in PipeWire thread
@@ -890,6 +934,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 (buf, video_format, width, height, pts_ns)
             }
         };
+
+        // Store buffer for keepalive (clone before we move it)
+        if keepalive_time_ms > 0 {
+            state.last_buffer = Some(buffer.clone());
+        }
 
         // Update caps if format/size changed
         let needs_update = match &state.video_info {

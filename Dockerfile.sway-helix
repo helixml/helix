@@ -713,43 +713,6 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
-# Qwen Code
-ARG QWEN_CODE_HASH=unknown
-WORKDIR /opt/qwen-code
-COPY qwen-code-build/ ./
-RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
-
-# Sway configuration (GOW pattern)
-ADD desktop/sway-config/config /cfg/sway/config
-ADD desktop/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
-RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
-
-# Waybar default config (will be customized by startup-app.sh)
-RUN mkdir -p /cfg/waybar && touch /cfg/waybar/.keep
-
-# Helix startup script
-ADD desktop/sway-config/startup-app.sh /opt/gow/startup-app.sh
-RUN chmod +x /opt/gow/startup-app.sh
-
-# Helix helper scripts
-ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-# Shared scripts (used by both Sway and Ubuntu)
-ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
-ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
-ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
-ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
-ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh \
-    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
-
 # Docker group init script
 ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
@@ -757,11 +720,6 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 # Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
-
-# Helix Go binaries
-COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
-COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
@@ -774,21 +732,8 @@ COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /usr/lib/x
 RUN ln -sf libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so && \
     ldconfig
 
-# Zed binary
-RUN mkdir -p /zed-build
-COPY zed-build/zed /zed-build/zed
-RUN chmod +x /zed-build/zed
-
-# Zed desktop file and icon
-COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
-RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
-COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
-RUN for size in 16 24 32 48 64 128 256; do \
-        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
-        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
-            -resize ${size}x${size} \
-            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
-    done
+# Grim with JPEG support (from build stage)
+COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # ====================================================================
 # OnlyOffice Desktop Editors - Office document support
@@ -863,4 +808,67 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
 #   - Intel: iHD or i965
 ENV NVD_BACKEND=direct \
     MOZ_DISABLE_RDD_SANDBOX=1
+
+# ====================================================================
+# FREQUENTLY CHANGING CODE - placed last for optimal layer caching
+# ====================================================================
+# Order: Qwen → Sway config → Zed → startup scripts → Go binaries
+# Rationale: Go binaries and startup scripts change most often, so they're at the very end
+
+# Qwen Code
+ARG QWEN_CODE_HASH=unknown
+WORKDIR /opt/qwen-code
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    chmod +x dist/cli.js && \
+    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+# Sway configuration (GOW pattern)
+ADD desktop/sway-config/config /cfg/sway/config
+ADD desktop/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
+RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
+
+# Waybar default config (will be customized by startup-app.sh)
+RUN mkdir -p /cfg/waybar && touch /cfg/waybar/.keep
+
+# Zed binary
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Zed desktop file and icon
+COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
+RUN for size in 16 24 32 48 64 128 256; do \
+        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
+        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
+            -resize ${size}x${size} \
+            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
+    done
+
+# Helix startup script
+ADD desktop/sway-config/startup-app.sh /opt/gow/startup-app.sh
+RUN chmod +x /opt/gow/startup-app.sh
+
+# Helix helper scripts
+ADD desktop/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+# Shared scripts (used by both Sway and Ubuntu)
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+
+# Helix Go binaries - at the very end since they're the lightest to rebuild
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 

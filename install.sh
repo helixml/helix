@@ -1849,11 +1849,6 @@ TURN_REALM=${TURN_HOST}
 TURN_USERNAME=helix
 TURN_PASSWORD=${TURN_PASSWORD}
 
-# GOP size (keyframe interval in frames)
-# 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
-# 60 = keyframe every 1s (balanced)
-# 120 = keyframe every 2s (lower bandwidth, recommended for Helix Code)
-GOP_SIZE=120
 EOF
 
     fi
@@ -1969,12 +1964,6 @@ CADDYEOF"
         echo "│   - TCP 443: HTTPS (Caddy reverse proxy)"
     else
         echo "│   - TCP 8080: Main API"
-    fi
-    if [[ -n "$CODE" ]]; then
-        echo "│"
-        echo "│ ⚠️  Additional ports for desktop streaming (Helix Code):"
-        echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
-        echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
     # When sandbox is being installed with controlplane, we start services later (after sandbox setup)
     if [ "$SANDBOX" = true ]; then
@@ -2397,8 +2386,6 @@ SANDBOX_INSTANCE_ID="${SANDBOX_INSTANCE_ID}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 GPU_VENDOR="${GPU_VENDOR}"
 MAX_SANDBOXES="${MAX_SANDBOXES}"
-TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
-TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
@@ -2486,7 +2473,6 @@ echo "  Control Plane: $HELIX_API_URL"
 echo "  Sandbox Instance ID: $SANDBOX_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
-echo "  TURN Server: $TURN_PUBLIC_IP"
 echo "  Privileged Docker Mode: ${PRIVILEGED_DOCKER:-false}"
 
 # Build privileged Docker flags (mount host Docker socket for Helix-in-Helix development)
@@ -2513,14 +2499,11 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
     -e ZED_IMAGE=helix-sway:latest \
-    -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
-    -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -e GOP_SIZE=120 \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
@@ -2600,8 +2583,6 @@ EOF
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 
@@ -2671,15 +2652,6 @@ EOF
     echo "│"
     echo "│ Connected to: $API_HOST"
     echo "│ Sandbox Instance ID: $SANDBOX_ID"
-    echo "│ TURN Server: $TURN_PUBLIC_IP"
-    echo "│"
-    echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
-    echo "│"
-    echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
-    echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
-    echo "│"
-    echo "│ ⚠️  Ensure the control plane has these ports open:"
-    echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"
     echo "│"
     echo "│ To check logs:"
     if [ "$NEED_SUDO" = "true" ]; then

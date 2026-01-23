@@ -619,42 +619,6 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
-# Qwen Code
-ARG QWEN_CODE_HASH=unknown
-WORKDIR /opt/qwen-code
-COPY qwen-code-build/ ./
-RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    chmod +x dist/cli.js && \
-    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
-
-WORKDIR /
-
-# Helix startup script (GNOME Wayland session)
-# Extracted to external file for consistency with Sway
-ADD desktop/ubuntu-config/startup-app.sh /opt/gow/startup.sh
-RUN chmod +x /opt/gow/startup.sh
-
-# Helix helper scripts
-ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-# Shared scripts (used by both Sway and Ubuntu)
-ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
-ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
-ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
-ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
-ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
-    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
-
-# Ubuntu desktop theming - Yaru dark theme with Helix background
-ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
-
 # Docker group init script
 ADD desktop/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
@@ -665,7 +629,6 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
 # GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
 # Install to system GStreamer plugins directory
-# NOTE: Rust code changes less frequently than Go, so it's placed before Go binaries
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 
@@ -675,29 +638,6 @@ COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc.so.12 /usr/lib/x86_64-linux
 COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /usr/lib/x86_64-linux-gnu/libnvrtc-builtins.so.12.6
 RUN ln -sf libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so && \
     ldconfig
-
-# Helix Go binaries (v2: socket wait fix)
-# NOTE: Go code changes most frequently, so it's placed last before Zed
-COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
-COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-
-# Zed binary
-RUN mkdir -p /zed-build
-COPY zed-build/zed /zed-build/zed
-RUN chmod +x /zed-build/zed
-
-# Zed desktop file and icon
-COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
-RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
-COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
-RUN for size in 16 24 32 48 64 128 256; do \
-        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
-        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
-            -resize ${size}x${size} \
-            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
-    done && \
-    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true && \
-    update-desktop-database /usr/share/applications 2>/dev/null || true
 
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
@@ -738,45 +678,6 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
     # 2. System-wide schemas (for gsettings CLI access)
     cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
     glib-compile-schemas /usr/share/glib-2.0/schemas/
-
-# Helix Cursor Tracker extension - provides cursor shape data to desktop-bridge
-# GNOME headless mode doesn't provide cursor metadata in PipeWire buffers.
-# This extension uses Meta.CursorTracker to capture cursor sprite and hotspot,
-# sending them to the Go process via Unix socket for WebSocket streaming.
-COPY desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
-RUN chmod -R a+rX /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
-
-# Helix-Invisible cursor theme - transparent cursors with unique hotspots
-# Each cursor type has a unique (hotspotX, hotspotY) position, allowing the
-# helix-cursor extension to identify cursor shapes via fingerprinting when
-# actual pixel data is unavailable in headless mode.
-COPY desktop/ubuntu-config/helix-cursors/generate-cursors.sh /tmp/generate-cursors.sh
-RUN <<_INSTALL_CURSOR_THEME
-set -e
-echo "=== Generating Helix-Invisible cursor theme ==="
-
-# Install cursor generation tools
-# xcursorgen is in x11-apps package
-apt-get update
-apt-get install -y --no-install-recommends x11-apps imagemagick
-
-# Run the generation script
-chmod +x /tmp/generate-cursors.sh
-/tmp/generate-cursors.sh
-
-# Install the theme to system icons directory
-mv /tmp/Helix-Invisible /usr/share/icons/Helix-Invisible
-
-# Cleanup
-rm /tmp/generate-cursors.sh
-apt-get remove -y imagemagick
-apt-get autoremove -y
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-
-echo "=== Helix-Invisible cursor theme installed ==="
-ls -la /usr/share/icons/Helix-Invisible/cursors/ | head -20
-_INSTALL_CURSOR_THEME
 
 # ====================================================================
 # Ghostty Terminal - modern GPU-accelerated terminal with blur support
@@ -831,4 +732,106 @@ ADD desktop/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
 
 # Compile the dconf database
 RUN dconf update
+
+# ====================================================================
+# Helix Cursor System - placed last as it changes frequently
+# ====================================================================
+# Cursor detection uses fingerprinting: each cursor type has a unique hotspot
+# position in an invisible 48x48 cursor theme. The GNOME extension reads the
+# hotspot via Meta.CursorTracker and maps it to CSS cursor names.
+# Hotspots are multiples of 6 to survive Mutter's rounding at 2x/3x scale.
+
+# Helix Cursor Tracker extension - provides cursor shape data to desktop-bridge
+COPY desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
+RUN chmod -R a+rX /usr/share/gnome-shell/extensions/helix-cursor@helix.ml
+
+# Helix-Invisible cursor theme - transparent cursors with unique hotspots
+COPY desktop/ubuntu-config/helix-cursors/generate-cursors.sh /tmp/generate-cursors.sh
+RUN <<_INSTALL_CURSOR_THEME
+set -e
+echo "=== Generating Helix-Invisible cursor theme ==="
+
+# Install cursor generation tools
+apt-get update
+apt-get install -y --no-install-recommends x11-apps imagemagick
+
+# Run the generation script
+chmod +x /tmp/generate-cursors.sh
+/tmp/generate-cursors.sh
+
+# Install the theme to system icons directory
+mv /tmp/Helix-Invisible /usr/share/icons/Helix-Invisible
+
+# Cleanup
+rm /tmp/generate-cursors.sh
+apt-get remove -y imagemagick
+apt-get autoremove -y
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "=== Helix-Invisible cursor theme installed ==="
+ls -la /usr/share/icons/Helix-Invisible/cursors/ | head -20
+_INSTALL_CURSOR_THEME
+
+# ====================================================================
+# FREQUENTLY CHANGING CODE - placed last for optimal layer caching
+# ====================================================================
+# These sections change most often during development. Placing them last
+# means changes here don't invalidate cached layers for stable components
+# like OnlyOffice, Chrome, Ghostty, cursor theme, etc.
+
+# Qwen Code
+ARG QWEN_CODE_HASH=unknown
+WORKDIR /opt/qwen-code
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    chmod +x dist/cli.js && \
+    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+WORKDIR /
+
+# Helix startup scripts
+ADD desktop/ubuntu-config/startup-app.sh /opt/gow/startup.sh
+RUN chmod +x /opt/gow/startup.sh
+
+ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+
+# Ubuntu desktop theming (includes cursor-size=48 for fingerprinting)
+ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
+# Zed binary
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Zed desktop file and icon
+COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
+RUN for size in 16 24 32 48 64 128 256; do \
+        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
+        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
+            -resize ${size}x${size} \
+            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
+    done && \
+    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true && \
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+
+# Helix Go binaries - at the very end since they're the lightest to rebuild
+COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 

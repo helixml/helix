@@ -120,8 +120,9 @@ export GTK_IM_MODULE=gtk-im-context-simple
 export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
-# HiDPI cursor support - larger cursors for better streaming quality
-# This matches cursor-size=48 in dconf-settings.ini
+# Cursor size must match the Helix-Invisible cursor theme (48x48 cursors)
+# and dconf cursor-size=48. Using 48x48 allows hotspots to be spaced at
+# multiples of 6, which survive Mutter's rounding at 200% and 300% scaling.
 export XCURSOR_SIZE=48
 
 # Display scaling

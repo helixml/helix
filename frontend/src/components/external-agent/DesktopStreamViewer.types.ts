@@ -25,6 +25,7 @@ export interface VideoStats {
   width?: number;
   height?: number;
   fps?: number;
+  fpsUpdatedAt?: number;  // Wall clock timestamp when FPS was last calculated
   receiveFps?: number;
   videoPayloadBitrate?: string;
   totalBitrate?: string;
@@ -51,6 +52,8 @@ export interface VideoStats {
   avgRenderIntervalMs?: number;      // Average render interval
   // Debug flags
   usingSoftwareDecoder?: boolean;    // True if software decoding was forced (?softdecode=1)
+  // Decoder health
+  decoderState?: string;             // "configured" = healthy, "closed" = crashed
 }
 
 // Stats for input handling

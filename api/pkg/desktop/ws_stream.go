@@ -60,22 +60,21 @@ func getVideoMode(configOverride string) VideoMode {
 }
 
 // getDefaultGOPSize returns the default GOP (Group of Pictures) size.
-// Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30 seconds at 60fps).
-// Since we use TCP WebSocket (reliable transport), keyframes are mainly for:
-// - Initial connection (new encoder pipeline = fresh keyframe)
-// - Rare encoder state corruption recovery
-// Larger GOP = smoother bandwidth (keyframes are 5-10x larger than P-frames).
+// Set via HELIX_GOP_SIZE environment variable. Default is 30 frames.
+// At 60fps = keyframe every 0.5s, at 10fps = every 3s, at 2fps = every 15s.
+// Frequent keyframes help detect frame stalls on static screens where
+// damage-based delivery may produce very low framerates.
 func getDefaultGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
-	return 1800 // Default: 30 seconds at 60fps - TCP is reliable, keyframes mainly for error recovery
+	return 30 // Default: 0.5s at 60fps - frequent keyframes for stall detection
 }
 
 // getEffectiveGOPSize returns the GOP size to use for this stream.
-// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (1800)
+// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (30)
 func (v *VideoStreamer) getEffectiveGOPSize() int {
 	if v.config.GOPSize > 0 {
 		return v.config.GOPSize
@@ -463,7 +462,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
 			// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
 			slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true", v.nodeID)
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
@@ -483,7 +482,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				bufferType = "dmabuf"
 			}
 
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
 				v.nodeID, captureSource, bufferType)
 			// Add render-node for multi-GPU systems
 			if renderNode := getRenderDevice(); renderNode != "" {
@@ -507,7 +506,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
 		// Works on GStreamer 1.24+ with proper driver support
 		// Falls back gracefully to system memory if DMA-BUF unavailable
-		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 		// Add fd property if we have portal FD (required for ScreenCast access)
 		if v.pipeWireFd > 0 {
 			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
@@ -524,7 +523,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	default: // VideoModeSHM
 		// Standard pipewiresrc path - most compatible
 		// Uses damage-based capture (only sends frames when screen changes)
-		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		// keepalive-time=500 ensures frames are sent at least every 500ms on static screens
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 		// Add fd property if we have portal FD (required for ScreenCast access)
 		if v.pipeWireFd > 0 {
 			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
