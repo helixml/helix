@@ -656,7 +656,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 				Prompt:   "Fill the shape with the company's brand color. You MUST ask the user what color they want - do not guess or make up a color.",
 				Priority: "high",
 				Labels:   []string{"design", "branding", "visual"},
-				Context:  "The shape.svg file contains a shape with a white fill and black outline. You need to change the fill color to match the company's brand color. CRITICAL: The brand color is NOT specified anywhere - not in code, not in config, not in comments. You MUST stop and ask the user 'What is your brand color?' before making any changes. Do NOT guess, do NOT use a placeholder, do NOT pick a color yourself. Wait for the user to tell you the exact color.",
+				Context:  "The shape.svg file contains a shape with a white fill and black outline. You need to change the fill color to match the company's brand color. CRITICAL: The brand color is NOT specified anywhere - not in code, not in config, not in comments. When writing your implementation plan, the FIRST step must be: 'Ask the user what their brand color is'. Do NOT guess, do NOT use a placeholder, do NOT pick a color yourself. During implementation, you MUST stop and ask the user 'What is your brand color?' before making any changes. Wait for the user to tell you the exact color.",
 			},
 		},
 	},
