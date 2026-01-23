@@ -116,7 +116,6 @@ export const Interaction: FC<InteractionProps> = ({
         // Extract user message from prompt_message, display_message, or prompt_message_content.parts
         if (interaction?.prompt_message) {
             userMessage = interaction.prompt_message
-            console.log('xxxx user msg', userMessage)
         } else if (interaction?.prompt_message_content?.parts?.length) {
             const textPart = interaction.prompt_message_content.parts.find(
                 (part): part is { text: string } =>
@@ -127,7 +126,6 @@ export const Interaction: FC<InteractionProps> = ({
             );
             if (textPart) {
                 userMessage = interaction.display_message || textPart.text;
-                console.log('xxxx', userMessage)
             }
         }
 
