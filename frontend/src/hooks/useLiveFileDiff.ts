@@ -155,14 +155,14 @@ export function useLiveFileDiff({
       console.error('Failed to fetch file diff:', err)
       return null
     }
-  }, [sessionId, baseBranch, api])
+  }, [sessionId, baseBranch])
 
   // Force refresh
   const refresh = useCallback(() => {
     if (sessionId) {
       queryClient.invalidateQueries({ queryKey: DIFF_QUERY_KEY(sessionId) })
     }
-  }, [sessionId, queryClient])
+  }, [sessionId])
 
   return {
     /** The diff response data */

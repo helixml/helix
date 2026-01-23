@@ -279,8 +279,15 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 		case gst.MessageError:
 			gerr := msg.ParseError()
 			if gerr != nil {
-				// Log error but don't crash - let caller handle via Frames() closing
+				// Log error with full debug info - helps diagnose pipeline failures
 				fmt.Printf("[GST_PIPELINE] Error: %s\n", gerr.Error())
+				if debugStr := gerr.DebugString(); debugStr != "" {
+					fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
+				}
+				// Log the element that produced the error
+				if src := msg.Source(); src != "" {
+					fmt.Printf("[GST_PIPELINE] Source: %s\n", src)
+				}
 			}
 			g.Stop()
 			return
@@ -288,6 +295,9 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 			gwarn := msg.ParseWarning()
 			if gwarn != nil {
 				fmt.Printf("[GST_PIPELINE] Warning: %s\n", gwarn.Error())
+				if debugStr := gwarn.DebugString(); debugStr != "" {
+					fmt.Printf("[GST_PIPELINE] Warning Debug: %s\n", debugStr)
+				}
 			}
 		case gst.MessageStateChanged:
 			// Could log state changes if needed for debugging

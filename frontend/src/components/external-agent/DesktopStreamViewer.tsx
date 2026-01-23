@@ -1537,7 +1537,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
   // leaving the canvas black while React still thinks we're connected.
   // This health check monitors decoder state and forces reconnection if decoder crashes.
-  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall (logged but not acted on)
+  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without WS data = stall, trigger reconnect
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
   const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
   const lastDecoderCrashReconnectRef = useRef<number>(0);
@@ -1586,12 +1586,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const lastWsMessageTime = (stats as any).lastWsMessageTime || 0;
       const timeSinceWsData = lastWsMessageTime > 0 ? Date.now() - lastWsMessageTime : 0;
 
-      // Only log if WebSocket data has stopped flowing (real connection issue)
+      // Reconnect if WebSocket data has stopped flowing (real connection issue)
+      // With keepalive enabled (500ms), we should always receive messages on static screens
       if (lastWsMessageTime > 0 && timeSinceWsData > FRAME_STALL_THRESHOLD_MS) {
+        const now = Date.now();
+        const timeSinceLastCrashReconnect = now - lastDecoderCrashReconnectRef.current;
+
+        if (timeSinceLastCrashReconnect < DECODER_CRASH_RECONNECT_COOLDOWN_MS) {
+          // Still in cooldown, don't spam reconnects
+          console.log(`[DesktopStreamViewer] WS data stall but in cooldown (${Math.round(timeSinceLastCrashReconnect/1000)}s ago)`);
+          return;
+        }
+
         const stallMsg = `WS data stall: ${Math.round(timeSinceWsData)}ms since last message`;
-        console.log(`[DesktopStreamViewer] ${stallMsg}`);
+        console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         addConnectionLog(stallMsg);
-        // Don't reconnect here - the WebSocketStream has its own stale connection detection
+        lastDecoderCrashReconnectRef.current = now;
+        reconnect(500, 'Reconnecting (connection stalled)...');
+        return;
       }
     };
 
