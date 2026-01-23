@@ -653,10 +653,9 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "clone-demo",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Fill the shape with the company's brand color. You MUST ask the user what color they want - do not guess or make up a color.",
+				Prompt:   "Fill shape.svg with the brand color. The color is not in the code - your plan's first step must be 'Ask user for brand color'. During implementation, ask the user and wait for their answer. Do not guess.",
 				Priority: "high",
 				Labels:   []string{"design", "branding", "visual"},
-				Context:  "The shape.svg file contains a shape with a white fill and black outline. You need to change the fill color to match the company's brand color. CRITICAL: The brand color is NOT specified anywhere - not in code, not in config, not in comments. When writing your implementation plan, include as the FIRST task: 'Ask the user what their brand color is and wait for their response'. This question will be asked during the implementation phase, not now. Do NOT guess or pick a color yourself - the user must provide it.",
 			},
 		},
 	},
