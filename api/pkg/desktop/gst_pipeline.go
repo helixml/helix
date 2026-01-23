@@ -19,6 +19,12 @@ import (
 // gstInitOnce ensures GStreamer is initialized only once
 var gstInitOnce sync.Once
 
+// pipelineCreateMu serializes pipeline creation to prevent race conditions
+// when multiple clients connect simultaneously to the same PipeWire node.
+// The pipewirezerocopysrc element's CUDA context and PipeWire stream setup
+// can fail if multiple instances try to initialize concurrently.
+var pipelineCreateMu sync.Mutex
+
 // InitGStreamer initializes the GStreamer library. Safe to call multiple times.
 func InitGStreamer() {
 	gstInitOnce.Do(func() {
@@ -79,6 +85,12 @@ func NewGstPipeline(pipelineStr string) (*GstPipeline, error) {
 func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*GstPipeline, error) {
 	InitGStreamer()
 
+	// Serialize pipeline creation to prevent race conditions when multiple
+	// clients connect simultaneously. This is especially important for
+	// pipewirezerocopysrc which initializes CUDA context and PipeWire streams.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
+
 	// Parse the pipeline string
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
@@ -129,6 +141,12 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	if g.running.Load() {
 		return nil
 	}
+
+	// Serialize pipeline start to prevent race conditions when multiple
+	// clients connect simultaneously. pipewirezerocopysrc initializes
+	// CUDA context and PipeWire streams during state transition to PLAYING.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
 
 	// Configure appsink properties
 	g.appsink.SetProperty("emit-signals", true)
