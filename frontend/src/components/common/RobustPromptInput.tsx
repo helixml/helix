@@ -24,7 +24,6 @@ import {
   ListItemText,
   ListItemIcon,
   Typography,
-  Divider,
   Chip,
   alpha,
   Collapse,
@@ -32,28 +31,29 @@ import {
   TextField,
   InputAdornment,
 } from '@mui/material'
-import SendIcon from '@mui/icons-material/Send'
-import HistoryIcon from '@mui/icons-material/History'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
-import CloudOffIcon from '@mui/icons-material/CloudOff'
-import CloudQueueIcon from '@mui/icons-material/CloudQueue'
-import EditIcon from '@mui/icons-material/Edit'
-import CheckIcon from '@mui/icons-material/Check'
-import CloseIcon from '@mui/icons-material/Close'
-import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline'
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
-import BoltIcon from '@mui/icons-material/Bolt'
-import QueueIcon from '@mui/icons-material/Queue'
-import PushPinIcon from '@mui/icons-material/PushPin'
-import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import SearchIcon from '@mui/icons-material/Search'
-import ImageIcon from '@mui/icons-material/Image'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
-import DescriptionIcon from '@mui/icons-material/Description'
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
+import {
+  History,
+  SendHorizontal,
+  ListStart,
+  CircleAlert,
+  CheckCircle,
+  Hourglass,
+  CloudOff,
+  Cloud,
+  Pencil,
+  Check,
+  X,
+  CirclePause,
+  GripVertical,
+  Zap,
+  Pin,
+  PinOff,
+  Search,
+  Image,
+  Paperclip,
+  FileText,
+  Camera,
+} from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -220,7 +220,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             mr: 0.25,
           }}
         >
-          <DragIndicatorIcon sx={{ fontSize: 16 }} />
+          <GripVertical size={16} />
         </Box>
       )}
 
@@ -228,11 +228,11 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       {isSending ? (
         <CircularProgress size={14} sx={{ flexShrink: 0, mt: isEditing ? 0.5 : 0, ml: isEditing ? 0 : 2.5 }} />
       ) : isFailed ? (
-        <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
+        <CircleAlert size={16} style={{ color: 'inherit', flexShrink: 0, marginTop: isEditing ? 4 : 0 }} />
       ) : isEditing ? (
-        <EditIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: 0.5, ml: 2.5 }} />
+        <Pencil size={16} style={{ flexShrink: 0, marginTop: 4, marginLeft: 20 }} />
       ) : (
-        <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
+        <Hourglass size={16} style={{ flexShrink: 0 }} />
       )}
 
       {/* Message content - either edit mode or display mode */}
@@ -277,7 +277,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 onClick={handleCancelEdit}
                 sx={{ p: 0.25 }}
               >
-                <CloseIcon sx={{ fontSize: 14 }} />
+                <X size={14} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Save (Enter)">
@@ -287,7 +287,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 color="primary"
                 sx={{ p: 0.25 }}
               >
-                <CheckIcon sx={{ fontSize: 14 }} />
+                <Check size={14} />
               </IconButton>
             </Tooltip>
           </Box>
@@ -318,11 +318,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               {truncateContent(entry.content, 50)}
             </Typography>
             {!isSending && (
-              <EditIcon
+              <Pencil
                 className="edit-hint"
-                sx={{
-                  fontSize: 14,
-                  color: 'text.secondary',
+                size={14}
+                style={{
                   opacity: 0,
                   transition: 'opacity 0.15s',
                   flexShrink: 0,
@@ -366,9 +365,9 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
             >
               {entry.interrupt !== false ? (
-                <BoltIcon sx={{ fontSize: 14 }} />
+                <Zap size={14} />
               ) : (
-                <QueueIcon sx={{ fontSize: 14 }} />
+                <ListStart size={14} />
               )}
             </IconButton>
           </Tooltip>
@@ -382,7 +381,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
               sx={{ p: 0.5 }}
             >
-              <CloseIcon sx={{ fontSize: 16 }} />
+              <X size={16} />
             </IconButton>
           </Tooltip>
         </Box>
@@ -958,11 +957,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             }}
           >
             {editingId ? (
-              <PauseCircleOutlineIcon sx={{ fontSize: 16 }} />
+              <CirclePause size={16} />
             ) : isOnline ? (
-              <CloudQueueIcon sx={{ fontSize: 16 }} />
+              <Cloud size={16} />
             ) : (
-              <CloudOffIcon sx={{ fontSize: 16 }} />
+              <CloudOff size={16} />
             )}
             <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
               {editingId
@@ -1073,7 +1072,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 attachment.uploadStatus === 'uploading' ? (
                   <CircularProgress size={14} sx={{ ml: 0.5 }} />
                 ) : attachment.uploadStatus === 'failed' ? (
-                  <ErrorOutlineIcon sx={{ fontSize: 16 }} />
+                  <CircleAlert size={16} />
                 ) : attachment.type === 'image' ? (
                   attachment.previewUrl ? (
                     <Box
@@ -1089,12 +1088,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       }}
                     />
                   ) : (
-                    <ImageIcon sx={{ fontSize: 16 }} />
+                    <Image size={16} />
                   )
                 ) : attachment.type === 'text' ? (
-                  <DescriptionIcon sx={{ fontSize: 16 }} />
+                  <FileText size={16} />
                 ) : (
-                  <AttachFileIcon sx={{ fontSize: 16 }} />
+                  <Paperclip size={16} />
                 )
               }
               label={
@@ -1111,7 +1110,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                     {attachment.name}
                   </Typography>
                   {attachment.uploadStatus === 'pending' && !isOnline && (
-                    <CloudOffIcon sx={{ fontSize: 12, color: 'warning.main' }} />
+                    <CloudOff size={12} />
                   )}
                 </Box>
               }
@@ -1175,7 +1174,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 flexShrink: 0,
               }}
             >
-              <HistoryIcon fontSize="small" />
+              <History size={20} />
             </IconButton>
           </Tooltip>
         )}
@@ -1195,7 +1194,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 },
               }}
             >
-              <AttachFileIcon fontSize="small" />
+              <Paperclip size={20} />
             </IconButton>
           </Tooltip>
         )}
@@ -1228,7 +1227,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 },
               }}
             >
-              <PhotoCameraIcon fontSize="small" />
+              <Camera size={20} />
             </IconButton>
           </Tooltip>
         )}
@@ -1260,7 +1259,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             fontSize: '0.875rem',
             lineHeight: 1.5,
             p: 0.5,
-            minHeight: 40,
+            minHeight: 60,
             maxHeight: maxHeight,
             overflowY: 'auto',
             transition: 'background-color 0.15s, border 0.15s',
@@ -1278,7 +1277,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         {/* Offline indicator */}
         {!isOnline && (
           <Tooltip title="You're offline - messages will queue and send when connected">
-            <CloudOffIcon sx={{ color: 'warning.main', fontSize: 20, flexShrink: 0 }} />
+            <CloudOff size={20} style={{ flexShrink: 0 }} />
           </Tooltip>
         )}
 
@@ -1320,9 +1319,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             }}
           >
             {interruptMode ? (
-              <BoltIcon fontSize="small" />
+              <Zap size={20} />
             ) : (
-              <QueueIcon fontSize="small" />
+              <ListStart size={20} />
             )}
           </IconButton>
         </Tooltip>
@@ -1346,24 +1345,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 <IconButton
                   onClick={handleSend}
                   disabled={!canSend}
-                  color="primary"
+                  color={canSend ? 'secondary' : 'primary'}
                   sx={{
                     flexShrink: 0,
-                    bgcolor: canSend ? 'primary.main' : 'transparent',
-                    color: canSend ? 'primary.contrastText' : 'text.secondary',
+                    width: 30,
+                    height: 30,
+                    bgcolor: canSend ? 'secondary.main' : 'transparent',
+                    color: canSend ? 'secondary.contrastText' : 'text.secondary',
                     '&:hover': {
-                      bgcolor: canSend ? 'primary.dark' : undefined,
+                      bgcolor: canSend ? 'secondary.dark' : undefined,
                     },
                     '&.Mui-disabled': {
-                      bgcolor: pendingUploads.length > 0 ? (theme) => alpha(theme.palette.primary.main, 0.3) : 'transparent',
+                      bgcolor: pendingUploads.length > 0 ? (theme) => alpha(theme.palette.secondary.main, 0.3) : 'transparent',
                       color: 'text.disabled',
                     },
                   }}
                 >
                   {pendingUploads.length > 0 ? (
-                    <CircularProgress size={18} sx={{ color: 'primary.main' }} />
+                    <CircularProgress size={16} sx={{ color: 'secondary.main' }} />
                   ) : (
-                    <SendIcon fontSize="small" />
+                    <SendHorizontal size={18} />
                   )}
                 </IconButton>
               </span>
@@ -1376,26 +1377,45 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       <Box
         sx={{
           display: 'flex',
-          justifyContent: 'space-between',
-          mt: 0.5,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          mt: 0.75,
           px: 0.5,
+          flexWrap: 'wrap',
         }}
       >
-        <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-          Enter = queue, Ctrl+Enter = interrupt, Shift+Enter = new line
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          {queuedMessages.length > 0 && (
-            <Typography variant="caption" sx={{ color: 'primary.main' }}>
-              {queuedMessages.length} in queue
-            </Typography>
-          )}
-          {hasHistory && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <ListStart size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Enter = queue
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Zap size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Ctrl+Enter = interrupt
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <SendHorizontal size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Shift+Enter = new line
+          </Typography>
+        </Box>
+        {hasHistory && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <History size={12} style={{ opacity: 0.6 }} />
             <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
               ↑/↓ history
             </Typography>
-          )}
-        </Box>
+          </Box>
+        )}
+        {queuedMessages.length > 0 && (
+          <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 500 }}>
+            {queuedMessages.length} in queue
+          </Typography>
+        )}
       </Box>
 
       {/* History menu */}
@@ -1431,7 +1451,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  <Search size={18} />
                 </InputAdornment>
               ),
             }}
@@ -1478,7 +1498,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               {pinnedCount > 0 && (
                 <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
                   <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <PushPinIcon sx={{ fontSize: 14 }} />
+                    <Pin size={14} />
                     Pinned ({pinnedCount})
                   </Typography>
                 </Box>
@@ -1522,9 +1542,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                     >
                       <ListItemIcon>
                         {isPinned ? (
-                          <PushPinIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                          <Pin size={20} />
                         ) : (
-                          <CheckCircleOutlineIcon fontSize="small" sx={{ color: 'success.main', opacity: 0.6 }} />
+                          <CheckCircle size={20} style={{ opacity: 0.6 }} />
                         )}
                       </ListItemIcon>
                       <ListItemText
@@ -1553,9 +1573,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                           }}
                         >
                           {isPinned ? (
-                            <PushPinIcon sx={{ fontSize: 16 }} />
+                            <Pin size={16} />
                           ) : (
-                            <PushPinOutlinedIcon sx={{ fontSize: 16 }} />
+                            <PinOff size={16} />
                           )}
                         </IconButton>
                       </Tooltip>
