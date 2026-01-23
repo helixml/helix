@@ -1140,8 +1140,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       <Box
         sx={{
           display: 'flex',
-          gap: 1,
-          alignItems: 'flex-end',
+          flexDirection: 'column',
           bgcolor: 'background.paper',
           borderRadius: 2,
           border: '1px solid',
@@ -1163,76 +1162,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           p: 1,
         }}
       >
-        {/* History button */}
-        {hasHistory && (
-          <Tooltip title="Browse prompt history (↑/↓ to navigate)">
-            <IconButton
-              size="small"
-              onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
-              sx={{
-                color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
-                flexShrink: 0,
-              }}
-            >
-              <History size={20} />
-            </IconButton>
-          </Tooltip>
-        )}
-
-        {/* Attach file button */}
-        {handleFileUploadCallback && (
-          <Tooltip title="Attach file">
-            <IconButton
-              size="small"
-              onClick={handleBrowseClick}
-              disabled={disabled}
-              sx={{
-                color: 'text.secondary',
-                flexShrink: 0,
-                '&:hover': {
-                  color: 'primary.main',
-                },
-              }}
-            >
-              <Paperclip size={20} />
-            </IconButton>
-          </Tooltip>
-        )}
-
-        {/* Camera button (mobile only) */}
-        {handleFileUploadCallback && isMobile && (
-          <Tooltip title="Take photo">
-            <IconButton
-              size="small"
-              onClick={() => {
-                // Create a temporary input with capture for camera
-                const input = document.createElement('input')
-                input.type = 'file'
-                input.accept = 'image/*'
-                input.capture = 'environment' // Use rear camera by default
-                input.onchange = async (e) => {
-                  const files = (e.target as HTMLInputElement).files
-                  if (files && files.length > 0) {
-                    await uploadAndAddAttachment(files[0])
-                  }
-                }
-                input.click()
-              }}
-              disabled={disabled}
-              sx={{
-                color: 'text.secondary',
-                flexShrink: 0,
-                '&:hover': {
-                  color: 'primary.main',
-                },
-              }}
-            >
-              <Camera size={20} />
-            </IconButton>
-          </Tooltip>
-        )}
-
-        {/* Textarea */}
+        {/* Textarea - full width at top */}
         <Box
           component="textarea"
           ref={textareaRef}
@@ -1247,7 +1177,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           placeholder={isDraggingOver ? 'Drop file to upload...' : (isOnline ? placeholder : 'Offline - messages will queue')}
           disabled={disabled}
           sx={{
-            flex: 1,
+            width: '100%',
             resize: 'none',
             border: isDraggingOver ? '2px dashed' : 'none',
             borderColor: 'primary.main',
@@ -1259,7 +1189,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             fontSize: '0.875rem',
             lineHeight: 1.5,
             p: 0.5,
-            minHeight: 60,
+            minHeight: 50,
             maxHeight: maxHeight,
             overflowY: 'auto',
             transition: 'background-color 0.15s, border 0.15s',
@@ -1274,103 +1204,185 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           }}
         />
 
-        {/* Offline indicator */}
-        {!isOnline && (
-          <Tooltip title="You're offline - messages will queue and send when connected">
-            <CloudOff size={20} style={{ flexShrink: 0 }} />
-          </Tooltip>
-        )}
-
-        {/* Interrupt mode toggle */}
-        <Tooltip
-          title={
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                {interruptMode
-                  ? 'Messages sent immediately, interrupting current conversation'
-                  : 'Messages wait until current conversation completes'
-                }
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
-                Keyboard: Enter = queue, Ctrl+Enter = interrupt
-              </Typography>
-            </Box>
-          }
+        {/* Buttons row at bottom */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            mt: 1,
+          }}
         >
-          <IconButton
-            size="small"
-            onClick={() => setInterruptMode(!interruptMode)}
-            sx={{
-              flexShrink: 0,
-              color: interruptMode ? 'warning.main' : 'info.main',
-              bgcolor: (theme) => alpha(
-                interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                0.1
-              ),
-              '&:hover': {
+          {/* History button */}
+          {hasHistory && (
+            <Tooltip title="Browse prompt history (↑/↓ to navigate)">
+              <IconButton
+                size="small"
+                onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
+                sx={{
+                  color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
+                  flexShrink: 0,
+                }}
+              >
+                <History size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* Attach file button */}
+          {handleFileUploadCallback && (
+            <Tooltip title="Attach file">
+              <IconButton
+                size="small"
+                onClick={handleBrowseClick}
+                disabled={disabled}
+                sx={{
+                  color: 'text.secondary',
+                  flexShrink: 0,
+                  '&:hover': {
+                    color: 'primary.main',
+                  },
+                }}
+              >
+                <Paperclip size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* Camera button (mobile only) */}
+          {handleFileUploadCallback && isMobile && (
+            <Tooltip title="Take photo">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  // Create a temporary input with capture for camera
+                  const input = document.createElement('input')
+                  input.type = 'file'
+                  input.accept = 'image/*'
+                  input.capture = 'environment' // Use rear camera by default
+                  input.onchange = async (e) => {
+                    const files = (e.target as HTMLInputElement).files
+                    if (files && files.length > 0) {
+                      await uploadAndAddAttachment(files[0])
+                    }
+                  }
+                  input.click()
+                }}
+                disabled={disabled}
+                sx={{
+                  color: 'text.secondary',
+                  flexShrink: 0,
+                  '&:hover': {
+                    color: 'primary.main',
+                  },
+                }}
+              >
+                <Camera size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Offline indicator */}
+          {!isOnline && (
+            <Tooltip title="You're offline - messages will queue and send when connected">
+              <CloudOff size={20} style={{ flexShrink: 0 }} />
+            </Tooltip>
+          )}
+
+          {/* Interrupt mode toggle */}
+          <Tooltip
+            title={
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  {interruptMode
+                    ? 'Messages sent immediately, interrupting current conversation'
+                    : 'Messages wait until current conversation completes'
+                  }
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
+                  Keyboard: Enter = queue | Ctrl+Enter = interrupt
+                </Typography>
+              </Box>
+            }
+          >
+            <IconButton
+              size="small"
+              onClick={() => setInterruptMode(!interruptMode)}
+              sx={{
+                flexShrink: 0,
+                color: interruptMode ? 'warning.main' : 'info.main',
                 bgcolor: (theme) => alpha(
                   interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                  0.2
+                  0.1
                 ),
-              },
-            }}
-          >
-            {interruptMode ? (
-              <Zap size={20} />
-            ) : (
-              <ListStart size={20} />
-            )}
-          </IconButton>
-        </Tooltip>
-
-        {/* Send button */}
-        {(() => {
-          const hasContent = draft.trim().length > 0
-          const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
-          const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-          const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && !disabled
-
-          return (
-            <Tooltip
-              title={
-                pendingUploads.length > 0
-                  ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
-                  : 'Add to queue (Enter = queue, Ctrl+Enter = interrupt)'
-              }
+                '&:hover': {
+                  bgcolor: (theme) => alpha(
+                    interruptMode ? theme.palette.warning.main : theme.palette.info.main,
+                    0.2
+                  ),
+                },
+              }}
             >
-              <span>
-                <IconButton
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  color={canSend ? 'secondary' : 'primary'}
-                  sx={{
-                    flexShrink: 0,
-                    width: 30,
-                    height: 30,
-                    bgcolor: canSend ? 'secondary.main' : 'transparent',
-                    color: canSend ? 'secondary.contrastText' : 'text.secondary',
-                    '&:hover': {
-                      bgcolor: canSend ? 'secondary.dark' : undefined,
-                    },
-                    '&.Mui-disabled': {
-                      bgcolor: pendingUploads.length > 0 ? (theme) => alpha(theme.palette.secondary.main, 0.3) : 'transparent',
-                      color: 'text.disabled',
-                    },
-                  }}
-                >
-                  {pendingUploads.length > 0 ? (
-                    <CircularProgress size={16} sx={{ color: 'secondary.main' }} />
-                  ) : (
-                    <SendHorizontal size={18} />
-                  )}
-                </IconButton>
-              </span>
-            </Tooltip>
-          )
-        })()}
+              {interruptMode ? (
+                <Zap size={20} />
+              ) : (
+                <ListStart size={20} />
+              )}
+            </IconButton>
+          </Tooltip>
+
+          {/* Send button */}
+          {(() => {
+            const hasContent = draft.trim().length > 0
+            const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
+            const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
+            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && !disabled
+
+            return (
+              <Tooltip
+                title={
+                  pendingUploads.length > 0
+                    ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
+                    : 'Add to queue (Enter = queue, Ctrl+Enter = interrupt)'
+                }
+              >
+                <span>
+                  <IconButton
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    color={canSend ? 'secondary' : 'primary'}
+                    sx={{
+                      flexShrink: 0,
+                      width: 30,
+                      height: 30,
+                      bgcolor: canSend ? 'secondary.main' : 'transparent',
+                      color: canSend ? 'secondary.contrastText' : 'text.secondary',
+                      '&:hover': {
+                        bgcolor: canSend ? 'secondary.dark' : undefined,
+                      },
+                      '&.Mui-disabled': {
+                        bgcolor: pendingUploads.length > 0 ? (theme) => alpha(theme.palette.secondary.main, 0.3) : 'transparent',
+                        color: 'text.disabled',
+                      },
+                    }}
+                  >
+                    {pendingUploads.length > 0 ? (
+                      <CircularProgress size={16} sx={{ color: 'secondary.main' }} />
+                    ) : (
+                      <SendHorizontal size={18} />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )
+          })()}
+        </Box>
       </Box>
 
       {/* Keyboard hint */}
