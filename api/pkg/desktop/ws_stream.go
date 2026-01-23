@@ -1510,8 +1510,34 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	for {
 		messageType, msg, err := ws.ReadMessage()
 		if err != nil {
+			// Enhanced disconnect diagnostics
+			duration := time.Since(streamer.startTime)
+			closeCode := ""
+			closeText := ""
+			if closeErr, ok := err.(*websocket.CloseError); ok {
+				closeCode = fmt.Sprintf("%d", closeErr.Code)
+				closeText = closeErr.Text
+			}
+
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.Error("websocket read error", "err", err)
+				logger.Error("websocket unexpected close",
+					"err", err,
+					"close_code", closeCode,
+					"close_text", closeText,
+					"duration", duration.Round(time.Second),
+					"frames_sent", streamer.frameCount,
+					"user", config.UserName,
+					"session", config.SessionID,
+				)
+			} else {
+				// Normal close - still log for debugging
+				logger.Info("websocket closed",
+					"close_code", closeCode,
+					"close_text", closeText,
+					"duration", duration.Round(time.Second),
+					"frames_sent", streamer.frameCount,
+					"user", config.UserName,
+				)
 			}
 			return
 		}

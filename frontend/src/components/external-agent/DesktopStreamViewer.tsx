@@ -132,6 +132,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
   const [debugKeyEvent, setDebugKeyEvent] = useState<string | null>(null); // Debug: show last key event for iPad troubleshooting
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
+  // Connection debug log for iPad (no devtools) - shows recent connection events
+  const [connectionLog, setConnectionLog] = useState<Array<{ time: string; msg: string }>>([]);
+  const addConnectionLog = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[DesktopStreamViewer] ${msg}`);
+    setConnectionLog(prev => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
+  }, []);
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
@@ -528,11 +535,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         if (data.type === 'connected') {
           // WebSocket opened - show initializing status (still waiting for connectionComplete)
+          addConnectionLog('WebSocket opened');
           setStatus('Initializing stream...');
         } else if (data.type === 'streamInit') {
           // Stream parameters received - decoding about to start
           setStatus('Starting video decoder...');
         } else if (data.type === 'connectionComplete') {
+          addConnectionLog('Connection complete');
           setIsConnected(true);
           hasEverConnectedRef.current = true; // Mark first successful connection
           setError(null); // Clear any previous errors on successful connection
@@ -601,6 +610,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
 
           const errorMsg = data.message || 'Stream error';
+          addConnectionLog(`Error: ${errorMsg}`);
 
           // Check if error is AlreadyStreaming - retry instead of permanent failure
           if (errorMsg.includes('AlreadyStreaming') || errorMsg.includes('already streaming')) {
@@ -668,10 +678,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
           // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
           if (isExplicitlyClosingRef.current) {
+            addConnectionLog('Disconnected (explicit)');
             console.log('[DesktopStreamViewer] Explicit close - showing Disconnected overlay');
             setIsConnecting(false);
             setStatus('Disconnected');
           } else {
+            addConnectionLog(`Disconnected unexpectedly (code: ${data.code || 'unknown'})`);
             console.log('[DesktopStreamViewer] Unexpected disconnect - will auto-reconnect');
             setIsConnecting(true);
             setStatus('Reconnecting...');
@@ -1150,16 +1162,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, [isPhone]);
 
-  // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
+  // Auto-fullscreen on landscape rotation for actual mobile devices (phone/tablet)
+  // Only triggers on real orientation change events, not window resize
   useEffect(() => {
-    if (!hasTouchCapability) return;
+    // Only enable for actual mobile devices, not touch-capable laptops/desktops
+    // Check for mobile user agent patterns (phones and tablets)
+    const isMobileDevice = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad on iOS 13+
+
+    if (!isMobileDevice) return;
+
+    // Only use screen.orientation API - no resize fallback (resize causes false positives)
+    if (!screen.orientation) return;
 
     const handleOrientationChange = () => {
       const doc = document as any;
       const elem = containerRef.current as any;
 
-      // Check if device is in landscape orientation
-      const isLandscape = window.innerWidth > window.innerHeight;
+      // Use screen.orientation.type for accurate detection
+      const isLandscape = screen.orientation.type.startsWith('landscape');
       const fullscreenElement = doc.fullscreenElement ||
         doc.webkitFullscreenElement ||
         doc.webkitCurrentFullScreenElement ||
@@ -1168,7 +1189,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       if (isLandscape && !fullscreenElement && elem) {
         // Auto-enter fullscreen when rotated to landscape
-        console.log('[DesktopStreamViewer] Landscape detected, entering fullscreen');
+        console.log('[DesktopStreamViewer] Orientation changed to landscape, entering fullscreen');
         // Try all fullscreen APIs
         if (elem.requestFullscreen) {
           elem.requestFullscreen().catch(() => {
@@ -1185,7 +1206,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       } else if (!isLandscape && fullscreenElement) {
         // Exit fullscreen when rotated back to portrait
-        console.log('[DesktopStreamViewer] Portrait detected, exiting fullscreen');
+        console.log('[DesktopStreamViewer] Orientation changed to portrait, exiting fullscreen');
         if (doc.exitFullscreen) {
           doc.exitFullscreen().catch(() => {});
         } else if (doc.webkitExitFullscreen) {
@@ -1200,19 +1221,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
     };
 
-    // Listen for orientation changes (screen.orientation API) and resize (fallback)
-    if (screen.orientation) {
-      screen.orientation.addEventListener('change', handleOrientationChange);
-    }
-    window.addEventListener('resize', handleOrientationChange);
+    screen.orientation.addEventListener('change', handleOrientationChange);
 
     return () => {
-      if (screen.orientation) {
-        screen.orientation.removeEventListener('change', handleOrientationChange);
-      }
-      window.removeEventListener('resize', handleOrientationChange);
+      screen.orientation.removeEventListener('change', handleOrientationChange);
     };
-  }, [hasTouchCapability]);
+  }, []);
 
   // Load touch mode preference from localStorage on mount
   useEffect(() => {
@@ -1550,13 +1564,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Only trigger stall detection after we've received at least one frame (lastFrameRenderTime > 0)
       // and if we've been connected long enough for frames to be expected
       if (stats.lastFrameRenderTime > 0 && timeSinceLastFrame > FRAME_STALL_THRESHOLD_MS) {
-        console.log(`[DesktopStreamViewer] Frame stall detected: ${Math.round(timeSinceLastFrame)}ms since last frame, forcing reconnect`);
+        const stallMsg = `Frame stall: ${Math.round(timeSinceLastFrame)}ms, fps=${stats.fps}, decoded=${stats.framesDecoded}`;
+        console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         console.log('[DesktopStreamViewer] Stats at stall:', {
           fps: stats.fps,
           framesDecoded: stats.framesDecoded,
           decodeQueueSize: stats.decodeQueueSize,
           wsReadyState: ws?.readyState,
         });
+        addConnectionLog(stallMsg);
         reconnect(500, 'Reconnecting (video stalled)...');
       }
     };
@@ -4015,6 +4031,40 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       {/* Input Hint - removed since auto-focus handles keyboard input */}
       {/* Presence Indicator - moved to toolbar above */}
+
+      {/* Connection Debug Log - fixed position, full screen overlay (for iPad without devtools) */}
+      {showStats && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 8,
+            left: 8,
+            zIndex: 9999,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            padding: '8px',
+            borderRadius: '4px',
+            maxWidth: '350px',
+            minWidth: '200px',
+            pointerEvents: 'none',
+          }}
+        >
+          <Typography sx={{ fontWeight: 'bold', fontSize: '11px', color: '#0f0', mb: 0.5 }}>
+            Connection: {isConnected ? '✓ Connected' : isConnecting ? '⏳ Connecting...' : '✗ Disconnected'}
+          </Typography>
+          {connectionLog.length === 0 ? (
+            <Box sx={{ color: '#666', fontStyle: 'italic' }}>No events yet</Box>
+          ) : (
+            connectionLog.map((entry, i) => (
+              <Box key={i} sx={{ opacity: i === connectionLog.length - 1 ? 1 : 0.7 }}>
+                <span style={{ color: '#888' }}>{entry.time}</span> {entry.msg}
+              </Box>
+            ))
+          )}
+        </Box>
+      )}
 
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'screenshot') && (
