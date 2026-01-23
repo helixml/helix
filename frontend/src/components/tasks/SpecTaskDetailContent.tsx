@@ -714,7 +714,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Tooltip>
                 </Box>
                 <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+                <Box sx={{ p: 1.5, flexShrink: 0 }}>
                   <RobustPromptInput
                     sessionId={activeSessionId}
                     specTaskId={task.id}
@@ -1040,7 +1040,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {activeSessionId && currentView === 'chat' && (
               <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                 <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                <Box sx={{ p: 1.5, flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                   <Box sx={{ flex: 1 }}>
                     <RobustPromptInput
                       sessionId={activeSessionId}
