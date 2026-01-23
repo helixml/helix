@@ -33,6 +33,10 @@ import {
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
   Delete as DeleteIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
+  ContentCopy as CopyIcon,
+  RemoveCircleOutline as RemoveFromQueueIcon,
 } from '@mui/icons-material'
 import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
@@ -637,8 +641,18 @@ export default function TaskCard({
             slotProps={{
               paper: {
                 sx: {
-                  minWidth: 180,
+                  minWidth: 160,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  '& .MuiMenuItem-root': {
+                    py: 0.75,
+                    minHeight: 'unset',
+                  },
+                  '& .MuiListItemIcon-root': {
+                    minWidth: 28,
+                  },
+                  '& .MuiListItemText-primary': {
+                    fontSize: '0.8rem',
+                  },
                 },
               },
             }}
@@ -649,7 +663,10 @@ export default function TaskCard({
                   setMenuAnchorEl(null)
                   onReviewDocs(task)
                 }}
-              >    
+              >
+                <ListItemIcon>
+                  <SpecIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
                 <ListItemText>Review Spec</ListItemText>
               </MenuItem>
             )}
@@ -661,9 +678,9 @@ export default function TaskCard({
                 }}
               >
                 <ListItemIcon>
-                  <BatchIcon fontSize="small" />
+                  <BatchIcon sx={{ fontSize: 16 }} />
                 </ListItemIcon>
-                <ListItemText>Clone Batch Progress</ListItemText>
+                <ListItemText>Batch Progress</ListItemText>
               </MenuItem>
             )}
             {isQueued && (
@@ -674,6 +691,9 @@ export default function TaskCard({
                   handleRemoveFromQueue()
                 }}
               >
+                <ListItemIcon>
+                  <RemoveFromQueueIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
                 <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
               </MenuItem>
             )}
@@ -684,9 +704,12 @@ export default function TaskCard({
                   setShowCloneDialog(true)
                 }}
               >
-                <ListItemText>Clone to other projects</ListItemText>
+                <ListItemIcon>
+                  <CopyIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
+                <ListItemText>Clone to projects</ListItemText>
               </MenuItem>
-            )}            
+            )}
             <MenuItem
               disabled={isArchiving}
               onClick={() => {
@@ -696,25 +719,29 @@ export default function TaskCard({
                 }
               }}
             >
+              <ListItemIcon>
+                {task.archived ? <UnarchiveIcon sx={{ fontSize: 16 }} /> : <ArchiveIcon sx={{ fontSize: 16 }} />}
+              </ListItemIcon>
               <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
-            <Tooltip title={task.archived ? '' : 'Task must be archived first'} placement="left">
-              <span>
-                <MenuItem
-                  disabled={!task.archived || deleteSpecTask.isPending}
-                  onClick={() => {
-                    setMenuAnchorEl(null)
-                    if (task.id) {
-                      deleteSpecTask.mutate(task.id)
-                    }
-                  }}
-                >
-                  <ListItemText sx={{ color: task.archived ? 'error.main' : 'text.disabled' }}>
-                    {deleteSpecTask.isPending ? 'Deleting...' : 'Delete'}
-                  </ListItemText>
-                </MenuItem>
-              </span>
-            </Tooltip>
+            {task.archived && (
+              <MenuItem
+                disabled={deleteSpecTask.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  if (task.id) {
+                    deleteSpecTask.mutate(task.id)
+                  }
+                }}
+              >
+                <ListItemIcon>
+                  <DeleteIcon sx={{ fontSize: 16, color: 'error.main' }} />
+                </ListItemIcon>
+                <ListItemText sx={{ color: 'error.main' }}>
+                  {deleteSpecTask.isPending ? 'Deleting...' : 'Delete'}
+                </ListItemText>
+              </MenuItem>
+            )}
           </Menu>
         </Box>
 

@@ -313,13 +313,6 @@ const PanelTab: React.FC<PanelTabProps> = ({
       <Box
         draggable
         onDragStart={(e) => onDragStart(e, tab.id)}
-        onMouseDown={(e) => {
-          // Prevent text selection when starting a drag with trackpad/mouse
-          // Don't prevent default on the close button
-          if ((e.target as HTMLElement).closest('button')) return
-          e.preventDefault()
-        }}
-        onSelectStart={(e) => e.preventDefault()}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={() => setIsHovered(true)}
@@ -431,6 +424,7 @@ interface TaskPanelProps {
   panel: PanelData
   tasks: TypesSpecTask[]
   projectId?: string
+  exploratorySessionId?: string
   onTabSelect: (panelId: string, tabId: string) => void
   onTabClose: (panelId: string, tabId: string) => void
   onTabRename: (tabId: string, newTitle: string) => void
@@ -451,6 +445,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   panel,
   tasks,
   projectId,
+  exploratorySessionId,
   onTabSelect,
   onTabClose,
   onTabRename,
@@ -833,43 +828,34 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </>
           )}
 
-          {/* Team Desktop sessions from active tasks */}
-          {(() => {
-            const tasksWithSessions = tasks.filter(t => t.planning_session_id)
-            if (tasksWithSessions.length > 0) {
-              return (
-                <>
-                  {tasksWithSessions.slice(0, 5).map(task => {
-                    const desktopTabId = `desktop-${task.planning_session_id}`
-                    const alreadyOpen = panel.tabs.some(t => t.id === desktopTabId)
-                    return (
-                      <MenuItem
-                        key={`desktop-${task.id}`}
-                        onClick={() => {
-                          if (!alreadyOpen) {
-                            onAddDesktop(panel.id, task.planning_session_id!, 'Team Desktop')
-                          }
-                          setMenuAnchor(null)
-                        }}
-                        disabled={alreadyOpen}
-                      >
-                        <ListItemIcon>
-                          <DesktopIcon sx={{ fontSize: 16, color: alreadyOpen ? 'text.disabled' : 'success.main' }} />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Team Desktop"
-                          secondary={alreadyOpen ? 'Already open' : undefined}
-                          primaryTypographyProps={{ fontSize: '0.875rem' }}
-                          secondaryTypographyProps={{ fontSize: '0.7rem' }}
-                        />
-                      </MenuItem>
-                    )
-                  })}
-                  <Divider sx={{ my: 0.5 }} />
-                </>
-              )
-            }
-            return null
+          {/* Team Desktop - the exploratory session for the project */}
+          {exploratorySessionId && (() => {
+            const desktopTabId = `desktop-${exploratorySessionId}`
+            const alreadyOpen = panel.tabs.some(t => t.id === desktopTabId)
+            return (
+              <>
+                <MenuItem
+                  onClick={() => {
+                    if (!alreadyOpen) {
+                      onAddDesktop(panel.id, exploratorySessionId, 'Team Desktop')
+                    }
+                    setMenuAnchor(null)
+                  }}
+                  disabled={alreadyOpen}
+                >
+                  <ListItemIcon>
+                    <DesktopIcon sx={{ fontSize: 16, color: alreadyOpen ? 'text.disabled' : 'success.main' }} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="Team Desktop"
+                    secondary={alreadyOpen ? 'Already open' : undefined}
+                    primaryTypographyProps={{ fontSize: '0.875rem' }}
+                    secondaryTypographyProps={{ fontSize: '0.7rem' }}
+                  />
+                </MenuItem>
+                <Divider sx={{ my: 0.5 }} />
+              </>
+            )
           })()}
 
           {/* Tasks section */}
@@ -1071,6 +1057,7 @@ interface TabsViewProps {
   onRefresh?: () => void
   initialTaskId?: string // Task ID to open initially (from "Split Screen" button)
   initialDesktopId?: string // Desktop session ID to open initially (from "Split Screen" button)
+  exploratorySessionId?: string // Team Desktop session ID (one per project)
 }
 
 // localStorage key for workspace state
@@ -1093,6 +1080,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   onRefresh,
   initialTaskId,
   initialDesktopId,
+  exploratorySessionId,
 }) => {
   const snackbar = useSnackbar()
   const updateSpecTask = useUpdateSpecTask()
@@ -1236,6 +1224,14 @@ const TabsView: React.FC<TabsViewProps> = ({
     // If initialDesktopId is provided, ensure the desktop tab is open
     if (initialDesktopId) {
       const desktopTabId = `desktop-${initialDesktopId}`
+      // Determine if this is the Team Desktop (exploratory session) or a task desktop
+      const isTeamDesktop = initialDesktopId === exploratorySessionId
+      const ownerTask = !isTeamDesktop ? tasks.find(t => t.planning_session_id === initialDesktopId) : null
+      const desktopTitle = isTeamDesktop
+        ? 'Team Desktop'
+        : ownerTask
+          ? (ownerTask.user_short_title || ownerTask.short_title || ownerTask.name?.substring(0, 25) || 'Task')
+          : 'Desktop'
       if (restored) {
         // Add to first panel if not already open
         setPanels(prev => {
@@ -1257,7 +1253,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 id: desktopTabId,
                 type: 'desktop',
                 sessionId: initialDesktopId,
-                desktopTitle: 'Team Desktop',
+                desktopTitle,
               }],
               activeTabId: desktopTabId,
             } : p)
@@ -1272,7 +1268,7 @@ const TabsView: React.FC<TabsViewProps> = ({
             id: desktopTabId,
             type: 'desktop',
             sessionId: initialDesktopId,
-            desktopTitle: 'Team Desktop',
+            desktopTitle,
           }],
           activeTabId: desktopTabId,
         }])
@@ -1299,7 +1295,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     }
 
     setInitialized(true)
-  }, [tasks, initialized, initialTaskId, initialDesktopId, projectId])
+  }, [tasks, initialized, initialTaskId, initialDesktopId, exploratorySessionId, projectId])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setPanels(prev => prev.map(p =>
@@ -1617,6 +1613,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 panel={panel}
                 tasks={tasks}
                 projectId={projectId}
+                exploratorySessionId={exploratorySessionId}
                 onTabSelect={handleTabSelect}
                 onTabClose={handleTabClose}
                 onTabRename={handleTabRename}

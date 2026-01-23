@@ -611,160 +611,124 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header bar with status and actions */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 2,
-          py: 1.5,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.default',
-        }}
-      >
-        <Box display="flex" alignItems="center" gap={2}>
-          {!hideTitle && (
-            <Typography variant="h6">
-              Spec Review
-            </Typography>
-          )}
-          <Chip label={review.status.replace('_', ' ')} color={getStatusColor(review.status) as any} size="small" />
-          {unresolvedCount > 0 && (
-            <Chip
-              label={`${unresolvedCount} unresolved`}
-              color="warning"
-              size="small"
-              icon={<EditIcon />}
-            />
-          )}
-        </Box>
-
-        <Box display="flex" alignItems="center" gap={1}>
-          <Tooltip title={shareLinkCopied ? 'Link copied!' : 'Copy shareable link'}>
-            <IconButton size="small" onClick={handleShareLink}>
-              {shareLinkCopied ? <CheckIcon color="success" /> : <ShareIcon />}
-            </IconButton>
-          </Tooltip>
-
-          <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)}>
-            <Badge badgeContent={activeDocComments.length} color="primary">
-              <CommentIcon />
-            </Badge>
-          </IconButton>
-        </Box>
-      </Box>
-
-      {/* Git information */}
-      <Box display="flex" alignItems="center" gap={2} px={2} py={1} bgcolor="background.default" borderBottom={1} borderColor="divider">
-        <Tooltip title={`Commit: ${review.git_commit_hash}`}>
-          <Chip
-            icon={<GitHubIcon />}
-            label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
-            size="small"
-            variant="outlined"
-          />
-        </Tooltip>
-        <Typography variant="caption" color="text.secondary">
-          Pushed {new Date(review.git_pushed_at).toLocaleString()}
-        </Typography>
-      </Box>
-
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
         <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
-          <Tabs
-            value={activeTab}
-            onChange={(_, value) => handleTabChange(value)}
-            sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}
+          {/* Compact single-line header: Tabs on left, git info + actions on right */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: 1,
+              borderColor: 'divider',
+              bgcolor: 'background.default',
+              minHeight: 48,
+            }}
           >
-            <Tab
-              label={
-                <Box display="flex" alignItems="center" gap={1}>
-                  {DOCUMENT_LABELS.requirements}
-                  {getCommentCount('requirements') > 0 && (
-                    <Chip
-                      label={getCommentCount('requirements')}
-                      size="small"
-                      color="warning"
-                      sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
-                    />
-                  )}
-                  {!viewedTabs.has('requirements') && (
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        bgcolor: 'primary.main'
-                      }}
-                    />
-                  )}
-                </Box>
-              }
-              value="requirements"
-            />
-            <Tab
-              label={
-                <Box display="flex" alignItems="center" gap={1}>
-                  {DOCUMENT_LABELS.technical_design}
-                  {getCommentCount('technical_design') > 0 && (
-                    <Chip
-                      label={getCommentCount('technical_design')}
-                      size="small"
-                      color="warning"
-                      sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
-                    />
-                  )}
-                  {!viewedTabs.has('technical_design') && (
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        bgcolor: 'primary.main'
-                      }}
-                    />
-                  )}
-                </Box>
-              }
-              value="technical_design"
-            />
-            <Tab
-              label={
-                <Box display="flex" alignItems="center" gap={1}>
-                  {DOCUMENT_LABELS.implementation_plan}
-                  {getCommentCount('implementation_plan') > 0 && (
-                    <Chip
-                      label={getCommentCount('implementation_plan')}
-                      size="small"
-                      color="warning"
-                      sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
-                    />
-                  )}
-                  {!viewedTabs.has('implementation_plan') && (
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        bgcolor: 'primary.main'
-                      }}
-                    />
-                  )}
-                </Box>
-              }
-              value="implementation_plan"
-            />
-          </Tabs>
+            {/* Tabs on the left */}
+            <Tabs
+              value={activeTab}
+              onChange={(_, value) => handleTabChange(value)}
+              sx={{
+                minHeight: 48,
+                '& .MuiTab-root': {
+                  minHeight: 48,
+                  py: 0,
+                  textTransform: 'uppercase',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  letterSpacing: '0.5px',
+                },
+              }}
+            >
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    Requirements
+                    {getCommentCount('requirements') > 0 && (
+                      <Chip
+                        label={getCommentCount('requirements')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: 16, minWidth: 16, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.5 } }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="requirements"
+              />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    Technical Design
+                    {getCommentCount('technical_design') > 0 && (
+                      <Chip
+                        label={getCommentCount('technical_design')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: 16, minWidth: 16, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.5 } }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="technical_design"
+              />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    Implementation Plan
+                    {getCommentCount('implementation_plan') > 0 && (
+                      <Chip
+                        label={getCommentCount('implementation_plan')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: 16, minWidth: 16, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.5 } }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="implementation_plan"
+              />
+            </Tabs>
+
+            {/* Git info and actions on the right */}
+            <Box display="flex" alignItems="center" gap={1.5} pr={2}>
+              <Tooltip title={`Commit: ${review.git_commit_hash}`}>
+                <Chip
+                  icon={<GitHubIcon sx={{ fontSize: 14 }} />}
+                  label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 24, fontSize: '0.7rem' }}
+                />
+              </Tooltip>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                {new Date(review.git_pushed_at).toLocaleString()}
+              </Typography>
+
+              <Tooltip title={shareLinkCopied ? 'Link copied!' : 'Copy shareable link'}>
+                <IconButton size="small" onClick={handleShareLink} sx={{ p: 0.5 }}>
+                  {shareLinkCopied ? <CheckIcon color="success" fontSize="small" /> : <ShareIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Comment log">
+                <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)} sx={{ p: 0.5 }}>
+                  <Badge badgeContent={activeDocComments.length} color="primary">
+                    <CommentIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
 
           <Box
             ref={documentRef}
             flex={1}
             overflow="auto"
-            p={4}
+            p={2}
             sx={{
               bgcolor: 'background.default',
               position: 'relative',
@@ -774,74 +738,78 @@ export default function DesignReviewContent({
             <Box
               onMouseUp={handleTextSelection}
               sx={{
-                maxWidth: '650px',
-                minWidth: '450px',
-                marginRight: '320px',
+                maxWidth: '800px',
+                minWidth: '400px',
+                mx: 'auto',
                 position: 'relative',
                 '& .markdown-body': {
                   bgcolor: 'background.paper',
-                  p: 5,
+                  px: 2.5,
+                  py: 1.5,
                   borderRadius: 1,
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                  fontSize: '16px',
-                  lineHeight: 1.9,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                  fontSize: '14px',
+                  lineHeight: 1.6,
                   color: 'text.primary',
 
                   '& h1': {
-                    fontSize: '2.5rem',
-                    fontWeight: 500,
+                    fontSize: '1.5rem',
+                    fontWeight: 600,
                     color: 'text.primary',
-                    marginTop: '1.5rem',
-                    marginBottom: '1rem',
+                    marginTop: 0,
+                    marginBottom: '0.75rem',
                     lineHeight: 1.3,
-                    borderBottom: 2,
+                    borderBottom: 1,
                     borderColor: 'divider',
                     paddingBottom: '0.5rem',
+                    '&:first-of-type': {
+                      marginTop: 0,
+                    },
                   },
                   '& h2': {
-                    fontSize: '2rem',
-                    fontWeight: 500,
+                    fontSize: '1.25rem',
+                    fontWeight: 600,
                     color: 'text.primary',
-                    marginTop: '2rem',
-                    marginBottom: '0.75rem',
-                    lineHeight: 1.35,
+                    marginTop: '1.25rem',
+                    marginBottom: '0.5rem',
+                    lineHeight: 1.3,
                   },
                   '& h3': {
-                    fontSize: '1.5rem',
-                    fontWeight: 500,
+                    fontSize: '1.1rem',
+                    fontWeight: 600,
                     color: 'text.primary',
-                    marginTop: '1.5rem',
-                    marginBottom: '0.5rem',
+                    marginTop: '1rem',
+                    marginBottom: '0.4rem',
                   },
                   '& p': {
-                    marginBottom: '1.2rem',
+                    marginBottom: '0.75rem',
                   },
                   '& ul, & ol': {
-                    marginBottom: '1.2rem',
-                    paddingLeft: '2rem',
+                    marginBottom: '0.75rem',
+                    paddingLeft: '1.5rem',
                   },
                   '& li': {
-                    marginBottom: '0.5rem',
+                    marginBottom: '0.25rem',
                   },
                   '& blockquote': {
-                    borderLeft: '4px solid',
+                    borderLeft: '3px solid',
                     borderColor: 'divider',
-                    paddingLeft: '1.5rem',
+                    paddingLeft: '1rem',
                     marginLeft: 0,
                     fontStyle: 'italic',
                     color: 'text.secondary',
                   },
                   '& code': {
                     fontFamily: 'Monaco, Consolas, monospace',
-                    fontSize: '0.9em',
+                    fontSize: '0.85em',
                     bgcolor: 'action.hover',
-                    padding: '2px 6px',
+                    padding: '1px 4px',
                     borderRadius: '3px',
                     border: 1,
                     borderColor: 'divider',
                   },
                   '& pre': {
-                    marginBottom: '1.2rem',
+                    marginBottom: '0.75rem',
                     borderRadius: '4px',
                     overflow: 'auto',
                   },

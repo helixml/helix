@@ -1167,6 +1167,7 @@ const SpecTasksPage: FC = () => {
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
                 initialTaskId={openTaskId}
                 initialDesktopId={openDesktopId}
+                exploratorySessionId={exploratorySessionData?.id}
               />
             )}
             {viewMode === 'audit' && (
