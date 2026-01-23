@@ -6,12 +6,14 @@
 // contention when multiple pipewirezerocopysrc instances try to connect to the
 // same PipeWire ScreenCast node.
 //
-// Build: 2026-01-23-gop-replay-vhs-effect
+// Build: 2026-01-23-grace-period
 package desktop
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +28,13 @@ const (
 
 // Catchup timeout - if client can't catch up in this time, disconnect
 const catchupTimeout = 30 * time.Second
+
+// Grace period constants for pipeline shutdown
+const (
+	DefaultGracePeriod = 60 * time.Second  // Wait before stopping pipeline when all clients disconnect
+	MinGracePeriod     = 5 * time.Second   // Minimum allowed grace period
+	MaxGracePeriod     = 300 * time.Second // Maximum allowed grace period (5 minutes)
+)
 
 // SharedVideoSource manages a single GStreamer pipeline that broadcasts to multiple clients.
 // All clients connected to the same session share this source, preventing the issue where
@@ -86,12 +95,35 @@ type sharedVideoClient struct {
 	pending   []VideoFrame
 }
 
+// pendingStop represents a deferred pipeline shutdown during the grace period.
+// When all clients disconnect, we don't immediately stop the pipeline - instead we
+// schedule a stop after gracePeriod. If a client reconnects before the timer fires,
+// the stop is cancelled and the existing pipeline is reused.
+type pendingStop struct {
+	timer    *time.Timer
+	source   *SharedVideoSource
+	nodeID   uint32
+	cancelCh chan struct{} // closed when stop is cancelled by reconnecting client
+}
+
 // SharedVideoSourceRegistry maintains a map of PipeWire node IDs to shared video sources.
 // This ensures only ONE pipeline is created per PipeWire node, regardless of how many
 // WebSocket clients connect.
+//
+// Grace period: When all clients disconnect, the pipeline is not immediately stopped.
+// Instead, it enters a "pending stop" state for gracePeriod (default 60s). If a client
+// reconnects during this window, the stop is cancelled and the existing pipeline is reused.
+// This handles hot-reload scenarios where multiple browser tabs disconnect and reconnect rapidly.
 type SharedVideoSourceRegistry struct {
-	sources map[uint32]*SharedVideoSource // keyed by PipeWire node ID
-	mu      sync.Mutex
+	sources      map[uint32]*SharedVideoSource // keyed by PipeWire node ID
+	pendingStops map[uint32]*pendingStop       // sources scheduled for stop
+	mu           sync.Mutex
+
+	gracePeriod time.Duration // how long to wait before stopping pipeline
+
+	// Metrics
+	cancelledStops atomic.Uint64 // stops cancelled by client reconnect
+	completedStops atomic.Uint64 // stops that completed after grace period
 }
 
 var (
@@ -102,19 +134,40 @@ var (
 // GetSharedVideoRegistry returns the singleton registry
 func GetSharedVideoRegistry() *SharedVideoSourceRegistry {
 	sharedVideoRegistryOnce.Do(func() {
-		sharedVideoRegistry = &SharedVideoSourceRegistry{
-			sources: make(map[uint32]*SharedVideoSource),
+		gracePeriod := DefaultGracePeriod
+		if v := os.Getenv("VIDEO_GRACE_PERIOD_SECONDS"); v != "" {
+			if seconds, err := strconv.Atoi(v); err == nil {
+				gracePeriod = time.Duration(seconds) * time.Second
+				if gracePeriod < MinGracePeriod {
+					gracePeriod = MinGracePeriod
+				}
+				if gracePeriod > MaxGracePeriod {
+					gracePeriod = MaxGracePeriod
+				}
+			}
 		}
+		sharedVideoRegistry = &SharedVideoSourceRegistry{
+			sources:      make(map[uint32]*SharedVideoSource),
+			pendingStops: make(map[uint32]*pendingStop),
+			gracePeriod:  gracePeriod,
+		}
+		fmt.Printf("[SHARED_VIDEO] Registry initialized with grace period %v\n", gracePeriod)
 	})
 	return sharedVideoRegistry
 }
 
 // GetOrCreate returns an existing SharedVideoSource for the PipeWire node, or creates a new one.
 // The pipelineStr and opts are only used when creating a new source.
+//
+// Grace period handling:
+// - If source is active (has clients): reuse immediately
+// - If source is in pending stop (grace period): cancel stop, move back to active, reuse
+// - If source doesn't exist: create new
 func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr string, opts GstPipelineOptions) *SharedVideoSource {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Case 1: Active source exists - reuse it
 	if source, exists := r.sources[nodeID]; exists {
 		source.clientsMu.RLock()
 		clientCount := len(source.clients)
@@ -124,7 +177,24 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 		return source
 	}
 
-	// Create new shared source
+	// Case 2: Source is in pending stop - cancel and reuse
+	if pending, exists := r.pendingStops[nodeID]; exists {
+		// Stop the timer (may have already fired, that's OK)
+		pending.timer.Stop()
+
+		// Signal cancellation to doStop goroutine (if it's waiting on the lock)
+		close(pending.cancelCh)
+
+		// Move back to active sources
+		r.sources[nodeID] = pending.source
+		delete(r.pendingStops, nodeID)
+
+		r.cancelledStops.Add(1)
+		fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for node %d, reusing pipeline (grace period saved!)\n", nodeID)
+		return pending.source
+	}
+
+	// Case 3: No source exists - create new
 	ctx, cancel := context.WithCancel(context.Background())
 	source := &SharedVideoSource{
 		nodeID:       nodeID,
@@ -140,36 +210,151 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	return source
 }
 
-// Remove removes a SharedVideoSource from the registry.
+// ScheduleStop schedules a source for deferred stop after the grace period.
 // Called when the last client disconnects.
+// If a client reconnects during the grace period, GetOrCreate will cancel the stop.
+func (r *SharedVideoSourceRegistry) ScheduleStop(nodeID uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	source, exists := r.sources[nodeID]
+	if !exists {
+		// Already removed or never existed
+		return
+	}
+
+	// Double-check that source still has no clients (race condition guard)
+	if source.GetClientCount() > 0 {
+		// Not actually the last client - another client subscribed
+		return
+	}
+
+	// Already pending stop?
+	if _, exists := r.pendingStops[nodeID]; exists {
+		return
+	}
+
+	// Move from active to pending
+	delete(r.sources, nodeID)
+
+	pending := &pendingStop{
+		source:   source,
+		nodeID:   nodeID,
+		cancelCh: make(chan struct{}),
+	}
+
+	// Schedule the actual stop after grace period
+	pending.timer = time.AfterFunc(r.gracePeriod, func() {
+		r.doStop(pending)
+	})
+
+	r.pendingStops[nodeID] = pending
+	fmt.Printf("[SHARED_VIDEO] Scheduled stop for node %d in %v (grace period started)\n", nodeID, r.gracePeriod)
+}
+
+// doStop performs the actual pipeline stop after grace period expires.
+// Called by the timer scheduled in ScheduleStop.
+// If the stop was cancelled (client reconnected), this exits early.
+func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
+	r.mu.Lock()
+
+	// Check if stop was cancelled (client reconnected during grace period)
+	select {
+	case <-pending.cancelCh:
+		// Cancelled - GetOrCreate closed this channel
+		r.mu.Unlock()
+		fmt.Printf("[SHARED_VIDEO] Stop cancelled for node %d (client reconnected during grace period)\n", pending.nodeID)
+		return
+	default:
+	}
+
+	// Verify this pending stop is still current
+	// (handles edge case where node was removed and recreated)
+	currentPending, exists := r.pendingStops[pending.nodeID]
+	if !exists || currentPending != pending {
+		r.mu.Unlock()
+		fmt.Printf("[SHARED_VIDEO] Stop superseded for node %d\n", pending.nodeID)
+		return
+	}
+
+	// Remove from pending map before releasing lock
+	delete(r.pendingStops, pending.nodeID)
+	r.mu.Unlock()
+
+	// Stop the pipeline (outside lock - may take time for cleanup)
+	fmt.Printf("[SHARED_VIDEO] Grace period expired for node %d, stopping pipeline\n", pending.nodeID)
+	pending.source.stop()
+	r.completedStops.Add(1)
+	fmt.Printf("[SHARED_VIDEO] Pipeline stopped for node %d\n", pending.nodeID)
+}
+
+// Remove immediately removes and stops a SharedVideoSource from the registry.
+// This bypasses the grace period and is used for immediate cleanup.
+// Prefer ScheduleStop for normal client disconnect to enable pipeline reuse.
 func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Check active sources
 	if source, exists := r.sources[nodeID]; exists {
-		source.stop()
 		delete(r.sources, nodeID)
-		fmt.Printf("[SHARED_VIDEO] Removed source for node %d\n", nodeID)
+		source.stop()
+		fmt.Printf("[SHARED_VIDEO] Immediately removed source for node %d\n", nodeID)
+		return
+	}
+
+	// Check pending stops - cancel timer and stop immediately
+	if pending, exists := r.pendingStops[nodeID]; exists {
+		pending.timer.Stop()
+		close(pending.cancelCh)
+		delete(r.pendingStops, nodeID)
+		pending.source.stop()
+		fmt.Printf("[SHARED_VIDEO] Immediately removed pending source for node %d\n", nodeID)
 	}
 }
 
 // SourceStats contains statistics for a single shared video source
 type SourceStats struct {
-	NodeID        uint32              `json:"node_id"`
-	Running       bool                `json:"running"`
-	ClientCount   int                 `json:"client_count"`
-	FramesReceived uint64             `json:"frames_received"`
-	FramesDropped  uint64             `json:"frames_dropped"`
-	GOPBufferSize int                 `json:"gop_buffer_size"`
-	Clients       []ClientBufferStats `json:"clients"`
+	NodeID         uint32              `json:"node_id"`
+	Running        bool                `json:"running"`
+	PendingStop    bool                `json:"pending_stop"`    // In grace period, waiting to stop
+	ClientCount    int                 `json:"client_count"`
+	FramesReceived uint64              `json:"frames_received"`
+	FramesDropped  uint64              `json:"frames_dropped"`
+	GOPBufferSize  int                 `json:"gop_buffer_size"`
+	Clients        []ClientBufferStats `json:"clients"`
 }
 
-// GetAllStats returns statistics for all active video sources
+// RegistryStats contains overall registry metrics
+type RegistryStats struct {
+	ActiveSources  int   `json:"active_sources"`   // Currently streaming
+	PendingStops   int   `json:"pending_stops"`    // In grace period
+	CancelledStops int64 `json:"cancelled_stops"`  // Stops cancelled by reconnect
+	CompletedStops int64 `json:"completed_stops"`  // Stops that completed
+	GracePeriodMs  int64 `json:"grace_period_ms"`  // Current grace period
+}
+
+// GetRegistryStats returns overall registry metrics
+func (r *SharedVideoSourceRegistry) GetRegistryStats() RegistryStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return RegistryStats{
+		ActiveSources:  len(r.sources),
+		PendingStops:   len(r.pendingStops),
+		CancelledStops: int64(r.cancelledStops.Load()),
+		CompletedStops: int64(r.completedStops.Load()),
+		GracePeriodMs:  r.gracePeriod.Milliseconds(),
+	}
+}
+
+// GetAllStats returns statistics for all active and pending video sources
 func (r *SharedVideoSourceRegistry) GetAllStats() []SourceStats {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	stats := make([]SourceStats, 0, len(r.sources))
+	stats := make([]SourceStats, 0, len(r.sources)+len(r.pendingStops))
+
+	// Active sources
 	for nodeID, source := range r.sources {
 		received, dropped := source.GetFrameStats()
 
@@ -180,6 +365,7 @@ func (r *SharedVideoSourceRegistry) GetAllStats() []SourceStats {
 		stats = append(stats, SourceStats{
 			NodeID:         nodeID,
 			Running:        source.IsRunning(),
+			PendingStop:    false,
 			ClientCount:    source.GetClientCount(),
 			FramesReceived: received,
 			FramesDropped:  dropped,
@@ -187,7 +373,55 @@ func (r *SharedVideoSourceRegistry) GetAllStats() []SourceStats {
 			Clients:        source.GetClientBufferStats(),
 		})
 	}
+
+	// Pending stop sources (in grace period)
+	for nodeID, pending := range r.pendingStops {
+		source := pending.source
+		received, dropped := source.GetFrameStats()
+
+		source.gopBufferMu.RLock()
+		gopLen := len(source.gopBuffer)
+		source.gopBufferMu.RUnlock()
+
+		stats = append(stats, SourceStats{
+			NodeID:         nodeID,
+			Running:        source.IsRunning(),
+			PendingStop:    true,
+			ClientCount:    0, // No clients during pending stop
+			FramesReceived: received,
+			FramesDropped:  dropped,
+			GOPBufferSize:  gopLen,
+			Clients:        nil,
+		})
+	}
+
 	return stats
+}
+
+// Shutdown cleanly stops all sources and cancels pending stops.
+// Should be called when the desktop bridge is shutting down.
+func (r *SharedVideoSourceRegistry) Shutdown() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	fmt.Printf("[SHARED_VIDEO] Registry shutdown: %d active sources, %d pending stops\n",
+		len(r.sources), len(r.pendingStops))
+
+	// Cancel all pending stop timers
+	for nodeID, pending := range r.pendingStops {
+		pending.timer.Stop()
+		close(pending.cancelCh)
+		pending.source.stop()
+		delete(r.pendingStops, nodeID)
+	}
+
+	// Stop all active sources
+	for nodeID, source := range r.sources {
+		source.stop()
+		delete(r.sources, nodeID)
+	}
+
+	fmt.Printf("[SHARED_VIDEO] Registry shutdown complete\n")
 }
 
 // Subscribe registers a new client to receive video frames.
@@ -330,9 +564,9 @@ func (s *SharedVideoSource) Unsubscribe(clientID uint64) {
 			clientID, s.nodeID, remaining)
 	}
 
-	// If no more clients, stop the pipeline and remove from registry
+	// If no more clients, schedule stop (with grace period for reconnection)
 	if remaining == 0 {
-		GetSharedVideoRegistry().Remove(s.nodeID)
+		GetSharedVideoRegistry().ScheduleStop(s.nodeID)
 	}
 }
 
