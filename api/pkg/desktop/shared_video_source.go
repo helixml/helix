@@ -6,7 +6,7 @@
 // contention when multiple pipewirezerocopysrc instances try to connect to the
 // same PipeWire ScreenCast node.
 //
-// Build: 2026-01-23-grace-period
+// Build: 2026-01-23-grace-period-vhs-fix
 package desktop
 
 import (
@@ -448,13 +448,17 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 		// pending starts nil, will be populated by broadcaster
 	}
 
-	// Check current client count
+	// Check current client count and pipeline state
 	s.clientsMu.RLock()
 	existingClients := len(s.clients)
 	s.clientsMu.RUnlock()
 
-	// Start pipeline on first client
-	if existingClients == 0 {
+	// Check if pipeline is already running (e.g., grace period reconnection)
+	// If running, we need GOP replay even if existingClients == 0
+	pipelineAlreadyRunning := s.running.Load()
+
+	// Start pipeline on first client (only if not already running)
+	if existingClients == 0 && !pipelineAlreadyRunning {
 		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
 		// Set state to live directly since there's nothing to catch up on
 		client.state.Store(clientStateLive)
@@ -490,8 +494,13 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 		clientCount := len(s.clients)
 		s.clientsMu.Unlock()
 
-		fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (total: %d, starting catchup)\n",
-			clientID, s.nodeID, clientCount)
+		if existingClients == 0 && pipelineAlreadyRunning {
+			fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (grace period reconnection, starting catchup)\n",
+				clientID, s.nodeID)
+		} else {
+			fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (total: %d, starting catchup)\n",
+				clientID, s.nodeID, clientCount)
+		}
 
 		// Start catchup goroutine in background
 		// This will: 1) copy GOP buffer, 2) send to channel, 3) drain pending, 4) transition to live
