@@ -1010,6 +1010,12 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
+export enum TypesAgentHostType {
+  AgentHostTypeZed = "zed",
+  AgentHostTypeVSCode = "vscode",
+  AgentHostTypeHeadless = "headless",
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -1810,6 +1816,8 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
+  /** Agent host environment */
+  agent_host_type?: TypesAgentHostType;
   /** Desktop environment */
   desktop_type?: string;
   /** Explicit height (default: 1080) */
@@ -1820,6 +1828,8 @@ export interface TypesExternalAgentConfig {
   display_width?: number;
   /** Display resolution - either use Resolution preset or explicit dimensions */
   resolution?: string;
+  /** Roo Code protocol (only for AgentHostTypeVSCode) */
+  roocode_protocol?: TypesRooCodeProtocol;
   /** Video capture/encoding mode */
   video_mode?: string;
   /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
@@ -3283,6 +3293,11 @@ export interface TypesRole {
   name?: string;
   organization_id?: string;
   updated_at?: string;
+}
+
+export enum TypesRooCodeProtocol {
+  RooCodeProtocolSocketIO = "socketio",
+  RooCodeProtocolIPC = "ipc",
 }
 
 export interface TypesRule {

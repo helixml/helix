@@ -22,6 +22,7 @@ require (
 	github.com/docker/docker v25.0.5+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/dop251/goja v0.0.0-20250531102226-cb187b08699c
+	github.com/doquangtan/socketio/v4 v4.1.6
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/drone/envsubst v1.0.3
 	github.com/dustin/go-humanize v1.0.1
@@ -104,20 +105,14 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
-	github.com/abema/go-mp4 v1.4.1 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
-	github.com/asticode/go-astikit v0.30.0 // indirect
-	github.com/asticode/go-astits v1.14.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/bluenviron/gohlslib/v2 v2.2.4 // indirect
-	github.com/bluenviron/mediacommon/v2 v2.5.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251022180443-0feb69152e9f // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v3 v3.0.0 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
-	github.com/doquangtan/socketio/v4 v4.1.6 // indirect
 	github.com/emirpasic/gods/v2 v2.0.0-alpha // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.35.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect

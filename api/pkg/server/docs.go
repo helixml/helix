@@ -15294,6 +15294,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentHostType": {
+            "type": "string",
+            "enum": [
+                "zed",
+                "vscode",
+                "headless"
+            ],
+            "x-enum-varnames": [
+                "AgentHostTypeZed",
+                "AgentHostTypeVSCode",
+                "AgentHostTypeHeadless"
+            ]
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -17194,6 +17207,14 @@ const docTemplate = `{
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
+                "agent_host_type": {
+                    "description": "Agent host environment",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentHostType"
+                        }
+                    ]
+                },
                 "desktop_type": {
                     "description": "Desktop environment",
                     "type": "string"
@@ -17213,6 +17234,14 @@ const docTemplate = `{
                 "resolution": {
                     "description": "Display resolution - either use Resolution preset or explicit dimensions",
                     "type": "string"
+                },
+                "roocode_protocol": {
+                    "description": "Roo Code protocol (only for AgentHostTypeVSCode)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.RooCodeProtocol"
+                        }
+                    ]
                 },
                 "video_mode": {
                     "description": "Video capture/encoding mode",
@@ -20693,6 +20722,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.RooCodeProtocol": {
+            "type": "string",
+            "enum": [
+                "socketio",
+                "ipc"
+            ],
+            "x-enum-varnames": [
+                "RooCodeProtocolSocketIO",
+                "RooCodeProtocolIPC"
+            ]
         },
         "types.Rule": {
             "type": "object",
