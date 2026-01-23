@@ -1220,12 +1220,31 @@ const TabsView: React.FC<TabsViewProps> = ({
             return prev
           })
         } else {
-          // Start fresh with this task
-          setPanels([{
+          // Start fresh with this task - create two panels for obvious split-screen
+          // Second panel shows another task or stays empty for user to add
+          const otherTasks = tasks.filter(t => t.id !== initialTaskId)
+          const secondTask = otherTasks.length > 0 ? otherTasks[0] : null
+
+          const firstPanel: PanelData = {
             id: generatePanelId(),
             tabs: [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
             activeTabId: taskToOpen.id,
-          }])
+          }
+
+          if (secondTask) {
+            // Create split with two tasks
+            setPanels([
+              firstPanel,
+              {
+                id: generatePanelId(),
+                tabs: [{ id: secondTask.id, type: 'task', task: secondTask }],
+                activeTabId: secondTask.id,
+              }
+            ])
+          } else {
+            // Only one task exists, just show single panel
+            setPanels([firstPanel])
+          }
           restored = true
         }
       }

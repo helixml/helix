@@ -478,58 +478,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
-      {/* Action Buttons */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        {task?.status === 'backlog' && (
-          <>
-            <Button
-              variant="contained"
-              color={justDoItMode ? 'success' : 'warning'}
-              startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
-              onClick={handleStartPlanning}
-              disabled={isStartingPlanning}
-            >
-              {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
-            </Button>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={justDoItMode}
-                  onChange={handleToggleJustDoIt}
-                  disabled={updatingJustDoIt}
-                  color="warning"
-                  size="small"
-                />
-              }
-              label={<Typography variant="body2">Just Do It</Typography>}
-              sx={{ ml: 1 }}
-            />
-          </>
-        )}
-        {task?.status === 'spec_review' && (
-          <Button
-            variant="contained"
-            color="info"
-            startIcon={<Description />}
-            onClick={handleReviewSpec}
-          >
-            Review Spec
-          </Button>
-        )}
-        {task?.pull_request_url && (
-          <Button
-            variant="outlined"
-            color="secondary"
-            startIcon={<LaunchIcon />}
-            onClick={() => window.open(task.pull_request_url, '_blank')}
-          >
-            View Pull Request
-          </Button>
-        )}
-      </Box>
-
-      <Divider sx={{ mb: 3 }} />
-
       {/* Description */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
