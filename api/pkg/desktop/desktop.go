@@ -451,20 +451,17 @@ func (s *Server) isRunning() bool {
 // For GNOME: Uses PipeWire ScreenCast with nodeID from portal session.
 // For Sway: Uses pipewirezerocopysrc with ext-image-copy-capture (no PipeWire needed).
 func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
-	// Prefer standalone video session - the linked session has a PipeWire bug where
-	// format negotiation fails after multiple pipeline restart cycles.
-	// The standalone session is specifically created for DmaBuf and handles reconnections better.
-	nodeID := s.videoNodeID
+	nodeID := s.nodeID // Use linked session
 	if nodeID == 0 {
-		nodeID = s.nodeID // Fallback to linked session
+		nodeID = s.videoNodeID // Fallback to standalone
 		if nodeID != 0 {
-			s.logger.Warn("using linked session for video (standalone unavailable, may have issues with reconnections)",
+			s.logger.Warn("using standalone session for video (linked unavailable)",
 				"fallback_node_id", nodeID)
 		}
 	} else {
-		s.logger.Info("using standalone session for video",
-			"standalone_node_id", nodeID,
-			"linked_node_id", s.nodeID)
+		s.logger.Info("using linked session for video",
+			"linked_node_id", nodeID,
+			"standalone_node_id", s.videoNodeID)
 	}
 
 	// For Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture
