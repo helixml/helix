@@ -31,7 +31,6 @@ import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
-import MenuBookIcon from '@mui/icons-material/MenuBook'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
 import TuneIcon from '@mui/icons-material/Tune'
@@ -55,8 +54,6 @@ import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
-import PromptLibrarySidebar from '../common/PromptLibrarySidebar'
-import { usePromptHistory } from '../../hooks/usePromptHistory'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 
@@ -178,8 +175,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
 
-  // Prompt library sidebar state
-  const [showPromptLibrary, setShowPromptLibrary] = useState(false)
 
   // Just Do It mode state
   const [justDoItMode, setJustDoItMode] = useState(false)
@@ -219,13 +214,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
   const sessionData = sessionResponse?.data
 
-  // Initialize prompt history for the session
-  const promptHistory = usePromptHistory({
-    sessionId: activeSessionId || 'default',
-    specTaskId: task?.id,
-    projectId: task?.project_id,
-    apiClient: api.getApiClient(),
-  })
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -726,34 +714,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Tooltip>
                 </Box>
                 <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <Box sx={{ flex: 1 }}>
-                    <RobustPromptInput
-                      sessionId={activeSessionId}
-                      specTaskId={task.id}
-                      projectId={task.project_id}
-                      apiClient={api.getApiClient()}
-                      onSend={async (message: string, interrupt?: boolean) => {
-                        await streaming.NewInference({
-                          type: SESSION_TYPE_TEXT,
-                          message,
-                          sessionId: activeSessionId,
-                          interrupt: interrupt ?? true,
-                        })
-                      }}
-                      onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                      placeholder="Send message to agent..."
-                    />
-                  </Box>
-                  <Tooltip title={showPromptLibrary ? 'Hide prompt library' : 'Show prompt library'}>
-                    <IconButton
-                      size="small"
-                      onClick={() => setShowPromptLibrary(!showPromptLibrary)}
-                      sx={{ mt: 0.5, color: showPromptLibrary ? 'primary.main' : 'text.secondary' }}
-                    >
-                      <MenuBookIcon sx={{ fontSize: 20 }} />
-                    </IconButton>
-                  </Tooltip>
+                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+                  <RobustPromptInput
+                    sessionId={activeSessionId}
+                    specTaskId={task.id}
+                    projectId={task.project_id}
+                    apiClient={api.getApiClient()}
+                    onSend={async (message: string, interrupt?: boolean) => {
+                      await streaming.NewInference({
+                        type: SESSION_TYPE_TEXT,
+                        message,
+                        sessionId: activeSessionId,
+                        interrupt: interrupt ?? true,
+                      })
+                    }}
+                    onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                    placeholder="Send message to agent..."
+                  />
                 </Box>
               </Box>
             </Panel>
@@ -913,35 +890,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             </Panel>
 
-            {/* Prompt library sidebar */}
-            {showPromptLibrary && (
-              <>
-                <PanelResizeHandle style={{
-                  width: 6,
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  cursor: 'col-resize',
-                  transition: 'background 0.15s',
-                }}>
-                  <div style={{
-                    width: 2,
-                    height: '100%',
-                    margin: '0 auto',
-                    background: 'rgba(255, 255, 255, 0.12)',
-                    borderRadius: 1,
-                  }} />
-                </PanelResizeHandle>
-                <Panel defaultSize={20} minSize={15}>
-                  <PromptLibrarySidebar
-                    pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
-                    recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
-                    onSelectPrompt={(content) => promptHistory.setDraft(content)}
-                    onPinPrompt={promptHistory.pinPrompt}
-                    onSearch={promptHistory.searchHistory}
-                    onClose={() => setShowPromptLibrary(false)}
-                  />
-                </Panel>
-              </>
-            )}
           </PanelGroup>
         ) : (
           <>
