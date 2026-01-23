@@ -1128,6 +1128,9 @@ function transfer-desktop-to-sandbox() {
   local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
   if [ -n "$SANDBOX_HAS_TAG" ]; then
     echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
+    # Still restart heartbeat to ensure API has the correct version
+    echo "🔄 Restarting heartbeat daemon to ensure version is current..."
+    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
     return 0
   fi
 

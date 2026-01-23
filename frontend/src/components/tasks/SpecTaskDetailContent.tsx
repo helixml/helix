@@ -644,6 +644,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Session ID: {activeSessionId}
           </Typography>
         )}
+        {sessionData?.config?.sway_version && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            Desktop: {sessionData.config.sway_version}
+          </Typography>
+        )}
+        {sessionData?.config?.gpu_vendor && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            GPU: {sessionData.config.gpu_vendor.toUpperCase()}
+          </Typography>
+        )}
+        {sessionData?.config?.render_node && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            Render: {sessionData.config.render_node}
+          </Typography>
+        )}
       </Box>
     </>
   )
