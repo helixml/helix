@@ -3188,7 +3188,7 @@ This project contains a circle shape that needs to be filled with your brand col
 
 **This is the starting point for the clone feature demo.**
 
-1. Start the task - the agent will ask you for your brand color
+1. Start the task - the agent MUST ask you for your brand color
 2. Once the circle is filled with your color, click "Clone" on the task card
 3. Select the other 4 shape projects (Square, Triangle, Hexagon, Star)
 4. Watch the cloned tasks apply the same color to all shapes
@@ -3198,9 +3198,16 @@ This project contains a circle shape that needs to be filled with your brand col
 - ` + "`shape.svg`" + ` - The circle shape (currently white with black outline)
 - ` + "`viewer.html`" + ` - Auto-refreshing viewer to see changes live
 
-## The Task
+## IMPORTANT: The Task
 
-Fill the circle with the company's brand color. The color is NOT specified in the code - you must ask the user.
+Fill the circle with the company's brand color.
+
+**The brand color is NOT specified anywhere in this codebase.**
+
+You MUST ask the user: "What is your brand color?"
+
+Do NOT guess. Do NOT use a placeholder. Do NOT pick a color yourself.
+Wait for the user to provide the exact color before making changes.
 `,
 			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <circle cx="100" cy="100" r="80" fill="white" stroke="black" stroke-width="3"/>
