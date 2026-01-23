@@ -31,11 +31,9 @@ type SimpleSampleProject struct {
 
 // SampleTaskPrompt follows Kiro's approach - just natural language prompts
 type SampleTaskPrompt struct {
-	Prompt      string                 `json:"prompt"`      // Natural language request
-	Priority    types.SpecTaskPriority `json:"priority"`    // "low", "medium", "high", "critical"
-	Labels      []string               `json:"labels"`      // Tags for organization
-	Context     string                 `json:"context"`     // Additional context about the codebase
-	Constraints string                 `json:"constraints"` // Any specific constraints or requirements
+	Prompt   string                 `json:"prompt"`   // Natural language request (include all context here)
+	Priority types.SpecTaskPriority `json:"priority"` // "low", "medium", "high", "critical"
+	Labels   []string               `json:"labels"`   // Tags for organization
 }
 
 // SIMPLE_SAMPLE_PROJECTS - realistic projects with natural prompts like Kiro expects
@@ -53,28 +51,24 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "web",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Add a dark mode toggle that remembers the user's preference",
+				Prompt:   "Add a dark mode toggle that remembers the user's preference. The app uses React with Tailwind CSS.",
 				Priority: "medium",
 				Labels:   []string{"frontend", "ui/ux"},
-				Context:  "The app uses React with Tailwind CSS. Users should be able to switch between light and dark themes seamlessly.",
 			},
 			{
-				Prompt:   "Fix the bug where deleting a todo item doesn't remove it from the database",
+				Prompt:   "Fix the bug where deleting a todo item doesn't remove it from the database. Users report that deleted todos reappear after page refresh.",
 				Priority: "high",
 				Labels:   []string{"backend", "database", "bug"},
-				Context:  "Users report that deleted todos reappear after page refresh. The DELETE API endpoint exists but may not be working correctly.",
 			},
 			{
-				Prompt:   "Add the ability for users to organize todos into custom categories",
+				Prompt:   "Add the ability for users to organize todos into custom categories like 'Work', 'Personal', 'Shopping'. Each category should have a color and be filterable.",
 				Priority: "low",
 				Labels:   []string{"frontend", "backend", "feature"},
-				Context:  "Users want to group todos by categories like 'Work', 'Personal', 'Shopping'. Each category should have a color and be filterable.",
 			},
 			{
-				Prompt:   "Implement user authentication so people can have private todo lists",
+				Prompt:   "Implement user authentication so people can have private todo lists with secure login/register functionality.",
 				Priority: "critical",
 				Labels:   []string{"backend", "security", "frontend"},
-				Context:  "Right now todos are shared globally. Users need their own private lists with secure login/register functionality.",
 			},
 		},
 	},
@@ -90,23 +84,19 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "api",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Add full-text search for products with filters and sorting",
+				Prompt:   "Add full-text search for products with filters and sorting. Include filters for price range, category, and availability.",
 				Priority: "high",
 				Labels:   []string{"search", "performance"},
-				Context:  "Users need to search products by name, description, and tags. Include filters for price range, category, and availability.",
 			},
 			{
-				Prompt:   "Fix the race condition where inventory can go negative when multiple users buy the same item",
+				Prompt:   "Fix the race condition where inventory can go negative when multiple users buy the same item. Under high load, products can be oversold.",
 				Priority: "critical",
 				Labels:   []string{"concurrency", "inventory", "bug"},
-				Context:  "Under high load, the same product can be oversold. This causes major business issues and customer complaints.",
 			},
 			{
-				Prompt:      "Add order cancellation feature with automatic refunds",
-				Priority:    "medium",
-				Labels:      []string{"orders", "payments"},
-				Context:     "Customers should be able to cancel orders within 1 hour of placement. Refunds should process automatically via Stripe.",
-				Constraints: "Must integrate with existing Stripe payment system and maintain order audit trail",
+				Prompt:   "Add order cancellation feature with automatic refunds. Customers should be able to cancel orders within 1 hour. Must integrate with existing Stripe payment system.",
+				Priority: "medium",
+				Labels:   []string{"orders", "payments"},
 			},
 		},
 	},
@@ -122,16 +112,14 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "mobile",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Add smooth weather animations that match the current conditions",
+				Prompt:   "Add smooth weather animations that match the current conditions. Animate rain, snow, sun rays, and clouds that reflect real conditions.",
 				Priority: "low",
 				Labels:   []string{"ui/ux", "animations"},
-				Context:  "The app shows static weather icons. Users want animated rain, snow, sun rays, and clouds that reflect real conditions.",
 			},
 			{
-				Prompt:   "Implement offline mode so the app works without internet",
+				Prompt:   "Implement offline mode so the app works without internet. Cache recent weather data and show it with a 'last updated' timestamp.",
 				Priority: "medium",
 				Labels:   []string{"offline", "caching"},
-				Context:  "Users need weather info even when offline. Cache recent weather data and show it with a 'last updated' timestamp.",
 			},
 		},
 	},
@@ -147,22 +135,19 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "web",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Add image upload functionality for blog posts",
+				Prompt:   "Add image upload functionality for blog posts. Images should be optimized and stored in S3 with proper URLs in the markdown.",
 				Priority: "high",
 				Labels:   []string{"media", "uploads", "s3"},
-				Context:  "Bloggers need to upload images for their posts. Images should be optimized and stored in S3 with proper URLs in the markdown.",
 			},
 			{
-				Prompt:   "Create a commenting system for blog posts",
+				Prompt:   "Create a commenting system for blog posts with basic moderation features to prevent spam.",
 				Priority: "medium",
 				Labels:   []string{"comments", "moderation"},
-				Context:  "Readers want to leave comments on blog posts. Include basic moderation features to prevent spam.",
 			},
 			{
-				Prompt:   "Add SEO optimization with meta tags and sitemap generation",
+				Prompt:   "Add SEO optimization with meta tags, Open Graph tags, and automatic sitemap generation for better search engine visibility.",
 				Priority: "low",
 				Labels:   []string{"seo", "performance"},
-				Context:  "Blog posts need proper meta tags, Open Graph tags, and automatic sitemap generation for better search engine visibility.",
 			},
 		},
 	},
@@ -179,22 +164,19 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "web",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Add real-time data updates to the dashboard using WebSockets",
+				Prompt:   "Add real-time data updates to the dashboard using WebSockets. Metrics should update without page refresh.",
 				Priority: "high",
 				Labels:   []string{"real-time", "websockets", "frontend"},
-				Context:  "Dashboard metrics should update in real-time without page refresh. Use WebSocket connection to backend for live data.",
 			},
 			{
-				Prompt:   "Implement user role-based access control for dashboard features",
+				Prompt:   "Implement user role-based access control for dashboard features. Different roles (admin, manager, viewer) should see different features.",
 				Priority: "critical",
 				Labels:   []string{"security", "rbac", "authorization"},
-				Context:  "Different user roles (admin, manager, viewer) should see different dashboard features and data based on permissions.",
 			},
 			{
-				Prompt:   "Add export functionality to download dashboard data as CSV and PDF",
+				Prompt:   "Add export functionality to download dashboard data as CSV and PDF for reports.",
 				Priority: "medium",
 				Labels:   []string{"export", "reports", "feature"},
-				Context:  "Users need to export dashboard data and charts for reports. Support both CSV data export and PDF report generation.",
 			},
 		},
 	},
@@ -210,28 +192,24 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "business",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Build prospect list of 100 qualified leads in AI/ML industry",
+				Prompt:   "Build prospect list of 100 qualified leads in AI/ML industry. Target CTOs, VPs of Engineering, and AI Leads. Include LinkedIn profiles, company info, and recent activity.",
 				Priority: "critical",
 				Labels:   []string{"research", "prospecting", "lead-generation"},
-				Context:  "Create a list of 100 qualified prospects matching our ICP (CTOs, VPs of Engineering, AI Leads). Include their LinkedIn profiles, company info, and recent activity.",
 			},
 			{
-				Prompt:   "Write personalized outreach messages based on prospect profiles",
+				Prompt:   "Write personalized outreach messages based on prospect profiles. Analyze LinkedIn profiles and recent posts to craft connection requests.",
 				Priority: "high",
 				Labels:   []string{"messaging", "personalization", "outreach"},
-				Context:  "For each prospect, analyze their LinkedIn profile and recent posts to craft personalized connection requests and follow-up messages.",
 			},
 			{
-				Prompt:   "Set up tracking system for campaign metrics and responses",
+				Prompt:   "Set up tracking system for campaign metrics: messages sent, response rate, meetings scheduled, and conversion metrics.",
 				Priority: "medium",
 				Labels:   []string{"tracking", "analytics", "reporting"},
-				Context:  "Build a tracking sheet to monitor: messages sent, response rate, positive responses, meetings scheduled, and conversion metrics.",
 			},
 			{
-				Prompt:   "Create follow-up sequence for non-responders",
+				Prompt:   "Create 3-touch follow-up sequence for non-responders. Each message should add value and reference recent activity.",
 				Priority: "medium",
 				Labels:   []string{"follow-up", "automation", "engagement"},
-				Context:  "Design a 3-touch follow-up sequence for prospects who don't respond. Each message should add value and reference recent activity.",
 			},
 		},
 	},
@@ -247,22 +225,19 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "content",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Write 'Getting Started with Helix' tutorial blog post with step-by-step examples",
+				Prompt:   "Write 'Getting Started with Helix' tutorial blog post. Walk readers through installation, configuration, and first conversation with real code examples.",
 				Priority: "high",
 				Labels:   []string{"tutorial", "onboarding", "documentation"},
-				Context:  "Deliverable: One complete blog post. Planning phase: Agent will analyze Helix codebase for installation/setup process, identify key first-time-user workflows, outline tutorial sections. Implementation phase: Write beginner-friendly tutorial post walking readers through their first Helix AI assistant - installation, configuration, first conversation - with real code examples from the repository.",
 			},
 			{
-				Prompt:   "Write architecture deep-dive blog post explaining Helix's session management and multi-model routing",
+				Prompt:   "Write architecture deep-dive blog post explaining Helix's session management and multi-model routing. Include sequence diagrams and code snippets.",
 				Priority: "high",
 				Labels:   []string{"architecture", "technical", "deep-dive"},
-				Context:  "Deliverable: One technical blog post. Planning phase: Agent will study api/pkg/ structure, trace session lifecycle, understand model orchestration, plan article structure with specific code references. Implementation phase: Write comprehensive post with sequence diagrams showing how requests flow through Helix, how sessions are managed, and how multi-model routing works. Include real code snippets.",
 			},
 			{
-				Prompt:   "Write tutorial blog post: Building a Custom Helix Skill (with complete working example)",
+				Prompt:   "Write tutorial blog post: Building a Custom Helix Skill. Include complete working example code for a practical skill like GitHub integration.",
 				Priority: "medium",
 				Labels:   []string{"skills", "integration", "tutorial"},
-				Context:  "Deliverable: One tutorial blog post + working skill code. Planning phase: Agent will analyze existing skills implementation, design a practical example skill (e.g., GitHub integration), outline tutorial steps. Implementation phase: Write hands-on tutorial showing how to build a custom skill from scratch, including complete working code for the example skill.",
 			},
 		},
 	},
@@ -278,28 +253,24 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "data-science",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Build comprehensive technical analysis library with momentum and trend indicators",
+				Prompt:   "Build comprehensive technical analysis library with SMA/EMA, RSI, MACD, Bollinger Bands. Support multiple timeframes (20/50/200 day) with vectorized Pandas operations.",
 				Priority: "high",
 				Labels:   []string{"indicators", "technical-analysis", "quantitative"},
-				Context:  "Deliverable: pyforest indicators module. Planning phase: Agent will design indicator library architecture, plan calculations for SMA/EMA, RSI, MACD, Bollinger Bands. Implementation phase: Implement all indicators in pyforest/indicators.py with vectorized Pandas operations, create visualizations overlaying price charts, identify buy/sell signal crossovers. Support multiple timeframes (20/50/200 day).",
 			},
 			{
-				Prompt:   "Implement quantitative risk analytics: VaR, CVaR, maximum drawdown, and Sortino ratio",
+				Prompt:   "Implement quantitative risk analytics: VaR (95%/99%), CVaR, maximum drawdown, and Sortino ratio. Visualize risk metrics and stress test scenarios.",
 				Priority: "high",
 				Labels:   []string{"risk-management", "var", "quantitative"},
-				Context:  "Deliverable: Risk metrics module. Planning phase: Agent will design risk calculation methodology, plan VaR/CVaR estimation approach (historical simulation), identify drawdown calculation algorithm. Implementation phase: Implement Value-at-Risk (95%/99% confidence), Conditional VaR, maximum drawdown (peak-to-trough), Sortino ratio (downside deviation). Visualize risk metrics and stress test scenarios.",
 			},
 			{
-				Prompt:   "Build mean-variance portfolio optimization with efficient frontier visualization",
+				Prompt:   "Build mean-variance portfolio optimization with efficient frontier visualization. Use scipy.optimize for Sharpe ratio maximization.",
 				Priority: "critical",
 				Labels:   []string{"portfolio-optimization", "modern-portfolio-theory", "quantitative"},
-				Context:  "Deliverable: Portfolio optimizer. Planning phase: Agent will design optimization framework, plan efficient frontier calculation, identify constraints (long-only, max allocation). Implementation phase: Use scipy.optimize for mean-variance optimization, implement Sharpe ratio maximization, calculate efficient frontier, visualize optimal portfolios, compare against equal-weight and market-cap-weighted benchmarks.",
 			},
 			{
-				Prompt:   "Create systematic backtesting engine with performance attribution and alpha/beta analysis",
+				Prompt:   "Create systematic backtesting engine with performance attribution and alpha/beta analysis. Calculate Sharpe ratio, max drawdown, win rate.",
 				Priority: "high",
 				Labels:   []string{"backtesting", "alpha-generation", "quantitative"},
-				Context:  "Deliverable: Backtesting framework. Planning phase: Agent will design backtest simulator, plan transaction cost modeling, identify performance metrics (alpha, beta, information ratio). Implementation phase: Build event-driven backtester simulating technical indicator strategies, calculate alpha/beta vs S&P 500 benchmark, compute Sharpe ratio, max drawdown, win rate. Generate tearsheets with performance attribution.",
 			},
 		},
 	},
@@ -315,46 +286,39 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "data-engineering",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Set up the FastAPI project structure with example legacy API endpoints to migrate",
+				Prompt:   "Set up FastAPI project structure with 3-5 example legacy API endpoints that return sample data for migration.",
 				Priority: "high",
 				Labels:   []string{"setup", "fastapi", "architecture"},
-				Context:  "Create a working FastAPI application with 3-5 example legacy API endpoints that return sample data. These represent the APIs we need to migrate to a modern data platform.",
 			},
 			{
-				Prompt:   "Create data schema mapping configuration that maps legacy API response schemas to modern data warehouse schemas",
+				Prompt:   "Create data schema mapping configuration (YAML/JSON) that maps legacy API response schemas to modern data warehouse schemas with type conversions.",
 				Priority: "high",
 				Labels:   []string{"schema", "data-modeling", "migration"},
-				Context:  "Build a schema mapping system (YAML or JSON) that defines how legacy API fields map to target data warehouse columns. Include data type conversions and transformations.",
 			},
 			{
-				Prompt:   "Generate Airflow DAG that orchestrates the migration of all API endpoints in dependency order",
+				Prompt:   "Generate Airflow DAG that orchestrates migration of all API endpoints in dependency order with proper transformation.",
 				Priority: "critical",
 				Labels:   []string{"airflow", "orchestration", "etl"},
-				Context:  "Create an Airflow DAG that calls each legacy API, transforms the data using the schema mappings, and loads it into the target data warehouse. Handle dependencies between APIs.",
 			},
 			{
-				Prompt:   "Implement data quality validation checks that compare source API data with migrated warehouse data",
+				Prompt:   "Implement data quality validation checks comparing source API data with migrated warehouse data: row counts, types, referential integrity.",
 				Priority: "high",
 				Labels:   []string{"data-quality", "validation", "testing"},
-				Context:  "Build validation framework that checks: row counts match, data types are correct, key fields are populated, referential integrity is maintained, no data loss occurred.",
 			},
 			{
-				Prompt:   "Add rollback capability that can revert a failed migration and restore previous state",
+				Prompt:   "Add rollback capability that can revert a failed migration and restore previous state if validation fails.",
 				Priority: "medium",
 				Labels:   []string{"rollback", "recovery", "reliability"},
-				Context:  "Implement migration versioning and rollback mechanism. Should be able to undo a migration and return to the previous data state if validation fails.",
 			},
 			{
-				Prompt:   "Generate data lineage documentation showing the flow from source APIs through transformations to target tables",
+				Prompt:   "Generate data lineage documentation showing flow from source APIs through transformations to target tables.",
 				Priority: "medium",
 				Labels:   []string{"documentation", "lineage", "catalog"},
-				Context:  "Create automated documentation that shows: which APIs feed which tables, what transformations are applied, data freshness/update schedules, and dependencies between datasets.",
 			},
 			{
-				Prompt:   "Build a migration dashboard that shows progress, data volumes, and quality metrics for the API migration project",
+				Prompt:   "Build a migration dashboard showing progress, data volumes, and quality metrics for the API migration project.",
 				Priority: "low",
 				Labels:   []string{"monitoring", "dashboard", "metrics"},
-				Context:  "Create a simple web dashboard (can be Flask or FastAPI + HTML) showing: APIs migrated vs remaining, data volume processed, validation results, error rates.",
 			},
 		},
 	},
@@ -370,52 +334,44 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "backend",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Set up the .NET 8 project structure with clean architecture (Domain, Application, Infrastructure layers)",
+				Prompt:   "Set up .NET 8 project structure with clean architecture: Domain, Application, Infrastructure, and API layers. Use Entity Framework Core.",
 				Priority: "critical",
 				Labels:   []string{"architecture", "dotnet", "setup"},
-				Context:  "Create a .NET solution with separate projects for Domain (entities, interfaces), Application (business logic, DTOs), Infrastructure (database, external services), and API (controllers). Use Entity Framework Core for data access.",
 			},
 			{
-				Prompt:   "Implement the Portfolio aggregate with position tracking, cash balances, and P&L calculation",
+				Prompt:   "Implement Portfolio aggregate with position tracking (symbol, quantity, cost basis), cash balances, and real-time P&L calculation.",
 				Priority: "critical",
 				Labels:   []string{"domain-model", "portfolio", "business-logic"},
-				Context:  "Create Portfolio entity that tracks positions (symbol, quantity, cost basis), cash balance, and calculates real-time P&L based on current market prices. Include methods for adding/removing positions.",
 			},
 			{
-				Prompt:   "Build the trade execution service with pre-trade compliance checks and order validation",
+				Prompt:   "Build trade execution service with pre-trade compliance checks: sufficient cash, position limits, restricted securities, price limits.",
 				Priority: "high",
 				Labels:   []string{"trading", "compliance", "validation"},
-				Context:  "Implement trade execution that validates: sufficient cash/positions, position limits not exceeded, no restricted securities, valid price limits. Return detailed validation errors.",
 			},
 			{
-				Prompt:   "Add in-memory message queue for asynchronous order processing and event publishing",
+				Prompt:   "Add in-memory message queue using System.Threading.Channels for async order processing. Publish OrderCreated, OrderFilled, OrderRejected events.",
 				Priority: "high",
 				Labels:   []string{"messaging", "async", "background-jobs"},
-				Context:  "Implement an in-memory message queue using System.Threading.Channels to process trade orders asynchronously. Publish events for: OrderCreated, OrderFilled, OrderRejected, PositionUpdated. This allows local development without external dependencies.",
 			},
 			{
-				Prompt:   "Implement real-time market data integration with SignalR to push price updates to clients",
+				Prompt:   "Implement real-time market data integration with SignalR to push simulated price updates to clients.",
 				Priority: "medium",
 				Labels:   []string{"signalr", "real-time", "market-data"},
-				Context:  "Create SignalR hub that pushes simulated real-time market price updates. Clients can subscribe to specific symbols and receive price updates every few seconds.",
 			},
 			{
-				Prompt:   "Build comprehensive unit tests for portfolio calculations and trade validation logic",
+				Prompt:   "Build comprehensive xUnit tests for portfolio calculations and trade validation. Aim for >80% coverage on business logic.",
 				Priority: "high",
 				Labels:   []string{"testing", "xunit", "tdd"},
-				Context:  "Write xUnit tests covering: P&L calculations, position updates, compliance rule validation, edge cases (fractional shares, short positions, margin). Aim for >80% code coverage on business logic.",
 			},
 			{
-				Prompt:   "Add audit logging that tracks all portfolio changes and trade executions for regulatory compliance",
+				Prompt:   "Add audit logging tracking portfolio changes and trade executions for regulatory compliance. Include search and export.",
 				Priority: "medium",
 				Labels:   []string{"audit", "compliance", "logging"},
-				Context:  "Implement audit trail that logs: who made changes, what changed, when, why (if provided). Store in separate audit table. Include search and export capabilities for regulatory reviews.",
 			},
 			{
-				Prompt:   "Create a REST API with Swagger/OpenAPI documentation for all portfolio and trading operations",
+				Prompt:   "Create REST API with Swagger/OpenAPI documentation for portfolio and trading operations.",
 				Priority: "medium",
 				Labels:   []string{"api", "swagger", "documentation"},
-				Context:  "Build RESTful API controllers with full Swagger annotations. Endpoints for: get portfolio, get positions, place order, get order status, get P&L summary, get transaction history.",
 			},
 		},
 	},
@@ -431,34 +387,29 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "data-science",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Create initial research notebook that uses PyForest to load sample portfolio data and calculate basic metrics",
+				Prompt:   "Create research notebook that uses PyForest to load portfolio data and calculate total value, sector allocation, top positions, daily P&L.",
 				Priority: "high",
 				Labels:   []string{"setup", "notebook", "pyforest"},
-				Context:  "Build a Jupyter notebook that imports PyForest, loads sample portfolio holdings data (CSV or mock data), and calculates: total value, sector allocation, top positions, daily P&L.",
 			},
 			{
-				Prompt:   "Implement a simple moving average crossover strategy and backtest it against historical data",
+				Prompt:   "Implement SMA crossover strategy (50-day crosses 200-day) and backtest it. Calculate total return, Sharpe ratio, max drawdown, win rate.",
 				Priority: "high",
 				Labels:   []string{"backtesting", "strategy", "sma"},
-				Context:  "Create strategy that buys when 50-day SMA crosses above 200-day SMA, sells on opposite cross. Backtest on sample tickers, calculate: total return, Sharpe ratio, max drawdown, win rate.",
 			},
 			{
-				Prompt:   "Build portfolio optimization notebook that finds optimal asset weights using mean-variance optimization",
+				Prompt:   "Build portfolio optimization notebook using scipy.optimize for mean-variance optimization. Visualize efficient frontier and risk-return tradeoff.",
 				Priority: "medium",
 				Labels:   []string{"optimization", "portfolio", "markowitz"},
-				Context:  "Use scipy.optimize to find portfolio weights that maximize Sharpe ratio for a basket of 5-10 stocks. Compare efficient frontier of different weight combinations. Visualize risk-return tradeoff.",
 			},
 			{
-				Prompt:   "Add risk factor analysis that decomposes portfolio returns into systematic and idiosyncratic components",
+				Prompt:   "Add risk factor analysis decomposing portfolio returns into market beta, size factor, value factor, and alpha using Fama-French 3-factor model.",
 				Priority: "medium",
 				Labels:   []string{"risk", "factor-analysis", "attribution"},
-				Context:  "Implement factor model (Fama-French 3-factor or simple market model). Decompose portfolio returns into: market beta, size factor, value factor, alpha. Show which factors drive performance.",
 			},
 			{
-				Prompt:   "Create parameter sweep notebook that tests strategy performance across different parameter combinations",
+				Prompt:   "Create parameter sweep notebook testing SMA strategy with different period combinations (20/50, 50/100, 50/200). Generate performance heatmap.",
 				Priority: "low",
 				Labels:   []string{"optimization", "parameter-tuning", "analysis"},
-				Context:  "Test SMA crossover strategy with different period combinations (20/50, 50/100, 50/200, 100/200). Generate heatmap showing performance across parameter space to identify optimal parameters.",
 			},
 		},
 	},
@@ -474,34 +425,29 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "data-engineering",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Build a data profiling notebook that analyzes structure and quality of source and target datasets",
+				Prompt:   "Build data profiling notebook analyzing source and target datasets: column types, null counts, unique values, distribution charts.",
 				Priority: "high",
 				Labels:   []string{"profiling", "analysis", "data-quality"},
-				Context:  "Create notebook that profiles both datasets: column names/types, null counts, unique values, min/max/mean, distribution charts. Identify structural differences between source and target.",
 			},
 			{
-				Prompt:   "Implement automated comparison logic that detects schema mismatches and data type inconsistencies",
+				Prompt:   "Implement automated comparison detecting schema mismatches: missing/extra columns, type mismatches, referential integrity. Generate severity-level report.",
 				Priority: "critical",
 				Labels:   []string{"validation", "schema", "comparison"},
-				Context:  "Compare source vs target: missing/extra columns, data type mismatches, constraint violations, referential integrity issues. Generate detailed mismatch report with severity levels.",
 			},
 			{
-				Prompt:   "Create Great Expectations test suite that validates data quality rules for the migration",
+				Prompt:   "Create Great Expectations test suite validating column existence, data types, value ranges, null constraints, uniqueness. Generate HTML report.",
 				Priority: "high",
 				Labels:   []string{"great-expectations", "testing", "validation"},
-				Context:  "Define Great Expectations suite with expectations for: column existence, data types, value ranges, null constraints, uniqueness, referential integrity. Generate HTML validation report.",
 			},
 			{
-				Prompt:   "Build visual data quality dashboard showing validation results with charts and summary statistics",
+				Prompt:   "Build visual data quality dashboard with pass/fail counts, trend charts, top issues. Use matplotlib/seaborn for charts.",
 				Priority: "medium",
 				Labels:   []string{"visualization", "dashboard", "reporting"},
-				Context:  "Create comprehensive visual report with: pass/fail counts by category, trend charts over time, top data quality issues, affected row counts. Use matplotlib/seaborn for charts.",
 			},
 			{
-				Prompt:   "Add row-level data reconciliation that identifies specific records with discrepancies",
+				Prompt:   "Add row-level data reconciliation identifying missing rows, extra rows, and value differences. Generate CSV report of discrepancies.",
 				Priority: "medium",
 				Labels:   []string{"reconciliation", "data-quality", "debugging"},
-				Context:  "Compare source and target datasets row-by-row. Identify: missing rows, extra rows, rows with different values. Generate CSV report of discrepancies for investigation.",
 			},
 		},
 	},
@@ -517,52 +463,44 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "frontend",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Set up Angular 18 project with NgRx state management and PrimeNG component library",
+				Prompt:   "Set up Angular 18 project with NgRx state management, PrimeNG components, routing, and sample authentication guard.",
 				Priority: "critical",
 				Labels:   []string{"setup", "angular", "ngrx"},
-				Context:  "Create new Angular application with: NgRx for state management, PrimeNG for UI components, routing configured, environment setup for dev/prod. Include sample authentication guard.",
 			},
 			{
-				Prompt:   "Implement multi-tenant context management that switches data and branding based on selected tenant",
+				Prompt:   "Implement multi-tenant context service: stores tenant ID, fetches tenant config (colors, logo), filters API calls by tenant, prevents data leakage.",
 				Priority: "critical",
 				Labels:   []string{"multi-tenant", "context", "isolation"},
-				Context:  "Build tenant context service that: stores current tenant ID, fetches tenant-specific configuration (colors, logo, name), filters all API calls by tenant, prevents cross-tenant data leakage.",
 			},
 			{
-				Prompt:   "Create configurable dashboard layout with drag-and-drop widget positioning using Angular CDK",
+				Prompt:   "Create configurable dashboard layout with drag-and-drop widgets (KPI cards, charts, tables) using Angular CDK. Save layout per user.",
 				Priority: "high",
 				Labels:   []string{"dashboard", "drag-drop", "layout"},
-				Context:  "Build dashboard grid where users can add/remove/resize widgets. Widgets include: KPI cards, line charts, bar charts, data tables. Save layout preferences per user. Use Angular CDK drag-drop.",
 			},
 			{
-				Prompt:   "Add real-time data updates using RxJS WebSocket integration with automatic reconnection",
+				Prompt:   "Add real-time data updates using RxJS WebSocket integration with automatic reconnection and subscription lifecycle management.",
 				Priority: "high",
 				Labels:   []string{"websocket", "real-time", "rxjs"},
-				Context:  "Implement WebSocket service with RxJS that: connects to backend WebSocket, handles reconnection on disconnect, broadcasts updates to dashboard widgets, manages subscription lifecycle.",
 			},
 			{
-				Prompt:   "Implement role-based access control (RBAC) that shows/hides features based on user permissions",
+				Prompt:   "Implement RBAC permission service: check roles (Admin, Manager, Viewer), show/hide UI elements, prevent unauthorized API calls.",
 				Priority: "critical",
 				Labels:   []string{"rbac", "authorization", "security"},
-				Context:  "Create permission service that: checks user roles (Admin, Manager, Viewer), shows/hides UI elements based on permissions, prevents unauthorized API calls, handles permission changes without page reload.",
 			},
 			{
-				Prompt:   "Build data export functionality that generates PDF reports and Excel downloads from dashboard data",
+				Prompt:   "Build data export: generate PDF reports with jsPDF, Excel files with SheetJS. Include filters and date ranges.",
 				Priority: "medium",
 				Labels:   []string{"export", "reporting", "pdf-excel"},
-				Context:  "Add export buttons to dashboard that: generate PDF reports with charts using jsPDF, create Excel files with data tables using SheetJS, include filters and date ranges in exports.",
 			},
 			{
-				Prompt:   "Add Chart.js integration with interactive charts that respond to user filters and selections",
+				Prompt:   "Add Chart.js integration with interactive charts: drill-down, tooltips, responsive mobile, dark/light themes.",
 				Priority: "medium",
 				Labels:   []string{"charts", "visualization", "chartjs"},
-				Context:  "Integrate Chart.js for data visualization. Charts should: update when filters change, support drill-down on click, show tooltips with details, be responsive on mobile, support dark/light themes.",
 			},
 			{
-				Prompt:   "Implement comprehensive error handling with user-friendly error messages and retry logic",
+				Prompt:   "Implement global error handler: catch HTTP errors, display user-friendly messages, retry transient failures, prevent crashes.",
 				Priority: "medium",
 				Labels:   []string{"error-handling", "ux", "resilience"},
-				Context:  "Build global error handler that: catches HTTP errors, displays user-friendly messages, offers retry for transient failures, logs errors for debugging, prevents app crashes from unhandled exceptions.",
 			},
 		},
 	},
@@ -578,34 +516,29 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "frontend",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Update package.json dependencies from Angular 15 to Angular 18 and resolve peer dependency conflicts",
+				Prompt:   "Update package.json to Angular 18: @angular/* packages to ^18.0.0, TypeScript ~5.4.0, RxJS ^7.8.0. Resolve peer dependency conflicts.",
 				Priority: "high",
 				Labels:   []string{"dependencies", "npm", "version-upgrade"},
-				Context:  "Update all @angular/* packages to ^18.0.0, update TypeScript to ~5.4.0, update RxJS to ^7.8.0. Run npm install and resolve any peer dependency warnings. Document any packages that need major version updates.",
 			},
 			{
-				Prompt:   "Migrate NgModule-based components to standalone components throughout the application",
+				Prompt:   "Migrate NgModule components to standalone: add standalone: true, move imports to component, use bootstrapApplication.",
 				Priority: "critical",
 				Labels:   []string{"standalone-components", "refactoring", "architecture"},
-				Context:  "Convert all components from NgModule declarations to standalone components. Add standalone: true, move imports from NgModule to component imports array. Update app bootstrapping to use bootstrapApplication.",
 			},
 			{
-				Prompt:   "Update routing configuration to use new provideRouter and standalone routing patterns",
+				Prompt:   "Update routing to provideRouter() in main.ts, use loadComponent for lazy loading, migrate to functional route guards.",
 				Priority: "high",
 				Labels:   []string{"routing", "standalone", "migration"},
-				Context:  "Replace RouterModule.forRoot() with provideRouter() in main.ts. Update lazy loading to use loadComponent instead of loadChildren. Migrate route guards to functional guards.",
 			},
 			{
-				Prompt:   "Fix deprecated RxJS operators and update HttpClient to use new functional providers",
+				Prompt:   "Fix deprecated RxJS operators (do→tap, switch→switchMap), use provideHttpClient(), update interceptors to functional pattern.",
 				Priority: "medium",
 				Labels:   []string{"rxjs", "http", "migration"},
-				Context:  "Replace deprecated RxJS operators (do() → tap(), switch() → switchMap()). Update HttpClient to use provideHttpClient() in main.ts. Update interceptor registration to functional pattern.",
 			},
 			{
-				Prompt:   "Run ng update schematics and fix any runtime errors from the automated migration",
+				Prompt:   "Run 'ng update @angular/core@18 @angular/cli@18', fix DI errors, routing problems, and API changes. Ensure feature parity.",
 				Priority: "critical",
 				Labels:   []string{"ng-update", "testing", "validation"},
-				Context:  "Use 'ng update @angular/core@18 @angular/cli@18' to run automated migrations. Test all routes and features, fix dependency injection errors, routing problems, and API changes. Ensure feature parity with Angular 15 version.",
 			},
 		},
 	},
@@ -621,22 +554,19 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "modernization",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Modernize COBOL batch processor to Python maintaining identical business logic",
+				Prompt:   "Modernize COBOL batch processor to Python using Pandas. Replicate all calculations exactly and maintain identical output format.",
 				Priority: "critical",
 				Labels:   []string{"implementation", "python", "migration"},
-				Context:  "Deliverable: Python code replacing COBOL. Planning phase: Agent will analyze COBOL source code, reverse-engineer business logic and data flows, document all calculations and edge cases, create Python architecture design. Implementation phase: Agent will code Python version using Pandas for data processing, replicate COBOL calculations exactly, maintain identical output format.",
 			},
 			{
-				Prompt:   "Build validation test suite proving Python output exactly matches COBOL output",
+				Prompt:   "Build validation test suite proving Python output exactly matches COBOL output. Implement byte-by-byte comparison for 100% match.",
 				Priority: "critical",
 				Labels:   []string{"validation", "testing", "quality-assurance"},
-				Context:  "Deliverable: Automated test suite. Planning phase: Agent will design test strategy, identify edge cases, plan test data generation approach. Implementation phase: Generate test input files, automate running both COBOL and Python versions, implement byte-by-byte output comparison, create reports showing 100% match for all test cases.",
 			},
 			{
-				Prompt:   "Create production cutover runbook with step-by-step migration procedures",
+				Prompt:   "Create production cutover runbook: pre-migration checklist, parallel run procedures, validation gates, rollback procedures, monitoring steps.",
 				Priority: "high",
 				Labels:   []string{"runbook", "operations", "deployment"},
-				Context:  "Deliverable: Detailed migration runbook document. Planning phase: Agent will identify cutover requirements, design parallel-run approach, plan rollback strategy. Implementation phase: Write comprehensive runbook including pre-migration checklist, parallel run procedures, validation gates, rollback procedures, post-migration monitoring steps, and escalation paths.",
 			},
 		},
 	},
@@ -1130,7 +1060,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 						Priority:       taskPrompt.Priority,
 						Status:         "backlog",
 						OriginalPrompt: taskPrompt.Prompt,
-						EstimatedHours: estimateHoursFromPrompt(taskPrompt.Prompt, taskPrompt.Context),
 						CreatedBy:      user.ID,
 						CreatedAt:      time.Now(),
 						UpdatedAt:      time.Now(),
@@ -1142,8 +1071,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 					task.Labels = taskPrompt.Labels
 					task.Metadata = map[string]interface{}{
-						"context":        taskPrompt.Context,
-						"constraints":    taskPrompt.Constraints,
 						"sample_project": sampleProject.ID,
 						"clone_demo":     true,
 					}
@@ -1315,8 +1242,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			TechnicalDesign:    "", // Will be generated when agent picks up task
 			ImplementationPlan: "", // Will be generated when agent picks up task
 
-			EstimatedHours: estimateHoursFromPrompt(taskPrompt.Prompt, taskPrompt.Context),
-			CreatedBy:      user.ID,
+			CreatedBy: user.ID,
 			CreatedAt:      time.Now(),
 			UpdatedAt:      time.Now(),
 		}
@@ -1329,10 +1255,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		// Store labels directly (GORM serializer handles JSON conversion)
 		task.Labels = taskPrompt.Labels
 
-		// Store context and constraints in metadata (GORM serializer handles JSON conversion)
+		// Store sample project ID in metadata
 		task.Metadata = map[string]interface{}{
-			"context":        taskPrompt.Context,
-			"constraints":    taskPrompt.Constraints,
 			"sample_project": sampleProject.ID,
 		}
 
@@ -1389,15 +1313,3 @@ func inferTaskType(labels []string) string {
 	return "task"
 }
 
-func estimateHoursFromPrompt(prompt, context string) int {
-	// Simple heuristic based on prompt complexity
-	totalLength := len(prompt) + len(context)
-
-	if totalLength < 100 {
-		return 2 // Simple tasks
-	} else if totalLength < 300 {
-		return 5 // Medium tasks
-	} else {
-		return 8 // Complex tasks
-	}
-}
