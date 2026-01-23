@@ -20,6 +20,11 @@ See also: `.cursor/rules/*.mdc`
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress
 - **Keep commits atomic** — one logical change per commit, easier to review and revert
 
+### Debugging
+- **Ask user to verify after changes** — UI/behavior changes can break things silently
+- **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
+- **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
