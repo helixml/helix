@@ -164,7 +164,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       }
 
       // Get current session data to compare interaction counts
-      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as TypesSession | undefined;
+      // NOTE: React Query cache stores { data: TypesSession } (Axios response format)
+      const cachedResponse = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as { data?: TypesSession } | undefined;
+      const currentSessionData = cachedResponse?.data;
       if (currentSessionData && currentSessionData.interactions) {
         const currentInteractionCount = currentSessionData.interactions.length;
         // Reject updates with fewer interactions than current (stale updates)
@@ -176,6 +178,17 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
       if (!lastInteraction) return;
+
+      // CRITICAL: Update React Query cache directly with session data from WebSocket
+      // This prevents the race condition where:
+      // 1. WebSocket sends session_update with state=complete
+      // 2. isLive becomes false, InteractionLiveStream stops rendering
+      // 3. Interaction component renders with OLD cached data (before refetch completes)
+      // By updating cache immediately, the Interaction component gets fresh data
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        { data: parsedData.session }  // Wrap in { data: ... } to match Axios response format
+      );
 
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state

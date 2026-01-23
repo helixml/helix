@@ -4,10 +4,6 @@ import {
   Fullscreen,
   FullscreenExit,
   Refresh,
-  VolumeUp,
-  VolumeOff,
-  Mic,
-  MicOff,
   BarChart,
   Wifi,
   SignalCellularAlt,
@@ -92,15 +88,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [reconnectClicked, setReconnectClicked] = useState(false); // Immediate feedback when button clicked
   const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(false); // Audio disabled by default - user must enable via toolbar
-  const [micEnabled, setMicEnabled] = useState(false); // Mic disabled by default - user must enable via toolbar
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  // Ref for direct DOM cursor updates (bypasses React for smooth 60fps cursor movement)
+  const cursorPositionRef = useRef({ x: 0, y: 0 });
+  const trackpadCursorRef = useRef<HTMLDivElement>(null);
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false); // Track if mouse is over canvas for cursor visibility
   // Client-side cursor rendering state
   // Initialize with null/default to show native system pointer until server sends cursor
   const [cursorImage, setCursorImage] = useState<CursorImageData | null>(null);
   const [cursorCssName, setCursorCssName] = useState<string | null>('default'); // CSS cursor name fallback (GNOME headless)
+  // Refs for cursor type (avoids stale closures in setTimeout callbacks)
+  const cursorCssNameRef = useRef<string | null>('default');
+  const cursorImageRef = useRef<CursorImageData | null>(null);
   const [cursorVisible, setCursorVisible] = useState(true);
   // Multi-player cursor state
   const [selfUser, setSelfUser] = useState<RemoteUserInfo | null>(null);
@@ -143,6 +143,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - 'direct': Touch position = cursor position (default for desktop UIs)
   // - 'trackpad': Drag finger = move cursor relatively, tap = click, double-tap-drag = drag (better for mobile)
   const [touchMode, setTouchMode] = useState<'direct' | 'trackpad'>('direct');
+  // Virtual keyboard height - used to shrink content when iOS/Android keyboard is open
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   // Track if device has touch capability (only show touch mode toggle on touch devices)
   const [hasTouchCapability, setHasTouchCapability] = useState(false);
   // Touch tracking refs for trackpad mode gestures
@@ -153,6 +155,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const touchStartTimeRef = useRef<number>(0); // Track when touch started (for tap vs drag detection)
   const touchMovedRef = useRef<boolean>(false); // Track if finger moved significantly during touch
   const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
+  const pendingClickTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Pending single-tap click (for double-tap detection)
   // Trackpad mode constants
   // Sensitivity: lower = more precise, less sensitive. 1.0 = 1:1 movement.
   // Mac trackpads typically use ~0.5-0.8 base sensitivity with acceleration.
@@ -173,6 +176,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const pinchStartZoomRef = useRef<number>(1); // Zoom level at pinch start
   const pinchCenterRef = useRef<{ x: number; y: number } | null>(null); // Center point of pinch
   const lastPinchCenterRef = useRef<{ x: number; y: number } | null>(null); // For panning while zoomed
+  const twoFingerGestureTypeRef = useRef<'undecided' | 'pinch' | 'scroll'>('undecided'); // Track gesture type
+  const PINCH_VS_SCROLL_THRESHOLD = 30; // Pixels of distance change to classify as pinch vs scroll
+  const SCROLL_SENSITIVITY = 2.0; // Multiplier for scroll speed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
 
@@ -184,16 +190,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Toolbar icon sizes - larger on touch devices for easier tapping
   const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
   const toolbarFontSize = hasTouchCapability ? 'medium' : 'small';
-
-  // Voice input state - hold-to-record for speech-to-text
-  // Supports buffering and retry for flaky connections
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [lastTranscription, setLastTranscription] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const lastRecordingRef = useRef<Blob | null>(null); // Buffer for retry
 
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -738,6 +734,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           } else {
             // It's our movement, or no tracking info (single-user mode) - update local cursor
             setCursorImage(data.cursor);
+            cursorImageRef.current = data.cursor;
           }
         } else if (data.type === 'cursorPosition') {
           // DON'T update cursor position from server - use locally tracked position only
@@ -769,6 +766,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // It's our movement - update local cursor
             setCursorImage(null);
             setCursorCssName(data.cursorName);
+            cursorImageRef.current = null;
+            cursorCssNameRef.current = data.cursorName;
           }
         }
         // Multi-player cursor events
@@ -882,7 +881,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  // NOTE: audioEnabled intentionally not in deps - audio is controlled via setAudioEnabled control message, not reconnection
   }, [sessionId, hostId, appId, width, height, onConnectionChange, onError, helixApi, account, sandboxId, onClientIdCalculated, qualityMode, userBitrate]);
 
   // Disconnect
@@ -932,6 +930,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
+
+    // Clear presence state - other users are no longer visible when disconnected
+    setRemoteUsers(new Map());
+    setRemoteCursors(new Map());
+    setRemoteTouches(new Map());
+    setAgentCursor(null);
+    setSelfUser(null);
+    setSelfClientId(null);
+    selfClientIdRef.current = null;
 
     // Clear all connection registrations
     clearAllConnections();
@@ -1057,103 +1064,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [isFullscreen, isIOSFullscreen, isIOS]);
 
-  // Voice input: send audio to backend for transcription
-  // Stores recording in buffer for retry on failure
-  const sendAudioForTranscription = useCallback(async (audioBlob: Blob, isRetry = false) => {
-    // Store recording for potential retry
-    lastRecordingRef.current = audioBlob;
-    setIsTranscribing(true);
-    setVoiceError(null);
-
-    try {
-      // Convert Blob to File for the API client
-      const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
-
-      const response = await helixApi.getApiClient().v1ExternalAgentsVoiceCreate(
-        sessionId,
-        { audio: audioFile }
-      );
-
-      const result = response.data as { text?: string; status?: string; error?: string };
-      if (result.status === 'error') {
-        console.error('[Voice] Transcription error:', result.error);
-        setVoiceError(result.error || 'Transcription failed');
-        return;
-      }
-
-      console.log('[Voice] Transcription complete:', result.text);
-      setLastTranscription(result.text || null);
-      setVoiceError(null);
-      // Clear buffer on success
-      lastRecordingRef.current = null;
-    } catch (err: any) {
-      console.error('[Voice] Transcription error:', err);
-      const errorMessage = err?.response?.data?.error || err?.message || 'Network error - tap to retry';
-      setVoiceError(errorMessage);
-    } finally {
-      setIsTranscribing(false);
-    }
-  }, [sessionId]);
-
-  // Voice input: retry last failed recording
-  const retryVoiceRecording = useCallback(() => {
-    if (lastRecordingRef.current) {
-      console.log('[Voice] Retrying last recording');
-      sendAudioForTranscription(lastRecordingRef.current, true);
-    }
-  }, [sendAudioForTranscription]);
-
-  // Voice input: dismiss error
-  const dismissVoiceError = useCallback(() => {
-    setVoiceError(null);
-    lastRecordingRef.current = null;
-  }, []);
-
-  // Voice input: start recording
-  const startRecording = useCallback(async () => {
-    // Clear previous error when starting new recording
-    setVoiceError(null);
-    setLastTranscription(null);
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
-
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach(track => track.stop());
-        await sendAudioForTranscription(audioBlob);
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(100); // Collect data every 100ms
-      setIsRecording(true);
-      console.log('[Voice] Recording started');
-    } catch (err) {
-      console.error('[Voice] Failed to start recording:', err);
-      setVoiceError('Microphone access denied');
-    }
-  }, [sendAudioForTranscription]);
-
-  // Voice input: stop recording
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      console.log('[Voice] Recording stopped');
-    }
-  }, [isRecording]);
-
   // Handle fullscreen events (cross-browser support)
   useEffect(() => {
     const doc = document as any;
@@ -1179,7 +1089,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, []);
 
-  // Detect touch capability and iOS on mount
+  // Detect touch capability, iOS, and phone vs tablet on mount
+  const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
     // Check for touch support: touchscreen or coarse pointer (touch/stylus)
     const hasTouch = 'ontouchstart' in window ||
@@ -1191,7 +1102,53 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     setIsIOS(iOS);
+
+    // Detect phones (iPhone or Android phone) - for virtual keyboard handling
+    // Phones have narrow screens, tablets are wider
+    const isIPhone = /iPhone/.test(navigator.userAgent);
+    const isAndroidPhone = /Android/.test(navigator.userAgent) && /Mobile/.test(navigator.userAgent);
+    setIsPhone(isIPhone || isAndroidPhone);
   }, []);
+
+  // Track virtual keyboard height via visualViewport API (phones only)
+  // When keyboard opens on iOS/Android phones, visualViewport.height shrinks
+  // Also track viewport offset to handle zoom scenarios
+  const [viewportOffset, setViewportOffset] = useState(0);
+  useEffect(() => {
+    if (!window.visualViewport || !isPhone) return;
+
+    const handleResize = () => {
+      const viewport = window.visualViewport;
+      if (!viewport) return;
+
+      // Calculate keyboard height accounting for zoom
+      // visualViewport.height is the visible height after keyboard opens
+      // We need to use scale to handle pinch-zoom scenarios
+      const scale = viewport.scale || 1;
+      const visibleHeight = viewport.height;
+
+      // Keyboard height = difference between layout height and visible height
+      // Account for zoom by using the scaled visible height
+      const layoutHeight = window.innerHeight;
+      const kbHeight = Math.max(0, Math.round((layoutHeight - visibleHeight) * scale));
+
+      // Track viewport offset (how much the viewport has scrolled due to zoom/keyboard)
+      const offset = viewport.offsetTop || 0;
+
+      setKeyboardHeight(kbHeight);
+      setViewportOffset(offset);
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+    // Initial check
+    handleResize();
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
+    };
+  }, [isPhone]);
 
   // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
   useEffect(() => {
@@ -1296,6 +1253,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const centerX = (streamRect.x - containerRect.x) + streamRect.width / 2;
         const centerY = (streamRect.y - containerRect.y) + streamRect.height / 2;
         setCursorPosition({ x: centerX, y: centerY });
+        cursorPositionRef.current = { x: centerX, y: centerY };
+        // Update DOM directly for immediate visual feedback
+        if (trackpadCursorRef.current) {
+          trackpadCursorRef.current.style.transform = `translate(${centerX}px, ${centerY}px)`;
+        }
         // Mark as moved so cursor is visible
         setHasMouseMoved(true);
         console.log(`[DesktopStreamViewer] Initialized trackpad cursor at center: (${centerX.toFixed(0)}, ${centerY.toFixed(0)})`);
@@ -1533,6 +1495,75 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount/unmount
+
+  // iOS Safari fix: Force reconnect when page becomes visible
+  // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isConnected) {
+        console.log('[DesktopStreamViewer] Page became visible, checking stream health...');
+        // Check if the stream is still healthy by looking at the WebSocket state
+        const stream = streamRef.current;
+        if (stream) {
+          const ws = (stream as any).ws as WebSocket | undefined;
+          if (ws && (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING)) {
+            console.log('[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect');
+            reconnect(500, 'Reconnecting after page visibility change...');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isConnected, reconnect]);
+
+  // iOS Safari frame stall detection
+  // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
+  // leaving the canvas black while React still thinks we're connected.
+  // This health check monitors lastFrameRenderTime and forces reconnection if frames stop.
+  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall
+  const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
+  useEffect(() => {
+    // Only run health check in video mode when connected
+    if (!isConnected || qualityMode === 'screenshot' || isConnecting) {
+      return;
+    }
+
+    const checkFrameHealth = () => {
+      const stream = streamRef.current;
+      if (!stream || !(stream instanceof WebSocketStream)) return;
+
+      // Check WebSocket state first (belt and suspenders with visibility handler)
+      const ws = (stream as any).ws as WebSocket | undefined;
+      if (ws && (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING)) {
+        console.log('[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect');
+        reconnect(500, 'Reconnecting (connection lost)...');
+        return;
+      }
+
+      // Check if frames have been rendered recently
+      const stats = stream.getStats();
+      const now = performance.now();
+      const timeSinceLastFrame = stats.lastFrameRenderTime > 0 ? now - stats.lastFrameRenderTime : 0;
+
+      // Only trigger stall detection after we've received at least one frame (lastFrameRenderTime > 0)
+      // and if we've been connected long enough for frames to be expected
+      if (stats.lastFrameRenderTime > 0 && timeSinceLastFrame > FRAME_STALL_THRESHOLD_MS) {
+        console.log(`[DesktopStreamViewer] Frame stall detected: ${Math.round(timeSinceLastFrame)}ms since last frame, forcing reconnect`);
+        console.log('[DesktopStreamViewer] Stats at stall:', {
+          fps: stats.fps,
+          framesDecoded: stats.framesDecoded,
+          decodeQueueSize: stats.decodeQueueSize,
+          wsReadyState: ws?.readyState,
+        });
+        reconnect(500, 'Reconnecting (video stalled)...');
+      }
+    };
+
+    const intervalId = setInterval(checkFrameHealth, FRAME_STALL_CHECK_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [isConnected, qualityMode, isConnecting, reconnect]);
 
   // Auto-focus container when stream connects for keyboard input
   useEffect(() => {
@@ -2483,6 +2514,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Only triggers if the previous touch was a real tap (short, no movement)
         if (now - lastTapTimeRef.current < DOUBLE_TAP_THRESHOLD_MS && !isDragging) {
           console.log('[DesktopStreamViewer] Double-tap detected, starting drag mode');
+
+          // Cancel the pending single-tap click (if any) - we're starting a drag, not a second click
+          if (pendingClickTimeoutRef.current) {
+            clearTimeout(pendingClickTimeoutRef.current);
+            pendingClickTimeoutRef.current = null;
+            console.log('[DesktopStreamViewer] Cancelled pending click for double-tap-drag');
+          }
+
           setIsDragging(true);
           // Send cursor position to remote before starting drag
           if (containerRef.current) {
@@ -2500,7 +2539,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       }
 
-      // Two-finger gesture: pinch-to-zoom
+      // Two-finger gesture: could be pinch-to-zoom or scroll
       if (event.touches.length === 2) {
         const touch1 = event.touches[0];
         const touch2 = event.touches[1];
@@ -2515,6 +2554,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const centerY = (touch1.clientY + touch2.clientY) / 2;
         pinchCenterRef.current = { x: centerX, y: centerY };
         lastPinchCenterRef.current = { x: centerX, y: centerY };
+        // Reset gesture type - will be determined on first move
+        twoFingerGestureTypeRef.current = 'undecided';
         // Also keep scroll tracking for fallback
         twoFingerStartYRef.current = (touch1.clientY + touch2.clientY) / 2;
       }
@@ -2564,10 +2605,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const streamOffsetY = rect.y - containerRect.y;
 
       // Calculate new cursor position, clamped to stream bounds
-      const newX = Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, cursorPosition.x + scaledDx));
-      const newY = Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, cursorPosition.y + scaledDy));
+      // Use ref for current position (not stale React state)
+      const currentPos = cursorPositionRef.current;
+      const newX = Math.max(streamOffsetX, Math.min(streamOffsetX + rect.width, currentPos.x + scaledDx));
+      const newY = Math.max(streamOffsetY, Math.min(streamOffsetY + rect.height, currentPos.y + scaledDy));
 
-      // Update local cursor position
+      // Update ref immediately (synchronous, for next frame calculation)
+      cursorPositionRef.current = { x: newX, y: newY };
+
+      // Update DOM directly for smooth 60fps cursor movement (bypasses React render cycle)
+      if (trackpadCursorRef.current) {
+        trackpadCursorRef.current.style.transform = `translate(${newX}px, ${newY}px)`;
+      }
+
+      // Also update React state (debounced - React will batch these)
+      // This is needed for click coordinate calculations
       setCursorPosition({ x: newX, y: newY });
 
       // Convert to stream coordinates and send to remote
@@ -2583,45 +2635,75 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    // Two-finger gesture: pinch-to-zoom and pan while zoomed
+    // Two-finger gesture: could be pinch-to-zoom OR scroll
     if (event.touches.length === 2 && pinchStartDistanceRef.current !== null) {
       const touch1 = event.touches[0];
       const touch2 = event.touches[1];
 
       // Calculate current distance between fingers
-      const dx = touch2.clientX - touch1.clientX;
-      const dy = touch2.clientY - touch1.clientY;
-      const currentDistance = Math.sqrt(dx * dx + dy * dy);
-
-      // Calculate zoom change
-      const scale = currentDistance / pinchStartDistanceRef.current;
-      const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStartZoomRef.current * scale));
-      setZoomLevel(newZoom);
+      const fingerDx = touch2.clientX - touch1.clientX;
+      const fingerDy = touch2.clientY - touch1.clientY;
+      const currentDistance = Math.sqrt(fingerDx * fingerDx + fingerDy * fingerDy);
+      const distanceChange = Math.abs(currentDistance - pinchStartDistanceRef.current);
 
       // Calculate current center point
       const centerX = (touch1.clientX + touch2.clientX) / 2;
       const centerY = (touch1.clientY + touch2.clientY) / 2;
 
-      // Pan while pinching (move the view with the gesture)
-      if (lastPinchCenterRef.current && containerRef.current) {
-        const panDx = centerX - lastPinchCenterRef.current.x;
-        const panDy = centerY - lastPinchCenterRef.current.y;
+      // Calculate center movement (for scroll detection)
+      const centerDx = lastPinchCenterRef.current ? centerX - lastPinchCenterRef.current.x : 0;
+      const centerDy = lastPinchCenterRef.current ? centerY - lastPinchCenterRef.current.y : 0;
+      const centerMovement = Math.sqrt(centerDx * centerDx + centerDy * centerDy);
 
-        // Update pan offset, clamping to bounds
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const maxPanX = (containerRect.width * (newZoom - 1)) / 2;
-        const maxPanY = (containerRect.height * (newZoom - 1)) / 2;
-
-        setPanOffset(prev => ({
-          x: Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx)),
-          y: Math.max(-maxPanY, Math.min(maxPanY, prev.y + panDy)),
-        }));
+      // Determine gesture type on first significant move
+      if (twoFingerGestureTypeRef.current === 'undecided') {
+        // If distance between fingers changes significantly, it's a pinch
+        // If center moves but distance stays same, it's a scroll
+        if (distanceChange > PINCH_VS_SCROLL_THRESHOLD) {
+          twoFingerGestureTypeRef.current = 'pinch';
+        } else if (centerMovement > 10) {
+          // Center moved but fingers didn't spread/pinch - it's a scroll
+          twoFingerGestureTypeRef.current = 'scroll';
+        }
       }
 
-      lastPinchCenterRef.current = { x: centerX, y: centerY };
+      // Handle scroll gesture - send scroll events to remote
+      if (twoFingerGestureTypeRef.current === 'scroll') {
+        // Send scroll wheel events to remote desktop
+        handler.sendMouseWheel?.(
+          -centerDx * SCROLL_SENSITIVITY,  // Invert X for natural scrolling
+          centerDy * SCROLL_SENSITIVITY    // Y is not inverted (swipe up = scroll up)
+        );
+        lastPinchCenterRef.current = { x: centerX, y: centerY };
+        return;
+      }
 
-      // Don't delegate pinch gestures to StreamInput - we handle zoom ourselves
-      return;
+      // Handle pinch gesture - local zoom
+      if (twoFingerGestureTypeRef.current === 'pinch' || twoFingerGestureTypeRef.current === 'undecided') {
+        // Calculate zoom change
+        const scale = currentDistance / pinchStartDistanceRef.current;
+        const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStartZoomRef.current * scale));
+        setZoomLevel(newZoom);
+
+        // Pan while pinching (move the view with the gesture)
+        if (lastPinchCenterRef.current && containerRef.current) {
+          const panDx = centerX - lastPinchCenterRef.current.x;
+          const panDy = centerY - lastPinchCenterRef.current.y;
+
+          // Update pan offset, clamping to bounds
+          const containerRect = containerRef.current.getBoundingClientRect();
+          const maxPanX = (containerRect.width * (newZoom - 1)) / 2;
+          const maxPanY = (containerRect.height * (newZoom - 1)) / 2;
+
+          setPanOffset(prev => ({
+            x: Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx)),
+            y: Math.max(-maxPanY, Math.min(maxPanY, prev.y + panDy)),
+          }));
+        }
+
+        lastPinchCenterRef.current = { x: centerX, y: centerY };
+        return;
+      }
     }
 
     // Delegate to StreamInput for other touch handling
@@ -2683,32 +2765,59 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           handler.sendMouseButton?.(false, MOUSE_BUTTON_MIDDLE);
         } else if (totalFingers === 1 && !isDragging) {
           // Single tap = left click (but not if we just ended a drag)
-          console.log('[DesktopStreamViewer] Single tap = left click');
-          handler.sendMouseButton?.(true, MOUSE_BUTTON_LEFT);
-          handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
+          // Check if cursor ALREADY indicates a text field (from hover position)
+          // Only focus hidden input if we're tapping on a text field to avoid keyboard flash
+          const cssName = cursorCssNameRef.current;
+          const imgCursor = cursorImageRef.current;
+          const isAlreadyTextCursor = cssName === 'text' ||
+            cssName === 'vertical-text' ||
+            imgCursor?.cursorName === 'text' ||
+            imgCursor?.cursorName === 'vertical-text' ||
+            imgCursor?.cursorName?.includes('xterm') ||
+            imgCursor?.cursorName?.includes('ibeam');
 
-          // After single tap, check for text cursor after a delay (wait for remote to update cursor)
-          // This enables virtual keyboard when tapping on text fields in the remote desktop
-          setTimeout(() => {
-            if (hiddenInputRef.current) {
-              // Check if cursor indicates a text field
-              const isTextCursor = cursorCssName === 'text' ||
-                cursorCssName === 'vertical-text' ||
-                cursorImage?.cursorName === 'text' ||
-                cursorImage?.cursorName === 'vertical-text' ||
-                cursorImage?.cursorName?.includes('xterm') ||
-                cursorImage?.cursorName?.includes('ibeam');
+          // IMPORTANT: Focus hidden input IMMEDIATELY (within user gesture) for iOS keyboard
+          // iOS only shows keyboard if focus happens directly from user gesture, not in setTimeout
+          // But ONLY focus if cursor indicates text field to avoid keyboard flash on every tap
+          // Only do this on phones (iPhone/Android), not tablets or desktops
+          if (hiddenInputRef.current && isPhone && isAlreadyTextCursor) {
+            hiddenInputRef.current.focus();
+            console.log('[DesktopStreamViewer] Focused hidden input on tap (text cursor detected, phone)');
+          }
 
-              if (isTextCursor) {
-                console.log('[DesktopStreamViewer] Text cursor detected after tap - showing virtual keyboard');
-                hiddenInputRef.current.focus();
-              } else {
-                // Not a text cursor - dismiss keyboard if it's showing
-                hiddenInputRef.current.blur();
-                containerRef.current?.focus();
+          // Delay the click to allow for double-tap-drag detection
+          // If a second tap comes before the timeout, this click is cancelled in handleTouchStart
+          pendingClickTimeoutRef.current = setTimeout(() => {
+            pendingClickTimeoutRef.current = null;
+            console.log('[DesktopStreamViewer] Single tap = left click (delayed)');
+            handler.sendMouseButton?.(true, MOUSE_BUTTON_LEFT);
+            handler.sendMouseButton?.(false, MOUSE_BUTTON_LEFT);
+
+            // After click is sent, check cursor type after delay (wait for remote to update cursor)
+            // If cursor changed to text, focus to show keyboard. If not text, ensure blurred.
+            setTimeout(() => {
+              if (hiddenInputRef.current) {
+                // Use refs to avoid stale closure values
+                const cssNameNow = cursorCssNameRef.current;
+                const imgCursorNow = cursorImageRef.current;
+                const isTextCursor = cssNameNow === 'text' ||
+                  cssNameNow === 'vertical-text' ||
+                  imgCursorNow?.cursorName === 'text' ||
+                  imgCursorNow?.cursorName === 'vertical-text' ||
+                  imgCursorNow?.cursorName?.includes('xterm') ||
+                  imgCursorNow?.cursorName?.includes('ibeam');
+
+                if (isTextCursor) {
+                  console.log('[DesktopStreamViewer] Text cursor confirmed - keeping virtual keyboard');
+                } else {
+                  // Not a text cursor - dismiss keyboard
+                  console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard');
+                  hiddenInputRef.current.blur();
+                  containerRef.current?.focus();
+                }
               }
-            }
-          }, 300); // Wait for remote cursor update
+            }, 300); // Wait for remote cursor update
+          }, DOUBLE_TAP_THRESHOLD_MS);
         }
       }
 
@@ -2743,6 +2852,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const handler = getInputHandler();
     const rect = getStreamRect();
     if (!handler) return;
+
+    // Cancel any pending click
+    if (pendingClickTimeoutRef.current) {
+      clearTimeout(pendingClickTimeoutRef.current);
+      pendingClickTimeoutRef.current = null;
+    }
 
     // Cancel any ongoing drag
     if (touchMode === 'trackpad' && isDragging) {
@@ -3141,12 +3256,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   }, [isConnected, resetInputState]);
 
   // Focus container when clicking anywhere in the viewer
-  // On touch devices (iOS/iPad), show/hide virtual keyboard based on cursor type
+  // On phones (iPhone/Android), show/hide virtual keyboard based on cursor type
+  // This is disabled on tablets since they often have hardware keyboards
   const handleContainerClick = useCallback(() => {
-    // Detect touch device - iOS/iPad needs hidden input focused to show keyboard
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-    if (isTouchDevice && hiddenInputRef.current) {
+    if (isPhone && hiddenInputRef.current) {
       // Check if cursor is a text cursor (indicates text field is focused in remote desktop)
       // Text cursors: 'text', 'vertical-text', or cursorName containing 'text' or 'xterm'
       const isTextCursor = cursorCssName === 'text' ||
@@ -3157,20 +3270,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         cursorImage?.cursorName?.includes('ibeam');
 
       if (isTextCursor) {
-        // Focus hidden input to trigger iOS/iPad virtual keyboard
+        // Focus hidden input to trigger virtual keyboard
         hiddenInputRef.current.focus();
-        console.log('[DesktopStreamViewer] Text cursor detected - showing virtual keyboard');
+        console.log('[DesktopStreamViewer] Text cursor detected - showing virtual keyboard (phone)');
       } else {
         // Blur hidden input to dismiss virtual keyboard
         hiddenInputRef.current.blur();
         // Focus container for keyboard events (hardware keyboard still works)
         containerRef.current?.focus();
-        console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard');
+        console.log('[DesktopStreamViewer] Non-text cursor - dismissing virtual keyboard (phone)');
       }
     } else if (containerRef.current) {
       containerRef.current.focus();
     }
-  }, [cursorCssName, cursorImage]);
+  }, [cursorCssName, cursorImage, isPhone]);
 
   // Compute native CSS cursor style from cursor image or CSS name
   // Local user sees native cursor (no glowing overlay), remote users see glowing cursors
@@ -3203,16 +3316,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       sx={{
         // Normal mode: relative positioning within parent
         // iOS fullscreen mode: fixed positioning covering entire viewport
-        position: isIOSFullscreen ? 'fixed' : 'relative',
-        top: isIOSFullscreen ? 0 : undefined,
-        left: isIOSFullscreen ? 0 : undefined,
-        right: isIOSFullscreen ? 0 : undefined,
+        // When keyboard is open on phones, use fixed positioning to stay above keyboard
+        position: isIOSFullscreen ? 'fixed' : keyboardHeight > 0 ? 'fixed' : 'relative',
+        top: isIOSFullscreen ? 0 : keyboardHeight > 0 ? Math.max(0, viewportOffset) : undefined,
+        left: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
+        right: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
         bottom: isIOSFullscreen ? 0 : undefined,
-        width: isIOSFullscreen ? '100vw' : '100%',
+        width: isIOSFullscreen ? '100vw' : keyboardHeight > 0 ? '100vw' : '100%',
         // Use dvh (dynamic viewport height) for iOS Safari toolbar handling
         // Falls back to vh for older browsers
-        height: isIOSFullscreen ? '100dvh' : '100%',
-        minHeight: isIOSFullscreen ? undefined : 400,
+        // When virtual keyboard is open, use the visible viewport height
+        height: isIOSFullscreen
+          ? '100dvh'
+          : keyboardHeight > 0
+            ? `calc(100vh - ${keyboardHeight}px - ${viewportOffset}px)`
+            : '100%',
+        // Ensure content doesn't overflow above the visible area
+        maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px)` : undefined,
+        minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
+        zIndex: keyboardHeight > 0 ? 1000 : undefined,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
@@ -3233,7 +3355,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }}
     >
       {/* Hidden input for iOS/iPad virtual keyboard support */}
-      {/* iOS only shows keyboard when an actual input element is focused */}
+      {/* iOS only shows keyboard when focus() is called directly within a user gesture */}
+      {/* (not in setTimeout or Promise.then - those lose the gesture context) */}
       <input
         ref={hiddenInputRef}
         type="text"
@@ -3244,11 +3367,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         spellCheck={false}
         style={{
           position: 'absolute',
-          left: -9999,
+          top: 0,
+          left: 0,
           width: 1,
           height: 1,
           opacity: 0,
           pointerEvents: 'none',
+          fontSize: 16, // Prevents iOS auto-zoom on focus
         }}
         onKeyDown={(e) => {
           // Forward keyboard events to the stream input handler
@@ -3267,12 +3392,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           e.preventDefault();
         }}
+        onBeforeInput={(e) => {
+          // Handle beforeinput for swipe/gesture typing (Gboard, SwiftKey, etc.)
+          // This fires before input, giving us access to the full text being inserted
+          const inputEvent = e.nativeEvent as InputEvent;
+          const inputType = inputEvent.inputType;
+          const data = inputEvent.data;
+
+          // insertText is used for swipe typing and autocomplete
+          if (data && (inputType === 'insertText' || inputType === 'insertCompositionText')) {
+            console.log('[DesktopStreamViewer] Hidden input beforeinput:', inputType, data);
+            const input = streamRef.current?.getInput();
+            if (input) {
+              // Send the complete text (handles multi-character swipe results)
+              for (const char of data) {
+                input.sendText(char);
+              }
+            }
+            e.preventDefault();
+          }
+        }}
         onInput={(e) => {
-          // Handle text input from virtual keyboard (iOS sends input events, not keydown)
+          // Fallback: Handle text input from virtual keyboard (iOS sends input events, not keydown)
+          // This may fire after beforeinput, but we prevent default in beforeinput to avoid duplicates
           const inputEvent = e.nativeEvent as InputEvent;
           const data = inputEvent.data;
-          if (data) {
-            console.log('[DesktopStreamViewer] Hidden input text:', data);
+          if (data && !e.defaultPrevented) {
+            console.log('[DesktopStreamViewer] Hidden input text (fallback):', data);
             const input = streamRef.current?.getInput();
             if (input) {
               // Send each character as a key event
@@ -3282,6 +3428,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }
           }
           // Clear the input to prevent accumulation
+          (e.target as HTMLInputElement).value = '';
+        }}
+        onCompositionEnd={(e) => {
+          // Handle composition end for IME and some swipe keyboards
+          // This fires when the user completes a composition (e.g., selects from IME suggestions)
+          const data = e.data;
+          if (data) {
+            console.log('[DesktopStreamViewer] Hidden input compositionEnd:', data);
+            const input = streamRef.current?.getInput();
+            if (input) {
+              // Send the complete composed text
+              for (const char of data) {
+                input.sendText(char);
+              }
+            }
+          }
+          // Clear the input
           (e.target as HTMLInputElement).value = '';
         }}
       />
@@ -3298,45 +3461,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           backgroundColor: 'rgba(0,0,0,0.7)',
           borderRadius: 1,
           display: 'flex',
-          gap: 1,
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: 0.5,
+          px: 0.5,
+          py: 0.5,
+          maxWidth: 'calc(100vw - 16px)',
           cursor: 'default', // Show normal cursor in toolbar for usability
           pointerEvents: 'auto', // Ensure toolbar captures pointer events on iPad
         }}
         onClick={(e) => e.stopPropagation()} // Prevent clicks from reaching canvas
         onPointerDown={(e) => e.stopPropagation()} // Prevent pointer events from reaching canvas
       >
-        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-          <IconButton
-            size={toolbarIconSize as 'small' | 'medium'}
-            onClick={() => {
-              const newEnabled = !audioEnabled;
-              setAudioEnabled(newEnabled);
-              // Send control message to start/stop audio streaming on the server
-              if (streamRef.current instanceof WebSocketStream) {
-                streamRef.current.setAudioEnabled(newEnabled);
-              }
-            }}
-            sx={{ color: audioEnabled ? 'white' : 'grey' }}
-          >
-            {audioEnabled ? <VolumeUp fontSize={toolbarFontSize as 'small' | 'medium'} /> : <VolumeOff fontSize={toolbarFontSize as 'small' | 'medium'} />}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title={micEnabled ? 'Disable microphone' : 'Enable microphone'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-          <IconButton
-            size={toolbarIconSize as 'small' | 'medium'}
-            onClick={async () => {
-              const newEnabled = !micEnabled;
-              setMicEnabled(newEnabled);
-              // Send control message to start/stop mic capture and streaming
-              if (streamRef.current instanceof WebSocketStream) {
-                await streamRef.current.setMicEnabled(newEnabled);
-              }
-            }}
-            sx={{ color: micEnabled ? 'white' : 'grey' }}
-          >
-            {micEnabled ? <Mic fontSize={toolbarFontSize as 'small' | 'medium'} /> : <MicOff fontSize={toolbarFontSize as 'small' | 'medium'} />}
-          </IconButton>
-        </Tooltip>
+        {/* Control icons group - stays together, doesn't wrap internally */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
@@ -3572,29 +3710,34 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           </Tooltip>
         )}
 
+        </Box>
+        {/* End control icons group */}
+
         {/* Presence indicators - connected users + agent */}
+        {/* This group can wrap to a new line on narrow screens */}
         {isConnected && remoteUsers.size > 0 && (
-          <>
-            <Box sx={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)', mx: 0.5 }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              {Array.from(remoteUsers.values()).map((user) => (
-                <Tooltip key={user.userId} title={user.userName} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-                  <Box
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: '50%',
-                      backgroundColor: user.color,
-                      border: user.userId === selfClientId ? '2px solid white' : 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 10,
-                      fontWeight: 'bold',
-                      color: 'white',
-                      cursor: 'default',
-                    }}
-                  >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {Array.from(remoteUsers.values()).map((user) => (
+              <Tooltip key={user.userId} title={user.userName} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+                <Box
+                  sx={{
+                    width: 22,
+                    height: 22,
+                    minWidth: 22,
+                    minHeight: 22,
+                    borderRadius: '50%',
+                    backgroundColor: user.color,
+                    border: user.userId === selfClientId ? '2px solid white' : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    color: 'white',
+                    cursor: 'default',
+                    flexShrink: 0,
+                  }}
+                >
                     {user.avatarUrl ? (
                       <Box
                         component="img"
@@ -3607,27 +3750,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                   </Box>
                 </Tooltip>
               ))}
-              {/* Agent indicator */}
-              <Tooltip title="AI Agent" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-                <Box
-                  sx={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    backgroundColor: '#00D4FF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    cursor: 'default',
-                    opacity: agentCursor ? 1 : 0.5,
-                  }}
-                >
-                  🤖
-                </Box>
-              </Tooltip>
-            </Box>
-          </>
+            {/* Agent indicator */}
+            <Tooltip title="AI Agent" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+              <Box
+                sx={{
+                  width: 22,
+                  height: 22,
+                  minWidth: 22,
+                  minHeight: 22,
+                  borderRadius: '50%',
+                  backgroundColor: '#00D4FF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 11,
+                  cursor: 'default',
+                  flexShrink: 0,
+                  opacity: agentCursor ? 1 : 0.5,
+                }}
+              >
+                🤖
+              </Box>
+            </Tooltip>
+          </Box>
         )}
       </Box>
 
@@ -3779,111 +3924,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         />
       )}
 
-      {/* Voice input button - hold to record, release to transcribe and type */}
-      {isConnected && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 16,
-            right: 16,
-            zIndex: 1100,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            gap: 1,
-          }}
-        >
-          {/* Error message with retry */}
-          {voiceError && (
-            <Box
-              onClick={lastRecordingRef.current ? retryVoiceRecording : dismissVoiceError}
-              sx={{
-                backgroundColor: 'error.main',
-                color: 'white',
-                padding: '8px 12px',
-                borderRadius: 2,
-                fontSize: 12,
-                maxWidth: 200,
-                cursor: 'pointer',
-                boxShadow: 3,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                '&:hover': {
-                  backgroundColor: 'error.dark',
-                },
-              }}
-            >
-              <span style={{ flex: 1 }}>
-                {lastRecordingRef.current ? `${voiceError} - tap to retry` : voiceError}
-              </span>
-              <span onClick={(e) => { e.stopPropagation(); dismissVoiceError(); }} style={{ opacity: 0.7 }}>✕</span>
-            </Box>
-          )}
-          <Tooltip
-            title={
-              voiceError && lastRecordingRef.current
-                ? 'Tap to retry'
-                : isTranscribing
-                ? 'Transcribing...'
-                : isRecording
-                ? 'Release to stop recording'
-                : 'Hold to record voice input'
-            }
-            arrow
-            placement="left"
-          >
-            <IconButton
-              onMouseDown={voiceError && lastRecordingRef.current ? undefined : startRecording}
-              onMouseUp={voiceError && lastRecordingRef.current ? undefined : stopRecording}
-              onMouseLeave={voiceError && lastRecordingRef.current ? undefined : stopRecording}
-              onTouchStart={voiceError && lastRecordingRef.current ? undefined : startRecording}
-              onTouchEnd={voiceError && lastRecordingRef.current ? undefined : stopRecording}
-              onClick={voiceError && lastRecordingRef.current ? retryVoiceRecording : undefined}
-              disabled={isTranscribing}
-              sx={{
-                width: 56,
-                height: 56,
-                backgroundColor: voiceError
-                  ? 'error.main'
-                  : isRecording
-                  ? 'error.main'
-                  : isTranscribing
-                  ? 'warning.main'
-                  : 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                boxShadow: 3,
-                transition: 'all 0.2s ease-in-out',
-                transform: isRecording ? 'scale(1.1)' : 'scale(1)',
-                animation: isRecording ? 'pulse 1s infinite' : 'none',
-                '@keyframes pulse': {
-                  '0%': { boxShadow: '0 0 0 0 rgba(244, 67, 54, 0.7)' },
-                  '70%': { boxShadow: '0 0 0 10px rgba(244, 67, 54, 0)' },
-                  '100%': { boxShadow: '0 0 0 0 rgba(244, 67, 54, 0)' },
-                },
-                '&:hover': {
-                  backgroundColor: voiceError
-                    ? 'error.dark'
-                    : isRecording
-                    ? 'error.dark'
-                    : isTranscribing
-                    ? 'warning.dark'
-                    : 'rgba(0, 0, 0, 0.85)',
-                },
-              }}
-            >
-              {isTranscribing ? (
-                <CircularProgress size={24} sx={{ color: 'white' }} />
-              ) : voiceError && lastRecordingRef.current ? (
-                <Refresh sx={{ fontSize: 28 }} />
-              ) : (
-                <Mic sx={{ fontSize: 28 }} />
-              )}
-            </IconButton>
-          </Tooltip>
-        </Box>
-      )}
-
       {/* Remote user cursors (Figma-style multi-player) - uses glowing CursorRenderer */}
       <RemoteCursorsOverlay
         cursors={remoteCursors}
@@ -3899,14 +3939,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Local cursor for trackpad mode on touch devices (iPad) */}
       {/* Native CSS cursor doesn't work well on iPad, so we render an overlay cursor */}
       {/* Only show after cursor position is initialized (hasMouseMoved) to avoid flash at (0,0) */}
+      {/* Uses transform + ref for smooth 60fps updates (bypasses React render cycle) */}
       {isConnected && touchMode === 'trackpad' && hasTouchCapability && cursorVisible && hasMouseMoved && (
-        <CursorRenderer
-          x={cursorPosition.x}
-          y={cursorPosition.y}
-          cursorImage={cursorImage}
-          cursorCssName={cursorCssName}
-          showDebugDot={false}
-        />
+        <div
+          ref={trackpadCursorRef}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px)`,
+            willChange: 'transform',
+            pointerEvents: 'none',
+            zIndex: 1000,
+          }}
+        >
+          <CursorRenderer
+            x={0}
+            y={0}
+            cursorImage={cursorImage}
+            cursorCssName={cursorCssName}
+            showDebugDot={false}
+          />
+        </div>
       )}
 
       {/* AI Agent cursor */}

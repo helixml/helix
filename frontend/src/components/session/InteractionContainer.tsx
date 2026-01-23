@@ -32,11 +32,18 @@ export const InteractionContainer: FC<{
         borderRadius: 4,
         backgroundColor: background ? theme.palette.background.default : 'transparent',
         border: border ? '1px solid #33373a' : 'none',
-        maxWidth: '700px',
-        width: isAssistant ? '100%' : 'auto',
+        // User messages: fit content but don't exceed container width
+        // Assistant messages: take full width
+        maxWidth: isAssistant ? '100%' : 'min(100%, 700px)',
+        minWidth: 0,
+        width: isAssistant ? '100%' : 'fit-content',
         ml: align === 'left' ? 0 : 'auto',
         mr: align === 'right' ? 0 : 'auto',
         boxShadow: border ? '0 1px 2px rgba(0,0,0,0.03)' : 'none',
+        // Ensure text wraps properly
+        wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
+        boxSizing: 'border-box',
       }}
     >
       <Row>

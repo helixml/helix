@@ -3,14 +3,11 @@ import { useRoute } from 'react-router5'
 import {
   Box,
   IconButton,
-  Typography,
   Tooltip,
-  Breadcrumbs,
-  Link,
   CircularProgress,
+  Stack,
 } from '@mui/material'
 import {
-  ArrowBack as BackIcon,
   ViewModule as TiledIcon,
 } from '@mui/icons-material'
 
@@ -18,7 +15,6 @@ import Page from '../components/system/Page'
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
 import { useSpecTask } from '../services/specTaskService'
 import { useGetProject } from '../services'
-import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 
 /**
@@ -31,27 +27,22 @@ import useAccount from '../hooks/useAccount'
  */
 const SpecTaskDetailPage: FC = () => {
   const { route } = useRoute()
-  const router = useRouter()
   const account = useAccount()
 
   const projectId = route.params.id as string
   const taskId = route.params.taskId as string
 
-  // Fetch task data for breadcrumb
   const { data: task, isLoading: taskLoading } = useSpecTask(taskId, {
     enabled: !!taskId,
   })
 
-  // Fetch project data for breadcrumb
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, !!projectId)
 
   const handleBack = () => {
-    // Navigate back to the project's spec tasks page
     account.orgNavigate('project-specs', { id: projectId })
   }
 
   const handleOpenInWorkspace = () => {
-    // Navigate to project specs page with split screen view and open this task
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId })
   }
 
@@ -66,61 +57,34 @@ const SpecTaskDetailPage: FC = () => {
   }
 
   return (
-    <Page>
-      {/* Header with navigation */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 2,
-          py: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          backgroundColor: 'background.paper',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Tooltip title="Back to tasks">
-            <IconButton onClick={handleBack} size="small">
-              <BackIcon />
+    <Page
+      breadcrumbs={[
+        {
+          title: 'Projects',
+          routeName: 'projects',
+        },
+        {
+          title: project?.name || 'Project',
+          routeName: 'project-specs',
+          params: { id: projectId },
+        },
+        {
+          title: task?.name || 'Task',
+        },
+      ]}
+      orgBreadcrumbs={true}
+      showDrawerButton={true}
+      topbarContent={
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+          <Tooltip title="Open in Split Screen">
+            <IconButton onClick={handleOpenInWorkspace} size="small">
+              <TiledIcon />
             </IconButton>
           </Tooltip>
-
-          <Breadcrumbs separator="›" sx={{ fontSize: '0.875rem' }}>
-            <Link
-              component="button"
-              underline="hover"
-              color="inherit"
-              onClick={() => account.orgNavigate('projects')}
-              sx={{ cursor: 'pointer' }}
-            >
-              Projects
-            </Link>
-            <Link
-              component="button"
-              underline="hover"
-              color="inherit"
-              onClick={() => account.orgNavigate('project-specs', { id: projectId })}
-              sx={{ cursor: 'pointer' }}
-            >
-              {project?.name || 'Project'}
-            </Link>
-            <Typography color="text.primary" sx={{ fontSize: '0.875rem' }}>
-              {task?.name || 'Task'}
-            </Typography>
-          </Breadcrumbs>
-        </Box>
-
-        <Tooltip title="Split Screen">
-          <IconButton onClick={handleOpenInWorkspace} size="small">
-            <TiledIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {/* Task detail content - reusing the same component as TabsView */}
-      <Box sx={{ flex: 1, overflow: 'auto', height: 'calc(100vh - 120px)' }}>
+        </Stack>
+      }
+    >
+      <Box sx={{ flex: 1, overflow: 'auto', height: 'calc(100vh - 120px)', px: 3 }}>
         <SpecTaskDetailContent
           taskId={taskId}
           onClose={handleBack}

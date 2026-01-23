@@ -342,55 +342,54 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 // findWorkspaceDir finds the git repository workspace directory
 // It checks common locations where the workspace might be mounted
 func findWorkspaceDir() string {
-	// Check environment variable first
-	if workDir := os.Getenv("HELIX_WORK_DIR"); workDir != "" {
-		if isGitRepo(workDir) {
-			return workDir
-		}
-	}
-
-	// Check common mount points
 	candidates := []string{
-		"/home/retro/work",       // Default Helix workspace
-		"/home/retro/workspace",  // Alternative name
-		"/workspace",             // Container workspace mount
-		"/home/retro",            // User home (might be the repo root)
+		"/home/retro/work",         // Default Helix workspace symlink
+		os.Getenv("WORKSPACE_DIR"), // Set by container executor
+		"/home/retro/workspace",    // Alternative name
+		"/workspace",               // Container workspace mount
 	}
 
 	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
 		if isGitRepo(dir) {
 			return dir
 		}
-	}
-
-	// Try to find .git directory by walking up from home
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/home/retro"
-	}
-
-	// Check subdirectories of home
-	entries, err := os.ReadDir(home)
-	if err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-				path := filepath.Join(home, entry.Name())
-				if isGitRepo(path) {
-					return path
-				}
-			}
+		if found := findGitRepoInDir(dir); found != "" {
+			return found
 		}
 	}
 
 	return ""
 }
 
+// findGitRepoInDir looks for a git repository in immediate subdirectories
+func findGitRepoInDir(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		subdir := filepath.Join(dir, entry.Name())
+		if isGitRepo(subdir) {
+			return subdir
+		}
+	}
+	return ""
+}
+
 // isGitRepo checks if a directory is a git repository
+// Supports both regular repos (.git is a directory) and worktrees (.git is a file)
 func isGitRepo(dir string) bool {
-	gitDir := filepath.Join(dir, ".git")
-	info, err := os.Stat(gitDir)
+	gitPath := filepath.Join(dir, ".git")
+	info, err := os.Stat(gitPath)
 	if err != nil {
 		return false
 	}
-	return info.IsDir()
+	// .git can be a directory (normal repo) or a file (git worktree)
+	return info.IsDir() || info.Mode().IsRegular()
 }

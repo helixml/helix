@@ -512,7 +512,7 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
 RUN apt-get update && apt-get install -y \
     lsof libjpeg-turbo8 \
     evtest evemu-tools \
-    bash git openssh-client \
+    bash git openssh-client vim \
     fonts-noto-color-emoji fonts-dejavu-core \
     imagemagick \
     kitty \

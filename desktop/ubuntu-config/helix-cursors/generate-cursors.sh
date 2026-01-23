@@ -1,5 +1,6 @@
 #!/bin/bash
 # Generate transparent cursor theme with unique hotspots for fingerprinting
+# Hotspots: text=12,12, nesw-resize=12,13 (original working values)
 #
 # Each cursor type has a unique (hotspot_x, hotspot_y) pair so the GNOME Shell
 # extension can identify the cursor shape without needing pixel data.
@@ -89,11 +90,11 @@ generate_cursor "left_ptr_watch"  0  3
 generate_cursor "wait"            12 0
 generate_cursor "watch"           12 0
 
-# Text cursor / I-beam (at 12,14 to avoid collision with resize cursor slots)
-generate_cursor "text"            12 14
-generate_cursor "xterm"           12 14
-generate_cursor "ibeam"           12 14
-generate_cursor "vertical-text"   12 14
+# Text cursor / I-beam (centered for text selection)
+generate_cursor "text"            12 12
+generate_cursor "xterm"           12 12
+generate_cursor "ibeam"           12 12
+generate_cursor "vertical-text"   12 12
 
 # Crosshair (centered)
 generate_cursor "crosshair"       12 1
@@ -176,15 +177,15 @@ generate_cursor "bd_double_arrow" 12 11
 generate_cursor "top_left_corner" 12 11
 generate_cursor "bottom_right_corner" 12 11
 
-# NE-SW resize (diagonal slash) - at 12,12 (moved from 12,13 to keep resize cursors consecutive)
-generate_cursor "nesw-resize"     12 12
-generate_cursor "nesw_resize"     12 12
-generate_cursor "ne-resize"       12 12
-generate_cursor "sw-resize"       12 12
-generate_cursor "size_bdiag"      12 12
-generate_cursor "fd_double_arrow" 12 12
-generate_cursor "top_right_corner" 12 12
-generate_cursor "bottom_left_corner" 12 12
+# NE-SW resize (diagonal slash)
+generate_cursor "nesw-resize"     12 13
+generate_cursor "nesw_resize"     12 13
+generate_cursor "ne-resize"       12 13
+generate_cursor "sw-resize"       12 13
+generate_cursor "size_bdiag"      12 13
+generate_cursor "fd_double_arrow" 12 13
+generate_cursor "top_right_corner" 12 13
+generate_cursor "bottom_left_corner" 12 13
 
 # ============================================================================
 # Additional cursor aliases via symlinks

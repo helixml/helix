@@ -2039,74 +2039,6 @@
                 }
             }
         },
-        "/api/v1/external-agents/{sessionID}/voice": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Send audio for speech-to-text transcription and type the result at cursor position",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ExternalAgents"
-                ],
-                "summary": "Voice input to desktop",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "file",
-                        "description": "Audio file (WebM/Opus format)",
-                        "name": "audio",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Transcription result with 'text' and 'status' fields",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/external-agents/{sessionID}/ws/input": {
             "get": {
                 "security": [
@@ -15358,19 +15290,6 @@
                 }
             }
         },
-        "types.AgentHostType": {
-            "type": "string",
-            "enum": [
-                "zed",
-                "vscode",
-                "headless"
-            ],
-            "x-enum-varnames": [
-                "AgentHostTypeZed",
-                "AgentHostTypeVSCode",
-                "AgentHostTypeHeadless"
-            ]
-        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -17271,14 +17190,6 @@
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
-                "agent_host_type": {
-                    "description": "Agent host environment",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AgentHostType"
-                        }
-                    ]
-                },
                 "desktop_type": {
                     "description": "Desktop environment",
                     "type": "string"

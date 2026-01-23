@@ -536,14 +536,27 @@ echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
 # =========================================
-# Run startup script (if exists)
+# Signal completion - Zed can now start
 # =========================================
-# Note: Startup script failures are NOT fatal - we continue to Zed
+# Signal BEFORE running startup script so Zed starts in parallel
+# This allows the agent to respond to requests immediately while
+# the startup script (e.g., npm install, build) runs in the background
+touch "$COMPLETE_SIGNAL"
+
+echo "========================================="
+echo "✅ Repos ready! Zed is starting..."
+echo "========================================="
+
+# =========================================
+# Run startup script (if exists) - runs in PARALLEL with Zed
+# =========================================
+# Note: Startup script failures are NOT fatal - we continue
 # The user can see the error and fix it
 STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
 if [ -f "$STARTUP_SCRIPT" ]; then
+    echo ""
     echo "========================================="
-    echo "Running startup script..."
+    echo "Running startup script (Zed starting in parallel)..."
     echo "========================================="
     echo "Script: $STARTUP_SCRIPT"
     echo ""
@@ -564,17 +577,12 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         echo ""
         echo "❌ Startup script failed with exit code $EXIT_CODE"
         echo ""
-        echo "You can debug this in the terminal after Zed starts."
+        echo "You can debug this in the terminal."
     fi
     echo ""
 fi
 
-# =========================================
-# Signal completion - Zed can now start
-# =========================================
-touch "$COMPLETE_SIGNAL"
-
 echo "========================================="
-echo "✅ Setup complete! Zed is starting..."
+echo "✅ All setup complete!"
 echo "========================================="
 # The EXIT trap will show the interactive menu

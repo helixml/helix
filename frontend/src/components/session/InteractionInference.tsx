@@ -178,7 +178,7 @@ export const InteractionInference: FC<{
           <ToolStepsWidget steps={toolSteps} />
         )}
         {
-          message && onRegenerate && (
+          message && (
             <Box
               sx={{
                 my: 0.5,
@@ -190,7 +190,7 @@ export const InteractionInference: FC<{
               }}
             >
               <Box sx={{ width: '100%' }}>
-                {isEditing ? (
+                {isEditing && onRegenerate ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <TextField
                       multiline
@@ -238,7 +238,7 @@ export const InteractionInference: FC<{
                         isStreaming={false}
                         onFilterDocument={onFilterDocument}
                       />
-                      {isFromAssistant && (
+                      {isFromAssistant && onRegenerate && (
                         <Box 
                           className="action-buttons"
                           sx={{ 

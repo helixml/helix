@@ -1597,16 +1597,6 @@ definitions:
       new_password:
         type: string
     type: object
-  types.AgentHostType:
-    enum:
-    - zed
-    - vscode
-    - headless
-    type: string
-    x-enum-varnames:
-    - AgentHostTypeZed
-    - AgentHostTypeVSCode
-    - AgentHostTypeHeadless
   types.AgentType:
     enum:
     - helix_basic
@@ -2953,10 +2943,6 @@ definitions:
     type: object
   types.ExternalAgentConfig:
     properties:
-      agent_host_type:
-        allOf:
-        - $ref: '#/definitions/types.AgentHostType'
-        description: Agent host environment
       desktop_type:
         description: Desktop environment
         type: string
@@ -9269,51 +9255,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload file to sandbox
-      tags:
-      - ExternalAgents
-  /api/v1/external-agents/{sessionID}/voice:
-    post:
-      consumes:
-      - multipart/form-data
-      description: Send audio for speech-to-text transcription and type the result
-        at cursor position
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      - description: Audio file (WebM/Opus format)
-        in: formData
-        name: audio
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Transcription result with 'text' and 'status' fields
-          schema:
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Voice input to desktop
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/ws/input:

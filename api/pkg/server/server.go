@@ -700,7 +700,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                           // Network throughput measurement for adaptive video bitrate
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")  // Read remote desktop clipboard to sync locally
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST") // Write local clipboard to remote desktop
-	authRouter.HandleFunc("/external-agents/{sessionID}/voice", apiServer.sendVoiceInput).Methods("POST")           // Voice input transcription
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)

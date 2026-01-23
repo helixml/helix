@@ -875,6 +875,10 @@ export default function DesignReviewContent({
                             borderRadius: '4px',
                             border: '1px solid #e0e0e0',
                             fontSize: '14px',
+                            // Prevent code blocks from capturing vertical scroll
+                            // clip doesn't create a scroll container like auto does
+                            overflowX: 'auto',
+                            overflowY: 'clip',
                           }}
                           {...props}
                         >

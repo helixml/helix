@@ -1010,12 +1010,6 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
-export enum TypesAgentHostType {
-  AgentHostTypeZed = "zed",
-  AgentHostTypeVSCode = "vscode",
-  AgentHostTypeHeadless = "headless",
-}
-
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -1816,8 +1810,6 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
-  /** Agent host environment */
-  agent_host_type?: TypesAgentHostType;
   /** Desktop environment */
   desktop_type?: string;
   /** Explicit height (default: 1080) */
@@ -5993,33 +5985,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/external-agents/${sessionId}/upload`,
         method: "POST",
         query: query,
-        body: data,
-        secure: true,
-        type: ContentType.FormData,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Send audio for speech-to-text transcription and type the result at cursor position
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsVoiceCreate
-     * @summary Voice input to desktop
-     * @request POST:/api/v1/external-agents/{sessionID}/voice
-     * @secure
-     */
-    v1ExternalAgentsVoiceCreate: (
-      sessionId: string,
-      data: {
-        /** Audio file (WebM/Opus format) */
-        audio: File;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<object, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/voice`,
-        method: "POST",
         body: data,
         secure: true,
         type: ContentType.FormData,

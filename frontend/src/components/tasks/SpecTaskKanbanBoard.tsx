@@ -891,7 +891,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
               Agent Fleet
             </Typography>
-            <Tooltip title="Each agent has its own desktop. You can watch and pair-program, but the agent owns the session.">
+            <Tooltip title="Each agent has its own desktop. You and your team can all connect to watch and pair. The agent owns the session.">
               <InfoIcon sx={{ fontSize: 16, color: 'text.secondary', cursor: 'help' }} />
             </Tooltip>
           </Box>

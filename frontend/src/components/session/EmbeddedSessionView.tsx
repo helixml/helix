@@ -1,7 +1,10 @@
-import React, { FC, useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
+import React, { useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
+
+// DEBUG: Set to true to show scroll debug overlay
+const DEBUG_SCROLL = false
 
 import Interaction from './Interaction'
 import InteractionLiveStream from './InteractionLiveStream'
@@ -9,13 +12,12 @@ import InteractionLiveStream from './InteractionLiveStream'
 import useAccount from '../../hooks/useAccount'
 import { useGetSession, useListSessionSteps } from '../../services/sessionService'
 import { useStreaming } from '../../contexts/streaming'
-import { TypesInteractionState, TypesSession } from '../../api/api'
+import { TypesInteractionState } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
-import { SESSION_TYPE_TEXT } from '../../types'
+import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 
 interface EmbeddedSessionViewProps {
   sessionId: string
-  /** Called when a new message is submitted (streaming is handled by parent) */
   onScrollToBottom?: () => void
 }
 
@@ -26,14 +28,10 @@ export interface EmbeddedSessionViewHandle {
 /**
  * EmbeddedSessionView - A lightweight session message thread viewer
  *
- * This component renders the chat message thread for a session, designed to be
- * embedded in dialogs or panels where the full Session page would be too heavy.
- *
- * Unlike the full Session page, this component:
- * - Does not include the input box (handled by parent)
- * - Does not include the session toolbar
- * - Uses simpler virtualization (shows last N interactions)
- * - Auto-scrolls to bottom on new messages
+ * Simple sticky-scroll behavior:
+ * - If you're at the bottom, stay at the bottom as content grows
+ * - If you scroll up, stay where you are
+ * - If you scroll back to bottom, resume auto-scroll
  */
 const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessionViewProps>(({
   sessionId,
@@ -42,15 +40,23 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const account = useAccount()
   const lightTheme = useLightTheme()
   const containerRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
   const { NewInference } = useStreaming()
 
-  // Smart scroll state - use refs to avoid re-renders on scroll
-  const isAtBottomRef = useRef(true) // Start at bottom
-  const userScrolledUpRef = useRef(false) // Track if user explicitly scrolled up
-  const lastScrollTopRef = useRef(0) // Track scroll direction
-  const isResizingRef = useRef(false) // Track resize events
-  const SCROLL_THRESHOLD = 50 // Pixels from bottom to consider "at bottom"
+  // Simple scroll state: are we currently at the bottom?
+  // This is the ONLY state we need for sticky scroll behavior
+  const isAtBottomRef = useRef(true)
+  const SCROLL_THRESHOLD = 50
+
+  // DEBUG: State for debug overlay
+  const [debugInfo, setDebugInfo] = useState({
+    isAtBottom: true,
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+    lastEvent: 'init',
+    mutationCount: 0,
+    scrollCount: 0,
+  })
 
   // Check if currently at bottom
   const checkIsAtBottom = useCallback(() => {
@@ -60,107 +66,147 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD
   }, [])
 
-  // Handle scroll events to track user scroll intent
+  // Update isAtBottom on every scroll event
   const handleScroll = useCallback(() => {
     const container = containerRef.current
     if (!container) return
 
-    // Ignore scroll events during resize
-    if (isResizingRef.current) return
+    isAtBottomRef.current = checkIsAtBottom()
 
-    const { scrollTop } = container
-    const wasAtBottom = isAtBottomRef.current
-    const isNowAtBottom = checkIsAtBottom()
-
-    // Detect scroll direction
-    const scrolledUp = scrollTop < lastScrollTopRef.current
-
-    // If user scrolled up from the bottom, mark as user-initiated scroll up
-    if (scrolledUp && wasAtBottom && !isNowAtBottom) {
-      userScrolledUpRef.current = true
+    if (DEBUG_SCROLL) {
+      setDebugInfo(prev => ({
+        ...prev,
+        isAtBottom: isAtBottomRef.current,
+        scrollTop: Math.round(container.scrollTop),
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+        lastEvent: 'scroll',
+        scrollCount: prev.scrollCount + 1,
+      }))
     }
-
-    // If user scrolled back to bottom, re-enable auto-scroll
-    if (isNowAtBottom) {
-      userScrolledUpRef.current = false
-    }
-
-    isAtBottomRef.current = isNowAtBottom
-    lastScrollTopRef.current = scrollTop
   }, [checkIsAtBottom])
 
-  // Handle container resize - don't count as user scroll, but do scroll to bottom if we were at bottom
+  // iOS Safari fix: Also track via native scroll event listener
+  // React's onScroll might not fire correctly on iOS
+  // Depends on session so it re-runs after the container is rendered
   useEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({ ...prev, lastEvent: 'NO CONTAINER REF' }))
+      }
+      return
+    }
+
+    // Debug: mark that we attached the listener
+    if (DEBUG_SCROLL) {
+      setDebugInfo(prev => ({ ...prev, lastEvent: 'listener-attached' }))
+    }
+
+    const onNativeScroll = () => {
+      isAtBottomRef.current = checkIsAtBottom()
+
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({
+          ...prev,
+          isAtBottom: isAtBottomRef.current,
+          scrollTop: Math.round(container.scrollTop),
+          scrollHeight: container.scrollHeight,
+          clientHeight: container.clientHeight,
+          lastEvent: 'native-scroll',
+          scrollCount: prev.scrollCount + 1,
+        }))
+      }
+    }
+
+    // Also listen for wheel events directly (Magic Keyboard trackpad)
+    const onWheel = () => {
+      // Small delay to let scroll position update
+      requestAnimationFrame(() => {
+        isAtBottomRef.current = checkIsAtBottom()
+        if (DEBUG_SCROLL) {
+          setDebugInfo(prev => ({
+            ...prev,
+            isAtBottom: isAtBottomRef.current,
+            scrollTop: Math.round(container.scrollTop),
+            lastEvent: 'wheel',
+            scrollCount: prev.scrollCount + 1,
+          }))
+        }
+      })
+    }
+
+    // Touch events for iOS - check if container is even receiving touch input
+    const onTouchMove = () => {
+      requestAnimationFrame(() => {
+        isAtBottomRef.current = checkIsAtBottom()
+        if (DEBUG_SCROLL) {
+          setDebugInfo(prev => ({
+            ...prev,
+            isAtBottom: isAtBottomRef.current,
+            scrollTop: Math.round(container.scrollTop),
+            lastEvent: `touch(h=${container.scrollHeight},st=${Math.round(container.scrollTop)})`,
+            scrollCount: prev.scrollCount + 1,
+          }))
+        }
+      })
+    }
+
+    // Use passive: true for better scroll performance
+    container.addEventListener('scroll', onNativeScroll, { passive: true })
+    container.addEventListener('wheel', onWheel, { passive: true })
+    container.addEventListener('touchmove', onTouchMove, { passive: true })
+
+    return () => {
+      container.removeEventListener('scroll', onNativeScroll)
+      container.removeEventListener('wheel', onWheel)
+      container.removeEventListener('touchmove', onTouchMove)
+    }
+  }, [checkIsAtBottom])
+
+  // Scroll to bottom - only scrolls if we're already at the bottom (sticky scroll)
+  // Pass force=true to scroll regardless of current position
+  const scrollToBottom = useCallback((force = false) => {
     const container = containerRef.current
     if (!container) return
 
-    const resizeObserver = new ResizeObserver(() => {
-      isResizingRef.current = true
-
-      // If we were at bottom before resize and user hasn't scrolled up, scroll to bottom
-      if (!userScrolledUpRef.current) {
-        requestAnimationFrame(() => {
-          if (containerRef.current) {
-            containerRef.current.scrollTop = containerRef.current.scrollHeight
-            isAtBottomRef.current = true
-          }
-          isResizingRef.current = false
-        })
-      } else {
-        isResizingRef.current = false
+    // Only scroll if we're already at the bottom (or forced)
+    // This implements "sticky scroll" - stay at bottom if you were there
+    if (!force && !isAtBottomRef.current) {
+      if (DEBUG_SCROLL) {
+        setDebugInfo(prev => ({
+          ...prev,
+          lastEvent: `SCROLL_BLOCKED (not at bottom)`,
+        }))
       }
-    })
+      return
+    }
 
-    resizeObserver.observe(container)
-    return () => resizeObserver.disconnect()
-  }, [])
+    // DEBUG: Show what triggered the scroll
+    if (DEBUG_SCROLL) {
+      setDebugInfo(prev => ({
+        ...prev,
+        lastEvent: `SCROLL_TO_BOTTOM (${force ? 'forced' : 'sticky'})`,
+      }))
+    }
 
-  // Watch for content height changes (tool calls, streaming updates, etc.)
-  // This handles the case where content grows within an existing interaction
-  useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
+    container.scrollTop = container.scrollHeight
+    isAtBottomRef.current = true
+    onScrollToBottom?.()
+  }, [onScrollToBottom])
 
-    const resizeObserver = new ResizeObserver(() => {
-      // If user hasn't scrolled up, scroll to bottom when content grows
-      if (!userScrolledUpRef.current) {
-        requestAnimationFrame(() => {
-          if (containerRef.current) {
-            containerRef.current.scrollTop = containerRef.current.scrollHeight
-            isAtBottomRef.current = true
-          }
-        })
-      }
-    })
-
-    resizeObserver.observe(content)
-    return () => resizeObserver.disconnect()
-  }, [])
+  // Expose scrollToBottom via ref for parent components
+  useImperativeHandle(ref, () => ({
+    scrollToBottom,
+  }), [scrollToBottom])
 
   // Fetch session data with auto-refresh
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(sessionId, {
     enabled: !!sessionId,
-    refetchInterval: 2000, // Auto-refresh every 2 seconds
+    refetchInterval: 2000,
   })
 
   const session = sessionResponse?.data
-
-  // Debug logging
-  useEffect(() => {
-    console.log('[EmbeddedSessionView] Session data:', {
-      sessionId,
-      hasSession: !!session,
-      interactionsCount: session?.interactions?.length || 0,
-      interactions: session?.interactions?.map(i => ({
-        id: i.id,
-        state: i.state,
-        prompt_message: i.prompt_message?.substring(0, 50),
-        response_message: i.response_message?.substring(0, 50),
-        display_message: i.display_message?.substring(0, 50),
-      })),
-      serverConfigFilestore: account.serverConfig?.filestore_prefix,
-    })
-  }, [sessionId, session, account.serverConfig])
 
   // Fetch session steps
   const { data: sessionSteps } = useListSessionSteps(sessionId, {
@@ -174,49 +220,28 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     return lastInteraction.state === TypesInteractionState.InteractionStateWaiting
   }, [session?.interactions])
 
-  // Auto-scroll to bottom when new messages arrive or when streaming
-  // Only scrolls if user hasn't explicitly scrolled up
-  const scrollToBottom = useCallback((force = false) => {
-    if (!containerRef.current) return
-
-    // Don't auto-scroll if user has explicitly scrolled up (unless forced)
-    if (!force && userScrolledUpRef.current) return
-
-    // Use requestAnimationFrame to ensure DOM has updated
-    requestAnimationFrame(() => {
-      if (!containerRef.current) return
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-      isAtBottomRef.current = true
-    })
-
-    onScrollToBottom?.()
-  }, [onScrollToBottom])
-
-  // Expose scrollToBottom via ref for parent components
-  useImperativeHandle(ref, () => ({
-    scrollToBottom,
-  }), [scrollToBottom])
-
-  // Scroll to bottom when interactions change
+  // Scroll to bottom on initial load
+  const hasInitiallyScrolled = useRef(false)
   useEffect(() => {
-    if (session?.interactions) {
-      scrollToBottom()
+    if (session?.interactions && session.interactions.length > 0 && !hasInitiallyScrolled.current) {
+      hasInitiallyScrolled.current = true
+      // Small delay to ensure content is rendered
+      requestAnimationFrame(() => {
+        scrollToBottom(true) // Force scroll on initial load
+      })
     }
   }, [session?.interactions?.length, scrollToBottom])
 
-  // Scroll to bottom on initial mount (with slight delay to ensure DOM is ready)
-  // Force scroll on initial mount - user hasn't had a chance to scroll yet
-  const hasInitiallyScrolledRef = useRef(false)
-  useEffect(() => {
-    if (session?.interactions && session.interactions.length > 0 && !hasInitiallyScrolledRef.current) {
-      hasInitiallyScrolledRef.current = true
-      // Use a small timeout to ensure the container and content are fully rendered
-      const timeoutId = setTimeout(() => {
-        scrollToBottom(true) // Force scroll on initial mount
-      }, 100)
-      return () => clearTimeout(timeoutId)
-    }
-  }, [session?.interactions, scrollToBottom])
+  // DISABLED: MutationObserver was causing constant scroll jumps
+  // because scroll events weren't being detected on iOS Safari,
+  // so isAtBottomRef stayed true and every mutation scrolled to bottom.
+  //
+  // Instead, we only scroll on:
+  // 1. Initial load
+  // 2. When interaction count increases (new message)
+  // 3. When InteractionLiveStream calls onMessageUpdate during streaming
+  //
+  // This is less "smooth" for streaming but more reliable.
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -224,12 +249,10 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     return session
   }, [refetchSession, session])
 
-  // Regenerate handler - required for InteractionInference to render messages
+  // Regenerate handler
   const handleRegenerate = useCallback(async (interactionID: string, message: string) => {
     if (!session) return
 
-    // For now, just re-send the message as a new inference
-    // A more sophisticated implementation would use the regenerate API
     await NewInference({
       message: message,
       sessionId: sessionId,
@@ -285,16 +308,44 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       ref={containerRef}
       onScroll={handleScroll}
       sx={{
+        // Use height: 0 + flex: 1 to force this to be the scrollable container
+        // Without height: 0, the container may expand to fit content on iOS
+        height: 0,
         flex: 1,
         overflow: 'auto',
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        position: 'relative',
+        // Enable momentum scrolling on iOS
+        WebkitOverflowScrolling: 'touch',
         ...lightTheme.scrollbar,
       }}
     >
+      {/* DEBUG OVERLAY */}
+      {DEBUG_SCROLL && (
+        <Box
+          sx={{
+            position: 'sticky',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            padding: '4px 8px',
+            pointerEvents: 'none',
+          }}
+        >
+          <div>atBottom: {debugInfo.isAtBottom ? 'YES' : 'NO'} | scrollTop: {debugInfo.scrollTop}</div>
+          <div>scrollH: {debugInfo.scrollHeight} | clientH: {debugInfo.clientHeight}</div>
+          <div>last: {debugInfo.lastEvent}</div>
+          <div>mutations: {debugInfo.mutationCount} | scrolls: {debugInfo.scrollCount}</div>
+        </Box>
+      )}
       <Box
-        ref={contentRef}
         sx={{
           width: '100%',
           maxWidth: 700,
@@ -304,11 +355,16 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
+          // Ensure content can shrink on narrow screens
+          minWidth: 0,
+          boxSizing: 'border-box',
         }}
       >
         {session.interactions.map((interaction, index) => {
           const isLastInteraction = index === session.interactions!.length - 1
           const isLive = isLastInteraction && interaction.state === TypesInteractionState.InteractionStateWaiting
+          // Regenerate doesn't work for external agents, so disable it
+          const isExternalAgent = session.config?.agent_type === AGENT_TYPE_ZED_EXTERNAL
 
           return (
             <Interaction
@@ -318,7 +374,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
               session={session}
               highlightAllFiles={false}
               onReloadSession={handleReloadSession}
-              onRegenerate={handleRegenerate}
+              onRegenerate={isExternalAgent ? undefined : handleRegenerate}
               isLastInteraction={isLastInteraction}
               isOwner={isOwner}
               isAdmin={account.admin}

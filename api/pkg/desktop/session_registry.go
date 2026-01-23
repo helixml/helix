@@ -59,9 +59,70 @@ type SessionClients struct {
 // Global session registry
 var globalRegistry = &SessionRegistry{}
 
+// Stale client timeout - clients with no activity for this duration are removed
+const staleClientTimeout = 30 * time.Second
+
+// Cleanup interval - how often to check for stale clients
+const cleanupInterval = 10 * time.Second
+
+func init() {
+	// Start background goroutine to clean up stale clients
+	go globalRegistry.cleanupStaleClients()
+}
+
 // GetSessionRegistry returns the global session registry
 func GetSessionRegistry() *SessionRegistry {
 	return globalRegistry
+}
+
+// cleanupStaleClients periodically removes clients that haven't had any activity
+func (r *SessionRegistry) cleanupStaleClients() {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		r.sessions.Range(func(sessionIDI, sessionI any) bool {
+			sessionID := sessionIDI.(string)
+			session := sessionI.(*SessionClients)
+
+			// Collect stale client IDs
+			var staleClientIDs []uint32
+			session.clients.Range(func(clientIDI, clientI any) bool {
+				client := clientI.(*ConnectedClient)
+				if now.Sub(client.LastSeen) > staleClientTimeout {
+					staleClientIDs = append(staleClientIDs, client.ID)
+				}
+				return true
+			})
+
+			// Remove stale clients
+			for _, clientID := range staleClientIDs {
+				slog.Info("[MULTIPLAYER] Removing stale client",
+					"sessionID", sessionID,
+					"clientID", clientID,
+					"timeout", staleClientTimeout)
+				session.clients.Delete(clientID)
+				r.broadcastUserLeft(sessionID, clientID)
+			}
+
+			return true
+		})
+	}
+}
+
+// UpdateClientActivity updates the LastSeen timestamp for a client.
+// Call this on any WebSocket activity to prevent the client from being cleaned up as stale.
+func (r *SessionRegistry) UpdateClientActivity(sessionID string, clientID uint32) {
+	sessionI, ok := r.sessions.Load(sessionID)
+	if !ok {
+		return
+	}
+	session := sessionI.(*SessionClients)
+	if clientI, ok := session.clients.Load(clientID); ok {
+		client := clientI.(*ConnectedClient)
+		client.LastSeen = time.Now()
+	}
 }
 
 // RegisterClient adds a new client to a session and returns assigned client ID.
@@ -141,6 +202,7 @@ func (r *SessionRegistry) UnregisterClient(sessionID string, clientID uint32) {
 
 // broadcastCursorMissCount tracks how many times session was not found
 var broadcastCursorMissCount atomic.Uint32
+
 // broadcastCursorSuccessCount tracks successful broadcasts
 var broadcastCursorSuccessCount atomic.Uint32
 

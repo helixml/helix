@@ -79,7 +79,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
-  const isBigScreen = useIsBigScreen()
+  // Use md breakpoint (900px) to enable split view on tablets
+  const isBigScreen = useIsBigScreen({ breakpoint: 'md' })
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -673,7 +674,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup direction="horizontal" style={{ height: '100%', flex: 1 }}>
             {/* Left: Chat panel - always visible on desktop */}
-            <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden' }}>
+            <Panel defaultSize={30} minSize={15} style={{ overflow: 'hidden' }}>
               <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {/* Chat panel header with collapse button */}
                 <Box
@@ -682,7 +683,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     px: 1.5,
-                    py: 0.5,
+                    py: 0.75,
+                    minHeight: 40,
                     borderBottom: '1px solid',
                     borderColor: 'divider',
                     backgroundColor: 'background.paper',
@@ -742,10 +744,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Panel>
 
             {/* Resize handle */}
-            <PanelResizeHandle style={{ width: 6, background: 'transparent', cursor: 'col-resize' }} />
+            <PanelResizeHandle style={{
+              width: 6,
+              background: 'rgba(255, 255, 255, 0.08)',
+              cursor: 'col-resize',
+              transition: 'background 0.15s',
+            }}>
+              <div style={{
+                width: 2,
+                height: '100%',
+                margin: '0 auto',
+                background: 'rgba(255, 255, 255, 0.12)',
+                borderRadius: 1,
+              }} />
+            </PanelResizeHandle>
 
             {/* Right: Content panel - switches between desktop/changes/details */}
-            <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden' }}>
+            <Panel defaultSize={70} minSize={25} style={{ overflow: 'hidden' }}>
               <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* View toggle header - above content area only */}
                 <Box
@@ -755,6 +770,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     justifyContent: 'space-between',
                     px: 1.5,
                     py: 0.75,
+                    minHeight: 40,
                     borderBottom: '1px solid',
                     borderColor: 'divider',
                     backgroundColor: 'background.paper',
@@ -885,7 +901,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Prompt library sidebar */}
             {showPromptLibrary && (
               <>
-                <PanelResizeHandle style={{ width: 4, background: 'transparent', cursor: 'col-resize' }} />
+                <PanelResizeHandle style={{
+                  width: 6,
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  cursor: 'col-resize',
+                  transition: 'background 0.15s',
+                }}>
+                  <div style={{
+                    width: 2,
+                    height: '100%',
+                    margin: '0 auto',
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    borderRadius: 1,
+                  }} />
+                </PanelResizeHandle>
                 <Panel defaultSize={20} minSize={15}>
                   <PromptLibrarySidebar
                     pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
@@ -908,12 +937,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                px: 1.5,
-                py: 0.75,
+                flexWrap: 'wrap',
+                px: 1,
+                py: 0.5,
                 borderBottom: '1px solid',
                 borderColor: 'divider',
                 backgroundColor: 'background.paper',
-                gap: 1,
+                gap: 0.5,
+                minHeight: 'auto',
               }}
             >
               {/* Left: View toggle icons */}
@@ -923,9 +954,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onChange={(_, newView) => newView && setCurrentView(newView)}
                 size="small"
                 sx={{
+                  flexShrink: 0,
                   '& .MuiToggleButton-root': {
                     py: 0.25,
-                    px: 1,
+                    px: 0.75,
+                    minWidth: 32,
                     border: 'none',
                     borderRadius: '4px !important',
                     '&.Mui-selected': {
@@ -976,11 +1009,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Tooltip>
               )}
 
-              {/* Spacer */}
-              <Box sx={{ flex: 1 }} />
+              {/* Spacer - hidden on very small screens to allow wrapping */}
+              <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
 
               {/* Right: Action buttons */}
-              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center', flexShrink: 0 }}>
                 {isEditMode ? (
                   <>
                     <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>
