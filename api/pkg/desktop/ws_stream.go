@@ -60,21 +60,20 @@ func getVideoMode(configOverride string) VideoMode {
 }
 
 // getDefaultGOPSize returns the default GOP (Group of Pictures) size.
-// Set via HELIX_GOP_SIZE environment variable. Default is 30 frames.
-// At 60fps = keyframe every 0.5s, at 10fps = every 3s, at 2fps = every 15s.
-// Frequent keyframes help detect frame stalls on static screens where
-// damage-based delivery may produce very low framerates.
+// Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30s at 60fps).
+// The keepalive mechanism ensures we always get frames on static screens,
+// so we don't need frequent keyframes for stall detection.
 func getDefaultGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
-	return 30 // Default: 0.5s at 60fps - frequent keyframes for stall detection
+	return 1800 // Default: 30s at 60fps
 }
 
 // getEffectiveGOPSize returns the GOP size to use for this stream.
-// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (30)
+// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (1800)
 func (v *VideoStreamer) getEffectiveGOPSize() int {
 	if v.config.GOPSize > 0 {
 		return v.config.GOPSize
