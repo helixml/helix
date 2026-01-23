@@ -394,6 +394,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, editFormData, updateSpecTask, snackbar])
 
+  // Handle review spec navigation
+  const handleReviewSpec = useCallback(async () => {
+    if (!task?.id) return
+
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id)
+      const reviews = response.data?.reviews || []
+      if (reviews.length > 0) {
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+        if (onOpenReview) {
+          onOpenReview(task.id, latestReview.id, task.name || 'Spec Review')
+        } else {
+          account.orgNavigate('project-task-review', {
+            id: task.project_id,
+            taskId: task.id,
+            reviewId: latestReview.id,
+          })
+        }
+      } else {
+        snackbar.error('No design review found')
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error)
+      snackbar.error('Failed to load design review')
+    }
+  }, [task?.id, task?.name, task?.project_id, onOpenReview, account])
+
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
     if (!activeSessionId) {
@@ -484,29 +511,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             variant="contained"
             color="info"
             startIcon={<Description />}
-            onClick={async () => {
-              try {
-                const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
-                const reviews = response.data?.reviews || []
-                if (reviews.length > 0) {
-                  const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-                  if (onOpenReview) {
-                    onOpenReview(task.id!, latestReview.id, task.name || 'Spec Review')
-                  } else {
-                    account.orgNavigate('project-task-review', {
-                      id: task.project_id,
-                      taskId: task.id,
-                      reviewId: latestReview.id,
-                    })
-                  }
-                } else {
-                  snackbar.error('No design review found')
-                }
-              } catch (error) {
-                console.error('Failed to fetch design reviews:', error)
-                snackbar.error('Failed to load design review')
-              }
-            }}
+            onClick={handleReviewSpec}
           >
             Review Spec
           </Button>
@@ -804,6 +809,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </ToggleButton>
                   </ToggleButtonGroup>
 
+                  {/* Review Spec button - prominent when in spec_review status */}
+                  {task.status === 'spec_review' && (
+                    <Button
+                      variant="contained"
+                      color="info"
+                      size="small"
+                      startIcon={<Description />}
+                      onClick={handleReviewSpec}
+                      sx={{
+                        ml: 1,
+                        fontSize: '0.75rem',
+                        animation: 'pulse-glow 2s infinite',
+                        '@keyframes pulse-glow': {
+                          '0%, 100%': { boxShadow: '0 0 5px rgba(41, 182, 246, 0.5)' },
+                          '50%': { boxShadow: '0 0 15px rgba(41, 182, 246, 0.8)' },
+                        },
+                      }}
+                    >
+                      Review Spec
+                    </Button>
+                  )}
+
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
 
@@ -970,6 +997,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     <VerticalSplitIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
+              )}
+
+              {/* Review Spec button - prominent when in spec_review status */}
+              {task.status === 'spec_review' && (
+                <Button
+                  variant="contained"
+                  color="info"
+                  size="small"
+                  startIcon={<Description />}
+                  onClick={handleReviewSpec}
+                  sx={{
+                    ml: 0.5,
+                    fontSize: '0.75rem',
+                    animation: 'pulse-glow 2s infinite',
+                    '@keyframes pulse-glow': {
+                      '0%, 100%': { boxShadow: '0 0 5px rgba(41, 182, 246, 0.5)' },
+                      '50%': { boxShadow: '0 0 15px rgba(41, 182, 246, 0.8)' },
+                    },
+                  }}
+                >
+                  Review Spec
+                </Button>
               )}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
