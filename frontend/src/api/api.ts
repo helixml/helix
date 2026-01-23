@@ -571,6 +571,13 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerClientBufferStats {
+  buffer_pct?: number;
+  buffer_size?: number;
+  buffer_used?: number;
+  client_id?: number;
+}
+
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
@@ -622,6 +629,7 @@ export interface ServerDevContainerWithClients {
   sandbox_id?: string;
   session_id?: string;
   status?: HydraDevContainerStatus;
+  video_stats?: ServerVideoStreamingStats;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -749,15 +757,11 @@ export interface ServerSampleProjectTask {
 }
 
 export interface ServerSampleTaskPrompt {
-  /** Any specific constraints or requirements */
-  constraints?: string;
-  /** Additional context about the codebase */
-  context?: string;
   /** Tags for organization */
   labels?: string[];
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
-  /** Natural language request */
+  /** Natural language request (include all context here) */
   prompt?: string;
 }
 
@@ -864,6 +868,13 @@ export interface ServerTaskSpecsResponse {
   status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
+}
+
+export interface ServerVideoStreamingStats {
+  client_buffers?: ServerClientBufferStats[];
+  client_count?: number;
+  frames_received?: number;
+  gop_buffer_size?: number;
 }
 
 export interface ServicesKoditEnrichmentAttributes {

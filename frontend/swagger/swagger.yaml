@@ -872,6 +872,17 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.ClientBufferStats:
+    properties:
+      buffer_pct:
+        type: integer
+      buffer_size:
+        type: integer
+      buffer_used:
+        type: integer
+      client_id:
+        type: integer
+    type: object
   server.CloneCommandResponse:
     properties:
       clone_command:
@@ -956,6 +967,8 @@ definitions:
         type: string
       status:
         $ref: '#/definitions/hydra.DevContainerStatus'
+      video_stats:
+        $ref: '#/definitions/server.VideoStreamingStats'
     type: object
   server.ForkSampleProjectRequest:
     properties:
@@ -1170,12 +1183,6 @@ definitions:
     type: object
   server.SampleTaskPrompt:
     properties:
-      constraints:
-        description: Any specific constraints or requirements
-        type: string
-      context:
-        description: Additional context about the codebase
-        type: string
       labels:
         description: Tags for organization
         items:
@@ -1186,7 +1193,7 @@ definitions:
         - $ref: '#/definitions/types.SpecTaskPriority'
         description: '"low", "medium", "high", "critical"'
       prompt:
-        description: Natural language request
+        description: Natural language request (include all context here)
         type: string
     type: object
   server.SampleType:
@@ -1364,6 +1371,19 @@ definitions:
         type: string
       technical_design:
         type: string
+    type: object
+  server.VideoStreamingStats:
+    properties:
+      client_buffers:
+        items:
+          $ref: '#/definitions/server.ClientBufferStats'
+        type: array
+      client_count:
+        type: integer
+      frames_received:
+        type: integer
+      gop_buffer_size:
+        type: integer
     type: object
   services.KoditEnrichmentAttributes:
     properties:
