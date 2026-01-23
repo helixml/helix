@@ -85,12 +85,7 @@ const Dashboard: FC = () => {
         refetchInterval: 10000,
     });
 
-    // Auto-select first sandbox when list loads
-    useEffect(() => {
-        if (sandboxInstances && sandboxInstances.length > 0 && !selectedSandboxId) {
-            setSelectedSandboxId(sandboxInstances[0].id || "");
-        }
-    }, [sandboxInstances, selectedSandboxId]);
+    // Don't auto-select - default to "All Sandboxes" view for aggregate monitoring
 
     const onViewSession = useCallback((session_id: string) => {
         router.setParams({
@@ -677,6 +672,9 @@ const Dashboard: FC = () => {
                                     disabled={isLoadingSandboxes || !sandboxInstances?.length}
                                     startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
                                 >
+                                    <MenuItem value="">
+                                        <em>All Sandboxes</em>
+                                    </MenuItem>
                                     {sandboxInstances?.map((instance) => (
                                         <MenuItem key={instance.id} value={instance.id}>
                                             {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
