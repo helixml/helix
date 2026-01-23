@@ -145,7 +145,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   kodit:
-    image: registry.helixml.tech/helix/kodit:0.5.22
+    image: registry.helixml.tech/helix/kodit:0.5.23
     ports:
       - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
