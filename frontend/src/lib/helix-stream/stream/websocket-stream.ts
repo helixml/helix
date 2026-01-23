@@ -109,6 +109,10 @@ export class WebSocketStream {
   private framesDecoded = 0
   private framesDropped = 0
 
+  // GOP replay mode - true when receiving "fast forward" frames from mid-stream join
+  // Frontend can show VHS-style effect during replay
+  private isReplaying = false
+
   // RTT (Round-Trip Time) measurement for latency tracking
   private pingSeq = 0
   private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
@@ -984,7 +988,19 @@ export class WebSocketStream {
     const codec = data[1]
     const flags = data[2]
     const isKeyframe = (flags & 0x01) !== 0
+    const isReplay = (flags & 0x02) !== 0  // GOP replay frame (decoder warmup)
     const ptsUs = view.getBigUint64(3, false) // big-endian
+
+    // Track replay mode for VHS effect in UI
+    // Transition: replay → non-replay means catchup is complete
+    if (isReplay !== this.isReplaying) {
+      this.isReplaying = isReplay
+      if (isReplay) {
+        console.log("[WebSocketStream] GOP replay started (mid-stream join)")
+      } else {
+        console.log("[WebSocketStream] GOP replay complete, now live")
+      }
+    }
 
     // Track received FPS (before decode)
     this.framesReceived = (this.framesReceived || 0) + 1
@@ -1849,6 +1865,12 @@ export class WebSocketStream {
     usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
     // Frame health monitoring (for iOS Safari stall detection)
     lastFrameRenderTime: number      // performance.now() timestamp of last frame render (0 = no frames yet)
+    // WebSocket data flow monitoring
+    lastWsMessageTime: number        // Timestamp of last WebSocket message received
+    // Decoder state
+    decoderState: string             // "configured" = healthy, "closed" = crashed
+    // GOP replay mode
+    isReplaying: boolean             // True during mid-stream join catchup (show VHS effect)
   } {
     // If FPS hasn't been updated in over 2 seconds, it's stale - report 0
     const now = Date.now()
@@ -1923,6 +1945,8 @@ export class WebSocketStream {
       lastWsMessageTime: this.lastMessageTime,
       // Decoder state - "configured" = healthy, "closed" = crashed/died
       decoderState: this.videoDecoder?.state || "unconfigured",
+      // GOP replay mode - true during mid-stream join catchup (show VHS effect)
+      isReplaying: this.isReplaying,
     }
   }
 

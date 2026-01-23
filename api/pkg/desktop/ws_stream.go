@@ -60,20 +60,19 @@ func getVideoMode(configOverride string) VideoMode {
 }
 
 // getDefaultGOPSize returns the default GOP (Group of Pictures) size.
-// Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30s at 60fps).
-// The keepalive mechanism ensures we always get frames on static screens,
-// so we don't need frequent keyframes for stall detection.
+// Set via HELIX_GOP_SIZE environment variable. Default is 120 frames (2s at 60fps).
+// Shorter GOP means faster mid-stream joins (less catchup data to replay).
 func getDefaultGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
-	return 1800 // Default: 30s at 60fps
+	return 120 // Default: 2s at 60fps
 }
 
 // getEffectiveGOPSize returns the GOP size to use for this stream.
-// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (1800)
+// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (120)
 func (v *VideoStreamer) getEffectiveGOPSize() int {
 	if v.config.GOPSize > 0 {
 		return v.config.GOPSize
@@ -162,7 +161,8 @@ type StreamConfig struct {
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket.
-// Uses pipewirezerocopysrc for zero-copy DMA-BUF capture on both GNOME and Sway.
+// Uses SharedVideoSource to share a single GStreamer pipeline across all clients
+// connected to the same PipeWire node, preventing resource contention.
 type VideoStreamer struct {
 	nodeID       uint32
 	cursorNodeID uint32    // Separate node for cursor monitoring (avoids multi-consumer conflict)
@@ -171,11 +171,16 @@ type VideoStreamer struct {
 	config       StreamConfig
 	ws           *websocket.Conn
 	logger       *slog.Logger
-	gstPipeline  *GstPipeline // GStreamer pipeline with appsink
-	running      atomic.Bool
-	cancel       context.CancelFunc
-	mu           sync.Mutex // Protects Start/Stop
-	wsMu         sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
+
+	// Shared video source - ONE pipeline shared by all clients for this node
+	sharedSource   *SharedVideoSource
+	sharedClientID uint64          // Our client ID in the shared source
+	frameCh        <-chan VideoFrame // Channel to receive frames from shared source
+
+	running atomic.Bool
+	cancel  context.CancelFunc
+	mu      sync.Mutex // Protects Start/Stop
+	wsMu    sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
 
 	// Frame tracking
 	frameCount uint64
@@ -225,7 +230,8 @@ func (v *VideoStreamer) SetVideoEnabled(enabled bool) {
 }
 
 // Start begins capturing and streaming video.
-// Uses go-gst bindings with appsink for guaranteed in-order frame delivery.
+// Uses SharedVideoSource to share a single GStreamer pipeline across all clients
+// connected to the same PipeWire node, preventing resource contention.
 func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -245,31 +251,33 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Log with source info
 	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
-	v.logger.Info("starting video capture",
+	v.logger.Info("starting video capture (shared source)",
 		"source", sourceInfo,
 		"video_mode", string(v.videoMode),
 		"encoder", encoder,
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
 		"bitrate", v.config.Bitrate,
-		"pipeline", pipelineStr,
 	)
 
-	// Create GStreamer pipeline with appsink
-	// Use realtime clock for native pipewiresrc so PTS can be compared to time.Now()
-	var err error
+	// Get or create shared video source for this PipeWire node
+	// All clients connecting to the same node share ONE GStreamer pipeline
 	opts := GstPipelineOptions{
 		UseRealtimeClock: v.useRealtimeClock,
 	}
-	v.gstPipeline, err = NewGstPipelineWithOptions(pipelineStr, opts)
+	v.sharedSource = GetSharedVideoRegistry().GetOrCreate(v.nodeID, pipelineStr, opts)
+
+	// Subscribe to receive frames from the shared source
+	var err error
+	v.frameCh, v.sharedClientID, err = v.sharedSource.Subscribe()
 	if err != nil {
-		return fmt.Errorf("create GStreamer pipeline: %w", err)
+		return fmt.Errorf("subscribe to shared video source: %w", err)
 	}
 
-	// Start the pipeline
-	if err := v.gstPipeline.Start(ctx); err != nil {
-		return fmt.Errorf("start GStreamer pipeline: %w", err)
-	}
+	v.logger.Info("subscribed to shared video source",
+		"node_id", v.nodeID,
+		"client_id", v.sharedClientID,
+		"total_clients", v.sharedSource.GetClientCount())
 
 	v.running.Store(true)
 
@@ -278,9 +286,14 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		v.logger.Error("failed to send StreamInit", "err", err)
 	}
 
-	// Send initial cursor (default arrow) so frontend has something to render immediately.
-	// This will be replaced by actual cursor data once cursor monitoring starts.
-	v.sendCursorName("default", 0, 0)
+	// Send cached cursor state so frontend renders correct cursor immediately.
+	// This fixes corrupted cursor display after reconnect by ensuring the client
+	// gets the current cursor shape rather than waiting for the next change event.
+	_, _, cachedCursor := GetGlobalCursorState().Get()
+	if cachedCursor == "" {
+		cachedCursor = "default"
+	}
+	v.sendCursorName(cachedCursor, 0, 0)
 
 	// Send ConnectionComplete to signal frontend that connection is ready
 	if err := v.sendConnectionComplete(); err != nil {
@@ -751,7 +764,7 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 	return v.writeJSON(msg)
 }
 
-// readFramesAndSend reads video frames from appsink and sends to WebSocket.
+// readFramesAndSend reads video frames from shared source and sends to WebSocket.
 // Frames are delivered in encode order via channel - no UDP reordering possible.
 func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
@@ -767,7 +780,8 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalIntervalMs int64
 	var intervalCount int64
 
-	frameCh := v.gstPipeline.Frames()
+	// Use the frame channel from the shared video source
+	frameCh := v.frameCh
 
 	for {
 		select {
@@ -775,14 +789,14 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Pipeline stopped
-				v.logger.Info("appsink channel closed")
+				// Shared source stopped or we were unsubscribed
+				v.logger.Info("shared video source channel closed")
 				return
 			}
 
 			// Measure WebSocket send time
 			sendStart := time.Now()
-			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS)
+			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.IsReplay, frame.PTS)
 			if err != nil {
 				v.logger.Error("send frame error", "err", err)
 				return
@@ -825,7 +839,7 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				// Get pipeline frame stats to track drops
-				pipelineReceived, pipelineDropped := v.gstPipeline.GetFrameStats()
+				pipelineReceived, pipelineDropped := v.sharedSource.GetFrameStats()
 
 				// Calculate frame timing stats
 				var avgIntervalMs int64
@@ -1007,9 +1021,10 @@ func patchSPSConstraintSet3(data []byte) []byte {
 
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
+// isReplay is true for GOP replay frames (decoder warmup, frontend can show VHS effect)
 // pts is the presentation timestamp in microseconds from GStreamer
 // Returns the wall clock time when the frame was actually written to the socket (after mutex).
-func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) (time.Time, error) {
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, isReplay bool, pts uint64) (time.Time, error) {
 	// Skip sending if video is paused (screenshot mode)
 	if !v.videoEnabled.Load() {
 		return time.Time{}, nil
@@ -1026,12 +1041,18 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64)
 	// PTS is already in microseconds from GStreamer (converted in gst_pipeline.go)
 
 	// VideoFrame format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
+	// Flags byte: bit 0 = keyframe (0x01), bit 1 = replay (0x02)
 	header := make([]byte, 15)
 	header[0] = StreamMsgVideoFrame
 	header[1] = StreamCodecH264
+	var flags byte
 	if isKeyframe {
-		header[2] = 0x01 // keyframe flag
+		flags |= 0x01 // bit 0: keyframe
 	}
+	if isReplay {
+		flags |= 0x02 // bit 1: replay (GOP catchup frame)
+	}
+	header[2] = flags
 	binary.BigEndian.PutUint64(header[3:11], pts)
 	binary.BigEndian.PutUint16(header[11:13], uint16(v.config.Width))
 	binary.BigEndian.PutUint16(header[13:15], uint16(v.config.Height))
@@ -1370,9 +1391,13 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
-	// Stop GStreamer pipeline
-	if v.gstPipeline != nil {
-		v.gstPipeline.Stop()
+	// Unsubscribe from shared video source
+	// This will stop the pipeline if we're the last client
+	if v.sharedSource != nil && v.sharedClientID > 0 {
+		v.sharedSource.Unsubscribe(v.sharedClientID)
+		v.logger.Info("unsubscribed from shared video source",
+			"client_id", v.sharedClientID,
+			"remaining_clients", v.sharedSource.GetClientCount())
 	}
 
 	// Unregister from session for multi-player presence

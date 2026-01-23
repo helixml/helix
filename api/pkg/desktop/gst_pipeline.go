@@ -23,7 +23,13 @@ var gstInitOnce sync.Once
 // when multiple clients connect simultaneously to the same PipeWire node.
 // The pipewirezerocopysrc element's CUDA context and PipeWire stream setup
 // can fail if multiple instances try to initialize concurrently.
+// NOTE: With SharedVideoSource, only ONE pipeline is created per PipeWire node,
+// so this mutex mainly protects against the rare case of concurrent session starts.
 var pipelineCreateMu sync.Mutex
+
+// activePipelineCount tracks how many pipelines are currently running.
+// Used for logging/debugging.
+var activePipelineCount atomic.Int32
 
 // InitGStreamer initializes the GStreamer library. Safe to call multiple times.
 func InitGStreamer() {
@@ -37,6 +43,7 @@ type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)
 	PTS        uint64    // Presentation timestamp in microseconds
 	IsKeyframe bool      // True if this is an IDR frame
+	IsReplay   bool      // True if this is a GOP replay frame (decoder warmup, don't display)
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 
@@ -148,6 +155,10 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	pipelineCreateMu.Lock()
 	defer pipelineCreateMu.Unlock()
 
+	// Track how many pipelines are being started for logging
+	currentCount := activePipelineCount.Load()
+	fmt.Printf("[GST_PIPELINE] Starting pipeline %s (active pipelines: %d)\n", g.pipelineID, currentCount)
+
 	// Configure appsink properties
 	g.appsink.SetProperty("emit-signals", true)
 	g.appsink.SetProperty("max-buffers", uint(2))
@@ -174,6 +185,8 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	}
 
 	g.running.Store(true)
+	newCount := activePipelineCount.Add(1)
+	fmt.Printf("[GST_PIPELINE] Pipeline %s started (active pipelines: %d)\n", g.pipelineID, newCount)
 
 	// Monitor for EOS and errors
 	go g.watchBus(ctx)
@@ -337,6 +350,10 @@ func (g *GstPipeline) Stop() {
 		if g.pipeline != nil {
 			g.pipeline.SetState(gst.StateNull)
 		}
+
+		// Decrement active pipeline count
+		remaining := activePipelineCount.Add(-1)
+		fmt.Printf("[GST_PIPELINE] Pipeline %s stopped (active pipelines: %d)\n", g.pipelineID, remaining)
 
 		close(g.frameCh)
 	})

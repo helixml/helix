@@ -83,6 +83,8 @@ export interface StreamStats {
     transport?: string;
   };
   timestamp?: string;
+  // GOP replay mode - true during mid-stream join catchup (show VHS effect)
+  isReplaying?: boolean;
 }
 
 // Active connection info for display

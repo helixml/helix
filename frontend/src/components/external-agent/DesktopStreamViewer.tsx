@@ -2386,6 +2386,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               : 'WebSocket Video + Input',
           },
           timestamp: new Date().toISOString(),
+          // GOP replay mode for VHS fast-forward effect
+          isReplaying: wsStats.isReplaying,
         });
         // Update high latency state for warning banner
         setIsHighLatency(wsStats.isHighLatency);
@@ -3942,6 +3944,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
           touchAction: 'none',
+          // VHS effect: greyscale + sepia during GOP replay catchup
+          filter: stats?.isReplaying ? 'grayscale(70%) sepia(30%) contrast(1.1)' : undefined,
+          transition: 'filter 0.3s ease-out',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -3950,6 +3955,126 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }}
       />
+
+      {/* VHS Fast-Forward Overlay - shown during GOP replay catchup */}
+      {stats?.isReplaying && qualityMode === 'video' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
+            height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+            transform: `translate(-50%, -50%) scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+            transformOrigin: 'center center',
+            zIndex: 25, // Above canvas, below UI
+            pointerEvents: 'none', // Don't block mouse events
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            // VHS effect overlay
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              // Trapezoid effect via perspective
+              background: 'rgba(0, 0, 0, 0.5)',
+              clipPath: 'polygon(5% 0%, 95% 0%, 100% 100%, 0% 100%)',
+            },
+            // Scan lines
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.3) 2px, rgba(0, 0, 0, 0.3) 4px)',
+              pointerEvents: 'none',
+            },
+          }}
+        >
+          {/* Big Bold Fast-Forward Icon */}
+          <Box
+            sx={{
+              fontSize: '15rem',
+              fontWeight: 900,
+              color: 'rgba(255, 255, 255, 0.9)',
+              textShadow: '0 0 40px rgba(255, 255, 255, 0.8), 0 0 80px rgba(100, 200, 255, 0.6)',
+              animation: 'vhsPulse 0.3s ease-in-out infinite',
+              '@keyframes vhsPulse': {
+                '0%, 100%': {
+                  opacity: 0.9,
+                  transform: 'scale(1)',
+                },
+                '50%': {
+                  opacity: 1,
+                  transform: 'scale(1.05)',
+                },
+              },
+              // Slight horizontal jitter like VHS
+              '@keyframes vhsJitter': {
+                '0%, 100%': { transform: 'translateX(0)' },
+                '25%': { transform: 'translateX(-3px)' },
+                '75%': { transform: 'translateX(3px)' },
+              },
+            }}
+          >
+            ⏩
+          </Box>
+          {/* "NOT LIVE" warning banner at top */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '8%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '12px 40px',
+              backgroundColor: 'rgba(255, 50, 50, 0.9)',
+              borderRadius: '4px',
+              fontSize: '1.5rem',
+              fontWeight: 900,
+              fontFamily: 'monospace',
+              color: '#fff',
+              textShadow: '2px 2px 0 rgba(0, 0, 0, 0.5)',
+              letterSpacing: '0.2em',
+              boxShadow: '0 0 30px rgba(255, 50, 50, 0.8)',
+              animation: 'notLivePulse 0.8s ease-in-out infinite',
+              '@keyframes notLivePulse': {
+                '0%, 100%': {
+                  boxShadow: '0 0 30px rgba(255, 50, 50, 0.8)',
+                  transform: 'translateX(-50%) scale(1)',
+                },
+                '50%': {
+                  boxShadow: '0 0 50px rgba(255, 50, 50, 1)',
+                  transform: 'translateX(-50%) scale(1.02)',
+                },
+              },
+            }}
+          >
+            ⚠️ NOT LIVE
+          </Box>
+          {/* "CATCHING UP" text at bottom */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: '12%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              fontSize: '1.8rem',
+              fontWeight: 700,
+              fontFamily: 'monospace',
+              color: 'rgba(255, 255, 255, 0.9)',
+              textShadow: '2px 2px 0 rgba(0, 0, 0, 0.8), 0 0 20px rgba(100, 200, 255, 0.5)',
+              letterSpacing: '0.15em',
+              animation: 'vhsBlink 0.5s step-end infinite',
+              '@keyframes vhsBlink': {
+                '0%, 50%': { opacity: 1 },
+                '51%, 100%': { opacity: 0.6 },
+              },
+            }}
+          >
+            Syncing to live stream...
+          </Box>
+        </Box>
+      )}
 
       {/* Screenshot overlay for screenshot mode */}
       {/* Shows rapidly-updated screenshots instead of video stream while keeping input working */}
