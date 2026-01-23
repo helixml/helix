@@ -5,10 +5,13 @@ import {
   Chip,
   Tooltip,
   CircularProgress,
-  IconButton,
+  Grid,
 } from '@mui/material';
-import { Copy, Check, Clock, AlertCircle, Play, ExternalLink } from 'lucide-react';
+import { Copy, Check, AlertCircle, Play } from 'lucide-react';
 import { useCloneGroupProgress } from '../../services/specTaskService';
+import TaskCard from '../tasks/TaskCard';
+import useRouter from '../../hooks/useRouter';
+import { TypesSpecTaskWithProject } from '../../api/api';
 
 interface CloneGroupProgressProps {
   groupId: string;
@@ -52,9 +55,58 @@ const getStatusLabel = (status: string): string => {
   return labels[status] || status;
 };
 
+// Map API status to TaskCard phase
+const statusToPhase = (status: string): 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed' => {
+  const mapping: Record<string, 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'> = {
+    backlog: 'backlog',
+    queued_spec_generation: 'backlog',
+    spec_generation: 'planning',
+    spec_review: 'review',
+    spec_revision: 'review',
+    spec_approved: 'implementation',
+    queued_implementation: 'implementation',
+    implementation_queued: 'implementation',
+    implementation: 'implementation',
+    implementation_review: 'implementation',
+    pull_request: 'pull_request',
+    done: 'completed',
+    spec_failed: 'planning',
+    implementation_failed: 'implementation',
+  };
+  return mapping[status] || 'backlog';
+};
+
+// Transform API task to TaskCard format
+const transformTaskForCard = (task: TypesSpecTaskWithProject) => ({
+  id: task.id || '',
+  name: task.name || '',
+  status: task.status || 'backlog',
+  phase: statusToPhase(task.status || 'backlog'),
+  planningStatus: undefined,
+  planning_session_id: task.planning_session_id,
+  archived: task.archived,
+  metadata: task.metadata,
+  merged_to_main: task.merged_to_main,
+  just_do_it_mode: task.just_do_it_mode,
+  started_at: task.started_at,
+  design_docs_pushed_at: task.design_docs_pushed_at,
+  clone_group_id: task.clone_group_id,
+  cloned_from_id: task.cloned_from_id,
+  pull_request_id: task.pull_request_id,
+  pull_request_url: task.pull_request_url,
+  implementation_approved_at: task.implementation_approved_at,
+  base_branch: task.base_branch,
+  branch_name: task.branch_name,
+  session_updated_at: task.session_updated_at,
+  agent_work_state: task.agent_work_state as 'idle' | 'working' | 'done' | undefined,
+  // Extra field for display
+  _projectName: task.project_name,
+  _projectId: task.project_id,
+});
+
 // Stacked bar component showing all tasks as segments
 const StackedProgressBar: React.FC<{
-  tasks: Array<{ task_id: string; project_name: string; name: string; status: string }>;
+  tasks: Array<{ task_id: string; project_name: string; name: string; status: string; project_id?: string }>;
   onTaskClick?: (taskId: string, projectId: string) => void;
 }> = ({ tasks, onTaskClick }) => {
   if (!tasks || tasks.length === 0) return null;
@@ -105,7 +157,7 @@ const StackedProgressBar: React.FC<{
               arrow
             >
               <Box
-                onClick={() => onTaskClick?.(task.task_id, task.project_id)}
+                onClick={() => onTaskClick?.(task.task_id, task.project_id || '')}
                 sx={{
                   width: `${widthPercent}%`,
                   backgroundColor: color,
@@ -213,12 +265,16 @@ export const CloneGroupProgressCompact: React.FC<CloneGroupProgressProps> = ({
   );
 };
 
-// Full version for dialogs
+// Full version for dialogs - uses TaskCard components
 const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
   groupId,
-  onTaskClick,
 }) => {
+  const { navigate } = useRouter();
   const { data: progress, isLoading, error } = useCloneGroupProgress(groupId);
+
+  const handleTaskClick = (taskId: string, projectId: string) => {
+    navigate('project-task-detail', { id: projectId, taskId });
+  };
 
   if (isLoading) {
     return (
@@ -236,14 +292,11 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
     );
   }
 
+  // Transform full tasks for TaskCard
+  const cardTasks = (progress.full_tasks || []).map(transformTaskForCard);
+
   return (
     <Box>
-      {/* Header with source info */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Copy size={20} />
-        <Typography variant="h6">Clone Batch Progress</Typography>
-      </Box>
-
       {/* Source task info */}
       {progress.source_task && (
         <Box
@@ -283,69 +336,37 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
       {/* Stacked bar */}
       <StackedProgressBar
         tasks={progress.tasks || []}
-        onTaskClick={onTaskClick}
+        onTaskClick={handleTaskClick}
       />
 
-      {/* Task list */}
-      <Box sx={{ mt: 2, maxHeight: 300, overflow: 'auto' }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+      {/* Task cards grid */}
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="subtitle2" sx={{ mb: 2 }}>
           All Tasks
         </Typography>
-        {(progress.tasks || []).map((task) => (
-          <Box
-            key={task.task_id}
-            onClick={() => onTaskClick?.(task.task_id, task.project_id)}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              p: 1,
-              mb: 0.5,
-              borderRadius: 1,
-              border: '1px solid',
-              borderColor: 'divider',
-              cursor: onTaskClick ? 'pointer' : 'default',
-              '&:hover': onTaskClick ? { bgcolor: 'action.hover' } : {},
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: getStatusColor(task.status),
-                  flexShrink: 0,
-                }}
+        <Grid container spacing={2}>
+          {cardTasks.map((task, index) => (
+            <Grid item xs={12} sm={6} key={task.id}>
+              {/* Project name header */}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mb: 0.5, display: 'block' }}
+              >
+                {(task as any)._projectName}
+              </Typography>
+              <TaskCard
+                task={task}
+                index={index}
+                columns={[]} // Empty columns - read-only view
+                onTaskClick={() => handleTaskClick(task.id, (task as any)._projectId)}
+                projectId={(task as any)._projectId}
+                showMetrics={false}
+                hideCloneOption={true}
               />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" noWrap>
-                  {task.project_name}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" noWrap>
-                  {task.name}
-                </Typography>
-              </Box>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip
-                label={getStatusLabel(task.status)}
-                size="small"
-                sx={{
-                  height: 20,
-                  fontSize: '0.65rem',
-                  backgroundColor: getStatusColor(task.status),
-                  color: 'white',
-                }}
-              />
-              {onTaskClick && (
-                <IconButton size="small">
-                  <ExternalLink size={14} />
-                </IconButton>
-              )}
-            </Box>
-          </Box>
-        ))}
+            </Grid>
+          ))}
+        </Grid>
       </Box>
     </Box>
   );

@@ -374,10 +374,17 @@ type CloneGroupProgress struct {
 	CloneGroupID    string                   `json:"clone_group_id"`
 	SourceTask      *CloneGroupSourceTask    `json:"source_task"`
 	Tasks           []CloneGroupTaskProgress `json:"tasks"`
+	FullTasks       []SpecTaskWithProject    `json:"full_tasks"` // Full task objects for TaskCard rendering
 	TotalTasks      int                      `json:"total_tasks"`
 	CompletedTasks  int                      `json:"completed_tasks"`
 	ProgressPct     int                      `json:"progress_pct"`
 	StatusBreakdown map[string]int           `json:"status_breakdown"` // status -> count
+}
+
+// SpecTaskWithProject wraps SpecTask with project name for display
+type SpecTaskWithProject struct {
+	SpecTask
+	ProjectName string `json:"project_name"`
 }
 
 type CloneGroupSourceTask struct {

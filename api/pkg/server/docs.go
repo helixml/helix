@@ -14202,6 +14202,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ClientBufferStats": {
+            "type": "object",
+            "properties": {
+                "buffer_pct": {
+                    "type": "integer"
+                },
+                "buffer_size": {
+                    "type": "integer"
+                },
+                "buffer_used": {
+                    "type": "integer"
+                },
+                "client_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -14330,6 +14347,9 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/hydra.DevContainerStatus"
+                },
+                "video_stats": {
+                    "$ref": "#/definitions/server.VideoStreamingStats"
                 }
             }
         },
@@ -14657,14 +14677,6 @@ const docTemplate = `{
         "server.SampleTaskPrompt": {
             "type": "object",
             "properties": {
-                "constraints": {
-                    "description": "Any specific constraints or requirements",
-                    "type": "string"
-                },
-                "context": {
-                    "description": "Additional context about the codebase",
-                    "type": "string"
-                },
                 "labels": {
                     "description": "Tags for organization",
                     "type": "array",
@@ -14681,7 +14693,7 @@ const docTemplate = `{
                     ]
                 },
                 "prompt": {
-                    "description": "Natural language request",
+                    "description": "Natural language request (include all context here)",
                     "type": "string"
                 }
             }
@@ -14951,6 +14963,26 @@ const docTemplate = `{
                 },
                 "technical_design": {
                     "type": "string"
+                }
+            }
+        },
+        "server.VideoStreamingStats": {
+            "type": "object",
+            "properties": {
+                "client_buffers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ClientBufferStats"
+                    }
+                },
+                "client_count": {
+                    "type": "integer"
+                },
+                "frames_received": {
+                    "type": "integer"
+                },
+                "gop_buffer_size": {
+                    "type": "integer"
                 }
             }
         },
@@ -16470,6 +16502,13 @@ const docTemplate = `{
                 },
                 "completed_tasks": {
                     "type": "integer"
+                },
+                "full_tasks": {
+                    "description": "Full task objects for TaskCard rendering",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWithProject"
+                    }
                 },
                 "progress_pct": {
                     "type": "integer"
@@ -22733,6 +22772,250 @@ const docTemplate = `{
                 },
                 "user_short_title": {
                     "description": "User override for tab title (pointer to allow clearing with empty string)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskWithProject": {
+            "type": "object",
+            "properties": {
+                "agent_work_state": {
+                    "description": "Current agent work state (idle/working/done) from activity tracking",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
+                "archived": {
+                    "description": "Archive to hide from main view",
+                    "type": "boolean"
+                },
+                "base_branch": {
+                    "description": "The base branch this was created from",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "\"new\" or \"existing\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
+                "branch_name": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "branch_prefix": {
+                    "description": "User-specified prefix for new branches (task# appended)",
+                    "type": "string"
+                },
+                "clone_group_id": {
+                    "description": "Groups tasks from same clone operation",
+                    "type": "string"
+                },
+                "cloned_from_id": {
+                    "description": "Clone tracking",
+                    "type": "string"
+                },
+                "cloned_from_project_id": {
+                    "description": "Original project",
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "description": "Metadata",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "design_doc_path": {
+                    "type": "string"
+                },
+                "design_docs_pushed_at": {
+                    "description": "When design docs were pushed to helix-specs branch",
+                    "type": "string"
+                },
+                "estimated_hours": {
+                    "description": "Simple tracking",
+                    "type": "integer"
+                },
+                "external_agent_id": {
+                    "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_approved_at": {
+                    "type": "string"
+                },
+                "implementation_approved_by": {
+                    "description": "Implementation tracking",
+                    "type": "string"
+                },
+                "implementation_plan": {
+                    "description": "Discrete tasks breakdown (markdown)",
+                    "type": "string"
+                },
+                "just_do_it_mode": {
+                    "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "last_prompt_content": {
+                    "description": "Last prompt sent to agent (for continue functionality)",
+                    "type": "string"
+                },
+                "last_push_at": {
+                    "description": "When branch was last pushed",
+                    "type": "string"
+                },
+                "last_push_commit_hash": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "merge_commit_hash": {
+                    "description": "Merge commit hash",
+                    "type": "string"
+                },
+                "merged_at": {
+                    "description": "When merge happened",
+                    "type": "string"
+                },
+                "merged_to_main": {
+                    "description": "Whether branch was merged to main",
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "original_prompt": {
+                    "description": "Kiro's actual approach: simple, human-readable artifacts",
+                    "type": "string"
+                },
+                "planning_options": {
+                    "$ref": "#/definitions/types.StartPlanningOptions"
+                },
+                "planning_session_id": {
+                    "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
+                    "type": "string"
+                },
+                "planning_started_at": {
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "pull_request_id": {
+                    "type": "string"
+                },
+                "pull_request_url": {
+                    "description": "Computed field, not stored",
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "session_updated_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
+                "short_title": {
+                    "description": "Short title for tab display (auto-generated from agent writing short-title.txt)\nUserShortTitle takes precedence if set (user override)",
+                    "type": "string"
+                },
+                "spec_approval": {
+                    "$ref": "#/definitions/types.SpecApprovalResponse"
+                },
+                "spec_approved_at": {
+                    "type": "string"
+                },
+                "spec_approved_by": {
+                    "description": "Approval tracking",
+                    "type": "string"
+                },
+                "spec_revision_count": {
+                    "description": "Number of spec revisions requested",
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Spec-driven workflow statuses - see constants below",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskStatus"
+                        }
+                    ]
+                },
+                "task_number": {
+                    "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",
+                    "type": "integer"
+                },
+                "technical_design": {
+                    "description": "Design document (markdown)",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"feature\", \"bug\", \"refactor\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
+                "user_short_title": {
+                    "description": "User override",
+                    "type": "string"
+                },
+                "workspace_config": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "zed_instance_id": {
+                    "description": "Multi-session support",
                     "type": "string"
                 }
             }

@@ -41,13 +41,14 @@ func getTaskDirName(task *types.SpecTask) string {
 
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
-	Guidelines      string // Formatted guidelines section
-	PrimaryRepoName string // Name of the primary repository (e.g., "my-app")
-	TaskDirName     string // Design doc directory name
-	BranchName      string // Feature branch name
-	BaseBranch      string // Base branch (e.g., "main")
-	TaskName        string // Human-readable task name
-	OriginalPrompt  string // Original user request
+	Guidelines         string // Formatted guidelines section
+	PrimaryRepoName    string // Name of the primary repository (e.g., "my-app")
+	TaskDirName        string // Design doc directory name
+	BranchName         string // Feature branch name
+	BaseBranch         string // Base branch (e.g., "main")
+	TaskName           string // Human-readable task name
+	OriginalPrompt     string // Original user request
+	ClonedTaskPreamble string // Extra instructions for cloned tasks (empty if not cloned)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -82,7 +83,16 @@ type ImplementationReviewPromptData struct {
 // Compiled Templates
 // =============================================================================
 
-var approvalPromptTemplate = template.Must(template.New("approval").Parse(`# Design Approved - Begin Implementation
+var approvalPromptTemplate = template.Must(template.New("approval").Parse(`## CURRENT PHASE: IMPLEMENTATION
+
+You are now in the IMPLEMENTATION phase. The planning/spec-writing phase is complete.
+- Your design has been approved - now implement the code changes
+- You MAY now ask the user questions that were deferred from planning (e.g., preferences, clarifications)
+- You MAY now make code changes, edit files, and modify the codebase
+{{.ClonedTaskPreamble}}
+---
+
+# Design Approved - Begin Implementation
 
 Speak English.
 {{.Guidelines}}
@@ -262,14 +272,45 @@ Follow these guidelines when implementing:
 `
 	}
 
+	// Build cloned task preamble if this task was cloned from another
+	clonedTaskPreamble := ""
+	if task.ClonedFromID != "" {
+		clonedTaskPreamble = `
+
+## CLONED TASK - Read Specs First
+
+This task was cloned from a completed task in another project. The specs contain learnings from the original implementation.
+
+**Before you start implementing, you MUST:**
+
+1. **Read design.md and requirements.md carefully** - They may contain information that was discovered during the original implementation (decisions made, values confirmed with user, approaches that worked). Use this information instead of re-asking or re-discovering it.
+
+2. **Reset and adapt tasks.md:**
+   - All checkboxes are currently marked [x] complete from the original task
+   - Change all [x] back to [ ] (unchecked)
+   - REMOVE any tasks that are no longer needed based on what you learned from reading the specs
+   - ADD any new tasks specific to this repository if needed
+   - Push the updated tasks.md to helix-specs BEFORE doing any implementation work
+
+3. **Adapt to this repository** - The target repo may differ from the original:
+   - Check file paths and structure
+   - Verify naming conventions match
+   - Look for existing code that might change the approach
+
+The clone feature's value is that learnings transfer - you should NOT need to re-ask questions or re-discover things the original agent already figured out.
+
+`
+	}
+
 	data := ApprovalPromptData{
-		Guidelines:      guidelinesSection,
-		PrimaryRepoName: primaryRepoName,
-		TaskDirName:     taskDirName,
-		BranchName:      branchName,
-		BaseBranch:      baseBranch,
-		TaskName:        task.Name,
-		OriginalPrompt:  task.OriginalPrompt,
+		Guidelines:         guidelinesSection,
+		PrimaryRepoName:    primaryRepoName,
+		TaskDirName:        taskDirName,
+		BranchName:         branchName,
+		BaseBranch:         baseBranch,
+		TaskName:           task.Name,
+		OriginalPrompt:     task.OriginalPrompt,
+		ClonedTaskPreamble: clonedTaskPreamble,
 	}
 
 	var buf bytes.Buffer

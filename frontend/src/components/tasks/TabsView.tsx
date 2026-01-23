@@ -130,6 +130,8 @@ interface PanelTabProps {
   onClose: (e: React.MouseEvent) => void
   onRename: (newTitle: string) => void
   onDragStart: (e: React.DragEvent, tabId: string) => void
+  onTouchDragStart: (tabId: string) => void
+  onTouchDragEnd: (tabId: string, clientX: number, clientY: number) => void
 }
 
 const PanelTab: React.FC<PanelTabProps> = ({
@@ -139,11 +141,15 @@ const PanelTab: React.FC<PanelTabProps> = ({
   onClose,
   onRename,
   onDragStart,
+  onTouchDragStart,
+  onTouchDragEnd,
 }) => {
   const api = useApi()
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [isHovered, setIsHovered] = useState(false)
+  const [isTouchDragging, setIsTouchDragging] = useState(false)
+  const touchStartRef = React.useRef<{ x: number; y: number; time: number } | null>(null)
 
   // Only fetch task data for task tabs
   const { data: refreshedTask } = useSpecTask(tab.type === 'task' ? tab.id : '', {
@@ -240,6 +246,41 @@ const PanelTab: React.FC<PanelTabProps> = ({
     onSelect()
   }
 
+  // Touch drag handlers for iPad/mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0]
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() }
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return
+    const touch = e.touches[0]
+    const dx = touch.clientX - touchStartRef.current.x
+    const dy = touch.clientY - touchStartRef.current.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    // Start drag after moving 10px
+    if (distance > 10 && !isTouchDragging) {
+      setIsTouchDragging(true)
+      onTouchDragStart(tab.id)
+    }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (isTouchDragging) {
+      // Use the last known touch position (changedTouches has the release position)
+      const touch = e.changedTouches[0]
+      onTouchDragEnd(tab.id, touch.clientX, touch.clientY)
+      setIsTouchDragging(false)
+    } else if (touchStartRef.current) {
+      // Short tap - just select the tab
+      const elapsed = Date.now() - touchStartRef.current.time
+      if (elapsed < 200) {
+        handleClick()
+      }
+    }
+    touchStartRef.current = null
+  }
+
   return (
     <Tooltip
       title={tooltipContent}
@@ -272,10 +313,20 @@ const PanelTab: React.FC<PanelTabProps> = ({
       <Box
         draggable
         onDragStart={(e) => onDragStart(e, tab.id)}
+        onMouseDown={(e) => {
+          // Prevent text selection when starting a drag with trackpad/mouse
+          // Don't prevent default on the close button
+          if ((e.target as HTMLElement).closest('button')) return
+          e.preventDefault()
+        }}
+        onSelectStart={(e) => e.preventDefault()}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -285,11 +336,18 @@ const PanelTab: React.FC<PanelTabProps> = ({
           minWidth: 100,
           maxWidth: 180,
           cursor: 'grab',
-          backgroundColor: isActive ? 'background.paper' : 'transparent',
+          backgroundColor: isTouchDragging ? 'primary.main' : (isActive ? 'background.paper' : 'transparent'),
           borderBottom: isActive ? '2px solid' : '2px solid transparent',
           borderBottomColor: isActive ? 'primary.main' : 'transparent',
-          opacity: 1,
+          opacity: isTouchDragging ? 0.7 : 1,
           transition: 'all 0.15s ease',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
+          // Enable dragging on Safari/WebKit
+          WebkitUserDrag: 'element',
+          // Prevent iOS from triggering its own gestures
+          touchAction: 'none',
           '&:hover': {
             backgroundColor: isActive ? 'background.paper' : 'action.hover',
           },
@@ -383,7 +441,10 @@ interface TaskPanelProps {
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
   onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string) => void
+  onTouchDragStart: (panelId: string, tabId: string) => void
+  onTouchDragEnd: (panelId: string, tabId: string, clientX: number, clientY: number) => void
   panelCount: number
+  panelRef: (el: HTMLDivElement | null) => void
 }
 
 const TaskPanel: React.FC<TaskPanelProps> = ({
@@ -400,7 +461,10 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onDropTab,
   onClosePanel,
   onOpenReview,
+  onTouchDragStart,
+  onTouchDragEnd,
   panelCount,
+  panelRef,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -634,6 +698,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
   return (
     <Box
+      ref={panelRef}
       sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -673,7 +738,15 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           minHeight: 32,
         }}
       >
-        <Box sx={{ display: 'flex', flex: 1, overflowX: 'auto', '&::-webkit-scrollbar': { height: 2 } }}>
+        <Box sx={{
+          display: 'flex',
+          flex: 1,
+          overflowX: 'auto',
+          '&::-webkit-scrollbar': { height: 2 },
+          // Prevent text selection when dragging tabs on iPad with trackpad
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        }}>
           {panel.tabs.map(tab => (
             <PanelTab
               key={tab.id}
@@ -683,6 +756,8 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               onClose={(e) => { e.stopPropagation(); onTabClose(panel.id, tab.id) }}
               onRename={(title) => onTabRename(tab.id, title)}
               onDragStart={handleDragStart}
+              onTouchDragStart={(tabId) => onTouchDragStart(panel.id, tabId)}
+              onTouchDragEnd={(tabId, clientX, clientY) => onTouchDragEnd(panel.id, tabId, clientX, clientY)}
             />
           ))}
         </Box>
@@ -1028,6 +1103,10 @@ const TabsView: React.FC<TabsViewProps> = ({
   // Layout state: array of panel rows, each row has panels
   const [panels, setPanels] = useState<PanelData[]>([])
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+
+  // Touch drag state - store refs to panel elements
+  const panelRefsMap = React.useRef<Map<string, HTMLDivElement>>(new Map())
+  const [touchDragInfo, setTouchDragInfo] = useState<{ panelId: string; tabId: string } | null>(null)
 
   // Save workspace state to localStorage whenever panels change
   useEffect(() => {
@@ -1441,6 +1520,42 @@ const TabsView: React.FC<TabsViewProps> = ({
     })
   }, [])
 
+  // Touch drag handlers for iPad/mobile
+  const handleTouchDragStart = useCallback((panelId: string, tabId: string) => {
+    setTouchDragInfo({ panelId, tabId })
+  }, [])
+
+  const handleTouchDragEnd = useCallback((fromPanelId: string, tabId: string, clientX: number, clientY: number) => {
+    if (!touchDragInfo) return
+    setTouchDragInfo(null)
+
+    // Find which panel the touch ended on
+    let targetPanelId: string | null = null
+    panelRefsMap.current.forEach((el, panelId) => {
+      const rect = el.getBoundingClientRect()
+      if (clientX >= rect.left && clientX <= rect.right &&
+          clientY >= rect.top && clientY <= rect.bottom) {
+        targetPanelId = panelId
+      }
+    })
+
+    // If dropped on a different panel, move the tab
+    if (targetPanelId && targetPanelId !== fromPanelId) {
+      handleDropTab(targetPanelId, tabId, fromPanelId)
+    }
+  }, [touchDragInfo, handleDropTab])
+
+  // Create a stable ref callback for each panel
+  const getPanelRef = useCallback((panelId: string) => {
+    return (el: HTMLDivElement | null) => {
+      if (el) {
+        panelRefsMap.current.set(panelId, el)
+      } else {
+        panelRefsMap.current.delete(panelId)
+      }
+    }
+  }, [])
+
   // When no panels exist, show an empty panel with just a + button
   if (panels.length === 0) {
     return (
@@ -1512,7 +1627,10 @@ const TabsView: React.FC<TabsViewProps> = ({
                 onDropTab={handleDropTab}
                 onClosePanel={handleClosePanel}
                 onOpenReview={handleOpenReview}
+                onTouchDragStart={handleTouchDragStart}
+                onTouchDragEnd={handleTouchDragEnd}
                 panelCount={panels.length}
+                panelRef={getPanelRef(panel.id)}
               />
             </Panel>
           </React.Fragment>

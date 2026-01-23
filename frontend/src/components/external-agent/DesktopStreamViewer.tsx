@@ -3385,13 +3385,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Ensure content doesn't overflow above the visible area
         maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px)` : undefined,
         minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
-        zIndex: keyboardHeight > 0 ? 1000 : undefined,
+        // High z-index for iOS fullscreen to cover everything, or keyboard open
+        zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
-        // High z-index for iOS fullscreen to cover everything
-        zIndex: isIOSFullscreen ? 9999 : undefined,
         // Prevent iOS tap highlight (blue rectangle on touch)
         WebkitTapHighlightColor: 'transparent',
         WebkitTouchCallout: 'none',
@@ -3920,6 +3919,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
+        onSelectStart={(e) => e.preventDefault()}
+        onDragStart={(e) => e.preventDefault()}
         style={{
           // Use calculated dimensions to maintain aspect ratio
           // Canvas doesn't support objectFit like video, so we calculate size manually
@@ -3947,6 +3948,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // VHS effect: greyscale + sepia during GOP replay catchup
           filter: stats?.isReplaying ? 'grayscale(70%) sepia(30%) contrast(1.1)' : undefined,
           transition: 'filter 0.3s ease-out',
+          // Prevent text selection on double-click in Safari iPad
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -4190,39 +4195,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       {/* Input Hint - removed since auto-focus handles keyboard input */}
       {/* Presence Indicator - moved to toolbar above */}
 
-      {/* Connection Debug Log - fixed position, always visible for debugging */}
-      <Box
-          sx={{
-            position: 'fixed',
-            top: 8,
-            left: 8,
-            zIndex: 9999,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            color: '#0f0',
-            fontFamily: 'monospace',
-            fontSize: '11px',
-            padding: '8px',
-            borderRadius: '4px',
-            maxWidth: '350px',
-            minWidth: '200px',
-            pointerEvents: 'none',
-          }}
-        >
-          <Typography sx={{ fontWeight: 'bold', fontSize: '11px', color: '#0f0', mb: 0.5 }}>
-            {isConnected ? '✓ Connected' : isConnecting ? '⏳ Connecting...' : '✗ Disconnected'}
-            {stats?.video && ` | ${stats.video.fps ?? 0}fps | ${stats.video.framesDecoded ?? 0} dec | ${stats.video.decoderState || '?'}`}
-          </Typography>
-          {connectionLog.length === 0 ? (
-            <Box sx={{ color: '#666', fontStyle: 'italic' }}>No events yet</Box>
-          ) : (
-            connectionLog.map((entry, i) => (
-              <Box key={i} sx={{ opacity: i === connectionLog.length - 1 ? 1 : 0.7 }}>
-                <span style={{ color: '#888' }}>{entry.time}</span> {entry.msg}
-              </Box>
-            ))
-          )}
-      </Box>
-
       {/* Stats for Nerds Overlay */}
       {showStats && (stats || qualityMode === 'screenshot') && (
         <StatsOverlay
@@ -4236,6 +4208,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           screenshotFps={screenshotFps}
           screenshotQuality={screenshotQuality}
           debugKeyEvent={debugKeyEvent}
+          connectionLog={connectionLog}
+          isConnected={isConnected}
+          isConnecting={isConnecting}
         />
       )}
 

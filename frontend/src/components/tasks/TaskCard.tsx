@@ -167,6 +167,8 @@ interface TaskCardProps {
   isArchiving?: boolean
   hasExternalRepo?: boolean
   showMetrics?: boolean
+  /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
+  hideCloneOption?: boolean
 }
 
 // Interface for checklist items from API
@@ -472,6 +474,7 @@ export default function TaskCard({
   isArchiving = false,
   hasExternalRepo = false,
   showMetrics = true,
+  hideCloneOption = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -674,14 +677,16 @@ export default function TaskCard({
                 <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
               </MenuItem>
             )}
-            <MenuItem
-              onClick={() => {
-                setMenuAnchorEl(null)
-                setShowCloneDialog(true)
-              }}
-            >              
-              <ListItemText>Clone to other projects</ListItemText>
-            </MenuItem>            
+            {!hideCloneOption && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  setShowCloneDialog(true)
+                }}
+              >
+                <ListItemText>Clone to other projects</ListItemText>
+              </MenuItem>
+            )}            
             <MenuItem
               disabled={isArchiving}
               onClick={() => {

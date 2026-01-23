@@ -38,6 +38,8 @@ import DifferenceIcon from '@mui/icons-material/Difference'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import LinkIcon from '@mui/icons-material/Link'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -51,7 +53,9 @@ import { useStreaming } from '../../contexts/streaming'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
-import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/specTaskService'
+import CloneTaskDialog from '../specTask/CloneTaskDialog'
+import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
@@ -183,6 +187,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+
+  // Clone dialog state
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
+  const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<string | null>(null)
+
+  // Fetch clone groups where this task was the source
+  const { data: cloneGroups } = useCloneGroups(taskId)
 
   // Initialize edit form data when task changes
   useEffect(() => {
@@ -557,6 +568,76 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Typography>
       </Box>
 
+      {/* Clone Info - Bidirectional links */}
+      {(task?.cloned_from_id || (cloneGroups && cloneGroups.length > 0)) && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Clone Info
+          </Typography>
+
+          {/* Link to source task if this was cloned */}
+          {task?.cloned_from_id && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                p: 1,
+                bgcolor: 'action.hover',
+                borderRadius: 1,
+                cursor: 'pointer',
+                mb: 1,
+                '&:hover': { bgcolor: 'action.selected' },
+              }}
+              onClick={() => {
+                if (task.cloned_from_project_id && task.cloned_from_id) {
+                  account.orgNavigate('project-task-detail', {
+                    id: task.cloned_from_project_id,
+                    taskId: task.cloned_from_id,
+                  })
+                }
+              }}
+            >
+              <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary">
+                Cloned from another task
+              </Typography>
+            </Box>
+          )}
+
+          {/* Links to clone groups if this task was cloned to others */}
+          {cloneGroups && cloneGroups.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Cloned to {cloneGroups.length} batch{cloneGroups.length > 1 ? 'es' : ''}:
+              </Typography>
+              {cloneGroups.map((group) => (
+                <Box
+                  key={group.id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    bgcolor: 'action.hover',
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    mb: 0.5,
+                    '&:hover': { bgcolor: 'action.selected' },
+                  }}
+                  onClick={() => setSelectedCloneGroupId(group.id || null)}
+                >
+                  <ContentCopyIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  <Typography variant="caption">
+                    {group.total_targets} project{group.total_targets !== 1 ? 's' : ''} • {new Date(group.created_at || '').toLocaleDateString()}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
+
       {/* Debug Info */}
       <Divider sx={{ my: 2 }} />
       <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
@@ -803,6 +884,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       View PR
                     </Button>
                   )}
+                  {/* View Spec button - show when spec exists */}
+                  {task.design_docs_pushed_at && task.status !== 'spec_review' && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<Description />}
+                      onClick={handleReviewSpec}
+                      sx={{ ml: 1, fontSize: '0.75rem' }}
+                    >
+                      View Spec
+                    </Button>
+                  )}
 
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
@@ -831,6 +924,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Edit task">
                             <IconButton size="small" onClick={handleEditToggle}>
                               <EditIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {task.design_docs_pushed_at && (
+                          <Tooltip title="Clone task to other projects">
+                            <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                              <ContentCopyIcon sx={{ fontSize: 18 }} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1049,6 +1149,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </IconButton>
                       </Tooltip>
                     )}
+                    {task.design_docs_pushed_at && (
+                      <Tooltip title="Clone task to other projects">
+                        <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                          <ContentCopyIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     {activeSessionId && (
                       <Tooltip title="Restart agent session">
                         <IconButton
@@ -1167,6 +1274,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Restart
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={taskId}
+        taskName={task?.name || ''}
+        sourceProjectId={task?.project_id || ''}
+      />
+
+      {/* Clone Group Progress Dialog */}
+      <Dialog
+        open={selectedCloneGroupId !== null}
+        onClose={() => setSelectedCloneGroupId(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Clone Batch Progress
+          <IconButton size="small" onClick={() => setSelectedCloneGroupId(null)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {selectedCloneGroupId && (
+            <CloneGroupProgressFull groupId={selectedCloneGroupId} />
+          )}
+        </DialogContent>
       </Dialog>
     </Box>
   )

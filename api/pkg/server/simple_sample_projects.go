@@ -583,7 +583,16 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Category:      "clone-demo",
 		TaskPrompts: []SampleTaskPrompt{
 			{
-				Prompt:   "Fill shape.svg with the brand color. The color is not in the code - your plan's first step must be 'Ask user for brand color'. During implementation, ask the user and wait for their answer. Do not guess.",
+				Prompt: `Fill shape.svg with the company's brand color.
+
+CRITICAL TIMING INSTRUCTIONS:
+- The brand color is NOT specified anywhere - you will need to ask the user
+- You are currently in the PLANNING/SPEC-WRITING phase. You will NOT be in the implementation phase until the system explicitly tells you "You are now in the implementation phase" or similar
+- During PLANNING (now): Do NOT ask the user for the color. Just write a plan that includes "Ask user for brand color" as a step
+- During IMPLEMENTATION (later, when told): THAT is when you actually ask "What is your brand color?" and wait for their response
+- Do NOT guess a color or use a placeholder - you MUST wait until implementation to ask
+
+The color discovery happens during implementation, and that learning gets captured in the spec for cloning to other shapes.`,
 				Priority: "high",
 				Labels:   []string{"design", "branding", "visual"},
 			},

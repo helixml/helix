@@ -1529,6 +1529,8 @@ export interface TypesCloneGroup {
 export interface TypesCloneGroupProgress {
   clone_group_id?: string;
   completed_tasks?: number;
+  /** Full task objects for TaskCard rendering */
+  full_tasks?: TypesSpecTaskWithProject[];
   progress_pct?: number;
   source_task?: TypesCloneGroupSourceTask;
   /** status -> count */
@@ -4151,6 +4153,117 @@ export interface TypesSpecTaskUpdateRequest {
   status?: TypesSpecTaskStatus;
   /** User override for tab title (pointer to allow clearing with empty string) */
   user_short_title?: string;
+}
+
+export interface TypesSpecTaskWithProject {
+  /** Current agent work state (idle/working/done) from activity tracking */
+  agent_work_state?: TypesAgentWorkState;
+  /** Archive to hide from main view */
+  archived?: boolean;
+  /** The base branch this was created from */
+  base_branch?: string;
+  /** "new" or "existing" */
+  branch_mode?: TypesBranchMode;
+  /** Git tracking */
+  branch_name?: string;
+  /** User-specified prefix for new branches (task# appended) */
+  branch_prefix?: string;
+  /** Groups tasks from same clone operation */
+  clone_group_id?: string;
+  /** Clone tracking */
+  cloned_from_id?: string;
+  /** Original project */
+  cloned_from_project_id?: string;
+  completed_at?: string;
+  created_at?: string;
+  /** Metadata */
+  created_by?: string;
+  description?: string;
+  design_doc_path?: string;
+  /** When design docs were pushed to helix-specs branch */
+  design_docs_pushed_at?: string;
+  /** Simple tracking */
+  estimated_hours?: number;
+  /** External agent tracking (single agent per SpecTask, spans entire workflow) */
+  external_agent_id?: string;
+  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  helix_app_id?: string;
+  id?: string;
+  implementation_approved_at?: string;
+  /** Implementation tracking */
+  implementation_approved_by?: string;
+  /** Discrete tasks breakdown (markdown) */
+  implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
+  labels?: string[];
+  /** Last prompt sent to agent (for continue functionality) */
+  last_prompt_content?: string;
+  /** When branch was last pushed */
+  last_push_at?: string;
+  /** Git tracking */
+  last_push_commit_hash?: string;
+  /** Merge commit hash */
+  merge_commit_hash?: string;
+  /** When merge happened */
+  merged_at?: string;
+  /** Whether branch was merged to main */
+  merged_to_main?: boolean;
+  metadata?: Record<string, any>;
+  name?: string;
+  /** Kiro's actual approach: simple, human-readable artifacts */
+  original_prompt?: string;
+  planning_options?: TypesStartPlanningOptions;
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
+  planning_session_id?: string;
+  planning_started_at?: string;
+  /** "low", "medium", "high", "critical" */
+  priority?: TypesSpecTaskPriority;
+  project_id?: string;
+  project_name?: string;
+  project_path?: string;
+  pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
+  /** User stories + EARS acceptance criteria (markdown) */
+  requirements_spec?: string;
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  session_updated_at?: string;
+  /**
+   * Short title for tab display (auto-generated from agent writing short-title.txt)
+   * UserShortTitle takes precedence if set (user override)
+   */
+  short_title?: string;
+  spec_approval?: TypesSpecApprovalResponse;
+  spec_approved_at?: string;
+  /** Approval tracking */
+  spec_approved_by?: string;
+  /** Number of spec revisions requested */
+  spec_revision_count?: number;
+  started_at?: string;
+  /** Spec-driven workflow statuses - see constants below */
+  status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
+  /** Design document (markdown) */
+  technical_design?: string;
+  /** "feature", "bug", "refactor" */
+  type?: string;
+  updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
+  /** User override */
+  user_short_title?: string;
+  workspace_config?: number[];
+  /** Multi-session support */
+  zed_instance_id?: string;
 }
 
 export interface TypesSpecTaskWorkSession {
