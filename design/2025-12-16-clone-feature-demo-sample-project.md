@@ -337,11 +337,28 @@ If structured logging doesn't resonate, other options:
    - Only the Stocks project gets the task; others are empty (tasks appear via clone)
    - 50ms delay between project creations ensures proper ordering
 
+4. **Clone uses latest specs from design review** (`api/pkg/server/spec_task_clone_handlers.go`):
+   - Fixed bug where clone copied stale specs from SpecTask instead of updated specs
+   - Clone now checks `SpecTaskDesignReview` for latest requirements.md, design.md, tasks.md
+   - Falls back to original SpecTask specs if no design review exists
+   - This ensures learnings from implementation are transferred to cloned tasks
+
 ### Remaining Work
 
 - [ ] Test the end-to-end flow in the UI
 - [ ] Consider adding visual indicator for clone demo projects (optional)
 - [ ] Consider pre-populating clone dialog with related projects (optional)
+- [ ] Consider simpler demo task that's easier for agent to discover (see notes below)
+
+### Notes on Demo Task Complexity
+
+The current task ("Add structured logging with correlation ID tracing") requires the agent to discover that async operations need `contextvars` for context propagation. This is a subtle, advanced Python pattern that may be too hard for the agent to discover naturally.
+
+Simpler alternatives to consider:
+- **Add input validation** - Missing validation is visible in code
+- **Add retry logic with backoff** - No retry code exists, easier to spot
+- **Add error handling** - Functions lack try/except blocks
+- **Add type hints** - Visible absence of type annotations
 
 ## Success Criteria
 

@@ -47,14 +47,29 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the latest design review specs if available - these contain learnings
+	// from implementation that were pushed to helix-specs during the task.
+	sourceRequirements := sourceTask.RequirementsSpec
+	sourceTechnicalSpec := sourceTask.TechnicalDesign
+
+	latestReview, err := s.Store.GetLatestDesignReview(ctx, sourceTask.ID)
+	if err == nil && latestReview != nil {
+		if latestReview.RequirementsSpec != "" {
+			sourceRequirements = latestReview.RequirementsSpec
+		}
+		if latestReview.TechnicalDesign != "" {
+			sourceTechnicalSpec = latestReview.TechnicalDesign
+		}
+	}
+
 	// Create clone group to track this batch
 	cloneGroup := &types.CloneGroup{
 		SourceTaskID:        sourceTask.ID,
 		SourceProjectID:     sourceTask.ProjectID,
 		SourceTaskName:      sourceTask.Name,
 		SourcePrompt:        sourceTask.OriginalPrompt,
-		SourceRequirements:  sourceTask.RequirementsSpec,
-		SourceTechnicalSpec: sourceTask.TechnicalDesign,
+		SourceRequirements:  sourceRequirements,
+		SourceTechnicalSpec: sourceTechnicalSpec,
 		TotalTargets:        len(req.TargetProjectIDs) + len(req.CreateProjects),
 		CreatedBy:           user.ID,
 	}
@@ -137,6 +152,31 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		}
 	}
 
+	// Get the latest design review specs if available - these contain learnings
+	// from implementation that were pushed to helix-specs during the task.
+	// Fall back to the original specs on the task if no design review exists.
+	requirementsSpec := source.RequirementsSpec
+	technicalDesign := source.TechnicalDesign
+	implementationPlan := source.ImplementationPlan
+
+	latestReview, err := s.Store.GetLatestDesignReview(ctx, source.ID)
+	if err == nil && latestReview != nil {
+		// Use the updated specs from the design review (contains learnings)
+		if latestReview.RequirementsSpec != "" {
+			requirementsSpec = latestReview.RequirementsSpec
+		}
+		if latestReview.TechnicalDesign != "" {
+			technicalDesign = latestReview.TechnicalDesign
+		}
+		if latestReview.ImplementationPlan != "" {
+			implementationPlan = latestReview.ImplementationPlan
+		}
+		log.Info().
+			Str("source_task_id", source.ID).
+			Str("review_id", latestReview.ID).
+			Msg("Using updated specs from design review for clone")
+	}
+
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                  system.GenerateSpecTaskID(),
@@ -147,9 +187,9 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		Priority:            source.Priority,
 		Status:              initialStatus,
 		OriginalPrompt:      source.OriginalPrompt,
-		RequirementsSpec:    source.RequirementsSpec,
-		TechnicalDesign:     source.TechnicalDesign,
-		ImplementationPlan:  source.ImplementationPlan,
+		RequirementsSpec:    requirementsSpec,
+		TechnicalDesign:     technicalDesign,
+		ImplementationPlan:  implementationPlan,
 		JustDoItMode:        source.JustDoItMode,
 		UseHostDocker:       source.UseHostDocker,
 		ClonedFromID:        source.ID,

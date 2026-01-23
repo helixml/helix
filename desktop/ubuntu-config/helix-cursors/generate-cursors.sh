@@ -212,11 +212,12 @@ cd -
 rm -rf "$TMPDIR"
 
 # Create index.theme
+# NOTE: No Inherits= line - we don't want to fall back to visible cursors
+# If a cursor type isn't defined, X/Wayland will use a blank cursor
 cat > "$THEME_DIR/index.theme" << 'EOF'
 [Icon Theme]
 Name=Helix-Invisible
 Comment=Invisible cursor theme for Helix client-side cursor rendering
-Inherits=Adwaita
 EOF
 
 echo "Cursor theme created at: $THEME_DIR"
