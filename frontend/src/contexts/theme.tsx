@@ -26,8 +26,12 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
       },
       typography: {
-        fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
+        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         fontSize: 14,
+        fontWeightRegular: 400,
+        fontWeightMedium: 500,
+        fontWeightBold: 600,
+        fontFamilyMono: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
       },
       components: {
         // Global scrollbar styles
@@ -121,7 +125,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               background: '#181A20',
               color: '#F1F1F1',
               borderRadius: 16,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
               transition: 'all 0.2s ease-in-out',
             },
             root: {

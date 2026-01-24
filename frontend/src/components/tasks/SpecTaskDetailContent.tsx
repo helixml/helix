@@ -30,9 +30,6 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
-import ComputerIcon from '@mui/icons-material/Computer'
-
-import DifferenceIcon from '@mui/icons-material/Difference'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
@@ -60,7 +57,7 @@ import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
-import { SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal, GitCompare, MonitorPlay } from 'lucide-react'
 
 interface SpecTaskDetailContentProps {
   taskId: string
@@ -863,12 +860,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   >
                     <ToggleButton value="desktop" aria-label="Desktop view">
                       <Tooltip title="Desktop">
-                        <ComputerIcon sx={{ fontSize: 18 }} />
+                        <MonitorPlay size={16} />
                       </Tooltip>
                     </ToggleButton>
                     <ToggleButton value="changes" aria-label="Changes view">
                       <Tooltip title="Changes">
-                        <DifferenceIcon sx={{ fontSize: 18 }} />
+                        <GitCompare size={16} />
                       </Tooltip>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
@@ -1081,14 +1078,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {activeSessionId && (
                   <ToggleButton value="desktop" aria-label="Desktop view">
                     <Tooltip title="Desktop">
-                      <ComputerIcon sx={{ fontSize: 18 }} />
+                      <MonitorPlay size={16} />
                     </Tooltip>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="changes" aria-label="Changes view">
                     <Tooltip title="Changes">
-                      <DifferenceIcon sx={{ fontSize: 18 }} />
+                      <GitCompare size={16} />
                     </Tooltip>
                   </ToggleButton>
                 )}
