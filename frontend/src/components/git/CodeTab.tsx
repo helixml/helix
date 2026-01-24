@@ -38,6 +38,7 @@ import {
   Brain,
   Database,
   ArrowRight,
+  RefreshCw,
 } from 'lucide-react'
 import {
   koditEnrichmentDetailQueryKey,
@@ -53,6 +54,7 @@ import {
   useListRepositoryPullRequests,
   usePushToRemote,
   usePullFromRemote,
+  useSyncAllBranches,
 } from '../../services/gitRepositoryService'
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
@@ -157,6 +159,7 @@ const CodeTab: FC<CodeTabProps> = ({
   const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
   const pushToRemoteMutation = usePushToRemote()
   const pullFromRemoteMutation = usePullFromRemote()
+  const syncAllBranchesMutation = useSyncAllBranches()
   const snackbar = useSnackbar()
   const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
   const repoId = repository?.id || ''
@@ -300,6 +303,19 @@ const CodeTab: FC<CodeTabProps> = ({
     } catch (error) {
       console.error('Failed to pull:', error)
       snackbar.error('Failed to pull from remote')
+    }
+  }
+
+  const handleFetchBranches = async () => {
+    if (!repository?.id) return
+
+    try {
+      await syncAllBranchesMutation.mutateAsync({ repositoryId: repository.id, force: false })
+      snackbar.success('Successfully fetched branches from upstream')
+    } catch (error: any) {
+      console.error('Failed to fetch branches:', error)
+      const errorMessage = error?.response?.data?.error || error?.message || String(error)
+      snackbar.error('Failed to fetch branches: ' + errorMessage)
     }
   }
 
@@ -478,6 +494,21 @@ const CodeTab: FC<CodeTabProps> = ({
                       </ListItemIcon>
                       <ListItemText>
                         {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                      </ListItemText>
+                    </MenuItem>
+
+                    <MenuItem
+                      onClick={() => {
+                        handleMenuClose()
+                        handleFetchBranches()
+                      }}
+                      disabled={syncAllBranchesMutation.isPending}
+                    >
+                      <ListItemIcon>
+                        <RefreshCw size={16} />
+                      </ListItemIcon>
+                      <ListItemText>
+                        {syncAllBranchesMutation.isPending ? 'Fetching...' : 'Fetch Branches'}
                       </ListItemText>
                     </MenuItem>
                   </>
