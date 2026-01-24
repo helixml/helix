@@ -20,8 +20,8 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/go-git/go-git/v6/storage"
-	gitutil "github.com/go-git/go-git/v6/utils/ioutil"
 	"github.com/go-git/go-git/v6/storage/filesystem"
+	gitutil "github.com/go-git/go-git/v6/utils/ioutil"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -1328,11 +1328,11 @@ func (s *GitHTTPServer) getRepositoryStats(repoPath string, gitRepo *GitRepo) ma
 
 				// Get last commit info
 				stats["last_commit"] = map[string]interface{}{
-					"hash":          commit.Hash.String(),
-					"author_name":   commit.Author.Name,
-					"author_email":  commit.Author.Email,
-					"timestamp":     commit.Author.When.Unix(),
-					"message":       strings.Split(commit.Message, "\n")[0], // First line only
+					"hash":         commit.Hash.String(),
+					"author_name":  commit.Author.Name,
+					"author_email": commit.Author.Email,
+					"timestamp":    commit.Author.When.Unix(),
+					"message":      strings.Split(commit.Message, "\n")[0], // First line only
 				}
 			}
 		}
