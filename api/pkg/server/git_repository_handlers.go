@@ -1113,7 +1113,8 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 	if branchName == "" {
 		branchName = existing.DefaultBranch
 		if branchName == "" {
-			branchName = "main"
+			writeErrResponse(w, system.NewHTTPError400("repository has no default branch"), http.StatusBadRequest)
+			return
 		}
 	}
 
