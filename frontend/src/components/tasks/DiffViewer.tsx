@@ -12,6 +12,7 @@ import DiffFileList from './DiffFileList'
 import DiffContent from './DiffContent'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useRouter from '../../hooks/useRouter'
 
 interface DiffViewerProps {
   /** Session ID to fetch diff from */
@@ -29,7 +30,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
 }) => {
   const themeConfig = useThemeConfig()
   const snackbar = useSnackbar()
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const router = useRouter()
+  const [selectedFile, setSelectedFile] = useState<string | null>(
+    router.params.file || null
+  )
   const [fileContent, setFileContent] = useState<FileDiff | null>(null)
   const [loadingFileContent, setLoadingFileContent] = useState(false)
 
@@ -48,12 +52,22 @@ const DiffViewer: FC<DiffViewerProps> = ({
     enabled: !!sessionId,
   })
 
+  const handleSelectFile = useCallback((path: string) => {
+    setSelectedFile(path)
+    router.mergeParams({ file: path })
+  }, [router])
+
   useEffect(() => {
     if (data?.files.length && !selectedFile) {
-      const firstFile = data.files[0].path
+      const fileFromUrl = router.params.file
+      const matchingFile = fileFromUrl && data.files.find(f => f.path === fileFromUrl)
+      const firstFile = matchingFile ? matchingFile.path : data.files[0].path
       setSelectedFile(firstFile)
+      if (!matchingFile && firstFile) {
+        router.mergeParams({ file: firstFile })
+      }
     }
-  }, [data?.files, selectedFile])
+  }, [data?.files, selectedFile, router])
 
   useEffect(() => {
     if (!selectedFile || !sessionId) {
@@ -246,7 +260,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
             <DiffFileList
               files={data?.files || []}
               selectedFile={selectedFile}
-              onSelectFile={setSelectedFile}
+              onSelectFile={handleSelectFile}
             />
           </Box>
 

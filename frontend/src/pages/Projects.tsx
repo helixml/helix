@@ -533,7 +533,7 @@ const Projects: FC = () => {
       case 'prompts':
         return 'Prompts'
       default:
-        return 'Workspaces'
+        return 'Projects'
     }
   }
 
