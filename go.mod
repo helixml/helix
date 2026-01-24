@@ -6,6 +6,9 @@ toolchain go1.24.5
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
+// Fix for stack overflow in fixAndBreakChainsOne (PR: https://github.com/go-git/go-git/pull/1823)
+replace github.com/go-git/go-git/v6 => github.com/lukemarsden/go-git/v6 v6.0.0-20260124091941-c7e7d492e30f
+
 require (
 	cloud.google.com/go/storage v1.51.0
 	github.com/Eyevinn/mp4ff v0.50.0
@@ -30,7 +33,7 @@ require (
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
-	github.com/go-git/go-billy/v6 v6.0.0-20251217170237-e9738f50a3cd
+	github.com/go-git/go-billy/v6 v6.0.0-20260114122816-19306b749ecc
 	github.com/go-git/go-git/v6 v6.0.0-20260114124804-a8db3a6585a6
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
