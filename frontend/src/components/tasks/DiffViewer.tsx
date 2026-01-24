@@ -6,10 +6,8 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
-  Divider,
 } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
+import { RefreshCw, Circle } from 'lucide-react'
 import useLiveFileDiff, { FileDiff } from '../../hooks/useLiveFileDiff'
 import DiffFileList from './DiffFileList'
 import DiffContent from './DiffContent'
@@ -89,7 +87,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
   if (!sessionId) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: '#707080' }}>
           No active session
         </Typography>
       </Box>
@@ -99,104 +97,150 @@ const DiffViewer: FC<DiffViewerProps> = ({
   if (isLoading && !data) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <CircularProgress size={32} />
+        <CircularProgress size={24} sx={{ color: '#00D5FF' }} />
       </Box>
     )
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: '#121214' }}>
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           px: 2,
-          py: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
+          py: 1.25,
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          bgcolor: 'rgba(255, 255, 255, 0.02)',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="subtitle2">Changes</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#e0e0e0' }}>
+            Changes
+          </Typography>
           {fileCount > 0 && (
-            <Chip
-              label={fileCount}
-              size="small"
-              color="primary"
-              sx={{ height: 20, fontSize: '0.75rem' }}
-            />
+            <Box
+              sx={{
+                px: 1,
+                py: 0.25,
+                borderRadius: '10px',
+                bgcolor: 'rgba(0, 213, 255, 0.15)',
+                color: '#00D5FF',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+              }}
+            >
+              {fileCount}
+            </Box>
           )}
           {isLive && (
             <Tooltip title="Receiving live updates from container">
-              <FiberManualRecordIcon sx={{ fontSize: 10, color: 'success.main', animation: 'pulse 2s infinite' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Circle
+                  size={8}
+                  fill="#3BF959"
+                  strokeWidth={0}
+                  style={{ animation: 'pulse 2s infinite' }}
+                />
+              </Box>
             </Tooltip>
           )}
           {data?.has_uncommitted_changes && (
-            <Chip
-              label="Uncommitted"
-              size="small"
-              color="warning"
-              variant="outlined"
-              sx={{ height: 20, fontSize: '0.65rem' }}
-            />
+            <Box
+              sx={{
+                px: 1,
+                py: 0.25,
+                borderRadius: '4px',
+                border: '1px solid rgba(252, 219, 5, 0.3)',
+                color: '#FCDB05',
+                fontSize: '0.65rem',
+                fontWeight: 600,
+              }}
+            >
+              Uncommitted
+            </Box>
           )}
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           {data?.branch && (
-            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                color: '#707080',
+                fontSize: '0.7rem',
+              }}
+            >
               {data.branch} ← {data.base_branch}
             </Typography>
           )}
           <Tooltip title="Refresh">
-            <IconButton size="small" onClick={refresh}>
-              <RefreshIcon sx={{ fontSize: 18 }} />
+            <IconButton
+              size="small"
+              onClick={refresh}
+              sx={{
+                color: '#707080',
+                p: 0.5,
+                '&:hover': { color: '#00D5FF', bgcolor: 'rgba(0, 213, 255, 0.1)' },
+              }}
+            >
+              <RefreshCw size={14} strokeWidth={1.5} />
             </IconButton>
           </Tooltip>
         </Box>
       </Box>
 
-      {/* Content */}
       {data?.error && !data.files.length ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: '#707080' }}>
             {data.error}
           </Typography>
         </Box>
       ) : data?.files.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4, flexDirection: 'column', gap: 1 }}>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: '#a0a0b0' }}>
             No changes detected
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: '#707080' }}>
             Changes will appear here when files are modified
           </Typography>
         </Box>
       ) : (
         <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* File list sidebar */}
           <Box
             sx={{
               width: 280,
               flexShrink: 0,
-              borderRight: 1,
-              borderColor: 'divider',
+              borderRight: '1px solid rgba(255, 255, 255, 0.06)',
               overflow: 'auto',
-              bgcolor: 'background.default',
+              bgcolor: 'rgba(255, 255, 255, 0.01)',
             }}
           >
-            <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="caption" color="text.secondary">
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1,
+                borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  fontSize: '0.7rem',
+                  color: '#707080',
+                }}
+              >
                 {data?.total_additions !== undefined && (
-                  <Box component="span" sx={{ color: 'success.main' }}>
+                  <Box component="span" sx={{ color: '#3BF959', fontWeight: 600 }}>
                     +{data.total_additions}
                   </Box>
                 )}
                 {data?.total_additions !== undefined && data?.total_deletions !== undefined && ' / '}
                 {data?.total_deletions !== undefined && (
-                  <Box component="span" sx={{ color: 'error.main' }}>
+                  <Box component="span" sx={{ color: '#FC3600', fontWeight: 600 }}>
                     -{data.total_deletions}
                   </Box>
                 )}
@@ -210,7 +254,6 @@ const DiffViewer: FC<DiffViewerProps> = ({
             />
           </Box>
 
-          {/* Diff content */}
           <Box sx={{ flex: 1, overflow: 'hidden' }}>
             <DiffContent
               file={fileContent}
@@ -221,11 +264,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
         </Box>
       )}
 
-      {/* CSS for pulse animation */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
+          50% { opacity: 0.3; }
         }
       `}</style>
     </Box>
