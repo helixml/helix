@@ -563,7 +563,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           videoStartTimeoutRef.current = setTimeout(() => {
             console.error('[DesktopStreamViewer] Video start timeout - GStreamer pipeline may have failed');
-            setError('Video stream failed to start. The desktop may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
+            setError('Video stream failed to start. This can happen if the server is overloaded, or if your browser suspended the connection (common on mobile devices to save power). Try refreshing the page or clicking the Restart button.');
             setIsConnecting(false);
             setIsConnected(false);
             onConnectionChange?.(false);

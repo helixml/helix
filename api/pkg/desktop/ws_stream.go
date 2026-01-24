@@ -174,8 +174,9 @@ type VideoStreamer struct {
 
 	// Shared video source - ONE pipeline shared by all clients for this node
 	sharedSource   *SharedVideoSource
-	sharedClientID uint64          // Our client ID in the shared source
-	frameCh        <-chan VideoFrame // Channel to receive frames from shared source
+	sharedClientID uint64             // Our client ID in the shared source
+	frameCh        <-chan VideoFrame  // Channel to receive frames from shared source
+	errorCh        <-chan error       // Channel to receive pipeline errors (GPU OOM, etc.)
 
 	running atomic.Bool
 	cancel  context.CancelFunc
@@ -267,9 +268,9 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	}
 	v.sharedSource = GetSharedVideoRegistry().GetOrCreate(v.nodeID, pipelineStr, opts)
 
-	// Subscribe to receive frames from the shared source
+	// Subscribe to receive frames and errors from the shared source
 	var err error
-	v.frameCh, v.sharedClientID, err = v.sharedSource.Subscribe()
+	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
 	if err != nil {
 		return fmt.Errorf("subscribe to shared video source: %w", err)
 	}
@@ -764,6 +765,30 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 	return v.writeJSON(msg)
 }
 
+// sendStreamError sends a pipeline error to the WebSocket client.
+// This is used to notify the client when the GStreamer pipeline fails
+// (e.g., GPU out of memory, encoder error).
+//
+// Wire format: type(1) + errorLength(2) + errorMessage(...)
+// Type is StreamMsgStreamError (0x31)
+func (v *VideoStreamer) sendStreamError(errMsg string) error {
+	// Truncate message if too long (max 65535 bytes due to 2-byte length)
+	if len(errMsg) > 65535 {
+		errMsg = errMsg[:65535]
+	}
+
+	// Build binary message
+	msgLen := 1 + 2 + len(errMsg) // type + length + message
+	msg := make([]byte, msgLen)
+	msg[0] = StreamMsgStreamError
+	binary.BigEndian.PutUint16(msg[1:3], uint16(len(errMsg)))
+	copy(msg[3:], errMsg)
+
+	v.logger.Info("sending stream error to client", "error", errMsg)
+	_, err := v.writeMessage(websocket.BinaryMessage, msg)
+	return err
+}
+
 // readFramesAndSend reads video frames from shared source and sends to WebSocket.
 // Frames are delivered in encode order via channel - no UDP reordering possible.
 func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
@@ -780,12 +805,20 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalIntervalMs int64
 	var intervalCount int64
 
-	// Use the frame channel from the shared video source
+	// Use the frame and error channels from the shared video source
 	frameCh := v.frameCh
+	errorCh := v.errorCh
 
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case pipelineErr := <-errorCh:
+			// Pipeline error (e.g., GPU OOM) - send to WebSocket client
+			v.logger.Error("pipeline error received", "err", pipelineErr)
+			if err := v.sendStreamError(pipelineErr.Error()); err != nil {
+				v.logger.Error("failed to send stream error to client", "err", err)
+			}
 			return
 		case frame, ok := <-frameCh:
 			if !ok {

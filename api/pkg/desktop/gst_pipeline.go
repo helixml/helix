@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +62,7 @@ type GstPipeline struct {
 	pipeline      *gst.Pipeline
 	appsink       *app.Sink
 	frameCh       chan VideoFrame
+	errorCh       chan error // Channel for pipeline errors (GPU OOM, encoder failures, etc.)
 	running       atomic.Bool
 	stopOnce      sync.Once
 	pipelineID    string     // For logging
@@ -121,6 +123,7 @@ func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*Gs
 		pipeline:   pipeline,
 		appsink:    appsink,
 		frameCh:    make(chan VideoFrame, 8), // Buffer a few frames
+		errorCh:    make(chan error, 1),      // Buffer 1 error (only care about first fatal error)
 		pipelineID: fmt.Sprintf("gst-%p", pipeline),
 	}
 
@@ -311,13 +314,25 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 			gerr := msg.ParseError()
 			if gerr != nil {
 				// Log error with full debug info - helps diagnose pipeline failures
-				fmt.Printf("[GST_PIPELINE] Error: %s\n", gerr.Error())
+				errMsg := gerr.Error()
+				fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
 				if debugStr := gerr.DebugString(); debugStr != "" {
 					fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
 				}
 				// Log the element that produced the error
-				if src := msg.Source(); src != "" {
-					fmt.Printf("[GST_PIPELINE] Source: %s\n", src)
+				srcName := msg.Source()
+				if srcName != "" {
+					fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
+				}
+
+				// Create a user-friendly error message for common failures
+				userErr := g.createUserFriendlyError(errMsg, srcName)
+				// Non-blocking send to error channel (only first error matters)
+				select {
+				case g.errorCh <- userErr:
+					fmt.Printf("[GST_PIPELINE] Error sent to error channel: %s\n", userErr.Error())
+				default:
+					// Channel full - first error already captured
 				}
 			}
 			g.Stop()
@@ -367,6 +382,46 @@ func (g *GstPipeline) IsRunning() bool {
 // GetFrameStats returns frame receive and drop counts for diagnostics.
 func (g *GstPipeline) GetFrameStats() (received, dropped uint64) {
 	return g.framesReceived.Load(), g.framesDropped.Load()
+}
+
+// Errors returns a channel that receives pipeline errors.
+// Only fatal errors are sent (e.g., GPU OOM, encoder failures).
+// The channel is buffered with size 1 - only the first error is captured.
+func (g *GstPipeline) Errors() <-chan error {
+	return g.errorCh
+}
+
+// createUserFriendlyError converts GStreamer error messages into user-friendly text.
+// Common errors like "NV_ENC_ERR_OUT_OF_MEMORY" become actionable messages.
+func (g *GstPipeline) createUserFriendlyError(errMsg, srcElement string) error {
+	// Map common GStreamer/NVENC errors to user-friendly messages
+	switch {
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR_OUT_OF_MEMORY") || containsIgnoreCase(errMsg, "out of memory"):
+		return fmt.Errorf("GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions.")
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR_NO_ENCODE_DEVICE"):
+		return fmt.Errorf("No GPU encoder available. The GPU may be in use by another process.")
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR"):
+		return fmt.Errorf("GPU encoder error: %s. Try closing other sessions.", errMsg)
+	case containsIgnoreCase(errMsg, "Could not get EOS"):
+		return fmt.Errorf("Video pipeline stopped unexpectedly. Please try reconnecting.")
+	case containsIgnoreCase(errMsg, "Resource not found"):
+		return fmt.Errorf("Video source not available. The session may have ended.")
+	case containsIgnoreCase(errMsg, "Permission denied"):
+		return fmt.Errorf("Permission denied accessing video source.")
+	case containsIgnoreCase(errMsg, "Internal data stream error"):
+		return fmt.Errorf("Video streaming error. Please try reconnecting.")
+	default:
+		// For unknown errors, include the source element for debugging
+		if srcElement != "" {
+			return fmt.Errorf("Video error from %s: %s", srcElement, errMsg)
+		}
+		return fmt.Errorf("Video error: %s", errMsg)
+	}
+}
+
+// containsIgnoreCase is a case-insensitive substring check
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // CheckGstElement checks if a GStreamer element is available.

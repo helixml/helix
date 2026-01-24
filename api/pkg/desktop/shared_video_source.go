@@ -45,6 +45,7 @@ const (
 // - Broadcasts encoded H.264 frames to all subscribers
 // - Caches the last keyframe for mid-stream joins
 // - Automatically stops when the last client disconnects
+// - Propagates pipeline errors (e.g., GPU OOM) to all clients
 type SharedVideoSource struct {
 	// Immutable after creation
 	nodeID       uint32
@@ -71,6 +72,11 @@ type SharedVideoSource struct {
 	gopBuffer   []VideoFrame
 	gopBufferMu sync.RWMutex
 
+	// Error propagation
+	// When the pipeline fails, the error is stored and broadcast to all clients
+	lastError   error      // Last pipeline error (e.g., GPU OOM)
+	lastErrorMu sync.Mutex // Protects lastError
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -81,6 +87,7 @@ type SharedVideoSource struct {
 type sharedVideoClient struct {
 	id      uint64
 	frameCh chan VideoFrame
+	errorCh chan error // Channel for pipeline errors (GPU OOM, encoder failures, etc.)
 
 	// State machine: catching_up -> live -> closed
 	// - catching_up: Receiving GOP replay, broadcaster queues frames to pending
@@ -425,7 +432,7 @@ func (r *SharedVideoSourceRegistry) Shutdown() {
 }
 
 // Subscribe registers a new client to receive video frames.
-// Returns a channel for receiving frames and a client ID for unsubscribing.
+// Returns a channel for receiving frames, a channel for errors, and a client ID for unsubscribing.
 // If this is the first client, the pipeline is started.
 //
 // Non-blocking design:
@@ -433,7 +440,11 @@ func (r *SharedVideoSourceRegistry) Shutdown() {
 // - Broadcaster queues frames to client.pending instead of channel
 // - Catchup goroutine runs in background: replays GOP, drains pending, transitions to live
 // - One slow client does NOT block other clients
-func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
+//
+// Error handling:
+// - Pipeline errors (GPU OOM, encoder failures) are sent on the error channel
+// - Callers should select on both frameCh and errorCh
+func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64, error) {
 	clientID := s.nextID.Add(1)
 
 	// Create client with buffered channel sized to GOP
@@ -444,6 +455,7 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 	client := &sharedVideoClient{
 		id:      clientID,
 		frameCh: make(chan VideoFrame, bufferSize),
+		errorCh: make(chan error, 1), // Buffer 1 error
 		// state is 0 (clientStateCatchingUp) by default
 		// pending starts nil, will be populated by broadcaster
 	}
@@ -474,7 +486,8 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 			delete(s.clients, clientID)
 			s.clientsMu.Unlock()
 			close(client.frameCh)
-			return nil, 0, fmt.Errorf("start pipeline: %w", err)
+			close(client.errorCh)
+			return nil, nil, 0, fmt.Errorf("start pipeline: %w", err)
 		}
 	} else {
 		// Subsequent client - needs catchup
@@ -484,7 +497,8 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 		s.startMu.Unlock()
 		if err != nil {
 			close(client.frameCh)
-			return nil, 0, fmt.Errorf("pipeline error: %w", err)
+			close(client.errorCh)
+			return nil, nil, 0, fmt.Errorf("pipeline error: %w", err)
 		}
 
 		// Add client to map with state=catching_up
@@ -508,7 +522,7 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
 		go s.runCatchup(client)
 	}
 
-	return client.frameCh, clientID, nil
+	return client.frameCh, client.errorCh, clientID, nil
 }
 
 // disconnectClient forcefully disconnects a slow client by closing their channel.
@@ -713,6 +727,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 	defer s.wg.Done()
 
 	frameCh := s.pipeline.Frames()
+	errorCh := s.pipeline.Errors()
 	var frameCount uint64
 	var keyframeCount uint64
 
@@ -720,6 +735,11 @@ func (s *SharedVideoSource) broadcastFrames() {
 		select {
 		case <-s.ctx.Done():
 			fmt.Printf("[SHARED_VIDEO] Broadcast stopped (context cancelled) for node %d\n", s.nodeID)
+			return
+		case pipelineErr := <-errorCh:
+			// Pipeline error (e.g., GPU OOM) - broadcast to all clients
+			fmt.Printf("[SHARED_VIDEO] Pipeline error for node %d: %s\n", s.nodeID, pipelineErr.Error())
+			s.broadcastError(pipelineErr)
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
@@ -836,6 +856,40 @@ func (s *SharedVideoSource) broadcastFrames() {
 			}
 		}
 	}
+}
+
+// broadcastError sends a pipeline error to all connected clients.
+// Called when the GStreamer pipeline fails (e.g., GPU OOM, encoder error).
+// Each client receives the error on their error channel for forwarding to WebSocket.
+func (s *SharedVideoSource) broadcastError(err error) {
+	// Store the error for future clients that might join during grace period
+	s.lastErrorMu.Lock()
+	s.lastError = err
+	s.lastErrorMu.Unlock()
+
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+
+	for _, client := range s.clients {
+		if client.state.Load() == clientStateClosed {
+			continue
+		}
+		// Non-blocking send to error channel (buffer size 1)
+		select {
+		case client.errorCh <- err:
+			fmt.Printf("[SHARED_VIDEO] Error sent to client %d: %s\n", client.id, err.Error())
+		default:
+			// Channel full - error already queued
+		}
+	}
+}
+
+// GetLastError returns the last pipeline error, if any.
+// Useful for clients that join after the pipeline has failed.
+func (s *SharedVideoSource) GetLastError() error {
+	s.lastErrorMu.Lock()
+	defer s.lastErrorMu.Unlock()
+	return s.lastError
 }
 
 // stop stops the shared video source

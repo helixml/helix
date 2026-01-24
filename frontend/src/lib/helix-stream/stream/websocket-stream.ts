@@ -564,6 +564,9 @@ export class WebSocketStream {
       case WsMessageType.StreamInit:
         this.handleStreamInit(data)
         break
+      case WsMessageType.StreamError:
+        this.handleStreamError(data)
+        break
       case WsMessageType.ControlMessage:
         // JSON embedded in binary
         const json = new TextDecoder().decode(data.slice(1))
@@ -706,6 +709,32 @@ export class WebSocketStream {
 
     // Initialize video decoder
     this.initVideoDecoder(codec, width, height)
+  }
+
+  /**
+   * Handle StreamError message from server.
+   * This is sent when the GStreamer pipeline fails (e.g., GPU out of memory).
+   * Wire format: type(1) + errorLength(2) + errorMessage(...)
+   */
+  private handleStreamError(data: Uint8Array) {
+    if (data.length < 3) {
+      console.error("[WebSocketStream] StreamError too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const errorLength = view.getUint16(1, false) // big-endian
+
+    if (data.length < 3 + errorLength) {
+      console.error("[WebSocketStream] StreamError message truncated")
+      return
+    }
+
+    const errorMessage = new TextDecoder().decode(data.slice(3, 3 + errorLength))
+    console.error("[WebSocketStream] Server stream error:", errorMessage)
+
+    // Dispatch error to UI - this will show a user-friendly error message
+    this.dispatchInfoEvent({ type: "error", message: errorMessage })
   }
 
   // Decoder generation counter - incremented each time we create a new decoder
