@@ -30,8 +30,8 @@ require (
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
-	github.com/go-git/go-billy/v6 v6.0.0-20260114122816-19306b749ecc
-	github.com/go-git/go-git/v6 v6.0.0-20260123133532-f99a98e81ce9
+	github.com/go-git/go-billy/v6 v6.0.0-20251217170237-e9738f50a3cd
+	github.com/go-git/go-git/v6 v6.0.0-20260114124804-a8db3a6585a6
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
 	github.com/go-shiori/go-readability v0.0.0-20240701094332-1070de7e32ef
