@@ -6,9 +6,7 @@ import {
   Divider,
   IconButton,
   TextField,
-  Button,
-  Checkbox,
-  FormControlLabel,
+  Button,  
   Tooltip,
   Select,
   FormControl,
@@ -33,20 +31,21 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ComputerIcon from '@mui/icons-material/Computer'
-import TuneIcon from '@mui/icons-material/Tune'
+
 import DifferenceIcon from '@mui/icons-material/Difference'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import LinkIcon from '@mui/icons-material/Link'
-import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
+import { TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
-import DesignDocViewer from './DesignDocViewer'
+
 import DiffViewer from './DiffViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useRouter from '../../hooks/useRouter'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
@@ -54,12 +53,14 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/specTaskService'
+import { useGetProject, useGetProjectRepositories } from '../../services/projectService'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import { SlidersHorizontal } from 'lucide-react'
 
 interface SpecTaskDetailContentProps {
   taskId: string
@@ -80,6 +81,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
+  const router = useRouter()
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: 'md' })
 
@@ -88,6 +90,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   })
+
+  // Fetch project and repositories to get default branch
+  const { data: project } = useGetProject(task?.project_id || '', !!task?.project_id)
+  const { data: projectRepositories = [] } = useGetProjectRepositories(task?.project_id || '', !!task?.project_id)
+
+  const defaultBranchName = useMemo(() => {
+    const defaultRepo = projectRepositories.find(r => r.id === project?.default_repo_id)
+    return defaultRepo?.default_branch || 'main'
+  }, [projectRepositories, project?.default_repo_id])
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false)
@@ -165,8 +176,34 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   }, [])
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
-  const [currentView, setCurrentView] = useState<'chat' | 'desktop' | 'changes' | 'details'>('desktop')
+  // Initialize from URL query param 'view' if present
+  const getInitialView = (): 'chat' | 'desktop' | 'changes' | 'details' => {
+    const viewParam = router.params.view
+    if (viewParam === 'chat' || viewParam === 'desktop' || viewParam === 'changes' || viewParam === 'details') {
+      return viewParam
+    }
+    return 'desktop'
+  }
+  const [currentView, setCurrentView] = useState<'chat' | 'desktop' | 'changes' | 'details'>(getInitialView)
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
+
+  // Sync currentView with URL query param
+  useEffect(() => {
+    const viewParam = router.params.view
+    if (viewParam && (viewParam === 'chat' || viewParam === 'desktop' || viewParam === 'changes' || viewParam === 'details')) {
+      if (viewParam !== currentView) {
+        setCurrentView(viewParam)
+      }
+    }
+  }, [router.params.view])
+
+  // Update URL when view changes
+  const handleViewChange = useCallback((newView: 'chat' | 'desktop' | 'changes' | 'details' | null) => {
+    if (newView && newView !== currentView) {
+      setCurrentView(newView)
+      router.mergeParams({ view: newView })
+    }
+  }, [currentView, router])
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
@@ -214,10 +251,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (activeSessionId && currentView === 'details') {
       // If there's an active session and we're on details, switch to appropriate view
       // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
-      setCurrentView(isBigScreen ? 'desktop' : 'chat')
+      const newView = isBigScreen ? 'desktop' : 'chat'
+      setCurrentView(newView)
+      router.mergeParams({ view: newView })
     } else if (!activeSessionId && currentView !== 'details') {
       // If no active session, switch to details view
       setCurrentView('details')
+      router.mergeParams({ view: 'details' })
     }
   }, [activeSessionId, isBigScreen])
 
@@ -292,7 +332,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
 
       snackbar.success('Planning started! Agent session will begin shortly.')
-      setCurrentView('session')
+      handleViewChange('desktop')
     } catch (err: any) {
       console.error('Failed to start planning:', err)
       snackbar.error(err?.message || 'Failed to start planning. Please try again.')
@@ -738,7 +778,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         setChatCollapsed(true)
                         // Switch to desktop view when collapsing chat
                         if (currentView === 'chat') {
-                          setCurrentView('desktop')
+                          handleViewChange('desktop')
                         }
                       }}
                       sx={{ p: 0.25 }}
@@ -807,7 +847,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   <ToggleButtonGroup
                     value={currentView}
                     exclusive
-                    onChange={(_, newView) => newView && setCurrentView(newView)}
+                    onChange={(_, newView) => handleViewChange(newView)}
                     size="small"
                     sx={{
                       '& .MuiToggleButton-root': {
@@ -833,7 +873,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
                       <Tooltip title="Details">
-                        <TuneIcon sx={{ fontSize: 18 }} />
+                        <SlidersHorizontal size={16}/>
                       </Tooltip>
                     </ToggleButton>
                   </ToggleButtonGroup>
@@ -978,7 +1018,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {currentView === 'changes' && (
                   <DiffViewer
                     sessionId={activeSessionId}
-                    baseBranch="main"
+                    baseBranch={defaultBranchName}
                     pollInterval={3000}
                   />
                 )}
@@ -1014,7 +1054,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <ToggleButtonGroup
                 value={currentView}
                 exclusive
-                onChange={(_, newView) => newView && setCurrentView(newView)}
+                onChange={(_, newView) => handleViewChange(newView)}
                 size="small"
                 sx={{
                   flexShrink: 0,
@@ -1054,7 +1094,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 )}
                 <ToggleButton value="details" aria-label="Details view">
                   <Tooltip title="Details">
-                    <TuneIcon sx={{ fontSize: 18 }} />
+                    <SlidersHorizontal size={16}/>
                   </Tooltip>
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -1237,7 +1277,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <Box sx={{ flex: 1, overflow: 'hidden' }}>
                 <DiffViewer
                   sessionId={activeSessionId}
-                  baseBranch="main"
+                  baseBranch={defaultBranchName}
                   pollInterval={3000}
                 />
               </Box>

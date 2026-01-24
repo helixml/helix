@@ -20,60 +20,12 @@ import {
   ArrowRightLeft,
 } from 'lucide-react'
 import { FileDiff } from '../../hooks/useLiveFileDiff'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 interface DiffFileListProps {
   files: FileDiff[]
   selectedFile: string | null
   onSelectFile: (path: string) => void
-}
-
-const getFileIcon = (path: string, status: FileDiff['status']) => {
-  const ext = path.split('.').pop()?.toLowerCase()
-  const iconSize = 16
-  const strokeWidth = 1.5
-
-  if (status === 'added') {
-    return <Plus size={iconSize} strokeWidth={strokeWidth} style={{ color: '#3BF959' }} />
-  }
-  if (status === 'deleted') {
-    return <Minus size={iconSize} strokeWidth={strokeWidth} style={{ color: '#FC3600' }} />
-  }
-  if (status === 'renamed') {
-    return <ArrowRightLeft size={iconSize} strokeWidth={strokeWidth} style={{ color: '#00D5FF' }} />
-  }
-  if (status === 'copied') {
-    return <Copy size={iconSize} strokeWidth={strokeWidth} style={{ color: '#00D5FF' }} />
-  }
-
-  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico']
-  const codeExts = ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'h', 'cs']
-  const docExts = ['md', 'txt', 'doc', 'docx', 'pdf']
-
-  if (imageExts.includes(ext || '')) {
-    return <Image size={iconSize} strokeWidth={strokeWidth} style={{ color: '#FCDB05' }} />
-  }
-  if (codeExts.includes(ext || '')) {
-    return <Code size={iconSize} strokeWidth={strokeWidth} style={{ color: '#00D5FF' }} />
-  }
-  if (docExts.includes(ext || '')) {
-    return <FileText size={iconSize} strokeWidth={strokeWidth} style={{ color: '#EF2EC6' }} />
-  }
-
-  return <FileEdit size={iconSize} strokeWidth={strokeWidth} style={{ color: '#FCDB05' }} />
-}
-
-const getStatusColor = (status: FileDiff['status']): string => {
-  switch (status) {
-    case 'added':
-      return '#3BF959'
-    case 'deleted':
-      return '#FC3600'
-    case 'renamed':
-    case 'copied':
-      return '#00D5FF'
-    default:
-      return '#FCDB05'
-  }
 }
 
 const getStatusLabel = (status: FileDiff['status']): string => {
@@ -94,10 +46,61 @@ const getStatusLabel = (status: FileDiff['status']): string => {
 }
 
 const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile }) => {
+  const themeConfig = useThemeConfig()
+
+  const getStatusColor = (status: FileDiff['status']): string => {
+    switch (status) {
+      case 'added':
+        return themeConfig.greenRoot
+      case 'deleted':
+        return themeConfig.redRoot
+      case 'renamed':
+      case 'copied':
+        return themeConfig.tealRoot
+      default:
+        return themeConfig.yellowRoot
+    }
+  }
+
+  const getFileIcon = (path: string, status: FileDiff['status']) => {
+    const ext = path.split('.').pop()?.toLowerCase()
+    const iconSize = 16
+    const strokeWidth = 1.5
+
+    if (status === 'added') {
+      return <Plus size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.greenRoot }} />
+    }
+    if (status === 'deleted') {
+      return <Minus size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.redRoot }} />
+    }
+    if (status === 'renamed') {
+      return <ArrowRightLeft size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+    if (status === 'copied') {
+      return <Copy size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico']
+    const codeExts = ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'h', 'cs']
+    const docExts = ['md', 'txt', 'doc', 'docx', 'pdf']
+
+    if (imageExts.includes(ext || '')) {
+      return <Image size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.yellowRoot }} />
+    }
+    if (codeExts.includes(ext || '')) {
+      return <Code size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+    if (docExts.includes(ext || '')) {
+      return <FileText size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.magentaRoot }} />
+    }
+
+    return <FileEdit size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.yellowRoot }} />
+  }
+
   if (files.length === 0) {
     return (
       <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography variant="body2" sx={{ color: '#a0a0b0' }}>
+        <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
           No file changes detected
         </Typography>
       </Box>
@@ -110,6 +113,7 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
         const fileName = file.path.split('/').pop() || file.path
         const dirPath = file.path.substring(0, file.path.length - fileName.length)
         const isSelected = selectedFile === file.path
+        const statusColor = getStatusColor(file.status)
 
         return (
           <ListItemButton
@@ -120,11 +124,11 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
               py: 0.75,
               px: 1.5,
               borderLeft: 2,
-              borderColor: isSelected ? '#00D5FF' : 'transparent',
-              bgcolor: isSelected ? 'rgba(0, 213, 255, 0.08)' : 'transparent',
+              borderColor: isSelected ? themeConfig.tealRoot : 'transparent',
+              bgcolor: isSelected ? `${themeConfig.tealRoot}14` : 'transparent',
               transition: 'all 0.15s ease',
               '&:hover': {
-                bgcolor: isSelected ? 'rgba(0, 213, 255, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                bgcolor: isSelected ? `${themeConfig.tealRoot}1F` : 'rgba(255, 255, 255, 0.04)',
               },
             }}
           >
@@ -137,14 +141,13 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                   <Typography
                     variant="body2"
                     sx={{
-                      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
                       fontSize: '0.8rem',
                       fontWeight: 500,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                       textDecoration: file.status === 'deleted' ? 'line-through' : 'none',
-                      color: file.status === 'deleted' ? '#a0a0b0' : '#e0e0e0',
+                      color: file.status === 'deleted' ? themeConfig.darkTextFaded : themeConfig.darkText,
                     }}
                   >
                     {fileName}
@@ -158,7 +161,7 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                         fontSize: '0.6rem',
                         fontWeight: 600,
                         bgcolor: 'rgba(255, 255, 255, 0.08)',
-                        color: '#a0a0b0',
+                        color: themeConfig.darkTextFaded,
                         border: '1px solid rgba(255, 255, 255, 0.1)',
                       }}
                     />
@@ -170,12 +173,11 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                   <Typography
                     variant="caption"
                     sx={{
-                      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
                       fontSize: '0.65rem',
                       display: 'block',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      color: '#707080',
+                      color: themeConfig.neutral400,
                     }}
                   >
                     {dirPath}
@@ -185,12 +187,12 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
             />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, flexShrink: 0 }}>
               {(file.additions > 0 || file.deletions > 0) && !file.is_binary && (
-                <Box sx={{ display: 'flex', gap: 0.5, fontFamily: '"JetBrains Mono", "Fira Code", monospace' }}>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
                   {file.additions > 0 && (
                     <Typography
                       variant="caption"
                       sx={{
-                        color: '#3BF959',
+                        color: themeConfig.greenRoot,
                         fontSize: '0.7rem',
                         fontWeight: 600,
                       }}
@@ -202,7 +204,7 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                     <Typography
                       variant="caption"
                       sx={{
-                        color: '#FC3600',
+                        color: themeConfig.redRoot,
                         fontSize: '0.7rem',
                         fontWeight: 600,
                       }}
@@ -223,10 +225,9 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                     borderRadius: '4px',
                     fontSize: '0.65rem',
                     fontWeight: 700,
-                    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-                    color: getStatusColor(file.status),
-                    bgcolor: `${getStatusColor(file.status)}15`,
-                    border: `1px solid ${getStatusColor(file.status)}30`,
+                    color: statusColor,
+                    bgcolor: `${statusColor}15`,
+                    border: `1px solid ${statusColor}30`,
                   }}
                 >
                   {getStatusLabel(file.status)}

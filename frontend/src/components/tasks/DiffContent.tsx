@@ -6,9 +6,12 @@ import {
   IconButton,
   Tooltip,
   Paper,
+  useTheme,
 } from '@mui/material'
 import { Copy } from 'lucide-react'
 import { FileDiff } from '../../hooks/useLiveFileDiff'
+import useThemeConfig from '../../hooks/useThemeConfig'
+import { ITheme } from '../../themes'
 
 interface DiffContentProps {
   file: FileDiff | null
@@ -16,7 +19,6 @@ interface DiffContentProps {
   onCopyPath?: () => void
 }
 
-// Parse unified diff into lines with metadata
 interface DiffLine {
   type: 'header' | 'hunk' | 'add' | 'remove' | 'context' | 'empty'
   content: string
@@ -37,7 +39,6 @@ function parseDiff(diffContent: string): DiffLine[] {
     if (line.startsWith('---') || line.startsWith('+++')) {
       result.push({ type: 'header', content: line })
     } else if (line.startsWith('@@')) {
-      // Parse hunk header: @@ -start,count +start,count @@
       const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
       if (match) {
         oldLine = parseInt(match[1], 10)
@@ -65,7 +66,6 @@ function parseDiff(diffContent: string): DiffLine[] {
         newLineNo: newLine++,
       })
     } else {
-      // Other lines (diff header, etc)
       result.push({ type: 'context', content: line })
     }
   }
@@ -73,14 +73,14 @@ function parseDiff(diffContent: string): DiffLine[] {
   return result
 }
 
-function getLineBackground(type: DiffLine['type']): string {
+function getLineBackground(type: DiffLine['type'], themeConfig: ITheme): string {
   switch (type) {
     case 'add':
-      return 'rgba(59, 249, 89, 0.1)'
+      return `${themeConfig.greenRoot}1A`
     case 'remove':
-      return 'rgba(252, 54, 0, 0.1)'
+      return `${themeConfig.redRoot}1A`
     case 'hunk':
-      return 'rgba(0, 213, 255, 0.06)'
+      return `${themeConfig.tealRoot}0F`
     case 'header':
       return 'rgba(128, 128, 128, 0.06)'
     default:
@@ -88,22 +88,26 @@ function getLineBackground(type: DiffLine['type']): string {
   }
 }
 
-function getLineColor(type: DiffLine['type']): string {
+function getLineColor(type: DiffLine['type'], themeConfig: ITheme): string {
   switch (type) {
     case 'add':
-      return '#3BF959'
+      return themeConfig.greenRoot
     case 'remove':
-      return '#FC3600'
+      return themeConfig.redRoot
     case 'hunk':
-      return '#00D5FF'
+      return themeConfig.tealRoot
     case 'header':
-      return '#707080'
+      return themeConfig.neutral400
     default:
-      return '#e0e0e0'
+      return themeConfig.darkText
   }
 }
 
 const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
+  const monoFont = theme.typography.fontFamilyMono
+
   const parsedDiff = useMemo(() => {
     if (!file?.diff) return []
     return parseDiff(file.diff)
@@ -112,7 +116,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <CircularProgress size={24} sx={{ color: '#00D5FF' }} />
+        <CircularProgress size={24} sx={{ color: themeConfig.tealRoot }} />
       </Box>
     )
   }
@@ -120,7 +124,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   if (!file) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <Typography variant="body2" sx={{ color: '#707080' }}>
+        <Typography variant="body2" sx={{ color: themeConfig.neutral400 }}>
           Select a file to view changes
         </Typography>
       </Box>
@@ -139,14 +143,14 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             border: '1px solid rgba(255, 255, 255, 0.06)',
           }}
         >
-          <Typography variant="body2" sx={{ color: '#a0a0b0' }}>
+          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
             Binary file changed
           </Typography>
           <Typography
             variant="caption"
             sx={{
-              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-              color: '#707080',
+              fontFamily: monoFont,
+              color: themeConfig.neutral400,
             }}
           >
             {file.path}
@@ -163,9 +167,9 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           <Typography
             variant="subtitle2"
             sx={{
-              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+              fontFamily: monoFont,
               flex: 1,
-              color: '#e0e0e0',
+              color: themeConfig.darkText,
             }}
           >
             {file.path}
@@ -176,8 +180,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 size="small"
                 onClick={onCopyPath}
                 sx={{
-                  color: '#707080',
-                  '&:hover': { color: '#00D5FF', bgcolor: 'rgba(0, 213, 255, 0.1)' },
+                  color: themeConfig.neutral400,
+                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
                 }}
               >
                 <Copy size={14} strokeWidth={1.5} />
@@ -194,7 +198,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             border: '1px solid rgba(255, 255, 255, 0.06)',
           }}
         >
-          <Typography variant="body2" sx={{ color: '#a0a0b0' }}>
+          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
             {file.status === 'added' ? 'New file' : 'No diff content available'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, mt: 1.5 }}>
@@ -202,8 +206,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#3BF959',
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  color: themeConfig.greenRoot,
+                  fontFamily: monoFont,
                   fontWeight: 600,
                 }}
               >
@@ -214,8 +218,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#FC3600',
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  color: themeConfig.redRoot,
+                  fontFamily: monoFont,
                   fontWeight: 600,
                 }}
               >
@@ -229,7 +233,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   }
 
   return (
-    <Box sx={{ height: '100%', overflow: 'auto', bgcolor: '#121214' }}>
+    <Box sx={{ height: '100%', overflow: 'auto', bgcolor: themeConfig.darkBackgroundColor }}>
       <Box
         sx={{
           display: 'flex',
@@ -248,11 +252,11 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
         <Typography
           variant="subtitle2"
           sx={{
-            fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+            fontFamily: monoFont,
             flex: 1,
             fontSize: '0.8rem',
             fontWeight: 500,
-            color: '#e0e0e0',
+            color: themeConfig.darkText,
           }}
         >
           {file.path}
@@ -262,8 +266,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             <Typography
               variant="caption"
               sx={{
-                color: '#3BF959',
-                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                color: themeConfig.greenRoot,
+                fontFamily: monoFont,
                 fontWeight: 600,
                 fontSize: '0.75rem',
               }}
@@ -275,8 +279,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             <Typography
               variant="caption"
               sx={{
-                color: '#FC3600',
-                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                color: themeConfig.redRoot,
+                fontFamily: monoFont,
                 fontWeight: 600,
                 fontSize: '0.75rem',
               }}
@@ -290,9 +294,9 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 size="small"
                 onClick={onCopyPath}
                 sx={{
-                  color: '#707080',
+                  color: themeConfig.neutral400,
                   p: 0.5,
-                  '&:hover': { color: '#00D5FF', bgcolor: 'rgba(0, 213, 255, 0.1)' },
+                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
                 }}
               >
                 <Copy size={14} strokeWidth={1.5} />
@@ -307,8 +311,8 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
         sx={{
           m: 0,
           p: 0,
-          fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-          fontSize: '0.78rem',
+          fontFamily: monoFont,
+          fontSize: '0.72rem',
           lineHeight: 1.6,
           overflow: 'auto',
         }}
@@ -318,7 +322,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             key={idx}
             sx={{
               display: 'flex',
-              backgroundColor: getLineBackground(line.type),
+              backgroundColor: getLineBackground(line.type, themeConfig),
               transition: 'background-color 0.1s ease',
               '&:hover': {
                 backgroundColor: line.type === 'context' || line.type === 'empty'
@@ -335,31 +339,31 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 borderRight: '1px solid rgba(255, 255, 255, 0.06)',
               }}
             >
-              <Typography
-                component="span"
-                sx={{
-                  width: 44,
-                  px: 1,
-                  textAlign: 'right',
-                  color: '#505060',
-                  fontSize: '0.7rem',
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-                }}
-              >
-                {line.oldLineNo ?? ''}
-              </Typography>
-              <Typography
-                component="span"
-                sx={{
-                  width: 44,
-                  px: 1,
-                  textAlign: 'right',
-                  color: '#505060',
-                  fontSize: '0.7rem',
-                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-                }}
-              >
-                {line.newLineNo ?? ''}
+            <Typography
+              component="span"
+              sx={{
+                width: 44,
+                px: 1,
+                textAlign: 'right',
+                color: themeConfig.neutral500,
+                fontSize: '0.65rem',
+                fontFamily: monoFont,
+              }}
+            >
+              {line.oldLineNo ?? ''}
+            </Typography>
+            <Typography
+              component="span"
+              sx={{
+                width: 44,
+                px: 1,
+                textAlign: 'right',
+                color: themeConfig.neutral500,
+                fontSize: '0.65rem',
+                fontFamily: monoFont,
+              }}
+            >
+              {line.newLineNo ?? ''}
               </Typography>
             </Box>
 
@@ -368,9 +372,10 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
               sx={{
                 width: 20,
                 textAlign: 'center',
-                color: getLineColor(line.type),
-                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                color: getLineColor(line.type, themeConfig),
+                fontFamily: monoFont,
                 fontWeight: 600,
+                fontSize: '0.72rem',
                 flexShrink: 0,
               }}
             >
@@ -383,8 +388,9 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 flex: 1,
                 pl: 1,
                 pr: 2,
-                color: getLineColor(line.type),
-                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                color: getLineColor(line.type, themeConfig),
+                fontFamily: monoFont,
+                fontSize: '0.72rem',
                 whiteSpace: 'pre',
                 overflowX: 'auto',
               }}
