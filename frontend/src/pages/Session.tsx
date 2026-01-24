@@ -10,7 +10,6 @@ import AlertTitle from '@mui/material/AlertTitle'
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import Computer from '@mui/icons-material/Computer'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
