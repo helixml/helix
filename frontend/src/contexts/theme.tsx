@@ -26,12 +26,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
       },
       typography: {
-        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
         fontSize: 14,
-        fontWeightRegular: 400,
-        fontWeightMedium: 500,
-        fontWeightBold: 600,
-        fontFamilyMono: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
       },
       components: {
         // Global scrollbar styles
