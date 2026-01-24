@@ -452,7 +452,7 @@ const GitRepoDetail: FC = () => {
     if (!repoId) return
 
     try {
-      await syncAllBranchesMutation.mutateAsync({ repositoryId: repoId })
+      await syncAllBranchesMutation.mutateAsync({ repositoryId: repoId, force: true })
       snackbar.success('Successfully synced all branches from upstream')
     } catch (error: any) {
       console.error('Failed to sync from upstream:', error)
