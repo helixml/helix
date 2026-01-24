@@ -231,7 +231,7 @@ Upstream commit: %s`,
 
 // SyncBaseBranchResult contains the result of a base branch sync operation
 type SyncBaseBranchResult struct {
-	Synced       bool   // True if sync was performed (vs already up-to-date)
+	Synced        bool   // True if sync was performed (vs already up-to-date)
 	CommitsBefore string // Commit hash before sync
 	CommitsAfter  string // Commit hash after sync
 	CommitsSynced int    // Number of commits synced
@@ -427,8 +427,14 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Msg("Syncing ALL branches from external repository")
 
 	err = repo.Fetch(fetchOpts)
-	if err != nil && err != git.NoErrAlreadyUpToDate {
+	if err != nil && err != git.NoErrAlreadyUpToDate && err != git.ErrNonFastForwardUpdate {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
+	}
+
+	if err == git.ErrNonFastForwardUpdate {
+		log.Warn().
+			Str("repo_id", gitRepo.ID).
+			Msg("Some refs were not updated (non-fast-forward), consider using force=true")
 	}
 
 	// Update the repository's branch list
