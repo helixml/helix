@@ -889,28 +889,13 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			// before this hook runs, so we don't need to push again here.
 
 		case types.TaskStatusPullRequest:
+			log.Info().Str("spec_task_id", task.ID).Str("branch", pushedBranch).Str("commit", commitHash).Msg("Processing pull request")
+
 			s.wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
 			}(task)
-			s.wg.Add(1)
-			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
-				defer s.wg.Done()
-				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
-					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
-					return
-				}
-				if s.triggerManager != nil {
-					s.wg.Add(1)
-					go func() {
-						defer s.wg.Done()
-						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
-							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
-						}
-					}()
-				}
-			}(task, repo, commitHash)
 		}
 	}
 }
@@ -942,31 +927,58 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 	}
 
 	for _, task := range allTasks {
+		if task.BranchName != branchName {
+			continue
+		}
+
+		switch task.Status {
+		case types.TaskStatusImplementation:
+			log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Transitioning to implementation review")
+
+			now := time.Now()
+			task.Status = types.TaskStatusImplementationReview
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
+			}
+
+			if s.sendMessageToAgentFunc != nil {
+				s.wg.Add(1)
+				go func(t *types.SpecTask, branch string) {
+					defer s.wg.Done()
+					message := BuildImplementationReviewPrompt(t, branch)
+					if _, err := s.sendMessageToAgentFunc(context.Background(), t, message, ""); err != nil {
+						log.Error().Err(err).Str("task_id", t.ID).Msg("Failed to send implementation review request")
+					}
+				}(task, branchName)
+			}
+		case types.TaskStatusPullRequest:
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
+					return
+				}
+				if s.triggerManager != nil {
+					s.wg.Add(1)
+					go func() {
+						defer s.wg.Done()
+						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
+							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
+						}
+					}()
+				}
+			}(task, repo, commitHash)
+		default:
+			// Continue
+			continue
+		}
 		if task == nil || task.BranchName != branchName || task.Status != types.TaskStatusImplementation {
 			continue
-		}
-
-		log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Transitioning to implementation review")
-
-		now := time.Now()
-		task.Status = types.TaskStatusImplementationReview
-		task.LastPushCommitHash = commitHash
-		task.LastPushAt = &now
-		task.UpdatedAt = now
-		if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
-			continue
-		}
-
-		if s.sendMessageToAgentFunc != nil {
-			s.wg.Add(1)
-			go func(t *types.SpecTask, branch string) {
-				defer s.wg.Done()
-				message := BuildImplementationReviewPrompt(t, branch)
-				if _, err := s.sendMessageToAgentFunc(context.Background(), t, message, ""); err != nil {
-					log.Error().Err(err).Str("task_id", t.ID).Msg("Failed to send implementation review request")
-				}
-			}(task, branchName)
 		}
 	}
 }
@@ -1167,7 +1179,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
-		if pr.SourceBranch == sourceBranchRef && (pr.State == "active" || pr.State == "open") {
+		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
 			if task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
