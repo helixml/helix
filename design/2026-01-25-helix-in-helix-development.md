@@ -969,6 +969,87 @@ The current session doesn't have privileged mode enabled. To complete the full f
 
 ---
 
+## 2026-01-25 23:30 - Full Helix-in-Helix with Host Docker Testing
+
+**Session:** ses_01kfv6tknn75g5vs5vh915byas (inner session)
+
+**Progress: Successfully ran sandboxes on host Docker from inside dev desktop:**
+
+1. **Inner control plane running:** postgres, api, chrome all up
+2. **Port exposure working:** Inner API accessible at http://localhost:30000 via outer API proxy
+3. **Inner sandbox on host Docker:** Started `helix-inner-sandbox-test` using host-docker.sock
+4. **Inner sandbox connected via RevDial:** Sandbox connected to inner API
+5. **Inner session created:** Desktop container running inside inner sandbox
+
+**Issue Found: Desktop-bridge RevDial not connecting**
+
+The desktop container's RevDial client (desktop-bridge) is not connecting because `USER_API_TOKEN` is missing:
+
+```bash
+# Inner desktop container environment shows:
+HELIX_API_URL=http://172.17.0.1:30000
+HELIX_API_BASE_URL=http://172.17.0.1:30000
+HELIX_SESSION_ID=ses_01kfv6tknn75g5vs5vh915byas
+ZED_HELIX_TOKEN=inner-runner-token    # Wrong - should be user API token
+HELIX_API_TOKEN=inner-runner-token    # Wrong - should be user API token
+# USER_API_TOKEN is MISSING
+```
+
+**Desktop-bridge log:**
+```
+desktop-bridge: RevDial disabled - missing HELIX_API_URL, HELIX_SESSION_ID, or USER_API_TOKEN
+```
+
+**Impact:**
+- Screenshot via API returns "Sandbox not connected: no connection"
+- Video streaming via API will also fail (same RevDial path)
+- Screenshots work via direct container access (proves desktop is working)
+
+**Root Cause Analysis:**
+
+The desktop container's RevDial client (`api/cmd/desktop-bridge/main.go`) requires:
+```go
+runnerToken := os.Getenv("USER_API_TOKEN") // User's API token for auth
+```
+
+This should be set by `addUserAPITokenToAgent()` in `api/pkg/server/external_agent_handlers.go`:
+```go
+agent.Env = append(agent.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+```
+
+Which adds (from `api/pkg/types/types.go`):
+```go
+return []string{
+    "USER_API_TOKEN=" + apiKey,
+    "ANTHROPIC_API_KEY=" + apiKey,
+    "OPENAI_API_KEY=" + apiKey,
+    "ZED_HELIX_TOKEN=" + apiKey,
+}
+```
+
+**Why it's not working on inner stack:**
+
+The inner API was manually started with minimal configuration. When creating sessions:
+1. `GetOrCreateSessionAPIKey()` may be failing due to database/config issues
+2. Or the session creation path used doesn't call `addUserAPITokenToAgent()`
+3. The fallback sets `ZED_HELIX_TOKEN=inner-runner-token` (runner token, not user token)
+
+**Fix Required:**
+
+For helix-in-helix to work fully, the inner API must:
+1. Have proper API key generation working (`api_keys` table in postgres)
+2. The session creation path must call `addUserAPITokenToAgent()` or `buildEnvWithLocale()`
+
+**Workaround for testing:**
+Start desktop container with explicit `USER_API_TOKEN` environment variable pointing to a valid inner API key.
+
+**Next Steps:**
+1. Verify the inner API's key generation is working
+2. Check if the session creation endpoint is correctly calling the token injection
+3. Add logging to diagnose where the flow breaks
+
+---
+
 ## References
 
 - [Hydra Architecture Deep Dive](./2025-12-07-hydra-architecture-deep-dive.md)
