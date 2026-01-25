@@ -1050,6 +1050,99 @@ Start desktop container with explicit `USER_API_TOKEN` environment variable poin
 
 ---
 
+## 2026-01-25 19:50 - HELIX-IN-HELIX FULLY WORKING ✅
+
+**Session:** ses_01kfvb3nvngg6rew58hg3qdxwc (on inner stack)
+
+**FULL SUCCESS:** The complete Helix-in-Helix pipeline is now functional:
+
+### Working Components
+
+| Component | Status | Evidence |
+|-----------|--------|----------|
+| Inner API (port 30000) | ✅ | API calls work via outer proxy |
+| Inner Sandbox → Inner API RevDial | ✅ | `✅ RevDial control connection established` |
+| Desktop Container Spawn | ✅ | `ubuntu-external-01kfvb3nvngg6rew58hg3qdxwc` running |
+| Desktop → Inner API RevDial | ✅ | Chat messages received, screenshots work |
+| Zed IDE + Project | ✅ | Screenshot shows IDE with helix-specs and inner-todo-app-1 |
+| Screenshot via RevDial | ✅ | 1920x1080 image captured successfully |
+| Chat Messages | ✅ | Spec generation prompt delivered to desktop |
+
+### Image Transfer Solution
+
+The inner sandbox didn't have the desktop image. Solution:
+
+```bash
+# 1. Save image from outer sandbox
+docker compose exec -T sandbox-nvidia docker save helix-ubuntu:6ba9a8 -o /tmp/helix-ubuntu.tar
+
+# 2. Copy to host
+docker cp $(docker compose ps -q sandbox-nvidia):/tmp/helix-ubuntu.tar /tmp/helix-ubuntu-6ba9a8.tar
+
+# 3. Copy into inner sandbox
+docker cp /tmp/helix-ubuntu-6ba9a8.tar helix-inner-sandbox-test:/tmp/helix-ubuntu.tar
+
+# 4. Load in inner sandbox's Docker
+docker exec helix-inner-sandbox-test docker load -i /tmp/helix-ubuntu.tar
+# Output: Loaded image: helix-ubuntu:6ba9a8
+```
+
+**Note:** Piping `docker save | docker exec docker load` corrupts the stream. Must save to file first.
+
+### Full Architecture Working
+
+```
+User's Machine
+    ↓ http://localhost:30000
+Dev Desktop (outer Helix session)
+    ↓ Port exposure proxy (8080 → 30000)
+Inner Helix API (port 8080)
+    ↓ RevDial
+Inner Sandbox (helix-inner-sandbox-test on host Docker)
+    ↓ Spawns containers
+Inner Desktop Container (ubuntu-external-xxx)
+    ↓ RevDial back to inner API
+    ↓
+Zed IDE with project cloned, AI agent ready
+```
+
+### False Alarm: Status Endpoint
+
+The `/api/v1/external-agents/{sessionID}/status` endpoint was returning "Not Found" because **that endpoint doesn't exist**. Looking at `server.go`, the registered external-agent endpoints are:
+
+- `/external-agents/{sessionID}/screenshot` ✅ (works)
+- `/external-agents/{sessionID}/clipboard`
+- `/external-agents/{sessionID}/upload`
+- `/external-agents/{sessionID}/input`
+- `/external-agents/{sessionID}/ws/stream`
+- etc.
+
+There is no `/status` endpoint - it was a false assumption. The actual functionality (screenshots, chat messages, RevDial) all works.
+
+### Screenshot Proof
+
+Screenshot captured from inner session shows:
+1. **Zed IDE** running in the inner desktop
+2. **helix-specs** project open with `design/tasks/000002_testing` directory
+3. **inner-todo-app-1** (forked sample project) visible
+4. **Spec generation prompt** received via RevDial in "New Thread" panel
+5. **Claude Sonnet 4.5** selected as AI model
+
+### What This Proves
+
+1. **Full stack nesting works**: Helix API → Sandbox → Desktop → Inner API → Inner Sandbox → Inner Desktop
+2. **RevDial chains work**: Multiple RevDial connections can be nested (inner sandbox to inner API, inner desktop to inner API)
+3. **Port exposure works**: The outer API can proxy to inner API via exposed ports
+4. **Image distribution works**: Desktop images can be transferred to inner sandboxes
+5. **Spectask creation works**: Inner control plane can create and run tasks
+
+### Remaining Minor Issues
+
+1. **CLI timeout**: The `spectask start` CLI times out before session status propagates, but the session actually starts and works
+2. **USER_API_TOKEN**: May still have issues in some code paths (see previous section)
+
+---
+
 ## References
 
 - [Hydra Architecture Deep Dive](./2025-12-07-hydra-architecture-deep-dive.md)
