@@ -30,7 +30,6 @@ import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import Fleet from './pages/Fleet'
 import QuestionSets from './pages/QuestionSets'
 import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepos from './pages/GitRepos'
@@ -62,7 +61,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'projects',
     path: routePrefix + (routePrefix ? '' : '/'),
     meta: {
-      title: 'Swarm',
+      title: 'Projects',
       drawer: true,
       orgRouteAware: true,
     },
