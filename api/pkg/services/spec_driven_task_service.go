@@ -932,6 +932,12 @@ func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []st
 	// Use shared helper for API-related env vars (same as addUserAPITokenToAgent in external_agent_handlers.go)
 	env := types.DesktopAgentAPIEnvVars(userAPIKey)
 
+	// Log token injection for debugging helix-in-helix issues
+	log.Info().
+		Int("token_env_vars_count", len(env)).
+		Bool("user_api_key_set", userAPIKey != "").
+		Msg("✅ buildEnvWithLocale: Added API tokens (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
+
 	// Add keyboard layout if specified (from browser locale detection)
 	if opts.KeyboardLayout != "" {
 		env = append(env, fmt.Sprintf("XKB_DEFAULT_LAYOUT=%s", opts.KeyboardLayout))

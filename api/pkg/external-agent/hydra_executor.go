@@ -842,6 +842,19 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
+	hasUserAPIToken := false
+	for _, e := range agent.Env {
+		if strings.HasPrefix(e, "USER_API_TOKEN=") {
+			hasUserAPIToken = true
+			break
+		}
+	}
+	log.Info().
+		Int("agent_env_count", len(agent.Env)).
+		Bool("has_user_api_token", hasUserAPIToken).
+		Str("session_id", agent.SessionID).
+		Msg("buildEnvVars: Appending agent.Env (USER_API_TOKEN should be present for RevDial)")
+
 	env = append(env, agent.Env...)
 
 	return env

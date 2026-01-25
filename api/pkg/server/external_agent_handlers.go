@@ -45,13 +45,16 @@ func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, age
 
 	// Add API tokens to agent environment
 	// These are appended LAST in hydra_executor.go, overriding runner token defaults
-	agent.Env = append(agent.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+	tokenEnvVars := types.DesktopAgentAPIEnvVars(apiKey)
+	agent.Env = append(agent.Env, tokenEnvVars...)
 
-	log.Debug().
+	log.Info().
 		Str("user_id", userID).
 		Str("session_id", agent.SessionID).
 		Str("spec_task_id", agent.SpecTaskID).
-		Msg("Added session-scoped API tokens to agent for git and LLM operations")
+		Int("token_env_vars_count", len(tokenEnvVars)).
+		Bool("user_api_token_set", apiKey != "").
+		Msg("✅ Added session-scoped API tokens to agent (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
 
 	return nil
 }
