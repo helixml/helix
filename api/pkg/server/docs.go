@@ -6840,6 +6840,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/secrets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all secrets associated with a specific project.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "List secrets for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Secret"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "Create a secret for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body with secret name and value.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/startup-script/history": {
             "get": {
                 "security": [
@@ -9294,6 +9366,155 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/expose": {
+            "get": {
+                "description": "Returns all ports currently exposed from the session's dev container",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List exposed ports for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ListExposedPortsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Makes a port from the session's dev container accessible via a public URL",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Expose a port from the session's dev container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Port to expose",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ExposePortRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ExposePortResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/expose/{port}": {
+            "delete": {
+                "description": "Removes public access to a previously exposed port",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Unexpose a port from the session's dev container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Port number",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session or port not found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -14353,6 +14574,76 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ExposePortRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "description": "defaults to \"http\"",
+                    "type": "string"
+                }
+            }
+        },
+        "server.ExposePortResponse": {
+            "type": "object",
+            "properties": {
+                "allocated_port": {
+                    "description": "for random port mode",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.ExposedPort": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "description": "\"http\" or \"tcp\"",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"active\", \"inactive\"",
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.ForkSampleProjectRequest": {
             "type": "object",
             "properties": {
@@ -14460,6 +14751,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "license_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ListExposedPortsResponse": {
+            "type": "object",
+            "properties": {
+                "exposed_ports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ExposedPort"
+                    }
+                },
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -14883,6 +15188,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "use_host_docker": {
+                    "description": "Enable host Docker access (for Helix-in-Helix dev)",
+                    "type": "boolean"
                 }
             }
         },
@@ -16906,6 +17215,24 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateSecretRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "optional, if set, the secret will be available to the specified project",
+                    "type": "string"
+                },
+                "value": {
                     "type": "string"
                 }
             }
@@ -21166,6 +21493,10 @@ const docTemplate = `{
                 },
                 "ownerType": {
                     "$ref": "#/definitions/types.OwnerType"
+                },
+                "project_id": {
+                    "description": "optional, if set, the secret will be available as env var in project sessions",
+                    "type": "string"
                 },
                 "updated": {
                     "type": "string"

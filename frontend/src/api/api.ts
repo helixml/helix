@@ -632,6 +632,35 @@ export interface ServerDevContainerWithClients {
   video_stats?: ServerVideoStreamingStats;
 }
 
+export interface ServerExposePortRequest {
+  name?: string;
+  port?: number;
+  /** defaults to "http" */
+  protocol?: string;
+}
+
+export interface ServerExposePortResponse {
+  /** for random port mode */
+  allocated_port?: number;
+  name?: string;
+  port?: number;
+  protocol?: string;
+  session_id?: string;
+  status?: string;
+  urls?: string[];
+}
+
+export interface ServerExposedPort {
+  created_at?: string;
+  name?: string;
+  port?: number;
+  /** "http" or "tcp" */
+  protocol?: string;
+  /** "active", "inactive" */
+  status?: string;
+  url?: string;
+}
+
 export interface ServerForkSampleProjectRequest {
   description?: string;
   private?: boolean;
@@ -674,6 +703,11 @@ export interface ServerInteractionWithContext {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerListExposedPortsResponse {
+  exposed_ports?: ServerExposedPort[];
+  session_id?: string;
 }
 
 export interface ServerLogsSummary {
@@ -838,6 +872,8 @@ export interface ServerSimpleSampleProject {
   readme_url?: string;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
+  /** Enable host Docker access (for Helix-in-Helix dev) */
+  use_host_docker?: boolean;
 }
 
 export interface ServerSlotLogSummary {
@@ -1696,6 +1732,14 @@ export interface TypesCreateSampleRepositoryRequest {
   organization_id?: string;
   owner_id?: string;
   sample_type?: string;
+}
+
+export interface TypesCreateSecretRequest {
+  app_id?: string;
+  name?: string;
+  /** optional, if set, the secret will be available to the specified project */
+  project_id?: string;
+  value?: string;
 }
 
 export interface TypesCreateTaskRequest {
@@ -3468,6 +3512,8 @@ export interface TypesSecret {
   name?: string;
   owner?: string;
   ownerType?: TypesOwnerType;
+  /** optional, if set, the secret will be available as env var in project sessions */
+  project_id?: string;
   updated?: string;
   value?: number[];
 }
@@ -8333,6 +8379,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all secrets associated with a specific project.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsDetail
+     * @summary List secrets for a project
+     * @request GET:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSecret[], any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsCreate
+     * @summary Create a secret for a project
+     * @request POST:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
+      this.request<TypesSecret, any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description Get git commit history for project startup script
      *
      * @tags Projects
@@ -9466,6 +9548,56 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns all ports currently exposed from the session's dev container
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDetail
+     * @summary List exposed ports for a session
+     * @request GET:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerListExposedPortsResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Makes a port from the session's dev container accessible via a public URL
+     *
+     * @tags sessions
+     * @name V1SessionsExposeCreate
+     * @summary Expose a port from the session's dev container
+     * @request POST:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
+      this.request<ServerExposePortResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes public access to a previously exposed port
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDelete
+     * @summary Unexpose a port from the session's dev container
+     * @request DELETE:/api/v1/sessions/{id}/expose/{port}
+     */
+    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/sessions/${id}/expose/${port}`,
+        method: "DELETE",
+        format: "json",
         ...params,
       }),
 
