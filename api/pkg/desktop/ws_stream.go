@@ -1560,6 +1560,10 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 
 	if err := streamer.Start(ctx); err != nil {
 		logger.Error("failed to start streamer", "err", err)
+		// Send error to WebSocket client so they see what went wrong
+		if sendErr := streamer.sendStreamError(err.Error()); sendErr != nil {
+			logger.Error("failed to send start error to client", "sendErr", sendErr)
+		}
 		return
 	}
 
