@@ -749,6 +749,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost) // Update for authenticated users
 	authRouter.HandleFunc("/auth/update", apiServer.accountUpdate).Methods(http.MethodPost)           // Update for authenticated users
 
+	// Anthropic OAuth for Claude Code BYOK
+	authRouter.HandleFunc("/auth/anthropic/authorize", apiServer.startAnthropicOAuth).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/anthropic/callback", apiServer.handleAnthropicOAuthCallback).Methods(http.MethodGet)
+
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations", apiServer.createOrganization).Methods(http.MethodPost)

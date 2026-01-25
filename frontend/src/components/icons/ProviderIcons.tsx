@@ -102,6 +102,13 @@ export const CrispLogo = (props: any) => (
   />
 )
 
+// Anthropic Logo SVG
+export const AnthropicLogo = (props: any) => (
+  <SvgIcon {...props} viewBox="0 0 24 24">
+    <path fill="currentColor" d="M17.557 3.09 12.702 16.063h2.63l.931-2.503h4.72l.931 2.503h2.63L19.694 3.09h-2.137Zm.326 8.288 1.46-3.927 1.46 3.927h-2.92ZM7.665 3.09 1.454 16.064h2.734l1.203-2.676h5.417l1.203 2.676h2.734L8.535 3.09h-.87Zm-.372 8.114L9.086 7.09l1.793 4.114H7.293Z"/>
+  </SvgIcon>
+);
+
 // All built-in icons export
 export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   github: <GitHubIcon sx={{ fontSize: 30 }} />,
@@ -115,6 +122,7 @@ export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   apple: <AppleIcon sx={{ fontSize: 30 }} />,
   hubspot: <HubspotLogo sx={{ fontSize: 30 }} />,
   crisp: <img src={crispLogo} style={{ width: 30, height: 30 }} alt="Crisp" />,
+  anthropic: <AnthropicLogo sx={{ fontSize: 30 }} />,
   custom: <CodeIcon sx={{ fontSize: 30 }} />,
 };
 
@@ -131,6 +139,7 @@ export const PROVIDER_COLORS: Record<string, string> = {
   apple: '#000000',
   hubspot: '#FF7A59',
   crisp: '#FF6B6B',
+  anthropic: '#D97757',
   custom: '#6c757d',
 };
 
@@ -147,6 +156,7 @@ export const PROVIDER_TYPES: Record<string, string> = {
   apple: 'Apple',
   hubspot: 'HubSpot',
   crisp: 'Crisp',
+  anthropic: 'Anthropic',
   custom: 'Custom',
 };
 
@@ -187,5 +197,10 @@ export const BUILT_IN_PROVIDERS: PartialOAuthProvider[] = [
     type: 'atlassian',
     name: 'Atlassian', // Uses OAuth 2.0
     description: 'Link to Jira, Confluence and other Atlassian products'
+  },
+  {
+    type: 'anthropic',
+    name: 'Anthropic (Claude Code)',
+    description: 'Connect your Claude subscription for AI-powered coding assistance'
   }
 ];

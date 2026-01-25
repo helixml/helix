@@ -72,6 +72,7 @@ type ListDataEntitiesQuery struct {
 type ListProviderEndpointsQuery struct {
 	Owner      string
 	OwnerType  types.OwnerType
+	Provider   types.Provider // Filter by provider type (openai, anthropic, etc.)
 	All        bool
 	WithGlobal bool
 }
@@ -79,6 +80,7 @@ type ListProviderEndpointsQuery struct {
 type GetProviderEndpointsQuery struct {
 	Owner     string
 	OwnerType types.OwnerType
+	Provider  types.Provider // Filter by provider type
 	ID        string
 	Name      string
 }

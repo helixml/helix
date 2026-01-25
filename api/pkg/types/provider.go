@@ -57,8 +57,9 @@ type ProviderEndpoint struct {
 	Updated        time.Time            `json:"updated"`
 	Name           string               `json:"name"`
 	Description    string               `json:"description"`
-	Models         pq.StringArray       `json:"models" gorm:"type:text[]"` // Optional
-	EndpointType   ProviderEndpointType `json:"endpoint_type"`             // global, user (TODO: orgs, teams)
+	Provider       Provider             `json:"provider" gorm:"type:text"`                 // openai, anthropic, togetherai, helix, vllm
+	Models         pq.StringArray       `json:"models" gorm:"type:text[]"`                 // Optional
+	EndpointType   ProviderEndpointType `json:"endpoint_type"`                             // global, user (TODO: orgs, teams)
 	Owner          string               `json:"owner"`
 	OwnerType      OwnerType            `json:"owner_type"` // user, system, org
 	BaseURL        string               `json:"base_url"`
@@ -116,6 +117,7 @@ type OpenAIModel struct {
 type UpdateProviderEndpoint struct {
 	Name         string               `json:"name"`
 	Description  string               `json:"description"`
+	Provider     Provider             `json:"provider"`      // openai, anthropic, togetherai, helix, vllm
 	Models       []string             `json:"models"`
 	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
 

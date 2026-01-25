@@ -255,23 +255,64 @@ const OAuthConnections: React.FC<{}> = () => {
   const startOAuthFlow = async (providerId: string) => {
     try {
       console.log('🍅 TOMATO: Starting OAuth flow with provider ID:', providerId);
-      
+
       // Skip attempting to connect if this is a builtin template provider
       if (providerId.startsWith('builtin-')) {
         error('This provider is not configured by your administrator');
         console.error('🍅 TOMATO: Tried to start OAuth flow with a builtin template provider:', providerId);
         return;
       }
-      
+
       // Get provider details to log for debugging
       const providerDetails = providers.find(p => p.id === providerId);
       console.log('🍅 TOMATO: Found provider in state before API call:', providerDetails);
-      
+
+      // Handle Anthropic OAuth specially - it uses PKCE and has a separate endpoint
+      if (providerDetails?.type === 'anthropic') {
+        console.log('🍅 TOMATO: Using Anthropic-specific OAuth flow');
+        const response = await api.get('/api/v1/auth/anthropic/authorize');
+        console.log('🍅 TOMATO: Anthropic OAuth response:', response);
+
+        const authUrl = response?.auth_url;
+        if (!authUrl) {
+          error('Anthropic OAuth not configured. Please contact your administrator.');
+          return;
+        }
+
+        // Open Anthropic OAuth in a popup
+        const width = 800;
+        const height = 700;
+        const left = (window.innerWidth - width) / 2;
+        const top = (window.innerHeight - height) / 2;
+
+        const popup = window.open(
+          authUrl,
+          'anthropic-oauth-popup',
+          `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`
+        );
+
+        if (!popup) {
+          error('Popup blocked! Please allow popups to connect to Anthropic.');
+          return;
+        }
+
+        // Listen for Anthropic OAuth success message
+        window.addEventListener('message', function handleAnthropicOAuthMessage(event) {
+          if (event.data && event.data.type === 'anthropic-oauth-success') {
+            console.log('🍅 TOMATO: Received Anthropic OAuth success message');
+            window.removeEventListener('message', handleAnthropicOAuthMessage);
+            success('Successfully connected to Anthropic!');
+          }
+        });
+
+        return;
+      }
+
       // Ensure the provider ID is in the exact case as the database
       // This could help if there's a case sensitivity issue with UUIDs
       const normalizedProviderId = providerId.toLowerCase();
       console.log('🍅 TOMATO: Using normalized provider ID:', normalizedProviderId);
-      
+
       console.log('🍅 TOMATO: Calling API endpoint:', `/api/v1/oauth/flow/start/${normalizedProviderId}`);
       const response = await api.get(`/api/v1/oauth/flow/start/${normalizedProviderId}`)
       console.log('🍅 TOMATO: API response for OAuth flow:', response);

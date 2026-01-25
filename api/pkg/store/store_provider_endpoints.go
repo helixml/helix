@@ -75,6 +75,10 @@ func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, q *GetProviderE
 		query = query.Where("owner_type = ?", q.OwnerType)
 	}
 
+	if q.Provider != "" {
+		query = query.Where("provider = ?", q.Provider)
+	}
+
 	err := query.First(&providerEndpoint).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -88,6 +92,11 @@ func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, q *GetProviderE
 func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	var providerEndpoints []*types.ProviderEndpoint
 	query := s.gdb.Debug().WithContext(ctx)
+
+	// Filter by provider type if specified
+	if q.Provider != "" {
+		query = query.Where("provider = ?", q.Provider)
+	}
 
 	// If all is true, load all endpoints
 	if q.All {

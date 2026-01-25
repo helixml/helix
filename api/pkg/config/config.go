@@ -121,6 +121,10 @@ type Anthropic struct {
 	APIKeyFromFile        string        `envconfig:"ANTHROPIC_API_KEY_FILE"` // i.e. /run/secrets/anthropic-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
 	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
+
+	// OAuth configuration for Claude Code integration (BYOK)
+	OAuthClientID     string `envconfig:"ANTHROPIC_OAUTH_CLIENT_ID"`
+	OAuthClientSecret string `envconfig:"ANTHROPIC_OAUTH_CLIENT_SECRET"`
 }
 
 type Helix struct {

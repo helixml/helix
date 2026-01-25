@@ -19,6 +19,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/proxy"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -26,6 +27,7 @@ import (
 // The token is minted when the desktop starts and revoked when it shuts down.
 // This ensures RBAC is enforced - agent can only access repos the user can access.
 // Uses getAPIKeyForSession for consistent token selection logic across the codebase.
+// Also injects Anthropic credentials if available (API key from ProviderEndpoint or OAuth token).
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
 	if agent.SessionID == "" {
 		return fmt.Errorf("agent has no SessionID - session must be created before adding API token")
@@ -52,6 +54,102 @@ func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, age
 		Str("session_id", agent.SessionID).
 		Str("spec_task_id", agent.SpecTaskID).
 		Msg("Added session-scoped API tokens to agent for git and LLM operations")
+
+	// Add Anthropic credentials if available (for Claude Code)
+	if err := apiServer.addAnthropicCredentialsToAgent(ctx, agent, userID); err != nil {
+		// Log but don't fail - Anthropic credentials are optional
+		log.Debug().Err(err).Str("user_id", userID).Msg("No Anthropic credentials available for agent")
+	}
+
+	return nil
+}
+
+// addAnthropicCredentialsToAgent adds Anthropic API key or OAuth token to the agent environment.
+// It first checks for a user-owned ProviderEndpoint with an Anthropic API key,
+// then falls back to checking for an OAuth connection to Anthropic.
+func (apiServer *HelixAPIServer) addAnthropicCredentialsToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
+	// First, try to get API key from ProviderEndpoint
+	endpoints, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:    userID,
+		Provider: types.ProviderAnthropic,
+	})
+	if err == nil {
+		for _, ep := range endpoints {
+			if ep.APIKey != "" {
+				agent.Env = append(agent.Env, "ANTHROPIC_API_KEY="+ep.APIKey)
+				log.Debug().
+					Str("user_id", userID).
+					Str("endpoint_id", ep.ID).
+					Msg("Added Anthropic API key from ProviderEndpoint to agent")
+				return nil
+			}
+		}
+	}
+
+	// Fall back to OAuth connection
+	providers, err := apiServer.Store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Enabled: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list OAuth providers: %w", err)
+	}
+
+	// Find Anthropic provider
+	var anthropicProviderID string
+	for _, p := range providers {
+		if p.Type == types.OAuthProviderTypeAnthropic {
+			anthropicProviderID = p.ID
+			break
+		}
+	}
+
+	if anthropicProviderID == "" {
+		return fmt.Errorf("no Anthropic OAuth provider configured")
+	}
+
+	// Get user's connection to Anthropic
+	connection, err := apiServer.Store.GetOAuthConnectionByUserAndProvider(ctx, userID, anthropicProviderID)
+	if err != nil {
+		return fmt.Errorf("no Anthropic OAuth connection for user: %w", err)
+	}
+
+	// Check if token needs refreshing
+	if !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now()) {
+		// Try to refresh the token
+		if connection.RefreshToken != "" {
+			clientID := apiServer.Cfg.Providers.Anthropic.OAuthClientID
+			clientSecret := apiServer.Cfg.Providers.Anthropic.OAuthClientSecret
+
+			tokenResp, refreshErr := RefreshAnthropicToken(connection.RefreshToken, clientID, clientSecret)
+			if refreshErr != nil {
+				log.Warn().Err(refreshErr).Str("user_id", userID).Msg("Failed to refresh Anthropic OAuth token")
+				return fmt.Errorf("Anthropic OAuth token expired and refresh failed: %w", refreshErr)
+			}
+
+			// Update connection with new tokens
+			connection.AccessToken = tokenResp.AccessToken
+			if tokenResp.RefreshToken != "" {
+				connection.RefreshToken = tokenResp.RefreshToken
+			}
+			if tokenResp.ExpiresIn > 0 {
+				connection.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+			}
+
+			_, updateErr := apiServer.Store.UpdateOAuthConnection(ctx, connection)
+			if updateErr != nil {
+				log.Warn().Err(updateErr).Str("user_id", userID).Msg("Failed to update refreshed Anthropic OAuth token")
+			}
+		} else {
+			return fmt.Errorf("Anthropic OAuth token expired and no refresh token available")
+		}
+	}
+
+	// Add OAuth token to agent environment
+	agent.Env = append(agent.Env, "ANTHROPIC_AUTH_TOKEN="+connection.AccessToken)
+	log.Debug().
+		Str("user_id", userID).
+		Str("connection_id", connection.ID).
+		Msg("Added Anthropic OAuth token to agent")
 
 	return nil
 }
