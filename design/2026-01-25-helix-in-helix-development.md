@@ -887,6 +887,27 @@ Browser → Outer API (8080) → RevDial → Sandbox → Hydra → Desktop nginx
 
 ---
 
+## 2026-01-25 20:30 - Startup Script Integration Fix
+
+**Issue:** The startup script (`scripts/helix-dev-setup.sh`) was written but not integrated into the sample project code service. When forking the "helix-in-helix" sample project, no startup script would be included.
+
+**Fix:** Added the helix-in-helix project to `sample_project_code_service.go` with the startup script inline. Commit: `2ba0c884f`.
+
+**What still needs testing:**
+1. Actually forking the helix-in-helix sample project from the UI
+2. Startup script running automatically on session start
+3. Session running with `HYDRA_PRIVILEGED_MODE_ENABLED=true`
+4. Sandboxes on outer/host Docker connecting to inner control plane
+5. Full "desktops inside desktops" flow
+
+**What was tested:**
+- Port proxy chain: API → RevDial → Hydra → Container ✓
+- Docker compose inside desktop container ✓
+- Port 8080 expose/proxy ✓
+- Code compiles ✓
+
+---
+
 ## References
 
 - [Hydra Architecture Deep Dive](./2025-12-07-hydra-architecture-deep-dive.md)
