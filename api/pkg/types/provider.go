@@ -14,6 +14,7 @@ const (
 	ProviderAnthropic  Provider = "anthropic"
 	ProviderHelix      Provider = "helix"
 	ProviderVLLM       Provider = "vllm"
+	ProviderVertexAI   Provider = "vertexai" // Google Vertex AI (for Claude models via Vertex)
 )
 
 var GlobalProviders = []string{
@@ -22,6 +23,7 @@ var GlobalProviders = []string{
 	string(ProviderAnthropic),
 	string(ProviderHelix),
 	string(ProviderVLLM),
+	string(ProviderVertexAI),
 }
 
 func IsGlobalProvider(provider string) bool {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -101,6 +102,24 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 		provider = "anthropic"
 	}
 
+	// Priority order for Anthropic credentials:
+	// 1. User's own BYOK API key (ProviderEndpoint with provider=anthropic)
+	// 2. User's Claude subscription OAuth token (OAuthConnection)
+	// 3. Organization's provider endpoint
+	// 4. Built-in system provider (from ANTHROPIC_API_KEY env var)
+
+	// 1. Check for user's own Anthropic API key (BYOK)
+	if provider == "anthropic" || provider == string(types.ProviderAnthropic) {
+		userEndpoint, err := s.getUserAnthropicEndpoint(ctx, user.ID)
+		if err == nil && userEndpoint != nil {
+			log.Debug().
+				Str("user_id", user.ID).
+				Str("endpoint_id", userEndpoint.ID).
+				Msg("Using user's Anthropic API key for proxy")
+			return userEndpoint, nil
+		}
+	}
+
 	if orgID != "" {
 		_, err := s.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
@@ -143,6 +162,95 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	// Fall back to built-in Anthropic provider from environment variables
 	// This allows ANTHROPIC_API_KEY to work without database configuration
 	return s.getBuiltInProviderEndpoint(provider)
+}
+
+// getUserAnthropicEndpoint returns a ProviderEndpoint for the user's Anthropic credentials.
+// It first checks for a user-owned ProviderEndpoint with an Anthropic API key,
+// then falls back to checking for an OAuth connection to Anthropic.
+func (s *HelixAPIServer) getUserAnthropicEndpoint(ctx context.Context, userID string) (*types.ProviderEndpoint, error) {
+	// First, try to get API key from user's ProviderEndpoint
+	endpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:    userID,
+		Provider: types.ProviderAnthropic,
+	})
+	if err == nil {
+		for _, ep := range endpoints {
+			if ep.APIKey != "" {
+				return ep, nil
+			}
+		}
+	}
+
+	// Fall back to OAuth connection
+	providers, err := s.Store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Enabled: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list OAuth providers: %w", err)
+	}
+
+	// Find Anthropic provider
+	var anthropicProviderID string
+	for _, p := range providers {
+		if p.Type == types.OAuthProviderTypeAnthropic {
+			anthropicProviderID = p.ID
+			break
+		}
+	}
+
+	if anthropicProviderID == "" {
+		return nil, fmt.Errorf("no Anthropic OAuth provider configured")
+	}
+
+	// Get user's connection to Anthropic
+	connection, err := s.Store.GetOAuthConnectionByUserAndProvider(ctx, userID, anthropicProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("no Anthropic OAuth connection for user: %w", err)
+	}
+
+	// Check if token needs refreshing
+	if !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now()) {
+		// Try to refresh the token
+		if connection.RefreshToken != "" {
+			clientID := s.Cfg.Providers.Anthropic.OAuthClientID
+			clientSecret := s.Cfg.Providers.Anthropic.OAuthClientSecret
+
+			tokenResp, refreshErr := RefreshAnthropicToken(connection.RefreshToken, clientID, clientSecret)
+			if refreshErr != nil {
+				log.Warn().Err(refreshErr).Str("user_id", userID).Msg("Failed to refresh Anthropic OAuth token")
+				return nil, fmt.Errorf("Anthropic OAuth token expired and refresh failed: %w", refreshErr)
+			}
+
+			// Update connection with new tokens
+			connection.AccessToken = tokenResp.AccessToken
+			if tokenResp.RefreshToken != "" {
+				connection.RefreshToken = tokenResp.RefreshToken
+			}
+			if tokenResp.ExpiresIn > 0 {
+				connection.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+			}
+
+			_, updateErr := s.Store.UpdateOAuthConnection(ctx, connection)
+			if updateErr != nil {
+				log.Warn().Err(updateErr).Str("user_id", userID).Msg("Failed to update refreshed Anthropic OAuth token")
+			}
+		} else {
+			return nil, fmt.Errorf("Anthropic OAuth token expired and no refresh token available")
+		}
+	}
+
+	// Return a synthetic ProviderEndpoint with the OAuth token as the API key
+	return &types.ProviderEndpoint{
+		ID:             "oauth-" + connection.ID,
+		Name:           "Anthropic (Claude Subscription)",
+		Description:    "User's Claude subscription via OAuth",
+		BaseURL:        s.Cfg.Providers.Anthropic.BaseURL,
+		APIKey:         connection.AccessToken, // OAuth token used as bearer token
+		EndpointType:   types.ProviderEndpointTypeUser,
+		Owner:          userID,
+		OwnerType:      types.OwnerTypeUser,
+		BillingEnabled: false, // User's own subscription, no Helix billing
+	}, nil
 }
 
 // getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider

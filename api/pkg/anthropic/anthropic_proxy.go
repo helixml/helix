@@ -32,6 +32,7 @@ type Proxy struct {
 	logStores             []logger.LogStore
 	billingLogger         logger.LogStore
 	modelInfoProvider     model.ModelInfoProvider
+	vertexAITransformer   *VertexAITransformer
 	wg                    sync.WaitGroup
 }
 
@@ -42,6 +43,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		anthropicReverseProxy: httputil.NewSingleHostReverseProxy(nil),
 		logStores:             logStores,
 		modelInfoProvider:     modelInfoProvider,
+		vertexAITransformer:   NewVertexAITransformer(),
 		wg:                    sync.WaitGroup{},
 	}
 
@@ -108,6 +110,19 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 		return
 	}
 
+	// Check if this is a Vertex AI endpoint
+	if IsVertexAIEndpoint(endpoint) {
+		err := s.vertexAITransformer.ModifyRequestForVertexAI(r, endpoint)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to transform request for Vertex AI")
+			// Fall through to standard handling - this will likely fail but provide better error
+		} else {
+			// Vertex AI transformation handled URL, headers, and body
+			return
+		}
+	}
+
+	// Standard Anthropic API handling
 	u, err := url.Parse(endpoint.BaseURL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse provider endpoint URL")
