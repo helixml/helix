@@ -521,6 +521,7 @@ RUN apt-get update && apt-get install -y \
     gnome-screenshot \
     vulkan-tools \
     ffmpeg \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background

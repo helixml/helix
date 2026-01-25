@@ -3846,11 +3846,51 @@ cd "$WORKSPACE/helix"
 # Start the inner Helix stack
 ./stack start
 
+# Wait for containers to be ready
+sleep 5
+
+# Connect this container to the inner stack's network so we can reach the API
+# The inner stack creates a "helix_default" network
+CONTAINER_ID=$(cat /etc/hostname)
+if docker network inspect helix_default >/dev/null 2>&1; then
+    echo -e "${GREEN}7. Connecting to inner stack network...${NC}"
+    docker network connect helix_default "$CONTAINER_ID" 2>/dev/null || true
+
+    # Find the inner API container name
+    INNER_API=$(docker ps --filter "name=api" --format "{{.Names}}" | head -1)
+    if [ -n "$INNER_API" ]; then
+        echo "   Inner API container: $INNER_API"
+
+        # Create convenience alias
+        echo "export INNER_API_HOST=$INNER_API" >> "$WORKSPACE/.helix-dev-env"
+
+        # Set up port forwarding from localhost:8080 to inner API
+        # This allows the expose endpoint to work (it proxies to localhost:8080)
+        echo -e "${GREEN}8. Setting up port forwarding to inner API...${NC}"
+
+        # Use socat to forward localhost:8080 to inner API container
+        if command -v socat &> /dev/null; then
+            # Kill any existing socat on port 8080
+            pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
+
+            # Start socat in background to forward localhost:8080 -> inner API
+            nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:$INNER_API:8080 > /tmp/socat-8080.log 2>&1 &
+            echo "   Port forwarding: localhost:8080 -> $INNER_API:8080"
+            echo "   Test with: curl http://localhost:8080/api/v1/config"
+        else
+            echo "   Warning: socat not installed, port forwarding not available"
+            echo "   Access inner API directly at: http://$INNER_API:8080"
+        fi
+    fi
+fi
+
 echo ""
 echo -e "${GREEN}Inner control plane started!${NC}"
 echo ""
+echo "The inner API is accessible at: http://$INNER_API:8080"
+echo ""
 echo "Next steps:"
-echo "  1. Wait for API to be ready: curl http://localhost:8080/health"
+echo "  1. Test the inner API: curl http://$INNER_API:8080/api/v1/config"
 echo "  2. Expose the API port: cd ~/helix-workspace && ./expose-inner-api.sh"
 echo "  3. Start outer sandbox: ./start-outer-sandbox.sh"
 echo ""

@@ -895,18 +895,30 @@ Browser → Outer API (8080) → RevDial → Sandbox → Hydra → Desktop nginx
 
 **Update:** Startup script now runs `./stack start` automatically (commit `959531c8d`).
 
-**What still needs testing:**
-1. Actually forking the helix-in-helix sample project from the UI
-2. Startup script running and starting inner control plane automatically
+**Update 2:** Added network bridging and port forwarding (commit `909e9e040`):
+- Startup script connects desktop container to helix_default network
+- Uses socat to forward localhost:8080 → inner API container
+- Added socat package to desktop image
+
+**Tested in live session:**
+- Sample project forked successfully ✓
+- Startup script ran and cloned all repos ✓
+- Inner control plane started (postgres, api, chrome) ✓
+- Desktop container connected to helix_default network ✓
+- API accessible at http://helix-task-937-api-1:8080 from desktop ✓
+
+**What still needs testing after image rebuild:**
+1. socat port forwarding (socat added to Dockerfile but needs rebuild)
+2. Expose endpoint proxying to localhost:8080 (depends on socat)
 3. Session running with `HYDRA_PRIVILEGED_MODE_ENABLED=true`
 4. Sandboxes on outer/host Docker connecting to inner control plane
 5. Full "desktops inside desktops" flow
 
-**What was tested:**
-- Port proxy chain: API → RevDial → Hydra → Container ✓
-- Docker compose inside desktop container ✓
-- Port 8080 expose/proxy ✓
-- Code compiles ✓
+**To test after rebuild:**
+```bash
+./stack build-ubuntu  # Rebuild desktop image with socat
+# Then create new session and verify expose endpoint works
+```
 
 ---
 
