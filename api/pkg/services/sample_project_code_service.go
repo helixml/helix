@@ -3831,15 +3831,28 @@ echo -e "${BLUE}======================================${NC}"
 echo ""
 echo "Workspace: $WORKSPACE"
 echo ""
-echo "Quick Start:"
-echo "  1. Source the environment: source ~/.helix-dev-env"
-echo "  2. Start inner control plane: ./start-inner-stack.sh"
-echo "  3. Expose the inner API: ./expose-inner-api.sh"
-echo "  4. Start outer sandbox: ./start-outer-sandbox.sh"
-echo ""
 echo "Docker commands:"
 echo "  docker-inner ps           - List containers on inner Docker"
 echo "  docker-outer ps           - List containers on host Docker"
+echo ""
+
+# Source the environment for this session
+source "$WORKSPACE/.helix-dev-env"
+
+echo -e "${GREEN}6. Starting inner control plane...${NC}"
+echo ""
+cd "$WORKSPACE/helix"
+
+# Start the inner Helix stack
+./stack start
+
+echo ""
+echo -e "${GREEN}Inner control plane started!${NC}"
+echo ""
+echo "Next steps:"
+echo "  1. Wait for API to be ready: curl http://localhost:8080/health"
+echo "  2. Expose the API port: cd ~/helix-workspace && ./expose-inner-api.sh"
+echo "  3. Start outer sandbox: ./start-outer-sandbox.sh"
 echo ""
 `,
 		GitIgnore: `.DS_Store

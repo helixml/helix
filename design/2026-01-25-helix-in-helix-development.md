@@ -893,9 +893,11 @@ Browser → Outer API (8080) → RevDial → Sandbox → Hydra → Desktop nginx
 
 **Fix:** Added the helix-in-helix project to `sample_project_code_service.go` with the startup script inline. Commit: `2ba0c884f`.
 
+**Update:** Startup script now runs `./stack start` automatically (commit `959531c8d`).
+
 **What still needs testing:**
 1. Actually forking the helix-in-helix sample project from the UI
-2. Startup script running automatically on session start
+2. Startup script running and starting inner control plane automatically
 3. Session running with `HYDRA_PRIVILEGED_MODE_ENABLED=true`
 4. Sandboxes on outer/host Docker connecting to inner control plane
 5. Full "desktops inside desktops" flow
