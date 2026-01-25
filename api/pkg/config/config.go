@@ -438,6 +438,12 @@ type WebServer struct {
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
+	// DevSubdomain enables subdomain-based virtual hosting for dev container ports.
+	// Format: "dev.helix.example.com" (full domain) or "dev" (uses SERVER_URL domain).
+	// When enabled, requests to p{port}-{session_id}.dev.domain.com are proxied to the session's port.
+	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
+	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
+
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.

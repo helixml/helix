@@ -598,6 +598,64 @@ The color discovery happens during implementation, and that learning gets captur
 			},
 		},
 	},
+	{
+		ID:            "helix-in-helix",
+		Name:          "Helix-in-Helix Development",
+		Description:   "Develop Helix itself inside a Helix cloud desktop - includes Helix API, Zed IDE fork, and Qwen Code agent",
+		GitHubRepo:    "helixml/helix",
+		DefaultBranch: "main",
+		Technologies:  []string{"Go", "TypeScript", "React", "Docker", "Rust", "PipeWire"},
+		ReadmeURL:     "https://github.com/helixml/helix/blob/main/README.md",
+		DemoURL:       "",
+		Difficulty:    "advanced",
+		Category:      "infrastructure",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt: `Set up the Helix development environment:
+1. Clone the Helix repository if not already present
+2. Clone the Zed fork (github.com/helixml/zed)
+3. Clone the Qwen Code fork (github.com/helixml/qwen-code)
+4. Run the setup script at ~/helix-dev-setup.sh to configure Docker endpoints
+5. Start the development stack with './start-inner-stack.sh'
+
+IMPORTANT: This session must have HYDRA_PRIVILEGED_MODE_ENABLED=true to access host Docker.
+
+Architecture:
+- Inner Docker (/var/run/docker.sock): Run the Helix control plane
+- Outer Docker (/var/run/host-docker.sock): Run test sandboxes
+- Service Exposure: Use the /sessions/{id}/expose endpoint to make inner services accessible`,
+				Priority: "critical",
+				Labels:   []string{"setup", "development", "infrastructure"},
+			},
+			{
+				Prompt: `Add a new feature to Helix: implement the /sessions/{id}/expose endpoint.
+This endpoint should allow users to expose ports from their dev containers to the outside world.
+The API should proxy HTTP requests to services running inside the dev container.
+See the design doc at design/2026-01-25-helix-in-helix-development.md for details.`,
+				Priority: "high",
+				Labels:   []string{"feature", "api", "networking"},
+			},
+			{
+				Prompt: `Test the Helix-in-Helix setup end-to-end:
+1. Start the inner control plane (API, DB, frontend) on Hydra's Docker
+2. Expose the API port using the expose endpoint
+3. Start a test sandbox on host Docker pointing to the exposed API
+4. Verify the sandbox can connect and create sessions
+5. Document any issues found`,
+				Priority: "high",
+				Labels:   []string{"testing", "integration", "documentation"},
+			},
+			{
+				Prompt: `Build Zed IDE from the helixml/zed fork:
+1. Install Rust toolchain if needed
+2. Run the build script: ./stack build-zed
+3. Verify the binary is created at zed-build/zed
+4. Build the desktop image: ./stack build-sway`,
+				Priority: "medium",
+				Labels:   []string{"build", "zed", "ide"},
+			},
+		},
+	},
 }
 
 // listSimpleSampleProjects godoc

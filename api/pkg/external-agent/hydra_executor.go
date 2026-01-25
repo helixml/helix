@@ -372,6 +372,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.GPUVendor = resp.GPUVendor
 		dbSession.Metadata.RenderNode = resp.RenderNode
 
+		// Store sandbox ID on the session for port proxying
+		dbSession.SandboxID = sandboxID
+
 		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 			log.Warn().Err(err).Str("session_id", agent.SessionID).Msg("Failed to update session metadata with container info")
 		}
@@ -384,6 +387,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Status:        "running",
 		ContainerName: resp.ContainerName,
 		ContainerIP:   resp.IPAddress,
+		SandboxID:     sandboxID,
 	}, nil
 }
 

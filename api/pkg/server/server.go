@@ -126,7 +126,8 @@ type HelixAPIServer struct {
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
-	wg                         sync.WaitGroup // Control for goroutines to enable tests
+	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
+	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 }
 
@@ -326,6 +327,9 @@ func NewServer(
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
 
+	// Initialize exposed port manager for dev container service exposure
+	apiServer.initExposedPortManager()
+
 	// Register Kodit MCP backend (code intelligence)
 	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
 
@@ -446,6 +450,21 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		}()
 	}
 
+	// Set up the HTTP handler, optionally wrapping with subdomain proxy
+	var handler http.Handler = apiServer.router
+
+	// Configure subdomain-based virtual hosting for dev container ports
+	subdomainConfig := parseDevSubdomainConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
+	if subdomainConfig.Enabled {
+		log.Info().
+			Str("dev_subdomain", subdomainConfig.DevSubdomain).
+			Str("base_domain", subdomainConfig.BaseDomain).
+			Msg("Subdomain proxy enabled for dev container ports")
+
+		subdomainMiddleware := NewSubdomainProxyMiddleware(subdomainConfig, apiServer.router, apiServer.router)
+		handler = subdomainMiddleware
+	}
+
 	srv := &http.Server{
 		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		// WriteTimeout and ReadTimeout set to 0 (no timeout) to support:
@@ -457,7 +476,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		ReadTimeout:       0,
 		ReadHeaderTimeout: time.Second * 60,
 		IdleTimeout:       time.Minute * 60,
-		Handler:           apiServer.router,
+		Handler:           handler,
 	}
 	return srv.ListenAndServe()
 }
@@ -600,6 +619,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
+
+	// Port exposure for dev containers - expose services running inside dev containers
+	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.exposeSessionPort)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.listExposedPorts)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/expose/{port}", system.Wrapper(apiServer.unexposeSessionPort)).Methods(http.MethodDelete)
+	// Proxy to exposed port (no auth for now - TODO: add optional auth)
+	subRouter.PathPrefix("/sessions/{id}/proxy/{port}").HandlerFunc(apiServer.proxyToSessionPort)
 
 	// Session TOC and turn-based navigation for agent context retrieval
 	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
