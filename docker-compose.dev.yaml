@@ -31,6 +31,8 @@ services:
         ipv4_address: 172.19.0.20
     ports:
       - ${API_PORT:-8080}:8080
+      # Port range for expose endpoint (port-based proxy for dev container services)
+      - "30000-30100:30000-30100"
     restart: always
     env_file:
       - .env

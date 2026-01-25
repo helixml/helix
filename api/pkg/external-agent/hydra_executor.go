@@ -265,7 +265,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	// Build mounts
-	mounts := h.buildMounts(agent, workspaceDir, containerType)
+	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
@@ -850,7 +850,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 // buildMounts builds volume mounts for the container
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
-func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string) []hydra.MountConfig {
+// useHostDocker: if true, also mount the host Docker socket for privileged mode
+func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool) []hydra.MountConfig {
 	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
@@ -907,6 +908,17 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Destination: "/tmp/cores",
 		ReadOnly:    false,
 	})
+
+	// Host Docker socket for privileged mode (Helix-in-Helix development)
+	// When enabled, allows the desktop container to create sandboxes on the host Docker
+	// instead of trying to run DinD-in-DinD (which fails with overlay2 storage driver)
+	if useHostDocker {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      "/var/run/host-docker.sock",
+			Destination: "/var/run/host-docker.sock",
+			ReadOnly:    false,
+		})
+	}
 
 	return mounts
 }

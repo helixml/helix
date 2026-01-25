@@ -922,6 +922,53 @@ Browser → Outer API (8080) → RevDial → Sandbox → Hydra → Desktop nginx
 
 ---
 
+## 2026-01-25 22:45 - DinD-in-DinD Testing Results
+
+**Session:** ses_01kftrmss8skdz0bf5mctvv778
+
+**After rebuilding desktop image with socat:**
+
+1. ✅ **Desktop image rebuilt** with socat: `./stack build-ubuntu` (version 6ba9a8)
+
+2. ✅ **socat port forwarding working:**
+   - Startup script now forwards localhost:8080 → inner API container
+   - Command: `socat TCP-LISTEN:8080,fork,reuseaddr TCP:helix-task-937-api-1:8080`
+   - Test: `curl http://localhost:8080/api/v1/config` returns inner API config
+
+3. ✅ **Expose endpoint working:**
+   - POST `/sessions/{id}/expose` succeeds
+   - Proxy chain: Browser → Outer API → RevDial → Desktop (localhost:8080) → socat → Inner API
+
+4. ✅ **helix CLI working inside desktop:**
+   - Built CLI locally and copied to desktop container
+   - `helix spectask list` works with inner API
+
+5. ❌ **DinD-in-DinD fails for inner sandbox:**
+   - Tried to start sandbox-nvidia service in inner stack
+   - Error: `failed to mount overlay: operation not permitted`
+   - `failed to start daemon: error initializing graphdriver: driver not supported: overlay2`
+   - This is a fundamental Linux kernel limitation - overlay2 cannot mount on top of overlay filesystems
+
+**Conclusion:** The "desktops inside desktops" vision requires privileged mode where:
+- Inner control plane runs on inner Docker (Hydra's DinD) ✓
+- Sandboxes run on HOST Docker (via /var/run/host-docker.sock)
+
+The current session doesn't have privileged mode enabled. To complete the full flow:
+1. Restart sandbox with `HYDRA_PRIVILEGED_MODE_ENABLED=true`
+2. Mount host Docker socket to desktop containers when privileged mode is on
+3. Inner stack sandboxes use host Docker instead of inner Docker
+
+**What works today:**
+- Helix-in-Helix development: Edit code, run builds, test API changes ✓
+- Inner control plane fully functional: API, Postgres, Chrome ✓
+- Service exposure via proxy endpoint ✓
+
+**What requires privileged mode:**
+- Running sandboxes in inner stack
+- "Desktops inside desktops" demo
+
+---
+
 ## References
 
 - [Hydra Architecture Deep Dive](./2025-12-07-hydra-architecture-deep-dive.md)

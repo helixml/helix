@@ -27,6 +27,7 @@ type SimpleSampleProject struct {
 	DemoURL       string             `json:"demo_url,omitempty"`
 	Difficulty    string             `json:"difficulty"`
 	Category      string             `json:"category"`
+	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 }
 
 // SampleTaskPrompt follows Kiro's approach - just natural language prompts
@@ -609,6 +610,7 @@ The color discovery happens during implementation, and that learning gets captur
 		DemoURL:       "",
 		Difficulty:    "advanced",
 		Category:      "infrastructure",
+		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 		TaskPrompts: []SampleTaskPrompt{
 			{
 				Prompt: `Set up the Helix development environment:
@@ -1321,6 +1323,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Store labels directly (GORM serializer handles JSON conversion)
 		task.Labels = taskPrompt.Labels
+
+		// Set UseHostDocker from sample project (e.g., helix-in-helix needs host Docker)
+		task.UseHostDocker = sampleProject.UseHostDocker
 
 		// Store sample project ID in metadata
 		task.Metadata = map[string]interface{}{

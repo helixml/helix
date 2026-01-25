@@ -3843,11 +3843,53 @@ echo -e "${GREEN}6. Starting inner control plane...${NC}"
 echo ""
 cd "$WORKSPACE/helix"
 
-# Start the inner Helix stack
-./stack start
+# Create .env file for the inner stack
+cat > .env << 'INNER_ENV'
+# Inner Helix Control Plane Configuration
+RUNNER_TOKEN=inner-runner-token
+AUTH_PROVIDER=regular
+SERVER_URL=http://localhost:8080
 
-# Wait for containers to be ready
-sleep 5
+# Disable features that require external dependencies
+RAG_CRAWLER_LAUNCHER_ENABLED=true
+
+# Use the chrome container for browser-based operations
+INNER_ENV
+
+echo "   Created .env file for inner stack"
+
+# Start the full control plane stack using docker compose
+# This includes: postgres, api, chrome (for RAG crawler)
+echo "   Starting control plane services..."
+docker compose up -d postgres chrome
+
+# Wait for postgres to be ready
+echo "   Waiting for postgres to be ready..."
+for i in {1..30}; do
+    if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        echo "   Postgres is ready"
+        break
+    fi
+    sleep 1
+done
+
+# Start the API
+docker compose up -d api
+
+# Wait for API to be ready
+echo "   Waiting for API to be ready..."
+for i in {1..60}; do
+    if docker compose exec -T api curl -s http://localhost:8080/api/v1/config >/dev/null 2>&1; then
+        echo "   API is ready"
+        break
+    fi
+    sleep 2
+done
+
+# Show running containers
+echo ""
+echo "   Running containers:"
+docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
 
 # Connect this container to the inner stack's network so we can reach the API
 # The inner stack creates a "helix_default" network
@@ -3889,10 +3931,90 @@ echo -e "${GREEN}Inner control plane started!${NC}"
 echo ""
 echo "The inner API is accessible at: http://$INNER_API:8080"
 echo ""
-echo "Next steps:"
-echo "  1. Test the inner API: curl http://$INNER_API:8080/api/v1/config"
-echo "  2. Expose the API port: cd ~/helix-workspace && ./expose-inner-api.sh"
-echo "  3. Start outer sandbox: ./start-outer-sandbox.sh"
+
+# Auto-start a sandbox on host Docker if available
+if [ -S /var/run/host-docker.sock ]; then
+    echo -e "${GREEN}9. Starting sandbox on host Docker...${NC}"
+
+    # Use host Docker
+    export DOCKER_HOST=unix:///var/run/host-docker.sock
+
+    # Check if sandbox image is available
+    if docker images | grep -q helix-sandbox; then
+        # Use session ID for unique sandbox name
+        SESSION_ID="${HELIX_SESSION_ID:-}"
+        if [ -z "$SESSION_ID" ]; then
+            echo -e "   ${RED}✗ HELIX_SESSION_ID not set${NC}"
+            echo "   Cannot expose port without session ID"
+        else
+            SANDBOX_NAME="helix-inner-sandbox-${SESSION_ID}"
+
+            # Expose port 8080 via the outer API's port-based proxy
+            # This allocates a unique port that proxies to our inner API
+            echo "   Exposing port 8080 via outer API..."
+
+            EXPOSE_RESPONSE=$(curl -s -X POST "${HELIX_API_URL}/api/v1/sessions/${SESSION_ID}/expose" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer ${HELIX_API_KEY}" \
+                -d '{"port": 8080, "protocol": "http", "name": "inner-api"}')
+
+            # Extract the port-based URL (second URL in the list, after subdomain URL)
+            # Format: {"urls": ["https://subdomain...", "http://host:30001", "http://path-based..."]}
+            ALLOCATED_PORT=$(echo "$EXPOSE_RESPONSE" | jq -r '.allocated_port // empty')
+
+            if [ -n "$ALLOCATED_PORT" ] && [ "$ALLOCATED_PORT" != "0" ]; then
+                # Get the outer API host from HELIX_API_URL
+                OUTER_API_HOST=$(echo "$HELIX_API_URL" | sed -E 's|https?://||' | cut -d: -f1 | cut -d/ -f1)
+                INNER_API_URL="http://${OUTER_API_HOST}:${ALLOCATED_PORT}"
+
+                echo -e "   ${GREEN}✓ Port exposed: ${ALLOCATED_PORT}${NC}"
+                echo "   Inner API URL: $INNER_API_URL"
+            else
+                # Fallback: try to get any URL from the response
+                INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | jq -r '.urls[0] // empty')
+                if [ -z "$INNER_API_URL" ]; then
+                    echo -e "   ${RED}✗ Failed to expose port${NC}"
+                    echo "   Response: $EXPOSE_RESPONSE"
+                    INNER_API_URL=""
+                else
+                    echo -e "   ${GREEN}✓ Port exposed${NC}"
+                    echo "   Inner API URL: $INNER_API_URL"
+                fi
+            fi
+
+            if [ -n "$INNER_API_URL" ]; then
+                echo "   Starting sandbox connecting to: $INNER_API_URL"
+
+                docker run -d \
+                    --name "$SANDBOX_NAME" \
+                    --privileged \
+                    -e HELIX_API_URL="$INNER_API_URL" \
+                    -e HELIX_API_BASE_URL="$INNER_API_URL" \
+                    -e RUNNER_TOKEN="demo-token" \
+                    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
+                    -e HYDRA_ENABLED=true \
+                    -e GPU_VENDOR=nvidia \
+                    helix-sandbox:latest
+
+                echo -e "   ${GREEN}✓ Sandbox started: $SANDBOX_NAME${NC}"
+                echo ""
+                echo "   View logs: DOCKER_HOST=unix:///var/run/host-docker.sock docker logs -f $SANDBOX_NAME"
+            fi
+        fi
+    else
+        echo -e "   ${YELLOW}⚠ helix-sandbox image not found on host Docker${NC}"
+        echo "   Build with: ./stack build-sandbox"
+    fi
+
+    # Reset DOCKER_HOST
+    unset DOCKER_HOST
+else
+    echo -e "${YELLOW}⚠ Host Docker not available - privileged mode not enabled${NC}"
+    echo "  To enable: Set HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox"
+fi
+
+echo ""
+echo -e "${GREEN}Helix-in-Helix development environment ready!${NC}"
 echo ""
 `,
 		GitIgnore: `.DS_Store

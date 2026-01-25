@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,6 +54,15 @@ type ListExposedPortsResponse struct {
 	ExposedPorts []ExposedPort `json:"exposed_ports"`
 }
 
+// PortListener represents an active port-based proxy listener
+type PortListener struct {
+	AllocatedPort int
+	SessionID     string
+	TargetPort    int
+	Listener      net.Listener
+	cancel        context.CancelFunc
+}
+
 // ExposedPortManager tracks exposed ports per session
 type ExposedPortManager struct {
 	mu             sync.RWMutex
@@ -62,6 +72,8 @@ type ExposedPortManager struct {
 	randomPortBase int                      // starting port for random allocation
 	randomPortMax  int                      // max port for random allocation
 	allocatedPorts map[int]string           // port -> sessionID
+	portListeners  map[int]*PortListener    // allocated port -> listener
+	apiServer      *HelixAPIServer          // for RevDial access
 }
 
 // NewExposedPortManager creates a new exposed port manager
@@ -73,7 +85,30 @@ func NewExposedPortManager(baseURL, devSubdomain string) *ExposedPortManager {
 		randomPortBase: 30000,
 		randomPortMax:  40000,
 		allocatedPorts: make(map[int]string),
+		portListeners:  make(map[int]*PortListener),
 	}
+}
+
+// SetAPIServer sets the API server reference for RevDial access
+func (m *ExposedPortManager) SetAPIServer(apiServer *HelixAPIServer) {
+	m.apiServer = apiServer
+}
+
+// allocatePort finds an available port in the range and marks it as allocated
+func (m *ExposedPortManager) allocatePort(sessionID string) (int, error) {
+	for port := m.randomPortBase; port < m.randomPortMax; port++ {
+		if _, exists := m.allocatedPorts[port]; !exists {
+			// Try to bind to verify it's actually available
+			listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+			if err != nil {
+				continue // Port in use by another process
+			}
+			listener.Close() // We'll re-bind when starting the proxy
+			m.allocatedPorts[port] = sessionID
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available ports in range %d-%d", m.randomPortBase, m.randomPortMax)
 }
 
 // ExposePort registers a port exposure for a session
@@ -102,6 +137,7 @@ func (m *ExposedPortManager) ExposePort(sessionID string, req *ExposePortRequest
 
 	// Build URL based on configuration
 	var urls []string
+	var allocatedPort int
 
 	// Option 1: Subdomain-based URL (if devSubdomain is configured)
 	if m.devSubdomain != "" && m.baseURL != "" {
@@ -116,7 +152,34 @@ func (m *ExposedPortManager) ExposePort(sessionID string, req *ExposePortRequest
 		urls = append(urls, subdomainURL)
 	}
 
-	// Option 2: Path-based URL (always available)
+	// Option 2: Port-based URL (allocate a unique port)
+	// This works without DNS wildcards - clients connect directly to the allocated port
+	if m.apiServer != nil {
+		port, err := m.allocatePort(sessionID)
+		if err == nil {
+			allocatedPort = port
+			// Parse base URL to get host
+			host := strings.TrimPrefix(m.baseURL, "https://")
+			host = strings.TrimPrefix(host, "http://")
+			host = strings.Split(host, ":")[0] // remove port if present
+
+			// Determine scheme from baseURL
+			scheme := "http"
+			if strings.HasPrefix(m.baseURL, "https://") {
+				scheme = "https"
+			}
+
+			portURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
+			urls = append(urls, portURL)
+
+			// Start the port listener (do this after releasing the lock)
+			go m.startPortListener(sessionID, req.Port, port)
+		} else {
+			log.Warn().Err(err).Msg("Failed to allocate port for port-based proxy")
+		}
+	}
+
+	// Option 3: Path-based URL (always available, but has limitations)
 	// Format: {baseURL}/api/v1/sessions/{sessionID}/proxy/{port}/
 	pathURL := fmt.Sprintf("%s/api/v1/sessions/%s/proxy/%d/", m.baseURL, sessionID, req.Port)
 	urls = append(urls, pathURL)
@@ -134,12 +197,13 @@ func (m *ExposedPortManager) ExposePort(sessionID string, req *ExposePortRequest
 	m.exposedPorts[sessionID] = append(m.exposedPorts[sessionID], exposed)
 
 	return &ExposePortResponse{
-		SessionID: sessionID,
-		Port:      req.Port,
-		Protocol:  protocol,
-		Name:      req.Name,
-		URLs:      urls,
-		Status:    "active",
+		SessionID:     sessionID,
+		Port:          req.Port,
+		Protocol:      protocol,
+		Name:          req.Name,
+		URLs:          urls,
+		AllocatedPort: allocatedPort,
+		Status:        "active",
 	}, nil
 }
 
@@ -172,6 +236,19 @@ func (m *ExposedPortManager) CleanupSession(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Stop any running port listeners
+	for port, listener := range m.portListeners {
+		if listener.SessionID == sessionID {
+			log.Info().
+				Int("port", port).
+				Str("session_id", sessionID).
+				Msg("Stopping port listener for session cleanup")
+			listener.cancel()
+			listener.Listener.Close()
+			delete(m.portListeners, port)
+		}
+	}
+
 	// Free any allocated random ports
 	for port, sid := range m.allocatedPorts {
 		if sid == sessionID {
@@ -180,6 +257,247 @@ func (m *ExposedPortManager) CleanupSession(sessionID string) {
 	}
 
 	delete(m.exposedPorts, sessionID)
+}
+
+// startPortListener starts an HTTP server on the allocated port and proxies to the session
+func (m *ExposedPortManager) startPortListener(sessionID string, targetPort, allocatedPort int) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create HTTP handler that proxies to the session
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		m.handlePortHTTPRequest(rw, r, sessionID, targetPort)
+	})
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", allocatedPort),
+		Handler: handler,
+	}
+
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Error().Err(err).
+			Int("port", allocatedPort).
+			Str("session_id", sessionID).
+			Msg("Failed to start port listener")
+		cancel()
+		return
+	}
+
+	// Store the listener
+	m.mu.Lock()
+	m.portListeners[allocatedPort] = &PortListener{
+		AllocatedPort: allocatedPort,
+		SessionID:     sessionID,
+		TargetPort:    targetPort,
+		Listener:      listener,
+		cancel:        cancel,
+	}
+	m.mu.Unlock()
+
+	log.Info().
+		Int("allocated_port", allocatedPort).
+		Int("target_port", targetPort).
+		Str("session_id", sessionID).
+		Msg("Started port-based HTTP proxy listener")
+
+	// Start HTTP server in goroutine
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Debug().Err(err).Int("port", allocatedPort).Msg("Port proxy server error")
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	server.Shutdown(shutdownCtx)
+	log.Info().Int("port", allocatedPort).Msg("Port listener stopped")
+}
+
+// handlePortHTTPRequest proxies an HTTP request to the session via RevDial/Hydra
+func (m *ExposedPortManager) handlePortHTTPRequest(rw http.ResponseWriter, r *http.Request, sessionID string, targetPort int) {
+	if m.apiServer == nil {
+		http.Error(rw, "API server not configured", http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get the session to find the sandbox
+	session, err := m.apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("session not found: %s", err), http.StatusNotFound)
+		return
+	}
+
+	sandboxID := session.SandboxID
+	if sandboxID == "" {
+		http.Error(rw, "session has no sandbox", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Build Hydra proxy path
+	hydraPath := fmt.Sprintf("/api/v1/dev-containers/%s/proxy/%d%s", sessionID, targetPort, r.URL.Path)
+	if r.URL.RawQuery != "" {
+		hydraPath += "?" + r.URL.RawQuery
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("sandbox_id", sandboxID).
+		Int("port", targetPort).
+		Str("path", hydraPath).
+		Str("method", r.Method).
+		Msg("Port proxy: forwarding request to Hydra")
+
+	// Connect to Hydra via RevDial
+	hydraClient := hydra.NewRevDialClient(m.apiServer.connman, "hydra-"+sandboxID)
+
+	proxyCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	hydraConn, err := m.apiServer.connman.Dial(proxyCtx, hydraClient.DeviceID())
+	if err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to dial Hydra for port proxy")
+		http.Error(rw, fmt.Sprintf("failed to connect to sandbox: %s", err), http.StatusBadGateway)
+		return
+	}
+	defer hydraConn.Close()
+
+	// Check for WebSocket upgrade
+	if r.Header.Get("Upgrade") == "websocket" {
+		m.handleWebSocketProxy(rw, r, hydraConn, hydraPath)
+		return
+	}
+
+	// Build HTTP request to Hydra
+	proxyReq, err := http.NewRequestWithContext(proxyCtx, r.Method, "http://hydra"+hydraPath, r.Body)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to create request: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers
+	for key, values := range r.Header {
+		switch strings.ToLower(key) {
+		case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+			"te", "trailers", "transfer-encoding", "upgrade":
+			continue
+		}
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Set forwarding headers
+	proxyReq.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	proxyReq.Header.Set("X-Forwarded-Host", r.Host)
+	if r.TLS != nil {
+		proxyReq.Header.Set("X-Forwarded-Proto", "https")
+	} else {
+		proxyReq.Header.Set("X-Forwarded-Proto", "http")
+	}
+
+	// Send request over RevDial connection
+	if err := proxyReq.Write(hydraConn); err != nil {
+		log.Warn().Err(err).Msg("Failed to write request to Hydra")
+		http.Error(rw, fmt.Sprintf("failed to send request: %s", err), http.StatusBadGateway)
+		return
+	}
+
+	// Read response
+	resp, err := http.ReadResponse(bufio.NewReader(hydraConn), proxyReq)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to read response from Hydra")
+		http.Error(rw, fmt.Sprintf("failed to read response: %s", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			rw.Header().Add(key, value)
+		}
+	}
+
+	rw.WriteHeader(resp.StatusCode)
+
+	// Stream response body
+	if _, err := io.Copy(rw, resp.Body); err != nil {
+		log.Debug().Err(err).Msg("Error streaming port proxy response")
+	}
+}
+
+// handleWebSocketProxy handles WebSocket upgrade requests
+func (m *ExposedPortManager) handleWebSocketProxy(rw http.ResponseWriter, r *http.Request, hydraConn net.Conn, hydraPath string) {
+	// Hijack the client connection
+	hijacker, ok := rw.(http.Hijacker)
+	if !ok {
+		http.Error(rw, "WebSocket not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, clientBuf, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to hijack connection: %s", err), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Build WebSocket upgrade request for Hydra
+	proxyReq, err := http.NewRequest(r.Method, "http://hydra"+hydraPath, nil)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+		return
+	}
+
+	// Copy all headers including WebSocket upgrade headers
+	for key, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Send upgrade request to Hydra
+	if err := proxyReq.Write(hydraConn); err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Read Hydra's response
+	hydraReader := bufio.NewReader(hydraConn)
+	resp, err := http.ReadResponse(hydraReader, proxyReq)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Forward response to client
+	resp.Write(clientConn)
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		return // Not upgraded, done
+	}
+
+	log.Debug().Str("path", hydraPath).Msg("WebSocket upgrade successful, starting bidirectional copy")
+
+	// Bidirectional copy for WebSocket
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(hydraConn, clientBuf)
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, hydraReader)
+	}()
+
+	wg.Wait()
 }
 
 // exposeSessionPort handles POST /api/v1/sessions/{id}/expose
@@ -476,9 +794,11 @@ func (apiServer *HelixAPIServer) initExposedPortManager() {
 	devSubdomain := apiServer.Cfg.WebServer.DevSubdomain
 
 	apiServer.exposedPortManager = NewExposedPortManager(baseURL, devSubdomain)
+	apiServer.exposedPortManager.SetAPIServer(apiServer)
 
 	log.Info().
 		Str("base_url", baseURL).
 		Str("dev_subdomain", devSubdomain).
-		Msg("Initialized exposed port manager")
+		Bool("port_based_proxy", true).
+		Msg("Initialized exposed port manager with port-based proxy support")
 }

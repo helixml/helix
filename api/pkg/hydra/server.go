@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -717,6 +719,12 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		Str("method", r.Method).
 		Msg("Proxying request to dev container")
 
+	// Check for WebSocket upgrade
+	if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+		s.handleDevContainerWebSocketProxy(w, r, targetHost, port, targetPath)
+		return
+	}
+
 	// Create proxy request
 	proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
 	if err != nil {
@@ -789,6 +797,94 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			break
 		}
 	}
+}
+
+// handleDevContainerWebSocketProxy handles WebSocket upgrade requests to dev container ports
+func (s *Server) handleDevContainerWebSocketProxy(w http.ResponseWriter, r *http.Request, targetHost string, port int, targetPath string) {
+	// Hijack the client connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "WebSocket not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, clientBuf, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to hijack connection: %s", err), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Connect to target
+	targetAddr := fmt.Sprintf("%s:%d", targetHost, port)
+	targetConn, err := net.Dial("tcp", targetAddr)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		log.Warn().Err(err).Str("target", targetAddr).Msg("Failed to connect to target for WebSocket proxy")
+		return
+	}
+	defer targetConn.Close()
+
+	// Build and send the original request to the target
+	targetURL := fmt.Sprintf("http://%s%s", targetAddr, targetPath)
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	proxyReq, err := http.NewRequest(r.Method, targetURL, nil)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+		return
+	}
+
+	// Copy all headers including WebSocket upgrade headers
+	for key, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Send request to target
+	if err := proxyReq.Write(targetConn); err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Read response from target
+	targetReader := bufio.NewReader(targetConn)
+	resp, err := http.ReadResponse(targetReader, proxyReq)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Forward response to client
+	resp.Write(clientConn)
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		return // Not upgraded, done
+	}
+
+	log.Debug().
+		Str("target", targetAddr).
+		Str("path", targetPath).
+		Msg("WebSocket upgrade successful in dev container proxy")
+
+	// Bidirectional copy for WebSocket
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(targetConn, clientBuf)
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, targetReader)
+	}()
+
+	wg.Wait()
 }
 
 // handleSystemStats returns GPU stats and session counts

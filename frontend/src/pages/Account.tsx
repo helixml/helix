@@ -30,7 +30,7 @@ import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 
 import { useGetWallet } from '../services/useBilling'
-import { useGetUserUsage, useRegenerateUserAPIKey } from '../services/userService'
+import { useGetUserUsage, useRegenerateUserAPIKey, useGetAnthropicCredentials, useUpdateAnthropicCredentials, useDeleteAnthropicCredentials, useStartAnthropicOAuth } from '../services/userService'
 import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
 import TotalRequests from '../components/usage/TotalRequests'
@@ -65,7 +65,16 @@ const Account: FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
 
+  // Anthropic credentials state
+  const [anthropicApiKey, setAnthropicApiKey] = useState('')
+  const [showAnthropicApiKey, setShowAnthropicApiKey] = useState(false)
+  const [anthropicDialogOpen, setAnthropicDialogOpen] = useState(false)
+
   const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
+  const { data: anthropicCredentials, isLoading: isLoadingAnthropicCredentials } = useGetAnthropicCredentials()
+  const updateAnthropicCredentials = useUpdateAnthropicCredentials()
+  const deleteAnthropicCredentials = useDeleteAnthropicCredentials()
+  const startAnthropicOAuth = useStartAnthropicOAuth()
 
   const regenerateApiKey = useRegenerateUserAPIKey()
   const updatePassword = useUpdatePassword()
@@ -126,6 +135,56 @@ const Account: FC = () => {
       snackbar.error('Failed to update password')
     }
   }, [password, passwordConfirm, updatePassword, snackbar])
+
+  // Anthropic credentials handlers
+  const handleSaveAnthropicApiKey = useCallback(async () => {
+    if (!anthropicApiKey.trim()) {
+      snackbar.error('Please enter an API key')
+      return
+    }
+    try {
+      await updateAnthropicCredentials.mutateAsync({ api_key: anthropicApiKey })
+      snackbar.success('Anthropic API key saved successfully')
+      setAnthropicApiKey('')
+      setAnthropicDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to save Anthropic API key:', error)
+      snackbar.error('Failed to save Anthropic API key')
+    }
+  }, [anthropicApiKey, updateAnthropicCredentials, snackbar])
+
+  const handleDeleteAnthropicCredentials = useCallback(async () => {
+    try {
+      await deleteAnthropicCredentials.mutateAsync()
+      snackbar.success('Anthropic credentials removed')
+    } catch (error) {
+      console.error('Failed to remove Anthropic credentials:', error)
+      snackbar.error('Failed to remove Anthropic credentials')
+    }
+  }, [deleteAnthropicCredentials, snackbar])
+
+  const handleConnectClaudeSubscription = useCallback(async () => {
+    try {
+      const result = await startAnthropicOAuth.mutateAsync()
+      if (result?.auth_url) {
+        // Open OAuth popup
+        const popup = window.open(result.auth_url, 'anthropic-oauth', 'width=600,height=700,popup=1')
+
+        // Listen for success message from popup
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data?.type === 'anthropic-oauth-success') {
+            snackbar.success('Claude subscription connected successfully')
+            window.removeEventListener('message', handleMessage)
+            popup?.close()
+          }
+        }
+        window.addEventListener('message', handleMessage)
+      }
+    } catch (error) {
+      console.error('Failed to start Anthropic OAuth:', error)
+      snackbar.error('Failed to connect Claude subscription')
+    }
+  }, [startAnthropicOAuth, snackbar])
 
   const handleSubscribe = useCallback(async () => {
     const result = await api.post(`/api/v1/subscription/new`, undefined, {}, {
@@ -354,6 +413,107 @@ export HELIX_API_KEY=${apiKey}
                 </Grid>
               </Grid>
             )}
+
+            {/* Claude Code / Anthropic Credentials */}
+            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box>
+                    <Typography variant="h6" gutterBottom>Claude Code Credentials</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Connect your Anthropic API key or Claude subscription to use Claude Code in Helix projects.
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {isLoadingAnthropicCredentials ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <SmallSpinner size={20} />
+                    <Typography variant="body2" color="text.secondary">Loading...</Typography>
+                  </Box>
+                ) : anthropicCredentials?.credentials_source === 'none' ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No credentials configured. Choose one of the options below:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={() => setAnthropicDialogOpen(true)}
+                      >
+                        Add API Key
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        onClick={handleConnectClaudeSubscription}
+                        disabled={startAnthropicOAuth.isPending}
+                      >
+                        {startAnthropicOAuth.isPending ? 'Connecting...' : 'Connect Claude Subscription'}
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      p: 2,
+                      border: '1px solid',
+                      borderColor: 'success.main',
+                      borderRadius: 1,
+                      backgroundColor: 'rgba(76, 175, 80, 0.08)'
+                    }}>
+                      <Box sx={{ flex: 1 }}>
+                        {anthropicCredentials?.credentials_source === 'api_key' ? (
+                          <>
+                            <Typography variant="body1" fontWeight="medium">
+                              API Key Connected
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {anthropicCredentials.masked_api_key}
+                            </Typography>
+                          </>
+                        ) : (
+                          <>
+                            <Typography variant="body1" fontWeight="medium">
+                              Claude Subscription Connected
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {anthropicCredentials?.oauth_expired ? (
+                                <span style={{ color: '#f44336' }}>Token expired - please reconnect</span>
+                              ) : (
+                                'OAuth tokens active'
+                              )}
+                            </Typography>
+                          </>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => setAnthropicDialogOpen(true)}
+                        >
+                          Change
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          onClick={handleDeleteAnthropicCredentials}
+                          disabled={deleteAnthropicCredentials.isPending}
+                        >
+                          {deleteAnthropicCredentials.isPending ? 'Removing...' : 'Remove'}
+                        </Button>
+                      </Box>
+                    </Box>
+                  </Box>
+                )}
+              </Grid>
+            </Grid>
 
             {/* API keys setup */}
             <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
@@ -647,6 +807,86 @@ export HELIX_API_KEY=${apiKey}
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Anthropic API Key Dialog */}
+      <DarkDialog
+        open={anthropicDialogOpen}
+        onClose={() => {
+          setAnthropicDialogOpen(false)
+          setAnthropicApiKey('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" component="div">
+            Add Anthropic API Key
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => {
+              setAnthropicDialogOpen(false)
+              setAnthropicApiKey('')
+            }}
+            sx={{ color: '#A0AEC0' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Enter your Anthropic API key to use Claude Code. You can get an API key from{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: '#90caf9' }}>
+                console.anthropic.com
+              </a>
+            </Typography>
+            <TextField
+              fullWidth
+              label="Anthropic API Key"
+              placeholder="sk-ant-..."
+              type={showAnthropicApiKey ? 'text' : 'password'}
+              value={anthropicApiKey}
+              onChange={(e) => setAnthropicApiKey(e.target.value)}
+              variant="outlined"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowAnthropicApiKey(!showAnthropicApiKey)}
+                      edge="end"
+                    >
+                      {showAnthropicApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Your API key is stored securely and only used for Claude Code sessions.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              setAnthropicDialogOpen(false)
+              setAnthropicApiKey('')
+            }}
+            disabled={updateAnthropicCredentials.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleSaveAnthropicApiKey}
+            disabled={updateAnthropicCredentials.isPending || !anthropicApiKey.trim()}
+          >
+            {updateAnthropicCredentials.isPending ? 'Saving...' : 'Save API Key'}
+          </Button>
+        </DialogActions>
+      </DarkDialog>
     </Page>
   )
 }
