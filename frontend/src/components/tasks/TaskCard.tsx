@@ -812,7 +812,7 @@ export default function TaskCard({
         </Box>
 
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
-        {showMetrics && (task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation') && (
+        {showMetrics && (task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation' || task.phase === 'pull_request') && (
           <UsagePulseChart taskId={task.id} accentColor={accentColor} />
         )}
 
