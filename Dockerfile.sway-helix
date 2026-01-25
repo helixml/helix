@@ -713,6 +713,10 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
+# GPU device permissions init script (fixes root:root ownership in DinD)
+ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gpu-permissions.sh
+RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
+
 # Docker group init script
 ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh

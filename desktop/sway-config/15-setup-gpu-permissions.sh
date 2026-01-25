@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# GOW init script: Configure device permissions
+# Sway init script: Fix GPU device permissions
+#
+# In Docker-in-Docker setups, GPU devices may be mounted as root:root
+# We need to make them accessible to non-root users for Vulkan/CUDA/EGL
 
 set -e
 
-gow_log "**** Configure devices ****"
+source /opt/gow/bash-lib/utils.sh
+
+gow_log "**** Fixing GPU device permissions ****"
 
 # Fix GPU device permissions for non-root users
-# In Docker-in-Docker setups, GPU devices may be mounted as root:root
-# We need to make them accessible to the retro user for Vulkan/CUDA/EGL
-gow_log "Fixing GPU device permissions..."
 for gpu_dev in /dev/dri/card* /dev/dri/renderD*; do
     if [ -c "$gpu_dev" ]; then
         # Get current group - if it's root, we need to fix it
@@ -38,12 +40,5 @@ if getent group render >/dev/null 2>&1; then
     usermod -aG render "${UNAME:-retro}" 2>/dev/null || true
     gow_log "Added ${UNAME:-retro} to render group"
 fi
-
-gow_log "Exec device groups"
-# Make sure we're in the right groups to use all the required devices
-# We're actually relying on word splitting for this call, so disable the
-# warning from shellcheck
-# shellcheck disable=SC2086
-/opt/gow/ensure-groups ${GOW_REQUIRED_DEVICES:-/dev/uinput /dev/input/event*}
 
 gow_log "DONE"

@@ -394,11 +394,42 @@ chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null ||
 chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
 _USER_INIT
 
-# GPU detection init script - creates udev rule for Mutter primary GPU selection
-# This MUST run as root before Mutter starts to ensure correct GPU is used
-# on multi-GPU systems (e.g., Hyper-V + AMD GPU where first device is Hyper-V)
+# GPU detection and permissions init script
+# 1. Fix device permissions for DinD (devices may be mounted as root:root)
+# 2. Create udev rule for Mutter primary GPU selection on multi-GPU systems
 COPY <<'_GPU_INIT' /etc/cont-init.d/15-detect-gpu.sh
 #!/bin/bash
+echo "**** Fixing GPU device permissions ****"
+# In Docker-in-Docker setups, GPU devices may be mounted as root:root
+# We need to make them accessible to non-root users for Vulkan/CUDA/EGL
+for gpu_dev in /dev/dri/card* /dev/dri/renderD*; do
+    if [ -c "$gpu_dev" ]; then
+        current_group=$(stat -c "%G" "$gpu_dev")
+        if [ "$current_group" = "root" ]; then
+            if getent group video >/dev/null 2>&1; then
+                chgrp video "$gpu_dev"
+                chmod 660 "$gpu_dev"
+                echo "Changed $gpu_dev to video group"
+            else
+                chmod 666 "$gpu_dev"
+                echo "Made $gpu_dev world-accessible (no video group)"
+            fi
+        else
+            echo "$gpu_dev already has group: $current_group"
+        fi
+    fi
+done
+
+# Add retro to video and render groups if they exist
+if getent group video >/dev/null 2>&1; then
+    usermod -aG video "${UNAME:-retro}" 2>/dev/null || true
+    echo "Added ${UNAME:-retro} to video group"
+fi
+if getent group render >/dev/null 2>&1; then
+    usermod -aG render "${UNAME:-retro}" 2>/dev/null || true
+    echo "Added ${UNAME:-retro} to render group"
+fi
+
 echo "**** Detecting GPU and creating udev rules ****"
 # Source the GPU detection script (creates udev rule for Mutter)
 if [ -f /usr/local/bin/detect-render-node.sh ]; then
