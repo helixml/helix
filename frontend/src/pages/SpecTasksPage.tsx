@@ -82,7 +82,7 @@ import {
   useResumeProjectExploratorySession,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
-import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
+import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
 
 const SpecTasksPage: FC = () => {
@@ -108,22 +108,6 @@ const SpecTasksPage: FC = () => {
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
-
-  // Query sandbox instances to check for privileged mode availability
-  const { data: sandboxInstances } = useQuery({
-    queryKey: ['sandbox-instances'],
-    queryFn: async () => {
-      // API endpoint still named WolfInstances for backwards compatibility
-      const response = await api.getApiClient().v1WolfInstancesList();
-      return response.data;
-    },
-    staleTime: 60000, // Cache for 1 minute
-  });
-
-  // Check if any sandbox has privileged mode enabled
-  const hasPrivilegedSandbox = useMemo(() => {
-    return sandboxInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
-  }, [sandboxInstances]);
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -1525,33 +1509,6 @@ const SpecTasksPage: FC = () => {
                   />
                 </Tooltip>
               </FormControl>
-
-              {/* Use Host Docker Checkbox (for Helix-in-Helix development) - only show if a privileged sandbox is available */}
-              {hasPrivilegedSandbox && (
-                <FormControl fullWidth>
-                  <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={useHostDocker}
-                          onChange={(e) => setUseHostDocker(e.target.checked)}
-                          color="info"
-                        />
-                      }
-                      label={
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Use Host Docker 🐳
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            For Helix-in-Helix development — agent can build and run Helix containers
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </Tooltip>
-                </FormControl>
-              )}
             </Stack>
           </Box>
 
