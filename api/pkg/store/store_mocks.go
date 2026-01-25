@@ -3551,6 +3551,21 @@ func (mr *MockStoreMockRecorder) ListProjectRepositories(ctx, q any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectRepositories", reflect.TypeOf((*MockStore)(nil).ListProjectRepositories), ctx, q)
 }
 
+// ListProjectSecrets mocks base method.
+func (m *MockStore) ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjectSecrets", ctx, projectID)
+	ret0, _ := ret[0].([]*types.Secret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjectSecrets indicates an expected call of ListProjectSecrets.
+func (mr *MockStoreMockRecorder) ListProjectSecrets(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectSecrets", reflect.TypeOf((*MockStore)(nil).ListProjectSecrets), ctx, projectID)
+}
+
 // ListProjects mocks base method.
 func (m *MockStore) ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error) {
 	m.ctrl.T.Helper()

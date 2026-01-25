@@ -2359,9 +2359,10 @@ type LLMCall struct {
 }
 
 type CreateSecretRequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	AppID string `json:"app_id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	AppID     string `json:"app_id"`
+	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
 }
 
 type Secret struct {
@@ -2372,7 +2373,8 @@ type Secret struct {
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
-	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
+	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
 }
 
 // LicenseKey represents a license key in the database

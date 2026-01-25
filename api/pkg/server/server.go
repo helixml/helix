@@ -374,6 +374,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
+	// Set the project secrets callback for injecting secrets as env vars into desktop containers
+	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
@@ -985,6 +987,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
+
+	// Project secrets routes (encrypted at rest, injected as env vars in sessions)
+	authRouter.HandleFunc("/projects/{id}/secrets", system.Wrapper(apiServer.listProjectSecrets)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/secrets", system.Wrapper(apiServer.createProjectSecret)).Methods(http.MethodPost)
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)

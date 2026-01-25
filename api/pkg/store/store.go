@@ -55,6 +55,7 @@ type ListToolsQuery struct {
 type ListSecretsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
+	ProjectID string          `json:"project_id"` // optional, filter by project
 }
 
 type ListAppsQuery struct {
@@ -268,6 +269,7 @@ type Store interface {
 	UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
 	GetSecret(ctx context.Context, id string) (*types.Secret, error)
 	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
+	ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
 
 	// apps

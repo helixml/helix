@@ -26,6 +26,9 @@ const (
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
+// ProjectSecretsGetter is a function that retrieves project secrets as environment variables
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -43,6 +46,7 @@ type SpecDrivenTaskService struct {
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
+	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	wg                       sync.WaitGroup
 }
 
@@ -493,6 +497,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
+	// Build env vars (base + locale + project secrets)
+	envVars := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+
+	// Inject project secrets as environment variables
+	if s.GetProjectSecrets != nil && task.ProjectID != "" {
+		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets, continuing without them")
+		} else if len(projectSecrets) > 0 {
+			envVars = append(envVars, projectSecrets...)
+			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
+		}
+	}
+
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
@@ -508,7 +526,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
+		Env:                 envVars,
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -881,6 +899,20 @@ Follow these guidelines when making changes:
 		}
 	}
 
+	// Build env vars (base + locale + project secrets)
+	envVarsJDI := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+
+	// Inject project secrets as environment variables
+	if s.GetProjectSecrets != nil && task.ProjectID != "" {
+		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets for JDI mode, continuing without them")
+		} else if len(projectSecrets) > 0 {
+			envVarsJDI = append(envVarsJDI, projectSecrets...)
+			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Just Do It: Injected project secrets into desktop env")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
@@ -897,7 +929,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
+		Env:                 envVarsJDI,
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
