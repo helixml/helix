@@ -135,6 +135,7 @@ const (
 //   - AgentHostTypeZed + CodeAgentRuntimeQwenCode = Qwen Code agent inside Zed
 //   - AgentHostTypeZed + CodeAgentRuntimeZedAgent = Zed's built-in agent
 //   - AgentHostTypeVSCode = Roo Code extension (CodeAgentRuntime ignored)
+//   - AgentHostTypeClaudeCode = Claude Code CLI in terminal
 //   - AgentHostTypeHeadless = Custom Go ACP client (future)
 type AgentHostType string
 
@@ -146,6 +147,11 @@ const (
 	// AgentHostTypeVSCode uses VS Code with the Roo Code extension.
 	// Roo Code IS the agent - CodeAgentRuntime is ignored for this host type.
 	AgentHostTypeVSCode AgentHostType = "vscode"
+
+	// AgentHostTypeClaudeCode uses the Claude Code CLI in a terminal.
+	// Provides native Claude Code experience with terminal streaming to browser.
+	// Supports BYOK (user's own Claude subscription or API key).
+	AgentHostTypeClaudeCode AgentHostType = "claude_code"
 
 	// AgentHostTypeHeadless runs agents without a graphical IDE (future).
 	// Uses a custom Go-based ACP client that directly implements tool execution.

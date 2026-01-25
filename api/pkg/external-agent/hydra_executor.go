@@ -845,6 +845,19 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 				env = append(env, "ROO_CODE_API_URL=http://localhost:9879")
 			}
 		}
+
+		// For Claude Code mode, configure authentication and session
+		if agentHostType == types.AgentHostTypeClaudeCode {
+			// Claude Code authentication options (in order of precedence):
+			// 1. User's own ANTHROPIC_API_KEY (BYOK) - passed via agent.Env
+			// 2. User's Claude subscription OAuth token - passed via agent.Env
+			// 3. Helix proxy mode - use session-scoped token through Helix's Anthropic proxy
+
+			// Pass Claude session ID for resume if available
+			if agent.ClaudeSessionID != "" {
+				env = append(env, fmt.Sprintf("HELIX_CLAUDE_SESSION_ID=%s", agent.ClaudeSessionID))
+			}
+		}
 	}
 
 	// Add GPU-specific environment variables

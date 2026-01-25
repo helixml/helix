@@ -1918,8 +1918,11 @@ type DesktopAgent struct {
 	DesktopType   string        `json:"desktop_type,omitempty"`    // Desktop environment: "ubuntu" (default) or "sway"
 	ZoomLevel     int           `json:"zoom_level,omitempty"`      // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale  int           `json:"display_scale,omitempty"`   // KDE/Qt display scale factor (1=100%, 2=200%)
-	AgentHostType   AgentHostType   `json:"agent_host_type,omitempty"`   // "zed" (default), "vscode", or "headless"
+	AgentHostType   AgentHostType   `json:"agent_host_type,omitempty"`   // "zed" (default), "vscode", "claude_code", or "headless"
 	RooCodeProtocol RooCodeProtocol `json:"roocode_protocol,omitempty"` // "socketio" (default) or "ipc" (only for vscode)
+
+	// Claude Code settings (only for claude_code agent host type)
+	ClaudeSessionID string `json:"claude_session_id,omitempty"` // Claude's internal session ID for resume
 
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox

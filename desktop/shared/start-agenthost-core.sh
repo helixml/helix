@@ -315,3 +315,141 @@ start_vscode_helix() {
     # --disable-workspace-trust: Skip the trust dialog for mounted workspaces
     run_editor_restart_loop "VS Code" code --disable-workspace-trust "${EDITOR_FOLDERS[@]}"
 }
+
+# =========================================
+# Claude Code startup sequence
+# =========================================
+
+start_claude_helix() {
+    echo "========================================="
+    echo "Helix Agent Startup (${HELIX_DESKTOP_NAME:-Unknown}) - $(date)"
+    echo "========================================="
+    echo ""
+
+    # Prevent duplicate instances
+    CLAUDE_LOCK_FILE="/tmp/helix-claude-startup.lock"
+    if [ -f "$CLAUDE_LOCK_FILE" ]; then
+        OLD_PID=$(cat "$CLAUDE_LOCK_FILE" 2>/dev/null)
+        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "Claude Code startup already running (PID $OLD_PID) - exiting duplicate"
+            exit 0
+        fi
+        echo "Stale lock file found, removing..."
+        rm -f "$CLAUDE_LOCK_FILE"
+    fi
+    echo $$ > "$CLAUDE_LOCK_FILE"
+    trap 'rm -f "$CLAUDE_LOCK_FILE"' EXIT
+
+    # Clean up old signal files
+    rm -f "$COMPLETE_SIGNAL"
+
+    # Find shared scripts
+    SHARED_SCRIPT_DIR="/usr/local/bin"
+    if [ ! -f "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh" ]; then
+        SHARED_SCRIPT_DIR="/helix-dev/shared"
+    fi
+    if [ ! -f "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh" ]; then
+        echo "ERROR: helix-workspace-setup.sh not found!"
+        exit 1
+    fi
+
+    echo "Using shared scripts from: $SHARED_SCRIPT_DIR"
+    echo ""
+
+    # Ensure work directory exists
+    mkdir -p "$WORK_DIR"
+
+    # =========================================
+    # Step 1: Run workspace setup in terminal (BLOCKS until complete)
+    # =========================================
+    echo "Launching setup terminal..."
+    launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+    echo "Setup terminal launched"
+
+    wait_for_setup_complete
+
+    # =========================================
+    # Step 2: Read folders to open
+    # =========================================
+    read_editor_folders "Claude Code"
+
+    # =========================================
+    # Step 3: Configure Claude Code authentication
+    # =========================================
+    # Authentication options (in order of precedence):
+    # 1. ANTHROPIC_API_KEY - User's own API key (BYOK)
+    # 2. CLAUDE_CODE_OAUTH_TOKEN - Claude subscription OAuth token
+    # 3. Helix proxy mode - Route through Helix with session-scoped token
+
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        echo "Claude Code auth: Using ANTHROPIC_API_KEY"
+    elif [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+        echo "Claude Code auth: Using Claude subscription (OAuth)"
+    else
+        echo "Claude Code auth: Using Helix proxy"
+        # In Helix proxy mode, we route through Helix's Anthropic proxy
+        # The USER_API_TOKEN is already set by hydra_executor
+        export ANTHROPIC_API_KEY="${USER_API_TOKEN}"
+        export ANTHROPIC_BASE_URL="${HELIX_API_URL}/anthropic"
+    fi
+
+    # =========================================
+    # Step 4: Configure Claude Code session
+    # =========================================
+    # Set up Claude Code to persist sessions in a known location
+    export CLAUDE_CODE_SESSION_DIR="$HOME/.claude/projects"
+
+    # Resume session if we have a previous Claude session ID
+    CLAUDE_RESUME_FLAG=""
+    if [ -n "$HELIX_CLAUDE_SESSION_ID" ]; then
+        echo "Resuming Claude session: $HELIX_CLAUDE_SESSION_ID"
+        CLAUDE_RESUME_FLAG="--resume $HELIX_CLAUDE_SESSION_ID"
+    fi
+
+    # =========================================
+    # Step 5: Launch Claude Code in tmux
+    # =========================================
+    # Use tmux for session persistence and multi-client attach
+    TMUX_SESSION="claude-helix"
+
+    # Kill any existing tmux session
+    tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+
+    # Create new tmux session with Claude Code
+    # Note: We use the first folder as the working directory
+    CLAUDE_WORK_DIR="${EDITOR_FOLDERS[0]:-$WORK_DIR}"
+
+    echo "Starting Claude Code in tmux session: $TMUX_SESSION"
+    echo "Working directory: $CLAUDE_WORK_DIR"
+
+    # Create detached tmux session
+    tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 40 -c "$CLAUDE_WORK_DIR"
+
+    # Send Claude Code command to tmux
+    if [ -n "$CLAUDE_RESUME_FLAG" ]; then
+        tmux send-keys -t "$TMUX_SESSION" "claude $CLAUDE_RESUME_FLAG" C-m
+    else
+        tmux send-keys -t "$TMUX_SESSION" "claude" C-m
+    fi
+
+    # Enable logging for debugging
+    tmux pipe-pane -t "$TMUX_SESSION" "cat >> $HOME/.claude/tmux-session.log"
+
+    echo "Claude Code started in tmux session"
+    echo ""
+    echo "To attach manually: tmux attach -t $TMUX_SESSION"
+    echo ""
+
+    # Keep the script running (for process supervision)
+    # The desktop-bridge will handle the actual terminal relay
+    while true; do
+        # Check if tmux session is still alive
+        if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+            echo "Claude Code tmux session ended, restarting..."
+            sleep 2
+            tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 40 -c "$CLAUDE_WORK_DIR"
+            tmux send-keys -t "$TMUX_SESSION" "claude" C-m
+        fi
+        sleep 10
+    done
+}
