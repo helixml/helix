@@ -6,6 +6,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import DesktopStreamViewer from './DesktopStreamViewer';
 import ScreenshotViewer from './ScreenshotViewer';
+import AgentSessionViewer from './AgentSessionViewer';
+import { TypesCodeAgentRuntime } from '../../api/api';
 import SandboxDropZone from './SandboxDropZone';
 import EmbeddedSessionView from '../session/EmbeddedSessionView';
 import RobustPromptInput from '../common/RobustPromptInput';
@@ -21,6 +23,7 @@ import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
 const useSandboxState = (sessionId: string) => {
   const api = useApi();
   const [sandboxState, setSandboxState] = React.useState<string>('loading');
+  const [codeAgentRuntime, setCodeAgentRuntime] = React.useState<TypesCodeAgentRuntime | undefined>();
 
   React.useEffect(() => {
     const apiClient = api.getApiClient();
@@ -33,6 +36,11 @@ const useSandboxState = (sessionId: string) => {
           const status = response.data.config?.external_agent_status || '';
           const desiredState = response.data.config?.desired_state || '';
           const hasContainer = !!response.data.config?.container_name;
+
+          // Track code agent runtime (for Claude Code terminal vs video selection)
+          if (response.data.config?.code_agent_runtime) {
+            setCodeAgentRuntime(response.data.config.code_agent_runtime);
+          }
 
           // Map session metadata to sandbox state
           if (status === 'running' || (hasContainer && desiredState === 'running')) {
@@ -72,8 +80,10 @@ const useSandboxState = (sessionId: string) => {
   const isStarting = sandboxState === 'starting';
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === 'absent';
+  // Check if this is a Claude Code session (uses terminal instead of video)
+  const isClaudeCode = codeAgentRuntime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode;
 
-  return { sandboxState, isRunning, isPaused, isStarting };
+  return { sandboxState, isRunning, isPaused, isStarting, codeAgentRuntime, isClaudeCode };
 };
 
 interface ExternalAgentDesktopViewerProps {
@@ -113,7 +123,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
-  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
+  const { isRunning, isPaused, isStarting, isClaudeCode } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -450,20 +460,38 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           overflow: 'hidden',
           position: 'relative',
         }}>
-          <DesktopStreamViewer
-            sessionId={sessionId}
-            sandboxId={sandboxId}
-            width={displayWidth}
-            height={displayHeight}
-            fps={displayFps}
-            onError={(error) => {
-              console.error('Stream viewer error:', error);
-            }}
-            onClientIdCalculated={onClientIdCalculated}
-            // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
-            // This prevents double spinners when container state changes
-            suppressOverlay={showReconnectingOverlay}
-          />
+          {isClaudeCode ? (
+            /* Claude Code sessions get terminal + optional video toggle */
+            <AgentSessionViewer
+              sessionId={sessionId}
+              sandboxId={sandboxId}
+              width={displayWidth}
+              height={displayHeight}
+              fps={displayFps}
+              agentHostType="claude_code"
+              onError={(error) => {
+                console.error('Agent viewer error:', error);
+              }}
+              onClientIdCalculated={onClientIdCalculated}
+              suppressOverlay={showReconnectingOverlay}
+            />
+          ) : (
+            /* Zed/VS Code sessions get direct video streaming */
+            <DesktopStreamViewer
+              sessionId={sessionId}
+              sandboxId={sandboxId}
+              width={displayWidth}
+              height={displayHeight}
+              fps={displayFps}
+              onError={(error) => {
+                console.error('Stream viewer error:', error);
+              }}
+              onClientIdCalculated={onClientIdCalculated}
+              // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
+              // This prevents double spinners when container state changes
+              suppressOverlay={showReconnectingOverlay}
+            />
+          )}
 
           {/* Reconnecting overlay - shown when state changes but stream stays mounted */}
           {showReconnectingOverlay && (

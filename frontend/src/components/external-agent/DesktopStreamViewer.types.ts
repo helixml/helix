@@ -17,6 +17,8 @@ export interface DesktopStreamViewerProps {
   // When true, suppress the connection overlay (parent component is showing its own overlay)
   // This prevents multiple spinners stacking when container state changes
   suppressOverlay?: boolean;
+  // Agent host type - determines what UI to show (video for zed/vscode, terminal for claude_code)
+  agentHostType?: 'zed' | 'vscode' | 'claude_code' | 'headless';
 }
 
 // Stats for video streaming
@@ -91,3 +93,6 @@ export interface ActiveConnection {
 
 // Quality mode for streaming
 export type QualityMode = 'video' | 'screenshot';
+
+// View mode for the viewer - video stream vs terminal
+export type ViewMode = 'video' | 'terminal';

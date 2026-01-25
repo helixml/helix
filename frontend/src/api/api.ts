@@ -1013,6 +1013,7 @@ export interface TypesAdminResetPasswordRequest {
 export enum TypesAgentHostType {
   AgentHostTypeZed = "zed",
   AgentHostTypeVSCode = "vscode",
+  AgentHostTypeClaudeCode = "claude_code",
   AgentHostTypeHeadless = "headless",
 }
 
@@ -6036,6 +6037,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/stream`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Provides a WebSocket connection for bidirectional terminal I/O to Claude Code
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWsTerminalDetail
+     * @summary Claude Code terminal WebSocket
+     * @request GET:/api/v1/external-agents/{sessionID}/ws/terminal
+     * @secure
+     */
+    v1ExternalAgentsWsTerminalDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<any, void | SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/ws/terminal`,
         method: "GET",
         secure: true,
         ...params,

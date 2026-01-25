@@ -703,8 +703,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // WebSocket: keyboard/mouse input stream
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")      // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")    // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/terminal", apiServer.proxyTerminalWebSocket).Methods("GET") // WebSocket: Claude Code terminal (xterm.js)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
 

@@ -16,6 +16,7 @@ require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/coreos/go-oidc/v3 v3.13.0
+	github.com/creack/pty v1.1.24
 	github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/dgraph-io/ristretto/v2 v2.2.0

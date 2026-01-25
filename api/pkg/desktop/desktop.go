@@ -425,8 +425,9 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
+	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
+	mux.HandleFunc("/ws/terminal", s.handleWSTerminal) // Claude Code terminal (tmux)
 	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
 	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

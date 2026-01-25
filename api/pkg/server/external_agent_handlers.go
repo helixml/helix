@@ -1380,3 +1380,171 @@ func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, r
 
 	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved diff from container")
 }
+
+// proxyTerminalWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/terminal
+// This provides a web terminal for Claude Code sessions via tmux.
+// @Summary Claude Code terminal WebSocket
+// @Description Provides a WebSocket connection for bidirectional terminal I/O to Claude Code
+// running in the desktop container. Uses tmux for session persistence so multiple clients
+// can connect to the same terminal.
+// @Tags ExternalAgents
+// @Param sessionID path string true "Session ID"
+// @Success 101 "Switching Protocols"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/ws/terminal [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyTerminalWebSocket(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for terminal WebSocket")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for terminal WebSocket")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Msg("Proxying terminal WebSocket to desktop container via RevDial")
+
+	// Hijack the HTTP connection to get the underlying net.Conn
+	hijacker, ok := res.(http.Hijacker)
+	if !ok {
+		log.Error().Msg("ResponseWriter doesn't support Hijacker interface")
+		http.Error(res, "Server doesn't support connection hijacking", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to hijack connection for terminal")
+		http.Error(res, "Failed to hijack connection", http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Get RevDial connection to the desktop container
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	defer cancel()
+
+	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to desktop container via RevDial for terminal WebSocket")
+		clientConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nDesktop container not connected"))
+		return
+	}
+	defer serverConn.Close()
+
+	// Construct WebSocket upgrade request to forward to desktop container's terminal endpoint
+	upgradeReq := fmt.Sprintf("GET /ws/terminal HTTP/1.1\r\n"+
+		"Host: localhost:9876\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: %s\r\n"+
+		"Sec-WebSocket-Version: 13\r\n"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+
+	// Forward the WebSocket upgrade request
+	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade to terminal server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nFailed to connect to terminal server"))
+		return
+	}
+
+	// Read the upgrade response from desktop container
+	serverReader := bufio.NewReader(serverConn)
+	upgradeResp, err := http.ReadResponse(serverReader, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read WebSocket upgrade response from terminal server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nTerminal server connection failed"))
+		return
+	}
+	defer upgradeResp.Body.Close()
+
+	// Check if upgrade was successful
+	if upgradeResp.StatusCode != http.StatusSwitchingProtocols {
+		log.Error().Int("status", upgradeResp.StatusCode).Msg("Terminal server didn't accept WebSocket upgrade")
+		clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", upgradeResp.StatusCode, upgradeResp.Status)))
+		return
+	}
+
+	// Forward the 101 Switching Protocols response to the client
+	upgradeRespBytes := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Accept: %s\r\n"+
+		"\r\n", upgradeResp.Header.Get("Sec-WebSocket-Accept"))
+
+	if _, err := clientConn.Write([]byte(upgradeRespBytes)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade response to client")
+		return
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Terminal WebSocket connection established, starting bidirectional proxy")
+
+	// Generate a unique proxy session ID
+	proxySessionID := generateProxySessionID()
+
+	// Create dial function that uses connman with grace period support
+	dialFunc := func(ctx context.Context) (net.Conn, error) {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
+
+	// Create upgrade function for WebSocket terminal endpoint
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/terminal", wsKey)
+
+	// Create resilient proxy for terminal connection
+	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+		SessionID:   proxySessionID,
+		ClientConn:  clientConn,
+		ServerConn:  serverConn,
+		DialFunc:    dialFunc,
+		UpgradeFunc: upgradeFunc,
+	})
+	defer resilientProxy.Close()
+
+	// Run the proxy (blocks until connection closes or error)
+	if err := resilientProxy.Run(req.Context()); err != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("proxy_session_id", proxySessionID).
+			Err(err).
+			Msg("Terminal proxy ended with error")
+	}
+
+	stats := resilientProxy.Stats()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("proxy_session_id", proxySessionID).
+		Int64("reconnect_count", stats.ReconnectCount).
+		Int64("input_bytes_buffered", stats.InputBytesBuffered).
+		Int64("output_bytes_buffered", stats.OutputBytesBuffered).
+		Msg("Terminal WebSocket connection closed")
+}

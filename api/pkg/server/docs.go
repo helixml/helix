@@ -2147,6 +2147,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/ws/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provides a WebSocket connection for bidirectional terminal I/O to Claude Code",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Claude Code terminal WebSocket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/filestore/config": {
             "get": {
                 "security": [
@@ -15299,11 +15351,13 @@ const docTemplate = `{
             "enum": [
                 "zed",
                 "vscode",
+                "claude_code",
                 "headless"
             ],
             "x-enum-varnames": [
                 "AgentHostTypeZed",
                 "AgentHostTypeVSCode",
+                "AgentHostTypeClaudeCode",
                 "AgentHostTypeHeadless"
             ]
         },
