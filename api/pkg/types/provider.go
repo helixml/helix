@@ -15,6 +15,7 @@ const (
 	ProviderHelix      Provider = "helix"
 	ProviderVLLM       Provider = "vllm"
 	ProviderVertexAI   Provider = "vertexai" // Google Vertex AI (for Claude models via Vertex)
+	ProviderCerebras   Provider = "cerebras" // Cerebras (fast inference)
 )
 
 var GlobalProviders = []string{
@@ -24,6 +25,7 @@ var GlobalProviders = []string{
 	string(ProviderHelix),
 	string(ProviderVLLM),
 	string(ProviderVertexAI),
+	string(ProviderCerebras),
 }
 
 func IsGlobalProvider(provider string) bool {
@@ -59,7 +61,7 @@ type ProviderEndpoint struct {
 	Updated        time.Time            `json:"updated"`
 	Name           string               `json:"name"`
 	Description    string               `json:"description"`
-	Provider       Provider             `json:"provider" gorm:"type:text"`                 // openai, anthropic, togetherai, helix, vllm
+	Provider       Provider             `json:"provider" gorm:"type:text"`                 // openai, anthropic, togetherai, helix, vllm, vertexai
 	Models         pq.StringArray       `json:"models" gorm:"type:text[]"`                 // Optional
 	EndpointType   ProviderEndpointType `json:"endpoint_type"`                             // global, user (TODO: orgs, teams)
 	Owner          string               `json:"owner"`
@@ -70,6 +72,11 @@ type ProviderEndpoint struct {
 	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
 	BillingEnabled bool                 `json:"billing_enabled"`
 	Headers        map[string]string    `json:"headers" gorm:"type:jsonb;serializer:json"` // If for example anthropic expects x-api-key and anthropic-version
+
+	// Vertex AI specific fields (for Provider = "vertexai")
+	// When using Vertex AI, APIKey should contain the service account JSON credentials
+	VertexProjectID string `json:"vertex_project_id,omitempty"` // Google Cloud project ID
+	VertexRegion    string `json:"vertex_region,omitempty"`     // Region (e.g., "us-east1", "global")
 
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
 	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
@@ -119,7 +126,7 @@ type OpenAIModel struct {
 type UpdateProviderEndpoint struct {
 	Name         string               `json:"name"`
 	Description  string               `json:"description"`
-	Provider     Provider             `json:"provider"`      // openai, anthropic, togetherai, helix, vllm
+	Provider     Provider             `json:"provider"`      // openai, anthropic, togetherai, helix, vllm, vertexai
 	Models       []string             `json:"models"`
 	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
 
@@ -127,4 +134,8 @@ type UpdateProviderEndpoint struct {
 	APIKey         *string           `json:"api_key,omitempty"`
 	APIKeyFromFile *string           `json:"api_key_file,omitempty"` // Must be mounted to the container
 	Headers        map[string]string `json:"headers,omitempty"`      // Custom headers for the endpoint
+
+	// Vertex AI specific fields
+	VertexProjectID *string `json:"vertex_project_id,omitempty"` // Google Cloud project ID
+	VertexRegion    *string `json:"vertex_region,omitempty"`     // Region (e.g., "us-east1", "global")
 }

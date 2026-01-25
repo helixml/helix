@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -136,46 +135,27 @@ func (v *VertexAITransformer) GetAccessToken(ctx context.Context, serviceAccount
 
 // ParseVertexAIConfig extracts Vertex AI configuration from a ProviderEndpoint
 // The endpoint should have:
-// - BaseURL: Can be empty or the base URL (project/region extracted from Headers)
+// - VertexProjectID: Google Cloud project ID
+// - VertexRegion: Region (defaults to "global")
 // - APIKey: Service account JSON credentials
-// - Headers["project_id"]: Google Cloud project ID
-// - Headers["region"]: Region (defaults to "global")
 func ParseVertexAIConfig(endpoint *types.ProviderEndpoint) (*VertexAIConfig, error) {
 	config := &VertexAIConfig{
+		ProjectID:          endpoint.VertexProjectID,
+		Region:             endpoint.VertexRegion,
 		ServiceAccountJSON: endpoint.APIKey,
-		Region:             "global", // Default to global endpoint
 	}
 
-	// Get project_id from headers
-	if endpoint.Headers != nil {
-		if projectID, ok := endpoint.Headers["project_id"]; ok {
-			config.ProjectID = projectID
-		}
-		if region, ok := endpoint.Headers["region"]; ok && region != "" {
-			config.Region = region
-		}
-	}
-
-	// Try to extract project_id and region from BaseURL if not in headers
-	// URL format: https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/...
-	if config.ProjectID == "" && endpoint.BaseURL != "" {
-		re := regexp.MustCompile(`projects/([^/]+)`)
-		if matches := re.FindStringSubmatch(endpoint.BaseURL); len(matches) > 1 {
-			config.ProjectID = matches[1]
-		}
-
-		re = regexp.MustCompile(`^https://([^-]+)-aiplatform\.googleapis\.com`)
-		if matches := re.FindStringSubmatch(endpoint.BaseURL); len(matches) > 1 {
-			config.Region = matches[1]
-		}
+	// Default region to "global" if not specified
+	if config.Region == "" {
+		config.Region = "global"
 	}
 
 	if config.ProjectID == "" {
-		return nil, fmt.Errorf("project_id is required for Vertex AI (set in Headers['project_id'] or BaseURL)")
+		return nil, fmt.Errorf("vertex_project_id is required for Vertex AI provider")
 	}
 
 	if config.ServiceAccountJSON == "" {
-		return nil, fmt.Errorf("service account JSON is required for Vertex AI (set in APIKey field)")
+		return nil, fmt.Errorf("api_key (service account JSON) is required for Vertex AI provider")
 	}
 
 	return config, nil
