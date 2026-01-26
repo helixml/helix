@@ -1461,24 +1461,11 @@ const TabsView: React.FC<TabsViewProps> = ({
             )
           }
         } else {
-          // Start fresh with this task - create two panels for obvious split-screen
-          const otherTasks = tasks.filter(t => t.id !== initialTaskId)
-          const secondTask = otherTasks.length > 0 ? otherTasks[0] : null
-
-          const firstLeaf = createLeafNode(
+          // Start fresh with just this task in a single panel
+          restoredRoot = createLeafNode(
             [{ id: taskToOpen.id!, type: 'task', task: taskToOpen }],
             taskToOpen.id!
           )
-
-          if (secondTask) {
-            const secondLeaf = createLeafNode(
-              [{ id: secondTask.id!, type: 'task', task: secondTask }],
-              secondTask.id!
-            )
-            restoredRoot = createSplitNode('horizontal', [firstLeaf, secondLeaf])
-          } else {
-            restoredRoot = firstLeaf
-          }
         }
       }
     }
@@ -1959,10 +1946,18 @@ const TabsView: React.FC<TabsViewProps> = ({
     })
   }, [])
 
-  // Handle opening a review - creates a vertical split with review on the right
+  // Handle opening a review - opens in empty pane if available, otherwise creates a vertical split
   // IMPORTANT: Use :: as delimiter since task/review IDs are UUIDs containing hyphens
   const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string, sourcePanelId?: string) => {
     const tabId = `review::${taskId}::${reviewId}`
+
+    const reviewTab: TabData = {
+      id: tabId,
+      type: 'review' as const,
+      taskId,
+      reviewId,
+      reviewTitle: reviewTitle || 'Spec Review',
+    }
 
     setRootNode(prev => {
       if (!prev) return prev
@@ -1976,17 +1971,34 @@ const TabsView: React.FC<TabsViewProps> = ({
         }
       }
 
-      // Create a new leaf node with the review tab
-      const newReviewLeaf = createLeafNode(
-        [{
-          id: tabId,
-          type: 'review' as const,
-          taskId,
-          reviewId,
-          reviewTitle: reviewTitle || 'Spec Review',
-        }],
-        tabId
-      )
+      // If the source panel is empty, add the review there instead of splitting
+      if (sourcePanelId) {
+        const sourcePanel = findNode(prev, sourcePanelId)
+        if (sourcePanel && sourcePanel.type === 'leaf') {
+          const sourceTabs = sourcePanel.tabs || []
+          if (sourceTabs.length === 0) {
+            // Source panel is empty - fill it with the review
+            return updateNodeInTree(prev, sourcePanelId, node => ({
+              ...node,
+              tabs: [reviewTab],
+              activeTabId: tabId,
+            }))
+          }
+        }
+      }
+
+      // Check for any empty pane to fill
+      const emptyLeaf = allLeaves.find(leaf => !leaf.tabs || leaf.tabs.length === 0)
+      if (emptyLeaf) {
+        return updateNodeInTree(prev, emptyLeaf.id, node => ({
+          ...node,
+          tabs: [reviewTab],
+          activeTabId: tabId,
+        }))
+      }
+
+      // No empty pane - create a vertical split
+      const newReviewLeaf = createLeafNode([reviewTab], tabId)
 
       // If we have a source panel, create a vertical split with it
       if (sourcePanelId) {
