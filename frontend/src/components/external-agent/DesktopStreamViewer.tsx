@@ -2989,9 +2989,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // On Mac, Cmd (Meta) should behave like Ctrl for shortcuts, not as Linux Super key
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    console.log('[Keyboard] Platform detection: isMac =', isMac, 'platform =', navigator.platform);
 
-    // Track if we're suppressing Meta key events (to avoid sending Meta to remote on Mac)
-    let metaKeySuppressed = false;
+    // Track Meta key state for buffered Cmd handling:
+    // - When Cmd is pressed alone, we buffer it (don't send to remote yet)
+    // - If another key is pressed while Cmd is held, we translate to Ctrl+key
+    // - If Cmd is released without another key, we send Super tap (for GNOME Activities, etc.)
+    let metaKeyBuffered = false;  // True if we're holding a buffered Meta keydown
+    let metaKeyUsedForShortcut = false;  // True if Meta was used for a Cmd+key combo
 
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
@@ -3013,13 +3018,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // MAC CMD→CTRL TRANSLATION: Suppress Meta key events on Mac
-      // On Mac, Cmd should behave like Ctrl for shortcuts. We don't send Meta keydown to the remote
-      // because that would press the Super/Windows key, which has different behavior (e.g., opens GNOME Activities).
-      // Instead, when any key is pressed with Cmd held, we'll translate it to Ctrl+key.
+      // MAC CMD→CTRL TRANSLATION: Buffer Meta keydown on Mac
+      // On Mac, Cmd should behave like Ctrl for shortcuts. We buffer the Meta keydown:
+      // - If another key is pressed while Cmd is held → translate to Ctrl+key (don't send Meta)
+      // - If Cmd is released without another key → send Super tap (for GNOME Activities, etc.)
       if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
-        console.log('[Keyboard] Mac: Suppressing Meta keydown (will translate Cmd+key to Ctrl+key)');
-        metaKeySuppressed = true;
+        console.log('[Keyboard] Mac: Buffering Meta keydown (waiting to see if it\'s a shortcut)');
+        metaKeyBuffered = true;
+        metaKeyUsedForShortcut = false;  // Reset - we'll set this if a shortcut is used
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3254,11 +3260,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't fall through to default handler
       }
 
-      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code);
+      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code, 'metaKey=', event.metaKey, 'ctrlKey=', event.ctrlKey);
 
       // MAC CMD→CTRL TRANSLATION: If Cmd is held on Mac, translate to Ctrl for remote
       // This makes Cmd+A, Cmd+S, Cmd+Z, etc. work as Ctrl+A, Ctrl+S, Ctrl+Z on Linux
       if (isMac && event.metaKey) {
+        // Mark that we used the buffered Meta for a shortcut (so we don't send Super on release)
+        metaKeyUsedForShortcut = true;
+
         const translatedEvent = new KeyboardEvent('keydown', {
           code: event.code,
           key: event.key,
@@ -3288,10 +3297,45 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // MAC CMD→CTRL TRANSLATION: Suppress Meta keyup on Mac (we never sent keydown)
+      // MAC CMD→CTRL TRANSLATION: Handle Meta keyup on Mac
+      // If Cmd was used for a shortcut (Cmd+C, etc.), don't send anything
+      // If Cmd was just tapped (pressed and released without another key), send Super tap
       if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
-        console.log('[Keyboard] Mac: Suppressing Meta keyup');
-        metaKeySuppressed = false; // Reset tracking
+        if (metaKeyBuffered && !metaKeyUsedForShortcut) {
+          // Cmd was tapped without being used for a shortcut - send Super tap
+          console.log('[Keyboard] Mac: Cmd tapped alone - sending Super tap');
+          const input = getInput();
+          if (input) {
+            // Send Super keydown + keyup (tap)
+            const superDown = new KeyboardEvent('keydown', {
+              code: 'MetaLeft',
+              key: 'Meta',
+              ctrlKey: false,
+              shiftKey: false,
+              altKey: false,
+              metaKey: true,
+              bubbles: true,
+              cancelable: true,
+            });
+            const superUp = new KeyboardEvent('keyup', {
+              code: 'MetaLeft',
+              key: 'Meta',
+              ctrlKey: false,
+              shiftKey: false,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(superDown);
+            input.onKeyUp(superUp);
+          }
+        } else {
+          console.log('[Keyboard] Mac: Cmd was used for shortcut - not sending Super');
+        }
+        // Reset state
+        metaKeyBuffered = false;
+        metaKeyUsedForShortcut = false;
         event.preventDefault();
         event.stopPropagation();
         return;
