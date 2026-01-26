@@ -3025,6 +3025,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
       const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
 
+      // Check if user has selected text outside the container - if so, let browser handle copy
+      const selection = window.getSelection();
+      const hasExternalSelection = selection && selection.toString().length > 0 &&
+        selection.anchorNode && !container.contains(selection.anchorNode);
+      if (hasExternalSelection && isCopyKeystroke) {
+        console.log('[DesktopStreamViewer] Text selected outside container - letting browser handle copy');
+        return; // Don't preventDefault, let browser copy the selected text
+      }
+
       if (isCopyKeystroke && sessionId) {
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
