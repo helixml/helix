@@ -1046,12 +1046,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           setArchiveConfirmOpen(false);
           setTaskToArchive(null);
         }}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (taskToArchive) {
-            setArchiveConfirmOpen(false);
             const task = taskToArchive;
+            await performArchive(task, true);
+            setArchiveConfirmOpen(false);
             setTaskToArchive(null);
-            performArchive(task, true);
           }
         }}
         taskName={taskToArchive?.name}

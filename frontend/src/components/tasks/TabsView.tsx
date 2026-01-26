@@ -767,11 +767,11 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const performArchive = async () => {
     if (!activeTask?.id) return
 
-    setArchiveConfirmOpen(false)
     setIsActioning(true)
     try {
       await api.getApiClient().v1SpecTasksArchivePartialUpdate(activeTask.id, { archived: true })
       snackbar.success('Task rejected and archived')
+      setArchiveConfirmOpen(false)
       // Close the tab after archiving
       onTabClose(panel.id, activeTask.id)
     } catch (err: any) {
