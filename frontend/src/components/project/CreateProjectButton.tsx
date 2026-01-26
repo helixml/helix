@@ -7,7 +7,6 @@ import {
   Typography,
   Box,
   Tooltip,
-  Divider,
 } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import { FilePlus, Package } from 'lucide-react'
@@ -79,7 +78,6 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
         >
           {variant === 'text' ? 'Create Project' : 'New Project'}
         </Button>
-        <Divider orientation="vertical" flexItem sx={{ mx: 0 }} />
         <Tooltip
           title={
             <Box>
@@ -96,18 +94,13 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
           <Button
             onClick={(e) => setMenuAnchor(e.currentTarget)}
             disabled={isCreating}
-            startIcon={<Package size={16} />}
-            endIcon={<ArrowDropDownIcon />}
             sx={{
-              px: 1.5,
+              px: 1,
               minWidth: 'auto',
-              '& .MuiButton-startIcon': { mr: 0.5 },
-              '& .MuiButton-endIcon': { ml: 0.5 },
             }}
           >
-            <Typography variant="body2" sx={{ fontWeight: 500, textTransform: 'none' }}>
-              From Sample
-            </Typography>
+            <Package size={18} />
+            <ArrowDropDownIcon sx={{ ml: 0.25, fontSize: 18 }} />
           </Button>
         </Tooltip>
       </ButtonGroup>
