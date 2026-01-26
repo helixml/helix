@@ -53,7 +53,7 @@ func (s *HelixAPIServer) checkSampleProjectAccess(_ http.ResponseWriter, r *http
 	}
 
 	// Check if this sample project requires GitHub auth
-	if !sampleProject.RequiresGitHubAuth || len(sampleProject.RequiredRepositories) == 0 {
+	if !sampleProject.RequiresGitHubAuth || len(sampleProject.RequiredGitHubRepos) == 0 {
 		// No GitHub auth required, all repos accessible anonymously
 		return &types.CheckSampleProjectAccessResponse{
 			SampleProjectID:    req.SampleProjectID,
@@ -101,7 +101,7 @@ func (s *HelixAPIServer) checkSampleProjectAccess(_ http.ResponseWriter, r *http
 		return &types.CheckSampleProjectAccessResponse{
 			SampleProjectID:    req.SampleProjectID,
 			HasGitHubConnected: false,
-			Repositories:       buildRepoAccessChecksWithoutAuth(sampleProject.RequiredRepositories),
+			Repositories:       buildRepoAccessChecksWithoutAuth(sampleProject.RequiredGitHubRepos),
 			AllHaveWriteAccess: false,
 		}, nil
 	}
@@ -120,10 +120,10 @@ func (s *HelixAPIServer) checkSampleProjectAccess(_ http.ResponseWriter, r *http
 	}
 
 	// Check access to each required repository
-	repoChecks := make([]types.RepositoryAccessCheck, 0, len(sampleProject.RequiredRepositories))
+	repoChecks := make([]types.RepositoryAccessCheck, 0, len(sampleProject.RequiredGitHubRepos))
 	allHaveWriteAccess := true
 
-	for _, reqRepo := range sampleProject.RequiredRepositories {
+	for _, reqRepo := range sampleProject.RequiredGitHubRepos {
 		owner, repo, err := parseGitHubURLSimple(reqRepo.GitHubURL)
 		if err != nil {
 			log.Warn().Err(err).Str("url", reqRepo.GitHubURL).Msg("Failed to parse GitHub URL")
@@ -304,7 +304,7 @@ func parseGitHubURLSimple(url string) (owner, repo string, err error) {
 }
 
 // buildRepoAccessChecksWithoutAuth builds access checks when no GitHub auth is available
-func buildRepoAccessChecksWithoutAuth(repos []RequiredRepository) []types.RepositoryAccessCheck {
+func buildRepoAccessChecksWithoutAuth(repos []RequiredGitHubRepo) []types.RepositoryAccessCheck {
 	checks := make([]types.RepositoryAccessCheck, 0, len(repos))
 	for _, reqRepo := range repos {
 		owner, repo, _ := parseGitHubURLSimple(reqRepo.GitHubURL)

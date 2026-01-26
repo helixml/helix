@@ -111,68 +111,53 @@ const PROVIDER_SETUP_GUIDE: Record<string, {
 };
 
 // Add provider URL defaults for built-in providers
+// Note: Scopes are specified by consumers (apps, sample projects) when starting OAuth flow
 export const PROVIDER_DEFAULTS: Record<string, {
   auth_url: string;
   token_url: string;
   user_info_url: string;
-  scopes: string[];
-  scopeDescription: string;
   type: string;
 }> = {
   github: {
     auth_url: 'https://github.com/login/oauth/authorize',
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
-    scopes: ['read:user', 'user:email', 'repo'],
-    scopeDescription: 'User profile, email, and repository access (for cloning/pushing code)',
     type: 'github'
   },
   google: {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
     token_url: 'https://oauth2.googleapis.com/token',
     user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
-    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-    scopeDescription: 'User profile, email, and Google Calendar access',
     type: 'google'
   },
   microsoft: {
     auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     user_info_url: 'https://graph.microsoft.com/v1.0/me',
-    scopes: ['openid', 'profile', 'email', 'offline_access'],
-    scopeDescription: 'User profile and email via Microsoft Graph API',
     type: 'microsoft'
   },
   slack: {
     auth_url: 'https://slack.com/oauth/v2/authorize',
     token_url: 'https://slack.com/api/oauth.v2.access',
     user_info_url: 'https://slack.com/api/users.identity',
-    scopes: ['identity.basic', 'identity.email', 'identity.avatar'],
-    scopeDescription: 'User identity, email, and avatar from Slack',
     type: 'slack'
   },
   linkedin: {
     auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
     token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
     user_info_url: 'https://api.linkedin.com/v2/me',
-    scopes: ['r_liteprofile', 'r_emailaddress'],
-    scopeDescription: 'Basic profile and email address from LinkedIn',
     type: 'linkedin'
   },
   atlassian: {
     auth_url: 'https://auth.atlassian.com/authorize',
     token_url: 'https://auth.atlassian.com/oauth/token',
     user_info_url: 'https://api.atlassian.com/me',
-    scopes: ['read:me'],
-    scopeDescription: 'User profile from Atlassian (Jira, Confluence)',
     type: 'atlassian'
   },
   hubspot: {
     auth_url: 'https://app-na2.hubspot.com/oauth/authorize',
     token_url: 'https://api.hubapi.com/oauth/v1/token',
     user_info_url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
-    scopes: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.tickets.read', 'crm.objects.deals.read'],
-    scopeDescription: 'Read access to CRM contacts, companies, tickets, and deals',
     type: 'hubspot'
   }
 }; 
@@ -290,13 +275,6 @@ const OAuthProvidersTable: React.FC = () => {
     
     const { name, checked } = e.target
     setCurrentProvider(prev => prev ? { ...prev, [name]: checked } : null)
-  }
-  
-  const handleScopeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!currentProvider) return
-    
-    const scopes = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-    setCurrentProvider(prev => prev ? { ...prev, scopes } : null)
   }
   
   const handleSaveProvider = async () => {
@@ -926,20 +904,6 @@ const OAuthProvidersTable: React.FC = () => {
                 </>
               )}
               
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Scopes"
-                  name="scopes"
-                  value={currentProvider?.scopes?.join(', ')}
-                  onChange={handleScopeChange}
-                  helperText={
-                    currentProvider.type && PROVIDER_DEFAULTS[currentProvider.type]?.scopeDescription
-                      ? `${PROVIDER_DEFAULTS[currentProvider.type].scopeDescription}`
-                      : 'Comma-separated list of OAuth scopes (e.g. profile, email, read:user)'
-                  }
-                />
-              </Grid>
             </Grid>
           )}
         </DialogContent>

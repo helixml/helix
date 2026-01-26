@@ -31,13 +31,13 @@ type SimpleSampleProject struct {
 	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
 
-	// RequiredRepositories specifies GitHub repos that must be cloned for this sample project.
+	// RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
 	// When set, the project creation flow will:
 	// 1. Check if user has GitHub OAuth connected
 	// 2. Verify write access to each repo (or offer to fork)
 	// 3. Clone repos with authentication
 	// 4. Wait for cloning to complete before starting session
-	RequiredRepositories []RequiredRepository `json:"required_repositories,omitempty"`
+	RequiredGitHubRepos []RequiredGitHubRepo `json:"required_repositories,omitempty"`
 
 	// RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access
 	RequiresGitHubAuth bool `json:"requires_github_auth,omitempty"`
@@ -47,8 +47,8 @@ type SimpleSampleProject struct {
 	RequiredScopes []string `json:"required_scopes,omitempty"`
 }
 
-// RequiredRepository specifies a GitHub repository required for a sample project
-type RequiredRepository struct {
+// RequiredGitHubRepo specifies a GitHub repository required for a sample project
+type RequiredGitHubRepo struct {
 	// GitHubURL is the GitHub repository URL (e.g., "github.com/helixml/helix")
 	GitHubURL string `json:"github_url"`
 
@@ -655,7 +655,7 @@ The color discovery happens during implementation, and that learning gets captur
 		RequiresGitHubAuth: true,
 		// Scopes needed: repo (for cloning/pushing/PRs), read:user (for identity)
 		RequiredScopes: []string{"repo", "read:user", "user:email"},
-		RequiredRepositories: []RequiredRepository{
+		RequiredGitHubRepos: []RequiredGitHubRepo{
 			{
 				GitHubURL:     "github.com/helixml/helix",
 				IsPrimary:     true,
@@ -1247,13 +1247,13 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				"Then clone the task to fill the other 4 shapes (Square, Triangle, Hexagon, Star) with the same color. "+
 				"%d task(s) ready to work on.", totalTasksCreated),
 		}, nil
-	} else if len(sampleProject.RequiredRepositories) > 0 {
-		// Handle sample projects with RequiredRepositories (e.g., helix-in-helix)
+	} else if len(sampleProject.RequiredGitHubRepos) > 0 {
+		// Handle sample projects with RequiredGitHubRepos (e.g., helix-in-helix)
 		// These require GitHub OAuth for authenticated cloning and push access
 
 		log.Info().
 			Str("project_id", createdProject.ID).
-			Int("required_repos", len(sampleProject.RequiredRepositories)).
+			Int("required_repos", len(sampleProject.RequiredGitHubRepos)).
 			Msg("Creating project with required GitHub repositories")
 
 		// Get GitHub access token for authenticated cloning
@@ -1270,7 +1270,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		var createdRepos []types.CreatedRepository
 		var primaryRepoID string
 
-		for _, reqRepo := range sampleProject.RequiredRepositories {
+		for _, reqRepo := range sampleProject.RequiredGitHubRepos {
 			owner, repo, parseErr := parseGitHubURLSimple(reqRepo.GitHubURL)
 			if parseErr != nil {
 				log.Warn().Err(parseErr).Str("url", reqRepo.GitHubURL).Msg("Failed to parse GitHub URL")

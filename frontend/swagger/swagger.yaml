@@ -1174,7 +1174,7 @@ definitions:
       repo_id:
         type: string
     type: object
-  server.RequiredRepository:
+  server.RequiredGitHubRepo:
     properties:
       allow_fork:
         description: AllowFork allows users without write access to fork the repo
@@ -1395,14 +1395,14 @@ definitions:
         type: string
       required_repositories:
         description: |-
-          RequiredRepositories specifies GitHub repos that must be cloned for this sample project.
+          RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
           When set, the project creation flow will:
           1. Check if user has GitHub OAuth connected
           2. Verify write access to each repo (or offer to fork)
           3. Clone repos with authentication
           4. Wait for cloning to complete before starting session
         items:
-          $ref: '#/definitions/server.RequiredRepository'
+          $ref: '#/definitions/server.RequiredGitHubRepo'
         type: array
       required_scopes:
         description: |-

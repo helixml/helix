@@ -15070,7 +15070,7 @@ const docTemplate = `{
                 }
             }
         },
-        "server.RequiredRepository": {
+        "server.RequiredGitHubRepo": {
             "type": "object",
             "properties": {
                 "allow_fork": {
@@ -15391,10 +15391,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "required_repositories": {
-                    "description": "RequiredRepositories specifies GitHub repos that must be cloned for this sample project.\nWhen set, the project creation flow will:\n1. Check if user has GitHub OAuth connected\n2. Verify write access to each repo (or offer to fork)\n3. Clone repos with authentication\n4. Wait for cloning to complete before starting session",
+                    "description": "RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.\nWhen set, the project creation flow will:\n1. Check if user has GitHub OAuth connected\n2. Verify write access to each repo (or offer to fork)\n3. Clone repos with authentication\n4. Wait for cloning to complete before starting session",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/server.RequiredRepository"
+                        "$ref": "#/definitions/server.RequiredGitHubRepo"
                     }
                 },
                 "required_scopes": {

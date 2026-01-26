@@ -758,7 +758,7 @@ export interface ServerQuickCreateProjectRequest {
   repo_id?: string;
 }
 
-export interface ServerRequiredRepository {
+export interface ServerRequiredGitHubRepo {
   /** AllowFork allows users without write access to fork the repo to their account */
   allow_fork?: boolean;
   /** DefaultBranch overrides the default branch for this repo */
@@ -889,14 +889,14 @@ export interface ServerSimpleSampleProject {
   name?: string;
   readme_url?: string;
   /**
-   * RequiredRepositories specifies GitHub repos that must be cloned for this sample project.
+   * RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
    * When set, the project creation flow will:
    * 1. Check if user has GitHub OAuth connected
    * 2. Verify write access to each repo (or offer to fork)
    * 3. Clone repos with authentication
    * 4. Wait for cloning to complete before starting session
    */
-  required_repositories?: ServerRequiredRepository[];
+  required_repositories?: ServerRequiredGitHubRepo[];
   /**
    * RequiredScopes specifies the OAuth scopes needed for this sample project
    * These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
