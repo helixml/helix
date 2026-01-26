@@ -194,6 +194,25 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				"model":    zedConfig.Agent.DefaultModel.Model,
 			}
 		}
+		// Add feature-specific models to prevent Zed from using hardcoded gpt-4.1-mini defaults
+		if zedConfig.Agent.InlineAssistantModel != nil {
+			agentConfig["inline_assistant_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.InlineAssistantModel.Provider,
+				"model":    zedConfig.Agent.InlineAssistantModel.Model,
+			}
+		}
+		if zedConfig.Agent.CommitMessageModel != nil {
+			agentConfig["commit_message_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.CommitMessageModel.Provider,
+				"model":    zedConfig.Agent.CommitMessageModel.Model,
+			}
+		}
+		if zedConfig.Agent.ThreadSummaryModel != nil {
+			agentConfig["thread_summary_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.ThreadSummaryModel.Provider,
+				"model":    zedConfig.Agent.ThreadSummaryModel.Model,
+			}
+		}
 	}
 
 	// Use app.Updated for version, or current time if app is minimal
