@@ -26,7 +26,6 @@ import {
   Refresh as RefreshIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
-  SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
   Tab as TabIcon,
@@ -840,6 +839,7 @@ const SpecTasksPage: FC = () => {
       breadcrumbTitle={project ? undefined : "SpecTasks"}
       orgBreadcrumbs={true}
       showDrawerButton={true}
+      disableContentScroll={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
           {/* View mode toggle: Board vs Workspace vs Audit Trail */}
@@ -1084,7 +1084,8 @@ const SpecTasksPage: FC = () => {
         display: 'flex',
         flexDirection: 'row',
         width: '100%',
-        height: 'calc(100vh - 120px)',
+        flex: 1,
+        minHeight: 0,
         overflow: 'hidden',
         position: 'relative',
       }}>

@@ -127,7 +127,7 @@ const Projects: FC = () => {
   // Search and pagination for projects
   const [projectsSearchQuery, setProjectsSearchQuery] = useState('')
   const [projectsPage, setProjectsPage] = useState(0)
-  const projectsPerPage = 12
+  const projectsPerPage = 24
 
   // Search and pagination for repositories
   const [reposSearchQuery, setReposSearchQuery] = useState('')

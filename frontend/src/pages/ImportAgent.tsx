@@ -24,7 +24,7 @@ import LoginIcon from '@mui/icons-material/Login'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import SecurityIcon from '@mui/icons-material/Security'
 import WarningIcon from '@mui/icons-material/Warning'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
+import { Bot } from 'lucide-react'
 import CodeIcon from '@mui/icons-material/Code'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
 
@@ -718,7 +718,7 @@ const ImportAgent: FC = () => {
             <Box sx={{ display: 'grid', gap: 4, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, mb: 4 }}>
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <SmartToyIcon sx={{ color: themeConfig.tealRoot, mr: 1, fontSize: '1.5rem' }} />
+                  <Bot size={24} color={themeConfig.tealRoot} style={{ marginRight: 8 }} />
                   <Typography variant="h5" sx={{ fontWeight: 600, color: themeConfig.darkText }}>
                     Agent Preview
                   </Typography>
@@ -764,12 +764,10 @@ const ImportAgent: FC = () => {
                           alt={getAgentName()}
                         />
                       ) : (
-                        <SmartToyIcon 
-                          sx={{ 
-                            fontSize: '1.8rem', 
-                            color: 'white',
-                            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
-                          }} 
+                        <Bot
+                          size={28}
+                          color="white"
+                          style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
                         />
                       )}
                     </AgentIconContainer>

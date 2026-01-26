@@ -24,7 +24,7 @@ import {
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import EditIcon from '@mui/icons-material/Edit'
-import GitHubIcon from '@mui/icons-material/GitHub'
+import { GitBranch } from 'lucide-react'
 import CommentIcon from '@mui/icons-material/Comment'
 import ShareIcon from '@mui/icons-material/Share'
 import CheckIcon from '@mui/icons-material/Check'
@@ -101,6 +101,8 @@ export default function DesignReviewContent({
   const [rejectReason, setRejectReason] = useState('')
   const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(new Map())
+  // Track when we just created a comment - enables queue polling immediately without waiting for comments refresh
+  const [awaitingCommentResponse, setAwaitingCommentResponse] = useState(false)
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null)
@@ -131,9 +133,21 @@ export default function DesignReviewContent({
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId)
 
   // Get queue status for streaming
+  // Enable polling immediately when we create a comment (awaitingCommentResponse)
+  // OR when we detect awaiting comments from the comments query (hasAwaitingComments)
+  const shouldPollQueueStatus = awaitingCommentResponse || hasAwaitingComments
   const { data: queueStatus } = useCommentQueueStatus(specTaskId, reviewId, {
-    enabled: hasAwaitingComments,
+    enabled: shouldPollQueueStatus,
   })
+
+  // Clear awaitingCommentResponse when comments data confirms no more pending comments
+  // This handles edge cases like timeouts or missed WebSocket messages
+  useEffect(() => {
+    if (awaitingCommentResponse && !hasAwaitingComments && commentsData) {
+      // Comments data has refreshed and shows no pending comments - clear the flag
+      setAwaitingCommentResponse(false)
+    }
+  }, [awaitingCommentResponse, hasAwaitingComments, commentsData])
 
   // Track streaming agent response
   const [streamingResponse, setStreamingResponse] = useState<{ commentId: string; content: string } | null>(null)
@@ -142,6 +156,15 @@ export default function DesignReviewContent({
 
   const review = reviewData?.review
   const allComments = commentsData?.comments || []
+
+  // Refs to access latest values inside WebSocket messageHandler (avoids stale closures)
+  const allCommentsRef = useRef(allComments)
+  const queueStatusRef = useRef(queueStatus)
+  useEffect(() => { allCommentsRef.current = allComments }, [allComments])
+  useEffect(() => { queueStatusRef.current = queueStatus }, [queueStatus])
+
+  // Get planning session ID from spec task (more reliable than waiting for queue status)
+  const planningSessionId = task?.planning_session_id
   const activeDocComments = useMemo(
     () => allComments.filter(c => c.document_type === activeTab),
     [allComments, activeTab]
@@ -191,18 +214,39 @@ export default function DesignReviewContent({
   )
 
   // WebSocket subscription for real-time agent responses
+  // Always subscribe when viewing a spec task - that way we're already connected when comments are created
   useEffect(() => {
-    if (!queueStatus?.planning_session_id || !queueStatus?.current_comment_id || !account.token) {
+    // [DRWS-DEBUG] Log subscription decision
+    console.log('[DRWS-DEBUG] Subscription check:', {
+      planningSessionId,
+      hasToken: !!account.token,
+      willSubscribe: !!(planningSessionId && account.token),
+    })
+
+    if (!planningSessionId || !account.token) {
+      console.log('[DRWS-DEBUG] Not subscribing - missing planningSessionId or token')
       return
     }
 
-    const sessionId = queueStatus.planning_session_id
-    const currentCommentId = queueStatus.current_comment_id
-
+    const sessionId = planningSessionId
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}`
+
+    console.log('[DRWS-DEBUG] Creating WebSocket connection to:', url)
     const rws = new ReconnectingWebSocket(url)
+
+    rws.addEventListener('open', () => {
+      console.log('[DRWS-DEBUG] WebSocket CONNECTED')
+    })
+
+    rws.addEventListener('error', (err) => {
+      console.error('[DRWS-DEBUG] WebSocket ERROR:', err)
+    })
+
+    rws.addEventListener('close', () => {
+      console.log('[DRWS-DEBUG] WebSocket CLOSED')
+    })
 
     let accumulatedResponse = ''
 
@@ -210,34 +254,72 @@ export default function DesignReviewContent({
       try {
         const parsedData = JSON.parse(event.data)
 
+        console.log('[DRWS-DEBUG] WebSocket message received, type:', parsedData.type)
+
         if (parsedData.type === 'session_update' && parsedData.session?.interactions) {
           const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1]
 
+          console.log('[DRWS-DEBUG] session_update with interactions, last interaction:', {
+            hasResponseMessage: !!lastInteraction?.response_message,
+            state: lastInteraction?.state,
+            responseLength: lastInteraction?.response_message?.length,
+          })
+
           if (lastInteraction?.response_message) {
             accumulatedResponse = lastInteraction.response_message
-            setStreamingResponse({
-              commentId: currentCommentId,
-              content: accumulatedResponse,
+
+            // Find the comment that's currently being processed
+            // Use refs to get latest values (not stale closure values)
+            const currentQueueStatus = queueStatusRef.current
+            const currentComments = allCommentsRef.current
+
+            console.log('[DRWS-DEBUG] Looking for target comment:', {
+              queueStatusCurrentCommentId: currentQueueStatus?.current_comment_id,
+              commentsCount: currentComments.length,
+              commentsWithRequestId: currentComments.filter(c => c.request_id && !c.agent_response).map(c => c.id),
+              commentsWithoutResponse: currentComments.filter(c => !c.agent_response && !c.resolved).map(c => c.id),
             })
 
+            // Priority: queue status (most reliable), then find from comments list
+            const targetCommentId = currentQueueStatus?.current_comment_id ||
+              currentComments.find(c => c.request_id && !c.agent_response)?.id ||
+              // Fallback: most recent comment without a response
+              [...currentComments].reverse().find(c => !c.agent_response && !c.resolved)?.id
+
+            console.log('[DRWS-DEBUG] Target comment ID:', targetCommentId)
+
+            if (targetCommentId) {
+              console.log('[DRWS-DEBUG] Setting streaming response for comment:', targetCommentId, 'length:', accumulatedResponse.length)
+              setStreamingResponse({
+                commentId: targetCommentId,
+                content: accumulatedResponse,
+              })
+            } else {
+              console.warn('[DRWS-DEBUG] No target comment found - cannot attribute response!')
+            }
+
             if (lastInteraction.state === 'complete') {
+              console.log('[DRWS-DEBUG] Interaction complete - invalidating queries and clearing state')
               queryClient.invalidateQueries({ queryKey: designReviewKeys.comments(specTaskId, reviewId) })
               setStreamingResponse(null)
             }
           }
+        } else {
+          console.log('[DRWS-DEBUG] Ignoring message - not a session_update with interactions')
         }
       } catch (error) {
-        console.error('[DesignReviewContent] Error parsing WebSocket message:', error)
+        console.error('[DRWS-DEBUG] Error parsing WebSocket message:', error)
       }
     }
 
     rws.addEventListener('message', messageHandler)
 
     return () => {
+      console.log('[DRWS-DEBUG] Cleaning up WebSocket subscription')
       rws.removeEventListener('message', messageHandler)
       rws.close()
     }
-  }, [queueStatus?.planning_session_id, queueStatus?.current_comment_id, account.token, specTaskId, reviewId, queryClient])
+  }, [planningSessionId, specTaskId, reviewId])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -697,7 +779,7 @@ export default function DesignReviewContent({
             <Box display="flex" alignItems="center" gap={1.5} pr={2}>
               <Tooltip title={`Commit: ${review.git_commit_hash}`}>
                 <Chip
-                  icon={<GitHubIcon sx={{ fontSize: 14 }} />}
+                  icon={<GitBranch size={14} />}
                   label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
                   size="small"
                   variant="outlined"

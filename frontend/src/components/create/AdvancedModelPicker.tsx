@@ -22,12 +22,11 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
-import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StarIcon from '@mui/icons-material/Star';
 // import ImageIcon from '@mui/icons-material/Image';
-import { Image, Cog } from 'lucide-react';
+import { Image, Cog, Bot } from 'lucide-react';
 
 import { useListProviders } from '../../services/providersService';
 import { useGetUserTokenUsage } from '../../services/userService';
@@ -87,7 +86,7 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
   // Default robot head
   return (
     <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
-      <SmartToyIcon />
+      <Bot size={20} />
     </Avatar>
   );  
 };

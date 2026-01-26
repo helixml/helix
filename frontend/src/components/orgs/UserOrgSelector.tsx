@@ -9,7 +9,6 @@ import DialogContent from '@mui/material/DialogContent'
 import Button from '@mui/material/Button'
 
 import {
-  Home,
   Bot,
   Clock,
   Server,
@@ -23,12 +22,13 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  Kanban,
   Activity,
   GitBranch,
   FileQuestionMark,
+  MessageCircle,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
+import { Hive } from '@mui/icons-material'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -359,14 +359,14 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        icon: <Hive sx={{ fontSize: NAV_BUTTON_SIZE }} />,
         tooltip: "View swarm",
         isActive: isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
         label: "Swarm",
       },
       {
-        icon: <Home size={NAV_BUTTON_SIZE} />,
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
         isActive: isActive('chat'),
         onClick: () => orgNavigateTo('chat'),

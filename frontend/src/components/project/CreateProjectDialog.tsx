@@ -24,8 +24,7 @@ import {
   AccordionDetails,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { FolderGit2, Link as LinkIcon, Plus } from 'lucide-react'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
+import { FolderGit2, Link as LinkIcon, Plus, Bot } from 'lucide-react'
 import EditIcon from '@mui/icons-material/Edit'
 import { TypesExternalRepositoryType } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
@@ -640,7 +639,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                   {sortedApps.map((app) => (
                     <MenuItem key={app.id} value={app.id}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                        <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                        <Bot size={18} color="#9e9e9e" />
                         <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
                         <Tooltip title="Edit agent">
                           <IconButton

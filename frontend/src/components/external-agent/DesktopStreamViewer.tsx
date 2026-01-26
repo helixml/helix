@@ -3219,7 +3219,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't fall through to default handler
       }
 
-      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code);
       getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
@@ -3262,7 +3261,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      console.log('[DesktopStreamViewer] KeyUp captured:', event.key, event.code);
       getInput()?.onKeyUp(event);
       // Prevent browser default behavior to ensure all keys are passed through
       event.preventDefault();

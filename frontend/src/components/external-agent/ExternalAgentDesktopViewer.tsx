@@ -68,8 +68,10 @@ const useSandboxState = (sessionId: string) => {
   }, [sessionId]);
 
   // Backend now returns 'starting' state for recently-created containers
+  // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
+  // before we know the real state (avoids mount/unmount flicker)
   const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
-  const isStarting = sandboxState === 'starting';
+  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === 'absent';
 

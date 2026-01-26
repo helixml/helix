@@ -35,7 +35,7 @@ import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
+import { Bot } from 'lucide-react'
 import EditIcon from '@mui/icons-material/Edit'
 import HistoryIcon from '@mui/icons-material/History'
 import DescriptionIcon from '@mui/icons-material/Description'
@@ -717,7 +717,7 @@ const ProjectSettings: FC = () => {
           {/* Default Agent */}
           <Paper sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <SmartToyIcon sx={{ mr: 1 }} />
+              <Bot size={24} style={{ marginRight: 8 }} />
               <Typography variant="h6">
                 Agent configuration
               </Typography>
