@@ -4,7 +4,7 @@ import {
   Button,
   DialogActions,
   DialogContent,
-  DialogTitle,  
+  DialogTitle,
   FormControlLabel,
   Grid,
   IconButton,
@@ -13,12 +13,14 @@ import {
   Typography,
   Chip,
   Card,
-  CardContent,  
+  CardContent,
   CardActions,
   CardHeader,
   Avatar,
   Tooltip,
-  Divider,  
+  Divider,
+  Alert,
+  Link,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
@@ -45,12 +47,76 @@ import {
   BUILT_IN_PROVIDERS,
 } from '../icons/ProviderIcons'
 
+// Provider setup instructions - concise guidance on where to get credentials
+const PROVIDER_SETUP_GUIDE: Record<string, {
+  setupUrl: string;
+  steps: string[];
+}> = {
+  github: {
+    setupUrl: 'https://github.com/settings/developers',
+    steps: [
+      'Go to GitHub → Settings → Developer settings → OAuth Apps',
+      'Click "New OAuth App" and fill in your app details',
+      'Copy the Client ID and generate a Client Secret',
+    ],
+  },
+  google: {
+    setupUrl: 'https://console.cloud.google.com/apis/credentials',
+    steps: [
+      'Go to Google Cloud Console → APIs & Services → Credentials',
+      'Click "Create Credentials" → "OAuth client ID"',
+      'Select "Web application" and configure authorized redirect URIs',
+    ],
+  },
+  microsoft: {
+    setupUrl: 'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
+    steps: [
+      'Go to Azure Portal → App registrations → New registration',
+      'Add a redirect URI under Authentication',
+      'Create a client secret under Certificates & secrets',
+    ],
+  },
+  slack: {
+    setupUrl: 'https://api.slack.com/apps',
+    steps: [
+      'Go to api.slack.com/apps → Create New App',
+      'Choose "From scratch" and select your workspace',
+      'Find Client ID and Client Secret under Basic Information',
+    ],
+  },
+  linkedin: {
+    setupUrl: 'https://www.linkedin.com/developers/apps',
+    steps: [
+      'Go to LinkedIn Developers → Create app',
+      'Verify your app and request API products',
+      'Find credentials under Auth tab',
+    ],
+  },
+  atlassian: {
+    setupUrl: 'https://developer.atlassian.com/console/myapps/',
+    steps: [
+      'Go to Atlassian Developer Console → Create → OAuth 2.0 integration',
+      'Configure permissions and callback URL',
+      'Copy Client ID and Secret from Settings',
+    ],
+  },
+  hubspot: {
+    setupUrl: 'https://developers.hubspot.com/get-started',
+    steps: [
+      'Go to HubSpot Developer → Create a private app',
+      'Configure scopes under Settings',
+      'Copy App ID and Client Secret',
+    ],
+  },
+};
+
 // Add provider URL defaults for built-in providers
 export const PROVIDER_DEFAULTS: Record<string, {
   auth_url: string;
   token_url: string;
   user_info_url: string;
   scopes: string[];
+  scopeDescription: string;
   type: string;
 }> = {
   github: {
@@ -58,6 +124,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
     scopes: ['read:user', 'user:email', 'repo'],
+    scopeDescription: 'User profile, email, and repository access (for cloning/pushing code)',
     type: 'github'
   },
   google: {
@@ -65,6 +132,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://oauth2.googleapis.com/token',
     user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
     scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+    scopeDescription: 'User profile, email, and Google Calendar access',
     type: 'google'
   },
   microsoft: {
@@ -72,6 +140,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     user_info_url: 'https://graph.microsoft.com/v1.0/me',
     scopes: ['openid', 'profile', 'email', 'offline_access'],
+    scopeDescription: 'User profile and email via Microsoft Graph API',
     type: 'microsoft'
   },
   slack: {
@@ -79,6 +148,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://slack.com/api/oauth.v2.access',
     user_info_url: 'https://slack.com/api/users.identity',
     scopes: ['identity.basic', 'identity.email', 'identity.avatar'],
+    scopeDescription: 'User identity, email, and avatar from Slack',
     type: 'slack'
   },
   linkedin: {
@@ -86,6 +156,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
     user_info_url: 'https://api.linkedin.com/v2/me',
     scopes: ['r_liteprofile', 'r_emailaddress'],
+    scopeDescription: 'Basic profile and email address from LinkedIn',
     type: 'linkedin'
   },
   atlassian: {
@@ -93,6 +164,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://auth.atlassian.com/oauth/token',
     user_info_url: 'https://api.atlassian.com/me',
     scopes: ['read:me'],
+    scopeDescription: 'User profile from Atlassian (Jira, Confluence)',
     type: 'atlassian'
   },
   hubspot: {
@@ -100,6 +172,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://api.hubapi.com/oauth/v1/token',
     user_info_url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
     scopes: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.tickets.read', 'crm.objects.deals.read'],
+    scopeDescription: 'Read access to CRM contacts, companies, tickets, and deals',
     type: 'hubspot'
   }
 }; 
@@ -705,6 +778,40 @@ const OAuthProvidersTable: React.FC = () => {
         <DialogContent>
           {currentProvider && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
+              {/* Setup guide for known provider types */}
+              {currentProvider.type && currentProvider.type !== 'custom' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
+                <Grid item xs={12}>
+                  <Alert
+                    severity="info"
+                    sx={{
+                      '& .MuiAlert-message': { width: '100%' },
+                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                      Setup steps:{' '}
+                      <Link
+                        href={PROVIDER_SETUP_GUIDE[currentProvider.type].setupUrl}
+                        target="_blank"
+                        rel="noopener"
+                        sx={{ ml: 0.5 }}
+                      >
+                        Open {PROVIDER_TYPES[currentProvider.type as keyof typeof PROVIDER_TYPES]} Developer Console ↗
+                      </Link>
+                    </Typography>
+                    <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 0.25 } }}>
+                      {PROVIDER_SETUP_GUIDE[currentProvider.type].steps.map((step, i) => (
+                        <li key={i}>
+                          <Typography variant="caption" color="text.secondary">
+                            {step}
+                          </Typography>
+                        </li>
+                      ))}
+                    </Box>
+                  </Alert>
+                </Grid>
+              )}
+
               <Grid item xs={12}>
                 <TextField
                   fullWidth
@@ -826,7 +933,11 @@ const OAuthProvidersTable: React.FC = () => {
                   name="scopes"
                   value={currentProvider?.scopes?.join(', ')}
                   onChange={handleScopeChange}
-                  helperText="Comma-separated list of OAuth scopes (e.g. profile, email, read:user)"
+                  helperText={
+                    currentProvider.type && PROVIDER_DEFAULTS[currentProvider.type]?.scopeDescription
+                      ? `${PROVIDER_DEFAULTS[currentProvider.type].scopeDescription}`
+                      : 'Comma-separated list of OAuth scopes (e.g. profile, email, read:user)'
+                  }
                 />
               </Grid>
             </Grid>
