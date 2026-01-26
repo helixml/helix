@@ -1467,15 +1467,6 @@ export class WebSocketStream {
     this.inputBuffer[1] = isDown ? 1 : 0
     this.inputBuffer[2] = modifiers
     this.inputView.setUint16(3, key, false) // big-endian
-    // Debug: log key sends with modifiers to troubleshoot Cmd+C translation
-    if (modifiers !== 0) {
-      const modNames = []
-      if (modifiers & 1) modNames.push('Shift')
-      if (modifiers & 2) modNames.push('Ctrl')
-      if (modifiers & 4) modNames.push('Alt')
-      if (modifiers & 8) modNames.push('Meta')
-      console.log(`[WsStream.sendKey] ${isDown ? 'DOWN' : 'UP'} key=${key} modifiers=${modifiers} (${modNames.join('+')})`)
-    }
     this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 5))
   }
 

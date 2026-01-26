@@ -2985,19 +2985,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
-    // Detect Mac platform for Cmd→Ctrl translation
-    // On Mac, Cmd (Meta) should behave like Ctrl for shortcuts, not as Linux Super key
-    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    console.log('[Keyboard] Platform detection: isMac =', isMac, 'platform =', navigator.platform);
-
-    // Track Meta key state for buffered Cmd handling:
-    // - When Cmd is pressed alone, we buffer it (don't send to remote yet)
-    // - If another key is pressed while Cmd is held, we translate to Ctrl+key
-    // - If Cmd is released without another key, we send Super tap (for GNOME Activities, etc.)
-    let metaKeyBuffered = false;  // True if we're holding a buffered Meta keydown
-    let metaKeyUsedForShortcut = false;  // True if Meta was used for a Cmd+key combo
-
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
       setDebugKeyEvent(`↓ key="${event.key}" code="${event.code}" keyCode=${event.keyCode}`);
@@ -3013,20 +3000,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
-        console.log('[Keyboard] Filtering repeat event:', event.key, event.code);
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-
-      // MAC CMD→CTRL TRANSLATION: Buffer Meta keydown on Mac
-      // On Mac, Cmd should behave like Ctrl for shortcuts. We buffer the Meta keydown:
-      // - If another key is pressed while Cmd is held → translate to Ctrl+key (don't send Meta)
-      // - If Cmd is released without another key → send Super tap (for GNOME Activities, etc.)
-      if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
-        console.log('[Keyboard] Mac: Buffering Meta keydown (waiting to see if it\'s a shortcut)');
-        metaKeyBuffered = true;
-        metaKeyUsedForShortcut = false;  // Reset - we'll set this if a shortcut is used
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3053,25 +3026,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
 
       if (isCopyKeystroke && sessionId) {
-        // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
+        // Send the copy keystroke to remote first
+        console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
         const input = getInput();
         if (input) {
-          const isMacCmd = isCmdC || isCmdShiftC;
-          console.log(`[Clipboard] Copy keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${event.shiftKey ? 'Shift+' : ''}C), forwarding Ctrl+C to remote`);
-
-          // Mark that Cmd was used for a shortcut (so we don't send Super tap on release)
-          if (isMacCmd) {
-            metaKeyUsedForShortcut = true;
-          }
-
-          // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+C directly
-          // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
+          // Forward Ctrl+C to remote
           const ctrlCDown = new KeyboardEvent('keydown', {
             code: 'KeyC',
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
-            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
@@ -3083,15 +3047,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
-            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
-          console.log('[Clipboard] Ctrl+C sent to remote desktop');
-        } else {
-          console.warn('[Clipboard] Copy keystroke detected but no input handler available');
         }
 
         // Wait briefly for remote clipboard to update, then sync back to local
@@ -3159,15 +3119,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
-        const isMacCmd = isCmdV || isCmdShiftV;
-        console.log(`[Clipboard] Paste keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${userPressedShift ? 'Shift+' : ''}V), syncing local → remote`);
-
-        // Mark that Cmd was used for a shortcut (so we don't send Super tap on release)
-        if (isMacCmd) {
-          metaKeyUsedForShortcut = true;
-        }
-
-        // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+V directly
+        console.log(`[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`);
 
         // Skip if clipboard API is not available (e.g., Safari without HTTPS)
         if (!navigator.clipboard) {
@@ -3228,9 +3180,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
             showClipboardToast('Pasted', 'success');
 
-            // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
-            // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
-            // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
+            // Forward the SAME keystroke the user pressed:
+            // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
+            // - User pressed Ctrl+Shift+V → send Ctrl+Shift+V (for terminals)
             const input = getInput();
             if (input) {
               const pasteKeyDown = new KeyboardEvent('keydown', {
@@ -3238,7 +3190,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
-                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
@@ -3250,16 +3201,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
-                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
               });
               input.onKeyUp(pasteKeyUp);
 
-              console.log(`[Clipboard] Ctrl+${userPressedShift ? 'Shift+' : ''}V sent to remote desktop`);
-            } else {
-              console.warn('[Clipboard] Paste keystroke detected but no input handler available');
+              console.log(`[Clipboard] Forwarded Ctrl+${userPressedShift ? 'Shift+' : ''}V to remote`);
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
@@ -3271,30 +3219,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't fall through to default handler
       }
 
-      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code, 'metaKey=', event.metaKey, 'ctrlKey=', event.ctrlKey);
-
-      // MAC CMD→CTRL TRANSLATION: If Cmd is held on Mac, translate to Ctrl for remote
-      // This makes Cmd+A, Cmd+S, Cmd+Z, etc. work as Ctrl+A, Ctrl+S, Ctrl+Z on Linux
-      if (isMac && event.metaKey) {
-        // Mark that we used the buffered Meta for a shortcut (so we don't send Super on release)
-        metaKeyUsedForShortcut = true;
-
-        const translatedEvent = new KeyboardEvent('keydown', {
-          code: event.code,
-          key: event.key,
-          ctrlKey: true,  // Translate Cmd to Ctrl
-          shiftKey: event.shiftKey,
-          altKey: event.altKey,
-          metaKey: false, // Don't send Meta
-          bubbles: true,
-          cancelable: true,
-        });
-        console.log(`[Keyboard] Mac: Translating Cmd+${event.key} to Ctrl+${event.key}`);
-        getInput()?.onKeyDown(translatedEvent);
-      } else {
-        getInput()?.onKeyDown(event);
-      }
-
+      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code);
+      getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
       event.preventDefault();
@@ -3305,50 +3231,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[DesktopStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
-        return;
-      }
-
-      // MAC CMD→CTRL TRANSLATION: Handle Meta keyup on Mac
-      // If Cmd was used for a shortcut (Cmd+C, etc.), don't send anything
-      // If Cmd was just tapped (pressed and released without another key), send Super tap
-      if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
-        if (metaKeyBuffered && !metaKeyUsedForShortcut) {
-          // Cmd was tapped without being used for a shortcut - send Super tap
-          console.log('[Keyboard] Mac: Cmd tapped alone - sending Super tap');
-          const input = getInput();
-          if (input) {
-            // Send Super keydown + keyup (tap)
-            const superDown = new KeyboardEvent('keydown', {
-              code: 'MetaLeft',
-              key: 'Meta',
-              ctrlKey: false,
-              shiftKey: false,
-              altKey: false,
-              metaKey: true,
-              bubbles: true,
-              cancelable: true,
-            });
-            const superUp = new KeyboardEvent('keyup', {
-              code: 'MetaLeft',
-              key: 'Meta',
-              ctrlKey: false,
-              shiftKey: false,
-              altKey: false,
-              metaKey: false,
-              bubbles: true,
-              cancelable: true,
-            });
-            input.onKeyDown(superDown);
-            input.onKeyUp(superUp);
-          }
-        } else {
-          console.log('[Keyboard] Mac: Cmd was used for shortcut - not sending Super');
-        }
-        // Reset state
-        metaKeyBuffered = false;
-        metaKeyUsedForShortcut = false;
-        event.preventDefault();
-        event.stopPropagation();
         return;
       }
 
@@ -3381,24 +3263,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       console.log('[DesktopStreamViewer] KeyUp captured:', event.key, event.code);
-
-      // MAC CMD→CTRL TRANSLATION: If Cmd is held on Mac, translate to Ctrl for remote
-      if (isMac && event.metaKey) {
-        const translatedEvent = new KeyboardEvent('keyup', {
-          code: event.code,
-          key: event.key,
-          ctrlKey: true,  // Translate Cmd to Ctrl
-          shiftKey: event.shiftKey,
-          altKey: event.altKey,
-          metaKey: false, // Don't send Meta
-          bubbles: true,
-          cancelable: true,
-        });
-        getInput()?.onKeyUp(translatedEvent);
-      } else {
-        getInput()?.onKeyUp(event);
-      }
-
+      getInput()?.onKeyUp(event);
       // Prevent browser default behavior to ensure all keys are passed through
       event.preventDefault();
       event.stopPropagation();

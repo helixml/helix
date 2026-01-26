@@ -26,12 +26,9 @@ const (
 	DeltaModePage  = 2
 )
 
-// wsInputState tracks per-connection input state
+// wsInputState tracks scroll gesture state (reserved for future use)
 type wsInputState struct {
 	mu sync.Mutex
-	// currentModifiers tracks which modifier keys are currently pressed
-	// This allows us to send modifier key events when the state changes
-	currentModifiers byte
 }
 
 var wsUpgrader = websocket.Upgrader{
@@ -79,7 +76,7 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 
 		switch msgType {
 		case MsgTypeKeyboard:
-			s.handleWSKeyboard(payload, state)
+			s.handleWSKeyboard(payload)
 		case MsgTypeMouseButton:
 			s.handleWSMouseButton(payload)
 		case MsgTypeMouseAbsolute:
@@ -107,7 +104,7 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 //
 // Keysym mode is used when event.code is unavailable (iPad/iOS).
 // Keysym tap is used for Android virtual keyboards and swipe typing.
-func (s *Server) handleWSKeyboard(data []byte, state *wsInputState) {
+func (s *Server) handleWSKeyboard(data []byte) {
 	if len(data) < 1 {
 		return
 	}
@@ -115,7 +112,7 @@ func (s *Server) handleWSKeyboard(data []byte, state *wsInputState) {
 	subType := data[0]
 	switch subType {
 	case 0:
-		s.handleWSKeyboardKeycode(data, state)
+		s.handleWSKeyboardKeycode(data)
 	case 2:
 		s.handleWSKeyboardKeysym(data)
 	case 3:
@@ -127,117 +124,31 @@ func (s *Server) handleWSKeyboard(data []byte, state *wsInputState) {
 
 // handleWSKeyboardKeycode handles evdev keycode keyboard messages.
 // Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
-//
-// The modifiers byte contains flags for currently active modifiers:
-//   - Bit 0: Shift
-//   - Bit 1: Ctrl
-//   - Bit 2: Alt
-//   - Bit 3: Meta (Super/Cmd)
-//
-// For synthesized keystrokes (like Cmd+C → Ctrl+C translation from Mac):
-//   - On keyDown: Press modifiers that weren't already pressed, then the main key
-//   - On keyUp: Release the main key, then release modifiers that we pressed
-//
-// This allows Cmd+C on Mac to work as Ctrl+C on Linux.
-func (s *Server) handleWSKeyboardKeycode(data []byte, state *wsInputState) {
+func (s *Server) handleWSKeyboardKeycode(data []byte) {
 	if len(data) < 5 {
 		return
 	}
 
 	isDown := data[1] != 0
-	modifiers := data[2]
+	// modifiers := data[2] // Currently unused, could be used for modifier sync
 	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
 
 	if evdevCode == 0 {
 		return
 	}
 
-	state.mu.Lock()
-	prevModifiers := state.currentModifiers
-	if isDown {
-		// On keyDown, update the current modifier state to include message modifiers
-		state.currentModifiers = modifiers
-	} else {
-		// On keyUp, clear the modifiers (assume key release ends the chord)
-		// This handles synthesized keystrokes where modifiers stay the same on keyDown/keyUp
-		state.currentModifiers = 0
-	}
-	state.mu.Unlock()
-
-	// Modifiers to press (newly active on keyDown)
-	modifiersToPress := modifiers &^ prevModifiers
-
-	// Modifiers to release (all modifiers if this is keyUp with modifiers)
-	// For synthesized Ctrl+C, both keyDown and keyUp have modifiers=CTRL
-	// On keyUp, we need to release the Ctrl we pressed on keyDown
-	modifiersToRelease := byte(0)
-	if !isDown && modifiers != 0 {
-		modifiersToRelease = modifiers
-	}
-
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-
-		// Press newly active modifiers BEFORE the main key
-		if isDown {
-			if modifiersToPress&ModifierShift != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTSHIFT), true)
-			}
-			if modifiersToPress&ModifierCtrl != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTCTRL), true)
-			}
-			if modifiersToPress&ModifierAlt != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTALT), true)
-			}
-			if modifiersToPress&ModifierMeta != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTMETA), true)
-			}
-		}
-
-		// Send the main key
 		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(evdevCode), isDown).Err
 		if err != nil {
 			s.logger.Error("WebSocket keyboard D-Bus call failed", "evdev", evdevCode, "err", err)
-		}
-
-		// Release modifiers AFTER the main key (on key up)
-		if !isDown {
-			if modifiersToRelease&ModifierShift != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTSHIFT), false)
-			}
-			if modifiersToRelease&ModifierCtrl != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTCTRL), false)
-			}
-			if modifiersToRelease&ModifierAlt != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTALT), false)
-			}
-			if modifiersToRelease&ModifierMeta != 0 {
-				rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(KEY_LEFTMETA), false)
-			}
 		}
 		return
 	}
 
 	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
 	if s.waylandInput != nil {
-		// Press newly active modifiers BEFORE the main key
-		if isDown {
-			if modifiersToPress&ModifierShift != 0 {
-				s.waylandInput.KeyDownEvdev(KEY_LEFTSHIFT)
-			}
-			if modifiersToPress&ModifierCtrl != 0 {
-				s.waylandInput.KeyDownEvdev(KEY_LEFTCTRL)
-			}
-			if modifiersToPress&ModifierAlt != 0 {
-				s.waylandInput.KeyDownEvdev(KEY_LEFTALT)
-			}
-			if modifiersToPress&ModifierMeta != 0 {
-				s.waylandInput.KeyDownEvdev(KEY_LEFTMETA)
-			}
-		}
-
-		// Send the main key
 		var err error
 		if isDown {
 			err = s.waylandInput.KeyDownEvdev(evdevCode)
@@ -246,22 +157,6 @@ func (s *Server) handleWSKeyboardKeycode(data []byte, state *wsInputState) {
 		}
 		if err != nil {
 			s.logger.Debug("Wayland virtual keyboard failed", "evdev", evdevCode, "err", err)
-		}
-
-		// Release modifiers AFTER the main key (on key up)
-		if !isDown {
-			if modifiersToRelease&ModifierShift != 0 {
-				s.waylandInput.KeyUpEvdev(KEY_LEFTSHIFT)
-			}
-			if modifiersToRelease&ModifierCtrl != 0 {
-				s.waylandInput.KeyUpEvdev(KEY_LEFTCTRL)
-			}
-			if modifiersToRelease&ModifierAlt != 0 {
-				s.waylandInput.KeyUpEvdev(KEY_LEFTALT)
-			}
-			if modifiersToRelease&ModifierMeta != 0 {
-				s.waylandInput.KeyUpEvdev(KEY_LEFTMETA)
-			}
 		}
 	}
 }
@@ -892,81 +787,81 @@ func keysymToEvdev(keysym uint32) int {
 
 	// Linux evdev keycodes
 	const (
-		KEY_ESC        = 1
-		KEY_1          = 2
-		KEY_2          = 3
-		KEY_3          = 4
-		KEY_4          = 5
-		KEY_5          = 6
-		KEY_6          = 7
-		KEY_7          = 8
-		KEY_8          = 9
-		KEY_9          = 10
-		KEY_0          = 11
-		KEY_MINUS      = 12
-		KEY_EQUAL      = 13
-		KEY_BACKSPACE  = 14
-		KEY_TAB        = 15
-		KEY_Q          = 16
-		KEY_W          = 17
-		KEY_E          = 18
-		KEY_R          = 19
-		KEY_T          = 20
-		KEY_Y          = 21
-		KEY_U          = 22
-		KEY_I          = 23
-		KEY_O          = 24
-		KEY_P          = 25
-		KEY_LEFTBRACE  = 26
+		KEY_ESC       = 1
+		KEY_1         = 2
+		KEY_2         = 3
+		KEY_3         = 4
+		KEY_4         = 5
+		KEY_5         = 6
+		KEY_6         = 7
+		KEY_7         = 8
+		KEY_8         = 9
+		KEY_9         = 10
+		KEY_0         = 11
+		KEY_MINUS     = 12
+		KEY_EQUAL     = 13
+		KEY_BACKSPACE = 14
+		KEY_TAB       = 15
+		KEY_Q         = 16
+		KEY_W         = 17
+		KEY_E         = 18
+		KEY_R         = 19
+		KEY_T         = 20
+		KEY_Y         = 21
+		KEY_U         = 22
+		KEY_I         = 23
+		KEY_O         = 24
+		KEY_P         = 25
+		KEY_LEFTBRACE = 26
 		KEY_RIGHTBRACE = 27
-		KEY_ENTER      = 28
-		KEY_LEFTCTRL   = 29
-		KEY_A          = 30
-		KEY_S          = 31
-		KEY_D          = 32
-		KEY_F          = 33
-		KEY_G          = 34
-		KEY_H          = 35
-		KEY_J          = 36
-		KEY_K          = 37
-		KEY_L          = 38
-		KEY_SEMICOLON  = 39
+		KEY_ENTER     = 28
+		KEY_LEFTCTRL  = 29
+		KEY_A         = 30
+		KEY_S         = 31
+		KEY_D         = 32
+		KEY_F         = 33
+		KEY_G         = 34
+		KEY_H         = 35
+		KEY_J         = 36
+		KEY_K         = 37
+		KEY_L         = 38
+		KEY_SEMICOLON = 39
 		KEY_APOSTROPHE = 40
-		KEY_GRAVE      = 41
-		KEY_LEFTSHIFT  = 42
-		KEY_BACKSLASH  = 43
-		KEY_Z          = 44
-		KEY_X          = 45
-		KEY_C          = 46
-		KEY_V          = 47
-		KEY_B          = 48
-		KEY_N          = 49
-		KEY_M          = 50
-		KEY_COMMA      = 51
-		KEY_DOT        = 52
-		KEY_SLASH      = 53
+		KEY_GRAVE     = 41
+		KEY_LEFTSHIFT = 42
+		KEY_BACKSLASH = 43
+		KEY_Z         = 44
+		KEY_X         = 45
+		KEY_C         = 46
+		KEY_V         = 47
+		KEY_B         = 48
+		KEY_N         = 49
+		KEY_M         = 50
+		KEY_COMMA     = 51
+		KEY_DOT       = 52
+		KEY_SLASH     = 53
 		KEY_RIGHTSHIFT = 54
-		KEY_LEFTALT    = 56
-		KEY_SPACE      = 57
-		KEY_CAPSLOCK   = 58
-		KEY_F1         = 59
-		KEY_F12        = 70
-		KEY_NUMLOCK    = 69
-		KEY_HOME       = 102
-		KEY_UP         = 103
-		KEY_PAGEUP     = 104
-		KEY_LEFT       = 105
-		KEY_RIGHT      = 106
-		KEY_END        = 107
-		KEY_DOWN       = 108
-		KEY_PAGEDOWN   = 109
-		KEY_INSERT     = 110
-		KEY_DELETE     = 111
-		KEY_KPENTER    = 96
-		KEY_RIGHTCTRL  = 97
-		KEY_RIGHTALT   = 100
-		KEY_LEFTMETA   = 125
-		KEY_RIGHTMETA  = 126
+		KEY_LEFTALT   = 56
+		KEY_SPACE     = 57
+		KEY_CAPSLOCK  = 58
+		KEY_F1        = 59
+		KEY_F12       = 70
+		KEY_NUMLOCK   = 69
+		KEY_HOME      = 102
+		KEY_UP        = 103
+		KEY_PAGEUP    = 104
+		KEY_LEFT      = 105
+		KEY_RIGHT     = 106
+		KEY_END       = 107
+		KEY_DOWN      = 108
+		KEY_PAGEDOWN  = 109
+		KEY_INSERT    = 110
+		KEY_DELETE    = 111
+		KEY_KPENTER   = 96
+		KEY_RIGHTCTRL = 97
+		KEY_RIGHTALT  = 100
+		KEY_LEFTMETA  = 125
+		KEY_RIGHTMETA = 126
 	)
 
 	// Special keys (0xFF00-0xFFFF range)

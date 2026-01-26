@@ -174,9 +174,9 @@ type VideoStreamer struct {
 
 	// Shared video source - ONE pipeline shared by all clients for this node
 	sharedSource   *SharedVideoSource
-	sharedClientID uint64            // Our client ID in the shared source
-	frameCh        <-chan VideoFrame // Channel to receive frames from shared source
-	errorCh        <-chan error      // Channel to receive pipeline errors (GPU OOM, etc.)
+	sharedClientID uint64             // Our client ID in the shared source
+	frameCh        <-chan VideoFrame  // Channel to receive frames from shared source
+	errorCh        <-chan error       // Channel to receive pipeline errors (GPU OOM, etc.)
 
 	running atomic.Bool
 	cancel  context.CancelFunc
@@ -1689,7 +1689,7 @@ func (s *Server) handleStreamInputMessageWithClient(data []byte, sessionID strin
 	// Types 0x10-0x14 are reserved for input
 	switch msgType {
 	case StreamMsgKeyboard: // 0x10
-		s.handleWSKeyboard(payload, &s.streamKeyboardState)
+		s.handleWSKeyboard(payload)
 	case StreamMsgMouseClick: // 0x11
 		s.handleWSMouseButton(payload)
 	case StreamMsgMouseAbsolute: // 0x12
