@@ -1356,6 +1356,8 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 // @Param base query string false "Base branch to compare against (default: main)"
 // @Param include_content query bool false "Include full diff content for each file (default: false)"
 // @Param path query string false "Filter to specific file path"
+// @Param workspace query string false "Name of the workspace/repo to diff (optional, defaults to first found)"
+// @Param helix_specs query bool false "If true, diff the helix-specs branch uncommitted changes instead"
 // @Success 200 {object} object "Diff response with files list"
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
@@ -1457,4 +1459,113 @@ func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, r
 	}
 
 	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved diff from container")
+}
+
+// @Summary Get workspaces from container
+// @Description Returns a list of git workspaces (repositories) in the container.
+// @Description Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+// @Tags ExternalAgents
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Success 200 {object} object "Workspaces response with list of repos"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspaces [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentWorkspaces(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for workspaces")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for workspaces")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for workspaces")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Build the workspaces URL
+	workspacesURL := "http://localhost:9876/workspaces"
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", workspacesURL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create workspaces request")
+		http.Error(res, "Failed to create workspaces request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send workspaces request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	workspacesResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read workspaces response from RevDial")
+		http.Error(res, "Failed to read workspaces response", http.StatusInternalServerError)
+		return
+	}
+	defer workspacesResp.Body.Close()
+
+	// Check status code
+	if workspacesResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(workspacesResp.Body)
+		log.Warn().
+			Int("status", workspacesResp.StatusCode).
+			Str("session_id", sessionID).
+			Str("error", string(errorBody)).
+			Msg("Workspaces server returned error")
+		http.Error(res, "Failed to get workspaces from container", workspacesResp.StatusCode)
+		return
+	}
+
+	// Set response headers
+	res.Header().Set("Content-Type", "application/json")
+	for key, values := range workspacesResp.Header {
+		for _, value := range values {
+			res.Header().Set(key, value)
+		}
+	}
+
+	// Stream the workspaces JSON from container to response
+	_, err = io.Copy(res, workspacesResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream workspaces data")
+		return
+	}
+
+	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved workspaces from container")
 }

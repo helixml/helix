@@ -1,13 +1,15 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, useMemo } from 'react'
 import {
   Box,
   Typography,
   CircularProgress,
   IconButton,
   Tooltip,
+  Tabs,
+  Tab,
 } from '@mui/material'
-import { RefreshCw, Circle } from 'lucide-react'
-import useLiveFileDiff, { FileDiff } from '../../hooks/useLiveFileDiff'
+import { RefreshCw, Circle, FileText, GitBranch } from 'lucide-react'
+import useLiveFileDiff, { FileDiff, useWorkspaces, WorkspaceInfo } from '../../hooks/useLiveFileDiff'
 import DiffFileList from './DiffFileList'
 import DiffContent from './DiffContent'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -23,6 +25,15 @@ interface DiffViewerProps {
   pollInterval?: number
 }
 
+/** Represents a tab in the diff viewer - either a workspace or helix-specs */
+interface DiffTab {
+  id: string
+  label: string
+  workspace?: string
+  isHelixSpecs?: boolean
+  icon: 'code' | 'docs'
+}
+
 const DiffViewer: FC<DiffViewerProps> = ({
   sessionId,
   baseBranch = 'main',
@@ -36,6 +47,67 @@ const DiffViewer: FC<DiffViewerProps> = ({
   )
   const [fileContent, setFileContent] = useState<FileDiff | null>(null)
   const [loadingFileContent, setLoadingFileContent] = useState(false)
+  const [selectedTabId, setSelectedTabId] = useState<string>('primary')
+
+  // Fetch available workspaces
+  const { data: workspacesData } = useWorkspaces(sessionId, !!sessionId)
+
+  // Build tabs from workspaces
+  const tabs = useMemo((): DiffTab[] => {
+    const result: DiffTab[] = []
+    const workspaces = workspacesData?.workspaces || []
+
+    // Sort: primary repo first, then alphabetically
+    const sorted = [...workspaces].sort((a, b) => {
+      if (a.is_primary && !b.is_primary) return -1
+      if (!a.is_primary && b.is_primary) return 1
+      return a.name.localeCompare(b.name)
+    })
+
+    for (const ws of sorted) {
+      // Add workspace tab for code changes
+      result.push({
+        id: ws.name,
+        label: ws.is_primary ? ws.name : ws.name,
+        workspace: ws.name,
+        icon: 'code',
+      })
+
+      // Add helix-specs tab if the workspace has one
+      if (ws.has_helix_specs && ws.is_primary) {
+        result.push({
+          id: `${ws.name}-specs`,
+          label: 'Design Docs',
+          workspace: ws.name,
+          isHelixSpecs: true,
+          icon: 'docs',
+        })
+      }
+    }
+
+    // If no workspaces found, add a default tab
+    if (result.length === 0) {
+      result.push({
+        id: 'primary',
+        label: 'Changes',
+        icon: 'code',
+      })
+    }
+
+    return result
+  }, [workspacesData?.workspaces])
+
+  // Get current tab config
+  const currentTab = useMemo(() => {
+    return tabs.find(t => t.id === selectedTabId) || tabs[0]
+  }, [tabs, selectedTabId])
+
+  // Select first tab when tabs change
+  useEffect(() => {
+    if (tabs.length > 0 && !tabs.find(t => t.id === selectedTabId)) {
+      setSelectedTabId(tabs[0].id)
+    }
+  }, [tabs, selectedTabId])
 
   const {
     data,
@@ -50,6 +122,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
     includeContent: false,
     pollInterval,
     enabled: !!sessionId,
+    workspace: currentTab?.workspace,
+    helixSpecs: currentTab?.isHelixSpecs,
   })
 
   const handleSelectFile = useCallback((path: string) => {
@@ -202,6 +276,64 @@ const DiffViewer: FC<DiffViewerProps> = ({
           </Tooltip>
         </Box>
       </Box>
+
+      {/* Workspace/Branch Tabs */}
+      {tabs.length > 1 && (
+        <Box
+          sx={{
+            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+            bgcolor: 'rgba(255, 255, 255, 0.01)',
+          }}
+        >
+          <Tabs
+            value={selectedTabId}
+            onChange={(_, newValue) => {
+              setSelectedTabId(newValue)
+              setSelectedFile(null)
+              setFileContent(null)
+            }}
+            sx={{
+              minHeight: 36,
+              '& .MuiTabs-indicator': {
+                bgcolor: themeConfig.tealRoot,
+                height: 2,
+              },
+            }}
+          >
+            {tabs.map((tab) => (
+              <Tab
+                key={tab.id}
+                value={tab.id}
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    {tab.icon === 'docs' ? (
+                      <FileText size={14} strokeWidth={1.5} />
+                    ) : (
+                      <GitBranch size={14} strokeWidth={1.5} />
+                    )}
+                    <span>{tab.label}</span>
+                  </Box>
+                }
+                sx={{
+                  minHeight: 36,
+                  py: 0.75,
+                  px: 1.5,
+                  fontSize: '0.75rem',
+                  fontWeight: 500,
+                  textTransform: 'none',
+                  color: themeConfig.neutral400,
+                  '&.Mui-selected': {
+                    color: themeConfig.tealRoot,
+                  },
+                  '&:hover': {
+                    color: themeConfig.darkText,
+                  },
+                }}
+              />
+            ))}
+          </Tabs>
+        </Box>
+      )}
 
       {data?.error && !data.files.length ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
