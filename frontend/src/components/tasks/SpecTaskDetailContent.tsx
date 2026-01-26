@@ -39,6 +39,7 @@ import { TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 
 import DiffViewer from './DiffViewer'
+import SpecTaskActionButtons from './SpecTaskActionButtons'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -929,53 +930,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </ToggleButtonGroup>
 
                   {/* Status-specific action buttons */}
-                  {task.status === 'backlog' && (
-                    <Button
-                      variant="contained"
-                      color={justDoItMode ? 'success' : 'warning'}
-                      size="small"
-                      startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
-                      onClick={handleStartPlanning}
-                      disabled={isStartingPlanning}
-                      sx={{ ml: 1, fontSize: '0.75rem' }}
-                    >
-                      {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
-                    </Button>
-                  )}
-                  {task.status === 'spec_review' && (
-                    <Button
-                      variant="contained"
-                      color="info"
-                      size="small"
-                      startIcon={<Description />}
-                      onClick={handleReviewSpec}
-                      sx={{
-                        ml: 1,
-                        fontSize: '0.75rem',
-                        animation: 'pulse-glow 2s infinite',
-                        '@keyframes pulse-glow': {
-                          '0%, 100%': { boxShadow: '0 0 5px rgba(41, 182, 246, 0.5)' },
-                          '50%': { boxShadow: '0 0 15px rgba(41, 182, 246, 0.8)' },
-                        },
-                      }}
-                    >
-                      Review Spec
-                    </Button>
-                  )}
-                  {task.pull_request_url && (
-                    <Button
-                      variant="outlined"
-                      color="secondary"
-                      size="small"
-                      startIcon={<LaunchIcon />}
-                      onClick={() => window.open(task.pull_request_url, '_blank')}
-                      sx={{ ml: 1, fontSize: '0.75rem' }}
-                    >
-                      View PR
-                    </Button>
-                  )}
-                  {/* View Spec button - show when spec exists */}
-                  {task.design_docs_pushed_at && task.status !== 'spec_review' && (
+                  <SpecTaskActionButtons
+                    task={{
+                      id: task.id || '',
+                      status: task.status || '',
+                      design_docs_pushed_at: task.design_docs_pushed_at,
+                      pull_request_url: task.pull_request_url,
+                      base_branch: task.base_branch,
+                      branch_name: task.branch_name,
+                      archived: task.archived,
+                      just_do_it_mode: justDoItMode,
+                      planning_session_id: task.planning_session_id,
+                    }}
+                    variant="inline"
+                    onStartPlanning={handleStartPlanning}
+                    onReviewSpec={handleReviewSpec}
+                    onReject={handleArchiveClick}
+                    hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                    isStartingPlanning={isStartingPlanning}
+                    isArchiving={isArchiving}
+                  />
+                  {/* View Spec button - show when spec exists but not in spec_review status */}
+                  {task.design_docs_pushed_at && task.status !== 'spec_review' && task.status !== 'implementation' && task.status !== 'pull_request' && (
                     <Button
                       variant="outlined"
                       size="small"
@@ -1163,51 +1139,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               )}
 
               {/* Status-specific action buttons */}
-              {task.status === 'backlog' && (
-                <Button
-                  variant="contained"
-                  color={justDoItMode ? 'success' : 'warning'}
-                  size="small"
-                  startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
-                  onClick={handleStartPlanning}
-                  disabled={isStartingPlanning}
-                  sx={{ ml: 0.5, fontSize: '0.75rem' }}
-                >
-                  {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start')}
-                </Button>
-              )}
-              {task.status === 'spec_review' && (
-                <Button
-                  variant="contained"
-                  color="info"
-                  size="small"
-                  startIcon={<Description />}
-                  onClick={handleReviewSpec}
-                  sx={{
-                    ml: 0.5,
-                    fontSize: '0.75rem',
-                    animation: 'pulse-glow 2s infinite',
-                    '@keyframes pulse-glow': {
-                      '0%, 100%': { boxShadow: '0 0 5px rgba(41, 182, 246, 0.5)' },
-                      '50%': { boxShadow: '0 0 15px rgba(41, 182, 246, 0.8)' },
-                    },
-                  }}
-                >
-                  Review Spec
-                </Button>
-              )}
-              {task.pull_request_url && (
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  size="small"
-                  startIcon={<LaunchIcon />}
-                  onClick={() => window.open(task.pull_request_url, '_blank')}
-                  sx={{ ml: 0.5, fontSize: '0.75rem' }}
-                >
-                  View PR
-                </Button>
-              )}
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id || '',
+                  status: task.status || '',
+                  design_docs_pushed_at: task.design_docs_pushed_at,
+                  pull_request_url: task.pull_request_url,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  just_do_it_mode: justDoItMode,
+                  planning_session_id: task.planning_session_id,
+                }}
+                variant="inline"
+                onStartPlanning={handleStartPlanning}
+                onReviewSpec={handleReviewSpec}
+                onReject={handleArchiveClick}
+                hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                isStartingPlanning={isStartingPlanning}
+                isArchiving={isArchiving}
+              />
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
               <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />

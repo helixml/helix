@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   CardContent,
@@ -20,18 +20,16 @@ import {
   ListItemText,
 } from '@mui/material'
 import {
-  PlayArrow as PlayIcon,
   Description as SpecIcon,
   Visibility as ViewIcon,
   CheckCircle as ApproveIcon,
   Stop as StopIcon,
   RocketLaunch as LaunchIcon,
-  Close as CloseIcon,  
+  Close as CloseIcon,
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as UncheckedIcon,  
+  RadioButtonUnchecked as UncheckedIcon,
   AccountTree as BatchIcon,
-  OpenInNew as OpenInNewIcon,
   Delete as DeleteIcon,
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
@@ -45,6 +43,7 @@ import UsagePulseChart from './UsagePulseChart'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
+import SpecTaskActionButtons from './SpecTaskActionButtons'
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -489,20 +488,6 @@ export default function TaskCard({
   const updateSpecTask = useUpdateSpecTask()
   const deleteSpecTask = useDeleteSpecTask()
 
-  // Ref for Start Planning button to enable keyboard focus
-  const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
-
-  // Focus the Start Planning button when requested
-  useEffect(() => {
-    if (focusStartPlanning && task.phase === 'backlog' && startPlanningButtonRef.current) {
-      // Small delay to ensure DOM is ready after render
-      const timer = setTimeout(() => {
-        startPlanningButtonRef.current?.focus()
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [focusStartPlanning, task.phase])
-
   // Fetch checklist progress for active tasks (planning/implementation)
   const showProgress = task.phase === 'planning' || task.phase === 'implementation'
   const { data: progressData } = useTaskProgress(task.id, {
@@ -525,18 +510,6 @@ export default function TaskCard({
   const planningColumn = columns.find((col) => col.id === 'planning')
   const isPlanningFull =
     planningColumn && planningColumn.limit ? planningColumn.tasks.length >= planningColumn.limit : false
-
-  const handleStartPlanning = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (onStartPlanning) {
-      setIsStartingPlanning(true)
-      try {
-        await onStartPlanning(task)
-      } finally {
-        setIsStartingPlanning(false)
-      }
-    }
-  }
 
   const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation' || task.status === 'spec_approved'
 
@@ -857,32 +830,30 @@ export default function TaskCard({
                 </Typography>
               </Box>
             )}
-            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-              <span style={{ width: '100%' }}>
-                <Button
-                  ref={startPlanningButtonRef}
-                  size="small"
-                  variant="contained"
-                  color="warning"
-                  startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
-                  onClick={handleStartPlanning}
-                  disabled={isArchived || isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
-                  fullWidth
-                >
-                  {task.planningStatus === 'queued'
-                    ? 'Queued'
-                    : isStartingPlanning
-                    ? 'Starting...'
-                    : task.metadata?.error
-                    ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
-                    : isPlanningFull
-                    ? 'Planning Full'
-                    : task.just_do_it_mode
-                    ? 'Just Do It'
-                    : 'Start Planning'}
-                </Button>
-              </span>
-            </Tooltip>
+            <SpecTaskActionButtons
+              task={{
+                id: task.id,
+                status: 'backlog',
+                just_do_it_mode: task.just_do_it_mode,
+                archived: task.archived,
+                metadata: task.metadata,
+              }}
+              variant="stacked"
+              onStartPlanning={async () => {
+                if (onStartPlanning) {
+                  setIsStartingPlanning(true)
+                  try {
+                    await onStartPlanning(task)
+                  } finally {
+                    setIsStartingPlanning(false)
+                  }
+                }
+              }}
+              isStartingPlanning={isStartingPlanning}
+              isQueued={task.planningStatus === 'queued'}
+              isPlanningFull={isPlanningFull}
+              planningLimit={planningColumn?.limit}
+            />
             {isPlanningFull && (
               <Typography
                 variant="caption"
@@ -896,75 +867,38 @@ export default function TaskCard({
 
         {/* Review phase - only show button if design docs have been pushed */}
         {task.phase === 'review' && task.design_docs_pushed_at && onReviewDocs && (
-          <Box sx={{ mt: 1.5 }}>
-            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-              <span style={{ width: '100%', display: 'block' }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="info"
-                  startIcon={task.status === 'spec_approved' ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onReviewDocs(task)
-                  }}
-                  disabled={isArchived || task.status === 'spec_approved'}
-                  fullWidth
-                >
-                  {task.status === 'spec_approved' ? 'Queued' : 'Review Spec'}
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
+          <SpecTaskActionButtons
+            task={{
+              id: task.id,
+              status: 'spec_review',
+              design_docs_pushed_at: task.design_docs_pushed_at,
+              archived: task.archived,
+            }}
+            variant="stacked"
+            onReviewSpec={() => onReviewDocs(task)}
+            isQueued={task.status === 'spec_approved'}
+          />
         )}
 
         {/* Implementation phase */}
         {task.status === 'implementation' && (
-          <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 1 }}>              
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ flex: 1 }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={isArchived || isArchiving}
-                    startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (onArchiveTask) {
-                        onArchiveTask(task, true, e.shiftKey)
-                      }
-                    }}
-                    fullWidth
-                  >
-                    {isArchiving ? 'Rejecting...' : 'Reject'}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ flex: 1 }}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="success"
-                    startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      approveImplementationMutation.mutate()
-                    }}
-                    disabled={isArchived || approveImplementationMutation.isPending}
-                    fullWidth
-                  >
-                    {approveImplementationMutation.isPending
-                      ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
-                      : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
-          </Box>
+          <SpecTaskActionButtons
+            task={{
+              id: task.id,
+              status: 'implementation',
+              base_branch: task.base_branch,
+              branch_name: task.branch_name,
+              archived: task.archived,
+            }}
+            variant="stacked"
+            onReject={(shiftKey) => {
+              if (onArchiveTask) {
+                onArchiveTask(task, true, shiftKey)
+              }
+            }}
+            hasExternalRepo={hasExternalRepo}
+            isArchiving={isArchiving}
+          />
         )}
 
         {/* Implementation review phase */}
@@ -1033,25 +967,17 @@ export default function TaskCard({
           <Box sx={{ mt: 1.5 }}>
             {task.pull_request_url ? (
               <>
-                <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                  <span style={{ width: '100%', display: 'block' }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="secondary"
-                      startIcon={<LaunchIcon />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        window.open(task.pull_request_url, '_blank')
-                      }}
-                      disabled={isArchived}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                    >
-                      View Pull Request
-                    </Button>
-                  </span>
-                </Tooltip>
+                <Box sx={{ mb: 1 }}>
+                  <SpecTaskActionButtons
+                    task={{
+                      id: task.id,
+                      status: 'pull_request',
+                      pull_request_url: task.pull_request_url,
+                      archived: task.archived,
+                    }}
+                    variant="stacked"
+                  />
+                </Box>
                 <Typography
                   variant="caption"
                   sx={{
