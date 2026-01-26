@@ -1,6 +1,8 @@
-import React from 'react'
-import { Paper, Box, Chip, IconButton, Typography, CircularProgress } from '@mui/material'
+import React, { useState, useMemo } from 'react'
+import { Paper, Box, Chip, IconButton, Typography, CircularProgress, Button } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import { DesignReviewComment } from '../../services/designReviewService'
 
 interface InlineCommentBubbleProps {
@@ -11,6 +13,9 @@ interface InlineCommentBubbleProps {
   streamingResponse?: string // Live streaming response content
 }
 
+// Number of lines to show when collapsed
+const COLLAPSED_LINES = 4
+
 export default function InlineCommentBubble({
   comment,
   yPos,
@@ -18,9 +23,24 @@ export default function InlineCommentBubble({
   commentRef,
   streamingResponse,
 }: InlineCommentBubbleProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
   // Use streaming response if available, otherwise fall back to persisted response
   const displayResponse = streamingResponse || comment.agent_response
   const isStreaming = !!streamingResponse && !comment.agent_response
+
+  // Get the last N lines for collapsed view
+  const { truncatedResponse, isTruncated, lineCount } = useMemo(() => {
+    if (!displayResponse) return { truncatedResponse: '', isTruncated: false, lineCount: 0 }
+    const lines = displayResponse.split('\n')
+    const lineCount = lines.length
+    if (lines.length <= COLLAPSED_LINES) {
+      return { truncatedResponse: displayResponse, isTruncated: false, lineCount }
+    }
+    // Show the last N lines when collapsed
+    const lastLines = lines.slice(-COLLAPSED_LINES).join('\n')
+    return { truncatedResponse: lastLines, isTruncated: true, lineCount }
+  }, [displayResponse])
   return (
     <Paper
       ref={commentRef}
@@ -94,27 +114,53 @@ export default function InlineCommentBubble({
           sx={{
             mt: 2,
             p: 1.5,
-            bgcolor: isStreaming ? 'action.hover' : 'info.light',
+            bgcolor: 'action.hover',
             borderLeft: '3px solid',
-            borderColor: isStreaming ? 'warning.main' : 'info.main',
+            borderColor: isStreaming ? 'warning.main' : 'success.main',
             borderRadius: 1,
           }}
         >
-          <Box display="flex" alignItems="center" gap={1} mb={0.5}>
-            <Typography variant="caption" color="primary" fontWeight="bold">
-              Agent:
-            </Typography>
-            {isStreaming && (
-              <Box display="flex" alignItems="center" gap={0.5}>
-                <CircularProgress size={10} />
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                  typing...
-                </Typography>
-              </Box>
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <Typography variant="caption" color="text.primary" fontWeight="bold">
+                Agent:
+              </Typography>
+              {isStreaming && (
+                <Box display="flex" alignItems="center" gap={0.5}>
+                  <CircularProgress size={10} />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                    typing...
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            {isTruncated && (
+              <Button
+                size="small"
+                onClick={() => setIsExpanded(!isExpanded)}
+                sx={{ minWidth: 0, p: 0.25, fontSize: '0.65rem' }}
+                endIcon={isExpanded ? <ExpandLessIcon sx={{ fontSize: 14 }} /> : <ExpandMoreIcon sx={{ fontSize: 14 }} />}
+              >
+                {isExpanded ? 'Less' : `${lineCount} lines`}
+              </Button>
             )}
           </Box>
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
-            {displayResponse}
+          {isTruncated && !isExpanded && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontSize: '0.65rem' }}>
+              ...showing last {COLLAPSED_LINES} lines
+            </Typography>
+          )}
+          <Typography
+            variant="body2"
+            sx={{
+              whiteSpace: 'pre-wrap',
+              fontSize: '0.75rem',
+              color: 'text.primary',
+              maxHeight: isExpanded ? 'none' : '120px',
+              overflow: isExpanded ? 'visible' : 'hidden',
+            }}
+          >
+            {isExpanded ? displayResponse : truncatedResponse}
           </Typography>
           {comment.agent_response_at && !isStreaming && (
             <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
