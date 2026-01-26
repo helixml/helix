@@ -105,8 +105,8 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	var allDevContainers []DevContainerWithClients
 
 	for _, sb := range sandboxes {
-		// Skip non-running sandboxes
-		if sb.Status != "running" {
+		// Skip non-online sandboxes (status is "online", "offline", or "degraded")
+		if sb.Status != "online" {
 			continue
 		}
 
