@@ -58,8 +58,8 @@ type CodeAgentConfig struct {
 type AvailableModel struct {
 	Name            string `json:"name"`
 	DisplayName     string `json:"display_name"`
-	MaxTokens       int    `json:"max_tokens"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
+	MaxTokens       int    `json:"max_tokens,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"` // Omit to use model's default
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -223,11 +223,12 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	}
 
 	// Create available_models entry with our custom model
+	// Note: We intentionally omit MaxTokens and MaxOutputTokens to let the model's
+	// defaults be used. Different models have different limits (e.g., gpt-4-turbo
+	// supports 4096 output tokens, while gpt-4o supports 16384).
 	modelEntry := AvailableModel{
-		Name:            d.codeAgentConfig.Model,
-		DisplayName:     d.codeAgentConfig.Model, // Use model name as display name
-		MaxTokens:       131072,                  // Default to 128K context
-		MaxOutputTokens: 16384,                   // Default output limit
+		Name:        d.codeAgentConfig.Model,
+		DisplayName: d.codeAgentConfig.Model, // Use model name as display name
 	}
 
 	// Get existing available_models or create new slice
