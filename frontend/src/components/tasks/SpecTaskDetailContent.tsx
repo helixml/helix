@@ -34,6 +34,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import LinkIcon from '@mui/icons-material/Link'
+import ArchiveIcon from '@mui/icons-material/Archive'
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 
@@ -52,6 +53,7 @@ import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/s
 import { useGetProject, useGetProjectRepositories } from '../../services/projectService'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
+import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
@@ -63,12 +65,15 @@ interface SpecTaskDetailContentProps {
   onClose?: () => void
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (taskId: string, reviewId: string, reviewTitle?: string) => void
+  /** Called when task is archived - parent should close all tabs showing this task */
+  onTaskArchived?: (taskId: string) => void
 }
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   onClose,
   onOpenReview,
+  onTaskArchived,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -224,6 +229,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<string | null>(null)
+
+  // Archive state
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
 
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId)
@@ -522,6 +531,43 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [activeSessionId, snackbar])
 
+  // Handle archive task
+  const handleArchiveClick = useCallback((e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      // Shift+click bypasses confirmation
+      performArchive()
+    } else {
+      setArchiveConfirmOpen(true)
+    }
+  }, [])
+
+  const performArchive = useCallback(async () => {
+    if (!task?.id || isArchiving) return
+
+    setIsArchiving(true)
+    setArchiveConfirmOpen(false)
+
+    try {
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id, { archived: true })
+      snackbar.success('Task archived')
+      // If parent handles task archival (TabsView), let it close all tabs
+      if (onTaskArchived) {
+        onTaskArchived(task.id)
+      } else {
+        // Fallback: navigate back to the project specs page (standalone usage)
+        if (task.project_id) {
+          account.orgNavigate('project-specs', { id: task.project_id })
+        }
+        if (onClose) onClose()
+      }
+    } catch (err) {
+      console.error('Failed to archive task:', err)
+      snackbar.error('Failed to archive task')
+    } finally {
+      setIsArchiving(false)
+    }
+  }, [task?.id, task?.project_id, isArchiving, api, snackbar, account, onClose, onTaskArchived])
+
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
@@ -717,6 +763,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Render: {sessionData.config.render_node}
           </Typography>
         )}
+
+        {/* Archive button */}
+        <Tooltip title="Hold Shift to skip confirmation">
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <ArchiveIcon />}
+            onClick={handleArchiveClick}
+            disabled={isArchiving || task?.archived}
+            sx={{ mt: 2, fontSize: '0.75rem' }}
+          >
+            {isArchiving ? 'Archiving...' : 'Archive Task'}
+          </Button>
+        </Tooltip>
       </Box>
     </>
   )
@@ -1340,6 +1401,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Archive Confirmation Dialog */}
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => setArchiveConfirmOpen(false)}
+        onConfirm={performArchive}
+        taskName={task?.name}
+        isArchiving={isArchiving}
+      />
     </Box>
   )
 }

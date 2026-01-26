@@ -719,7 +719,13 @@ export default function TaskCard({
               }}
             >
               <ListItemIcon>
-                {task.archived ? <UnarchiveIcon sx={{ fontSize: 16 }} /> : <ArchiveIcon sx={{ fontSize: 16 }} />}
+                {isArchiving ? (
+                  <CircularProgress size={16} />
+                ) : task.archived ? (
+                  <UnarchiveIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <ArchiveIcon sx={{ fontSize: 16 }} />
+                )}
               </ListItemIcon>
               <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
