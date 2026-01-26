@@ -196,15 +196,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
 
   // Insecure context detection - WebCodecs requires HTTPS or localhost
-  // Check if we're on HTTP (not HTTPS) and not on localhost
+  // When user sets chrome://flags/#unsafely-treat-insecure-origin-as-secure,
+  // window.isSecureContext returns true even on HTTP - trust it!
   const isInsecureContext = React.useMemo(() => {
+    // If browser supports isSecureContext, trust it completely
+    // This correctly detects when the chrome flag is set
+    if (typeof window.isSecureContext !== 'undefined') {
+      return !window.isSecureContext;
+    }
+    // Fallback for very old browsers: check protocol and hostname
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
     const isHttps = protocol === 'https:';
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-    // Also check window.isSecureContext for browsers that support it
-    const browserSaysInsecure = typeof window.isSecureContext !== 'undefined' && !window.isSecureContext;
-    return (!isHttps && !isLocalhost) || browserSaysInsecure;
+    return !isHttps && !isLocalhost;
   }, []);
 
   // Toolbar icon sizes - larger on touch devices for easier tapping
