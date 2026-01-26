@@ -1173,8 +1173,45 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		return "", fmt.Errorf("no connected session found: %w", err)
 	}
 
+	// Get the session to access owner and generation ID
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session: %w", err)
+	}
+
 	// Generate request ID for tracking
 	requestID := "req_" + system.GenerateUUID()
+
+	// Create an interaction so handleMessageAdded can find it and update with the response
+	// This unifies the code path with other message types
+	interaction := &types.Interaction{
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		SessionID:     sessionID,
+		UserID:        session.Owner,
+		GenerationID:  session.GenerationID,
+		Mode:          types.SessionModeInference,
+		PromptMessage: message,
+		State:         types.InteractionStateWaiting,
+	}
+
+	createdInteraction, err := s.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		return "", fmt.Errorf("failed to create interaction: %w", err)
+	}
+
+	// Store session->interaction mapping so handleMessageAdded finds the right interaction
+	s.contextMappingsMutex.Lock()
+	if s.sessionToWaitingInteraction == nil {
+		s.sessionToWaitingInteraction = make(map[string]string)
+	}
+	s.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	s.contextMappingsMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
+		Msg("🔗 [HELIX] Created interaction for spec task message")
 
 	// Store the requestID -> sessionID mapping for response routing
 	if s.requestToSessionMapping == nil {
@@ -1204,6 +1241,7 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
 		Str("request_id", requestID).
 		Msg("✅ Sent message to spec task agent via WebSocket")
 
