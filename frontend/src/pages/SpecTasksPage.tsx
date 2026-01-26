@@ -118,10 +118,11 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // Read query params for view mode override and task/desktop opening
+  // Read query params for view mode override and task/desktop/review opening
   const queryTab = router.params.tab as string | undefined;
   const openTaskId = router.params.openTask as string | undefined;
   const openDesktopId = router.params.openDesktop as string | undefined;
+  const openReviewId = router.params.openReview as string | undefined;
 
   // State for view management - always default to kanban, but respect query param
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
@@ -1153,6 +1154,7 @@ const SpecTasksPage: FC = () => {
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
                 initialTaskId={openTaskId}
                 initialDesktopId={openDesktopId}
+                initialReviewId={openReviewId}
                 exploratorySessionId={exploratorySessionData?.id}
               />
             )}

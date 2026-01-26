@@ -53,8 +53,8 @@ const SpecTaskReviewPage: FC = () => {
   }
 
   const handleOpenInWorkspace = () => {
-    // Navigate to project specs page with split screen view and open this task
-    account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId })
+    // Navigate to project specs page with split screen view and open this review
+    account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId, openReview: reviewId })
   }
 
   if (taskLoading || projectLoading || reviewLoading) {

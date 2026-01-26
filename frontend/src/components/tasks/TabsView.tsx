@@ -102,9 +102,8 @@ const useAgentActivityCheck = (
   return { isActive, needsAttention, markAsSeen }
 }
 
-// Generate unique panel IDs
-let panelIdCounter = 0
-const generatePanelId = () => `panel-${++panelIdCounter}`
+// Generate unique panel IDs using timestamp + random to avoid collisions
+const generatePanelId = () => `panel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
 interface TabData {
   id: string
@@ -1232,6 +1231,7 @@ interface TabsViewProps {
   onRefresh?: () => void
   initialTaskId?: string // Task ID to open initially (from "Split Screen" button)
   initialDesktopId?: string // Desktop session ID to open initially (from "Split Screen" button)
+  initialReviewId?: string // Review ID to open initially (requires initialTaskId)
   exploratorySessionId?: string // Team Desktop session ID (one per project)
 }
 
@@ -1408,6 +1408,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   onRefresh,
   initialTaskId,
   initialDesktopId,
+  initialReviewId,
   exploratorySessionId,
 }) => {
   const snackbar = useSnackbar()
@@ -1589,9 +1590,10 @@ const TabsView: React.FC<TabsViewProps> = ({
     setInitialized(true)
   }, [tasks, initialized, initialTaskId, initialDesktopId, exploratorySessionId, projectId])
 
-  // Track the last opened task/desktop to detect changes after initialization
+  // Track the last opened task/desktop/review to detect changes after initialization
   const lastOpenedTaskRef = React.useRef<string | undefined>(undefined)
   const lastOpenedDesktopRef = React.useRef<string | undefined>(undefined)
+  const lastOpenedReviewRef = React.useRef<string | undefined>(undefined)
 
   // Handle dynamic opening of tasks when initialTaskId changes after initialization
   useEffect(() => {
@@ -1687,6 +1689,59 @@ const TabsView: React.FC<TabsViewProps> = ({
       setRootNode(prev => prev ? replaceNodeInTree(prev, firstLeaf.id, newSplit) : prev)
     }
   }, [initialized, initialDesktopId, exploratorySessionId, tasks, rootNode])
+
+  // Handle dynamic opening of reviews when initialReviewId changes after initialization
+  useEffect(() => {
+    if (!initialized || !rootNode) return
+    if (!initialReviewId || !initialTaskId) return
+
+    const reviewKey = `${initialTaskId}::${initialReviewId}`
+    if (reviewKey === lastOpenedReviewRef.current) return
+
+    lastOpenedReviewRef.current = reviewKey
+
+    const reviewTabId = `review::${initialTaskId}::${initialReviewId}`
+    const taskForTitle = tasks.find(t => t.id === initialTaskId)
+    const reviewTitle = taskForTitle
+      ? `Review: ${taskForTitle.user_short_title || taskForTitle.short_title || taskForTitle.name || 'Spec'}`
+      : 'Review: Spec'
+
+    const reviewTab: TabData = {
+      id: reviewTabId,
+      type: 'review' as const,
+      taskId: initialTaskId,
+      reviewId: initialReviewId,
+      reviewTitle,
+    }
+
+    // Check if already open somewhere
+    const allLeaves = getAllLeafNodes(rootNode)
+    const existingLeaf = allLeaves.find(leaf => leaf.tabs?.some(t => t.id === reviewTabId))
+    if (existingLeaf) {
+      // Just activate it
+      setRootNode(prev => prev ? updateNodeInTree(prev, existingLeaf.id, node => ({ ...node, activeTabId: reviewTabId })) : prev)
+      return
+    }
+
+    // Find an empty pane
+    const emptyLeaf = allLeaves.find(leaf => !leaf.tabs || leaf.tabs.length === 0)
+    if (emptyLeaf) {
+      setRootNode(prev => prev ? updateNodeInTree(prev, emptyLeaf.id, node => ({
+        ...node,
+        tabs: [reviewTab],
+        activeTabId: reviewTabId,
+      })) : prev)
+      return
+    }
+
+    // No empty pane - create a vertical split
+    const firstLeaf = allLeaves[0]
+    if (firstLeaf) {
+      const newReviewLeaf = createLeafNode([reviewTab], reviewTabId)
+      const newSplit = createSplitNode('vertical', [firstLeaf, newReviewLeaf])
+      setRootNode(prev => prev ? replaceNodeInTree(prev, firstLeaf.id, newSplit) : prev)
+    }
+  }, [initialized, initialTaskId, initialReviewId, tasks, rootNode])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setRootNode(prev => {
