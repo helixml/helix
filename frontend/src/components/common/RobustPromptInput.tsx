@@ -24,7 +24,6 @@ import {
   ListItemText,
   ListItemIcon,
   Typography,
-  Divider,
   Chip,
   alpha,
   Collapse,
@@ -32,25 +31,29 @@ import {
   TextField,
   InputAdornment,
 } from '@mui/material'
-import SendIcon from '@mui/icons-material/Send'
-import HistoryIcon from '@mui/icons-material/History'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
-import CloudOffIcon from '@mui/icons-material/CloudOff'
-import CloudQueueIcon from '@mui/icons-material/CloudQueue'
-import EditIcon from '@mui/icons-material/Edit'
-import CheckIcon from '@mui/icons-material/Check'
-import CloseIcon from '@mui/icons-material/Close'
-import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline'
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
-import BoltIcon from '@mui/icons-material/Bolt'
-import QueueIcon from '@mui/icons-material/Queue'
-import PushPinIcon from '@mui/icons-material/PushPin'
-import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import SearchIcon from '@mui/icons-material/Search'
-import ImageIcon from '@mui/icons-material/Image'
+import {
+  History,
+  SendHorizontal,
+  ListStart,
+  CircleAlert,
+  CheckCircle,
+  Hourglass,
+  CloudOff,
+  Cloud,
+  Pencil,
+  Check,
+  X,
+  CirclePause,
+  GripVertical,
+  Zap,
+  Pin,
+  PinOff,
+  Search,
+  Image,
+  Paperclip,
+  FileText,
+  Camera,
+} from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -70,6 +73,22 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 
+// Attachment that's pending to be sent with the message
+// Supports offline queueing - file data is stored until upload completes
+interface PendingAttachment {
+  id: string
+  name: string
+  path?: string // Set once uploaded, undefined while pending upload
+  file?: File // The file data, kept until uploaded (for offline support)
+  type: 'image' | 'text' | 'file'
+  previewUrl?: string // For images, a data URL for preview
+  uploadStatus: 'pending' | 'uploading' | 'uploaded' | 'failed'
+  error?: string // Error message if upload failed
+}
+
+// Threshold for converting large text paste to file attachment (10KB)
+const LARGE_TEXT_THRESHOLD = 10 * 1024
+
 interface RobustPromptInputProps {
   sessionId: string
   onSend: (message: string, interrupt?: boolean) => Promise<void>
@@ -85,7 +104,10 @@ interface RobustPromptInputProps {
   // Text to append to the draft (e.g., uploaded file paths)
   // Pass a new unique value each time to trigger an append
   appendText?: string
-  // Called when an image is pasted - parent should upload and return the file path
+  // Called when a file is uploaded (image, text, or other file)
+  // Parent should upload and return the file path, or null on failure
+  onFileUpload?: (file: File) => Promise<string | null>
+  // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
 }
 
@@ -143,6 +165,15 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
 
   const isFailed = entry.status === 'failed'
 
+  // Force re-render every second for failed items with retry countdown
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    if (isFailed && entry.nextRetryAt && entry.nextRetryAt > Date.now()) {
+      const interval = setInterval(() => forceUpdate(n => n + 1), 1000)
+      return () => clearInterval(interval)
+    }
+  }, [isFailed, entry.nextRetryAt])
+
   return (
     <Box
       ref={setNodeRef}
@@ -189,7 +220,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             mr: 0.25,
           }}
         >
-          <DragIndicatorIcon sx={{ fontSize: 16 }} />
+          <GripVertical size={16} />
         </Box>
       )}
 
@@ -197,11 +228,11 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       {isSending ? (
         <CircularProgress size={14} sx={{ flexShrink: 0, mt: isEditing ? 0.5 : 0, ml: isEditing ? 0 : 2.5 }} />
       ) : isFailed ? (
-        <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
+        <CircleAlert size={16} style={{ color: 'inherit', flexShrink: 0, marginTop: isEditing ? 4 : 0 }} />
       ) : isEditing ? (
-        <EditIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: 0.5, ml: 2.5 }} />
+        <Pencil size={16} style={{ flexShrink: 0, marginTop: 4, marginLeft: 20 }} />
       ) : (
-        <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
+        <Hourglass size={16} style={{ flexShrink: 0 }} />
       )}
 
       {/* Message content - either edit mode or display mode */}
@@ -246,7 +277,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 onClick={handleCancelEdit}
                 sx={{ p: 0.25 }}
               >
-                <CloseIcon sx={{ fontSize: 14 }} />
+                <X size={14} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Save (Enter)">
@@ -256,7 +287,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 color="primary"
                 sx={{ p: 0.25 }}
               >
-                <CheckIcon sx={{ fontSize: 14 }} />
+                <Check size={14} />
               </IconButton>
             </Tooltip>
           </Box>
@@ -287,11 +318,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               {truncateContent(entry.content, 50)}
             </Typography>
             {!isSending && (
-              <EditIcon
+              <Pencil
                 className="edit-hint"
-                sx={{
-                  fontSize: 14,
-                  color: 'text.secondary',
+                size={14}
+                style={{
                   opacity: 0,
                   transition: 'opacity 0.15s',
                   flexShrink: 0,
@@ -301,7 +331,16 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Typography variant="caption" sx={{ color: 'error.main' }}>
-              Failed to send - will retry
+              {entry.nextRetryAt ? (
+                (() => {
+                  const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
+                  return secondsUntilRetry > 0
+                    ? `Failed - retrying in ${secondsUntilRetry}s`
+                    : 'Failed - retrying now...'
+                })()
+              ) : (
+                'Failed - will retry'
+              )}
             </Typography>
           )}
         </Box>
@@ -326,9 +365,9 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
             >
               {entry.interrupt !== false ? (
-                <BoltIcon sx={{ fontSize: 14 }} />
+                <Zap size={14} />
               ) : (
-                <QueueIcon sx={{ fontSize: 14 }} />
+                <ListStart size={14} />
               )}
             </IconButton>
           </Tooltip>
@@ -342,7 +381,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
               sx={{ p: 0.5 }}
             >
-              <CloseIcon sx={{ fontSize: 16 }} />
+              <X size={16} />
             </IconButton>
           </Tooltip>
         </Box>
@@ -362,18 +401,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   apiClient,
   onHeightChange,
   appendText,
+  onFileUpload,
   onImagePaste,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  // Pending attachments that will be sent with the message
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+
+  // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
+  const handleFileUploadCallback = onFileUpload || onImagePaste
+
+  // Check if we're on a mobile device for camera support
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   const [historyMenuAnchor, setHistoryMenuAnchor] = useState<null | HTMLElement>(null)
   const [showHistoryHint, setShowHistoryHint] = useState(false)
   const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
   const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
-  const processingRef = useRef(false)
 
   // Editing state for queued messages
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -452,82 +501,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [])
 
-  // Check if backend queue processing is enabled
-  // When specTaskId, projectId, and apiClient are all provided, the backend handles queue processing
-  const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
-
-  // Process queue - send pending messages one at a time
-  // When backend queue processing is enabled, the backend handles sending after sync
-  // When disabled, frontend sends directly via onSend
-  const processQueue = useCallback(async () => {
-    // When backend queue is enabled, let the backend handle sending
-    // The backend processes the queue after sync (interrupt prompts immediately,
-    // queue prompts after message_completed events)
-    if (backendQueueEnabled) return
-
-    // Prevent concurrent processing
-    if (processingRef.current || !isOnline || disabled) return
-
-    // Build queue sorted: interrupt mode first, then queue mode, within each by timestamp
-    const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
-      const aInterrupt = a.interrupt !== false
-      const bInterrupt = b.interrupt !== false
-      if (aInterrupt && !bInterrupt) return -1
-      if (!aInterrupt && bInterrupt) return 1
-      return a.timestamp - b.timestamp
-    })
-
-    // If editing, find the index of the message being edited
-    // Block that message and everything after it (maintain ordering)
-    let editingIndex = -1
-    if (editingId) {
-      editingIndex = queuedMessages.findIndex(m => m.id === editingId)
-    }
-
-    // Find next message to send (only messages before the editing one)
-    const nextToSend = queuedMessages.find((m, index) => {
-      // Don't send if currently sending
-      if (m.id === sendingId) return false
-      // Don't send if already sent
-      if (m.status === 'sent') return false
-      // If editing, don't send this message or anything after it
-      if (editingIndex !== -1 && index >= editingIndex) return false
-      return true
-    })
-
-    if (!nextToSend) return
-
-    processingRef.current = true
-    setSendingId(nextToSend.id)
-
-    try {
-      // Pass interrupt flag to backend - true means interrupt current work, false means queue after
-      await onSend(nextToSend.content, nextToSend.interrupt !== false)
-      markAsSent(nextToSend.id)
-    } catch (error) {
-      console.error('Failed to send message:', error)
-      markAsFailed(nextToSend.id)
-    } finally {
-      setSendingId(null)
-      processingRef.current = false
-    }
-  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
-
-  // Auto-process queue when online and messages are pending
-  useEffect(() => {
-    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
-      const timer = setTimeout(processQueue, 500)
-      return () => clearTimeout(timer)
-    }
-  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
-
-  // Continue processing queue after each send
-  useEffect(() => {
-    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
-      const timer = setTimeout(processQueue, 300)
-      return () => clearTimeout(timer)
-    }
-  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  // Backend queue processing is ALWAYS enabled
+  // The backend handles processing prompts after they're synced via usePromptHistory
+  // Frontend only needs to save to history and sync - no direct sending or retry logic needed
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -562,17 +538,38 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Queue a new message
   const handleSend = useCallback(async () => {
     const content = draft.trim()
-    if (!content || disabled) return
+    // Allow sending if there's content OR attachments
+    if ((!content && attachments.length === 0) || disabled) return
+
+    // Check if any attachments are still uploading
+    const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
+    if (uploadingAttachments.length > 0) {
+      // Wait for uploads to complete - don't send yet
+      // TODO: Could show a snackbar message here
+      return
+    }
+
+    // Build the message with attachment paths prepended
+    const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded' && a.path)
+    const attachmentPaths = uploadedAttachments.map(a => a.path!).join(' ')
+    const fullContent = attachmentPaths
+      ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
+      : content
 
     // Add to queue with pending status, passing interrupt mode
-    saveToHistory(content, interruptMode)
+    saveToHistory(fullContent, interruptMode)
     clearDraft()
 
-    // If online and nothing sending, start processing immediately
-    if (isOnline && !processingRef.current) {
-      setTimeout(processQueue, 100)
-    }
-  }, [draft, disabled, saveToHistory, clearDraft, isOnline, processQueue, interruptMode])
+    // Clear attachments after adding to queue
+    setAttachments(prev => {
+      // Revoke object URLs to prevent memory leaks
+      prev.forEach(a => {
+        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
+      })
+      return []
+    })
+    // Backend handles processing after sync - no need to call processQueue
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
 
   // Remove from queue
   const handleRemoveFromQueue = useCallback((entryId: string) => {
@@ -642,20 +639,37 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       e.preventDefault()
       // Ctrl+Enter = interrupt mode, Enter = queue mode
       const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
-      // Temporarily set the mode for this send, then restore
-      const originalMode = interruptMode
-      setInterruptMode(useInterrupt)
-      // Need to call saveToHistory directly with the correct mode since handleSend uses state
       const content = draft.trim()
-      if (content && !disabled) {
-        saveToHistory(content, useInterrupt)
-        clearDraft()
-        if (isOnline && !processingRef.current) {
-          setTimeout(processQueue, 100)
-        }
+
+      // Allow sending if there's content OR attachments
+      if ((!content && attachments.length === 0) || disabled) return
+
+      // Check if any attachments are still uploading
+      const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
+      if (uploadingAttachments.length > 0) {
+        // Wait for uploads to complete
+        return
       }
-      // Restore original mode
-      setInterruptMode(originalMode)
+
+      // Build the message with attachment paths prepended
+      const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded' && a.path)
+      const attachmentPaths = uploadedAttachments.map(a => a.path!).join(' ')
+      const fullContent = attachmentPaths
+        ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
+        : content
+
+      // Add to queue with pending status
+      saveToHistory(fullContent, useInterrupt)
+      clearDraft()
+
+      // Clear attachments
+      setAttachments(prev => {
+        prev.forEach(a => {
+          if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
+        })
+        return []
+      })
+      // Backend handles processing after sync
       return
     }
 
@@ -676,45 +690,166 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, interruptMode, saveToHistory, clearDraft, isOnline, processQueue, navigateUp, navigateDown])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown])
 
-  // Handle paste events for images
+  // Add a file as an attachment (queues for upload, uploads if online)
+  const addFileAsAttachment = useCallback((file: File): string => {
+    // Determine type based on file mime type
+    const type: PendingAttachment['type'] = file.type.startsWith('image/')
+      ? 'image'
+      : file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|xml|csv|log|js|ts|py|java|c|cpp|h|hpp|css|html|yaml|yml)$/i)
+        ? 'text'
+        : 'file'
+
+    // Create preview URL for images
+    let previewUrl: string | undefined
+    if (type === 'image') {
+      previewUrl = URL.createObjectURL(file)
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const attachment: PendingAttachment = {
+      id,
+      name: file.name,
+      file, // Store the file for offline upload later
+      type,
+      previewUrl,
+      uploadStatus: 'pending',
+    }
+    setAttachments(prev => [...prev, attachment])
+    return id
+  }, [])
+
+  // Upload a single attachment
+  const uploadAttachment = useCallback(async (attachmentId: string) => {
+    if (!handleFileUploadCallback) return
+
+    setAttachments(prev => prev.map(a =>
+      a.id === attachmentId ? { ...a, uploadStatus: 'uploading' as const, error: undefined } : a
+    ))
+
+    const attachment = attachments.find(a => a.id === attachmentId)
+    if (!attachment?.file) return
+
+    try {
+      const filePath = await handleFileUploadCallback(attachment.file)
+      if (filePath) {
+        setAttachments(prev => prev.map(a =>
+          a.id === attachmentId
+            ? { ...a, path: filePath, uploadStatus: 'uploaded' as const, file: undefined }
+            : a
+        ))
+      } else {
+        setAttachments(prev => prev.map(a =>
+          a.id === attachmentId
+            ? { ...a, uploadStatus: 'failed' as const, error: 'Upload returned no path' }
+            : a
+        ))
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Upload failed'
+      setAttachments(prev => prev.map(a =>
+        a.id === attachmentId
+          ? { ...a, uploadStatus: 'failed' as const, error: errorMessage }
+          : a
+      ))
+    }
+  }, [handleFileUploadCallback, attachments])
+
+  // Process pending uploads when online
+  const processPendingUploads = useCallback(async () => {
+    if (!isOnline || !handleFileUploadCallback) return
+
+    const pendingAttachments = attachments.filter(a => a.uploadStatus === 'pending' && a.file)
+    for (const attachment of pendingAttachments) {
+      await uploadAttachment(attachment.id)
+    }
+  }, [isOnline, handleFileUploadCallback, attachments, uploadAttachment])
+
+  // Auto-upload when file is added or when coming back online
+  useEffect(() => {
+    if (isOnline) {
+      const pendingAttachments = attachments.filter(a => a.uploadStatus === 'pending' && a.file)
+      if (pendingAttachments.length > 0) {
+        processPendingUploads()
+      }
+    }
+  }, [isOnline, attachments])
+
+  // Add a file and trigger upload if online
+  const uploadAndAddAttachment = useCallback(async (file: File) => {
+    const attachmentId = addFileAsAttachment(file)
+    // Upload will be triggered by the useEffect when attachments change
+    // This ensures proper state updates
+  }, [addFileAsAttachment])
+
+  // Remove an attachment
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => {
+      const toRemove = prev.find(a => a.id === id)
+      if (toRemove?.previewUrl) {
+        URL.revokeObjectURL(toRemove.previewUrl)
+      }
+      return prev.filter(a => a.id !== id)
+    })
+  }, [])
+
+  // Handle file input change (from browse button)
+  const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    for (const file of files) {
+      await uploadAndAddAttachment(file)
+    }
+    // Reset the input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [uploadAndAddAttachment])
+
+  // Open file browser
+  const handleBrowseClick = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  // Handle paste events for images and large text
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    console.log('[RobustPromptInput] Paste event received, onImagePaste:', !!onImagePaste)
-    if (!onImagePaste) return
+    if (!handleFileUploadCallback) return
 
     const items = e.clipboardData?.items
-    console.log('[RobustPromptInput] Clipboard items:', items?.length, Array.from(items || []).map(i => i.type))
     if (!items) return
 
+    // Check for images first
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       if (item.type.startsWith('image/')) {
-        console.log('[RobustPromptInput] Found image in clipboard:', item.type)
         e.preventDefault()
         const blob = item.getAsFile()
         if (blob) {
-          // Create a File with a generated name based on timestamp
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
           const extension = item.type === 'image/png' ? 'png' : 'jpg'
           const file = new File([blob], `pasted-image-${timestamp}.${extension}`, { type: item.type })
-
-          console.log('[RobustPromptInput] Uploading pasted image:', file.name)
-          // Call parent to upload and get the path
-          const filePath = await onImagePaste(file)
-          console.log('[RobustPromptInput] Upload result:', filePath)
-          if (filePath) {
-            // Prepend the file path to the draft
-            setDraft(prev => {
-              const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-              return filePath + (needsSpace ? ' ' : '') + prev
-            })
-          }
+          await uploadAndAddAttachment(file)
         }
-        break
+        return
       }
     }
-  }, [onImagePaste, setDraft])
+
+    // Check for large text paste - convert to text file attachment
+    const pastedText = e.clipboardData?.getData('text/plain')
+    if (pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
+      e.preventDefault()
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
+      await uploadAndAddAttachment(file)
+      // Add a note to the draft about the attached file
+      setDraft(prev => {
+        const note = '[Large text pasted as attachment]'
+        if (prev.includes(note)) return prev
+        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
+        return note + (needsSpace ? ' ' : '') + prev
+      })
+    }
+  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)
@@ -723,10 +858,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (onImagePaste) {
+    if (handleFileUploadCallback) {
       setIsDraggingOver(true)
     }
-  }, [onImagePaste])
+  }, [handleFileUploadCallback])
 
   // Handle drag leave - hide visual feedback
   const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
@@ -739,10 +874,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (onImagePaste) {
+    if (handleFileUploadCallback) {
       e.dataTransfer.dropEffect = 'copy'
     }
-  }, [onImagePaste])
+  }, [handleFileUploadCallback])
 
   // Handle drop events for files
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
@@ -750,21 +885,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     e.stopPropagation()
     setIsDraggingOver(false)
 
-    if (!onImagePaste) return
+    if (!handleFileUploadCallback) return
 
     const files = Array.from(e.dataTransfer.files)
-    console.log('[RobustPromptInput] Dropped files:', files.map(f => f.name))
     for (const file of files) {
-      // Upload the file and prepend path to draft
-      const filePath = await onImagePaste(file)
-      if (filePath) {
-        setDraft(prev => {
-          const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-          return filePath + (needsSpace ? ' ' : '') + prev
-        })
-      }
+      await uploadAndAddAttachment(file)
     }
-  }, [onImagePaste, setDraft])
+  }, [handleFileUploadCallback, uploadAndAddAttachment])
 
   // Format timestamp
   const formatTime = (timestamp: number): string => {
@@ -830,18 +957,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             }}
           >
             {editingId ? (
-              <PauseCircleOutlineIcon sx={{ fontSize: 16 }} />
+              <CirclePause size={16} />
             ) : isOnline ? (
-              <CloudQueueIcon sx={{ fontSize: 16 }} />
+              <Cloud size={16} />
             ) : (
-              <CloudOffIcon sx={{ fontSize: 16 }} />
+              <CloudOff size={16} />
             )}
             <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
               {editingId
                 ? 'Editing - paused from here'
                 : isOnline
-                  ? 'Sending queue'
-                  : 'Offline - will send when connected'}
+                  ? 'Message queue (saved locally)'
+                  : 'Offline - saved locally, will send when connected'}
             </Typography>
             <Chip
               label={queuedMessages.length}
@@ -862,25 +989,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 strategy={verticalListSortingStrategy}
               >
                 {queuedMessages.map((entry, index) => (
-                  <SortableQueueItem
-                    key={entry.id}
-                    entry={entry}
-                    index={index}
-                    totalCount={queuedMessages.length}
-                    isSending={entry.id === sendingId}
-                    isEditing={entry.id === editingId}
-                    editingContent={editingContent}
-                    setEditingContent={setEditingContent}
-                    editTextareaRef={editTextareaRef}
-                    handleEditKeyDown={handleEditKeyDown}
-                    handleSaveEdit={handleSaveEdit}
-                    handleCancelEdit={handleCancelEdit}
-                    handleStartEdit={handleStartEdit}
-                    handleRemoveFromQueue={handleRemoveFromQueue}
-                    handleToggleInterrupt={handleToggleInterrupt}
-                    truncateContent={truncateContent}
-                  />
-                ))}
+                    <SortableQueueItem
+                      key={entry.id}
+                      entry={entry}
+                      index={index}
+                      totalCount={queuedMessages.length}
+                      isSending={entry.id === sendingId}
+                      isEditing={entry.id === editingId}
+                      editingContent={editingContent}
+                      setEditingContent={setEditingContent}
+                      editTextareaRef={editTextareaRef}
+                      handleEditKeyDown={handleEditKeyDown}
+                      handleSaveEdit={handleSaveEdit}
+                      handleCancelEdit={handleCancelEdit}
+                      handleStartEdit={handleStartEdit}
+                      handleRemoveFromQueue={handleRemoveFromQueue}
+                      handleToggleInterrupt={handleToggleInterrupt}
+                      truncateContent={truncateContent}
+                    />
+                  ))}
               </SortableContext>
             </DndContext>
           </Box>
@@ -889,6 +1016,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           {sendingId && <LinearProgress sx={{ height: 2 }} />}
         </Box>
       </Collapse>
+
+      {/* Hidden file input for browse functionality */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,text/*,.txt,.md,.json,.xml,.csv,.log,.js,.ts,.py,.java,.c,.cpp,.h,.hpp,.css,.html,.yaml,.yml,.pdf,.doc,.docx"
+        onChange={handleFileInputChange}
+        style={{ display: 'none' }}
+      />
 
       {/* History navigation hint */}
       {showHistoryHint && historyIndex >= 0 && (
@@ -912,12 +1049,98 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         </Box>
       )}
 
+      {/* Attachments display */}
+      {attachments.length > 0 && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 0.75,
+            mb: 1,
+            p: 1,
+            borderRadius: 1.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
+          }}
+        >
+          {attachments.map((attachment) => (
+            <Chip
+              key={attachment.id}
+              size="small"
+              icon={
+                attachment.uploadStatus === 'uploading' ? (
+                  <CircularProgress size={14} sx={{ ml: 0.5 }} />
+                ) : attachment.uploadStatus === 'failed' ? (
+                  <CircleAlert size={16} />
+                ) : attachment.type === 'image' ? (
+                  attachment.previewUrl ? (
+                    <Box
+                      component="img"
+                      src={attachment.previewUrl}
+                      alt=""
+                      sx={{
+                        width: 20,
+                        height: 20,
+                        objectFit: 'cover',
+                        borderRadius: 0.5,
+                        ml: 0.5,
+                      }}
+                    />
+                  ) : (
+                    <Image size={16} />
+                  )
+                ) : attachment.type === 'text' ? (
+                  <FileText size={16} />
+                ) : (
+                  <Paperclip size={16} />
+                )
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      maxWidth: 120,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {attachment.name}
+                  </Typography>
+                  {attachment.uploadStatus === 'pending' && !isOnline && (
+                    <CloudOff size={12} />
+                  )}
+                </Box>
+              }
+              onDelete={() => removeAttachment(attachment.id)}
+              sx={{
+                bgcolor: attachment.uploadStatus === 'failed'
+                  ? (theme) => alpha(theme.palette.error.main, 0.1)
+                  : attachment.uploadStatus === 'pending'
+                    ? (theme) => alpha(theme.palette.warning.main, 0.1)
+                    : (theme) => alpha(theme.palette.primary.main, 0.1),
+                borderColor: attachment.uploadStatus === 'failed'
+                  ? 'error.main'
+                  : attachment.uploadStatus === 'pending'
+                    ? 'warning.main'
+                    : 'primary.main',
+                border: '1px solid',
+                '& .MuiChip-deleteIcon': {
+                  fontSize: 16,
+                },
+              }}
+            />
+          ))}
+        </Box>
+      )}
+
       {/* Input container */}
       <Box
         sx={{
           display: 'flex',
-          gap: 1,
-          alignItems: 'flex-end',
+          flexDirection: 'column',
           bgcolor: 'background.paper',
           borderRadius: 2,
           border: '1px solid',
@@ -939,23 +1162,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           p: 1,
         }}
       >
-        {/* History button */}
-        {hasHistory && (
-          <Tooltip title="Browse prompt history (↑/↓ to navigate)">
-            <IconButton
-              size="small"
-              onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
-              sx={{
-                color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
-                flexShrink: 0,
-              }}
-            >
-              <HistoryIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
-
-        {/* Textarea */}
+        {/* Textarea - full width at top */}
         <Box
           component="textarea"
           ref={textareaRef}
@@ -970,7 +1177,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           placeholder={isDraggingOver ? 'Drop file to upload...' : (isOnline ? placeholder : 'Offline - messages will queue')}
           disabled={disabled}
           sx={{
-            flex: 1,
+            width: '100%',
             resize: 'none',
             border: isDraggingOver ? '2px dashed' : 'none',
             borderColor: 'primary.main',
@@ -982,7 +1189,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             fontSize: '0.875rem',
             lineHeight: 1.5,
             p: 0.5,
-            minHeight: 40,
+            minHeight: 50,
             maxHeight: maxHeight,
             overflowY: 'auto',
             transition: 'background-color 0.15s, border 0.15s',
@@ -997,108 +1204,230 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           }}
         />
 
-        {/* Offline indicator */}
-        {!isOnline && (
-          <Tooltip title="You're offline - messages will queue and send when connected">
-            <CloudOffIcon sx={{ color: 'warning.main', fontSize: 20, flexShrink: 0 }} />
-          </Tooltip>
-        )}
-
-        {/* Interrupt mode toggle */}
-        <Tooltip
-          title={
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                {interruptMode
-                  ? 'Messages sent immediately, interrupting current conversation'
-                  : 'Messages wait until current conversation completes'
-                }
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
-                Keyboard: Enter = queue, Ctrl+Enter = interrupt
-              </Typography>
-            </Box>
-          }
+        {/* Buttons row at bottom */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            mt: 1,
+          }}
         >
-          <IconButton
-            size="small"
-            onClick={() => setInterruptMode(!interruptMode)}
-            sx={{
-              flexShrink: 0,
-              color: interruptMode ? 'warning.main' : 'info.main',
-              bgcolor: (theme) => alpha(
-                interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                0.1
-              ),
-              '&:hover': {
-                bgcolor: (theme) => alpha(
-                  interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                  0.2
-                ),
-              },
-            }}
-          >
-            {interruptMode ? (
-              <BoltIcon fontSize="small" />
-            ) : (
-              <QueueIcon fontSize="small" />
-            )}
-          </IconButton>
-        </Tooltip>
+          {/* History button */}
+          {hasHistory && (
+            <Tooltip title="Browse prompt history (↑/↓ to navigate)">
+              <IconButton
+                size="small"
+                onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
+                sx={{
+                  color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
+                  flexShrink: 0,
+                }}
+              >
+                <History size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
 
-        {/* Send button */}
-        <Tooltip title="Add to queue (Enter = queue, Ctrl+Enter = interrupt)">
-          <span>
+          {/* Attach file button */}
+          {handleFileUploadCallback && (
+            <Tooltip title="Attach file">
+              <IconButton
+                size="small"
+                onClick={handleBrowseClick}
+                disabled={disabled}
+                sx={{
+                  color: 'text.secondary',
+                  flexShrink: 0,
+                  '&:hover': {
+                    color: 'primary.main',
+                  },
+                }}
+              >
+                <Paperclip size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* Camera button (mobile only) */}
+          {handleFileUploadCallback && isMobile && (
+            <Tooltip title="Take photo">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  // Create a temporary input with capture for camera
+                  const input = document.createElement('input')
+                  input.type = 'file'
+                  input.accept = 'image/*'
+                  input.capture = 'environment' // Use rear camera by default
+                  input.onchange = async (e) => {
+                    const files = (e.target as HTMLInputElement).files
+                    if (files && files.length > 0) {
+                      await uploadAndAddAttachment(files[0])
+                    }
+                  }
+                  input.click()
+                }}
+                disabled={disabled}
+                sx={{
+                  color: 'text.secondary',
+                  flexShrink: 0,
+                  '&:hover': {
+                    color: 'primary.main',
+                  },
+                }}
+              >
+                <Camera size={20} />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Offline indicator */}
+          {!isOnline && (
+            <Tooltip title="You're offline - messages will queue and send when connected">
+              <CloudOff size={20} style={{ flexShrink: 0 }} />
+            </Tooltip>
+          )}
+
+          {/* Interrupt mode toggle */}
+          <Tooltip
+            title={
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  {interruptMode
+                    ? 'Messages sent immediately, interrupting current conversation'
+                    : 'Messages wait until current conversation completes'
+                  }
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
+                  Keyboard: Enter = queue | Ctrl+Enter = interrupt
+                </Typography>
+              </Box>
+            }
+          >
             <IconButton
-              onClick={handleSend}
-              disabled={!draft.trim() || disabled}
-              color="primary"
+              size="small"
+              onClick={() => setInterruptMode(!interruptMode)}
               sx={{
                 flexShrink: 0,
-                bgcolor: draft.trim() ? 'primary.main' : 'transparent',
-                color: draft.trim() ? 'primary.contrastText' : 'text.secondary',
+                color: interruptMode ? 'warning.main' : 'info.main',
+                bgcolor: (theme) => alpha(
+                  interruptMode ? theme.palette.warning.main : theme.palette.info.main,
+                  0.1
+                ),
                 '&:hover': {
-                  bgcolor: draft.trim() ? 'primary.dark' : undefined,
-                },
-                '&.Mui-disabled': {
-                  bgcolor: 'transparent',
-                  color: 'text.disabled',
+                  bgcolor: (theme) => alpha(
+                    interruptMode ? theme.palette.warning.main : theme.palette.info.main,
+                    0.2
+                  ),
                 },
               }}
             >
-              <SendIcon fontSize="small" />
+              {interruptMode ? (
+                <Zap size={20} />
+              ) : (
+                <ListStart size={20} />
+              )}
             </IconButton>
-          </span>
-        </Tooltip>
+          </Tooltip>
+
+          {/* Send button */}
+          {(() => {
+            const hasContent = draft.trim().length > 0
+            const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
+            const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
+            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && !disabled
+
+            return (
+              <Tooltip
+                title={
+                  pendingUploads.length > 0
+                    ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
+                    : 'Add to queue (Enter = queue, Ctrl+Enter = interrupt)'
+                }
+              >
+                <span>
+                  <IconButton
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    color={canSend ? 'secondary' : 'primary'}
+                    sx={{
+                      flexShrink: 0,
+                      width: 30,
+                      height: 30,
+                      bgcolor: canSend ? 'secondary.main' : 'transparent',
+                      color: canSend ? 'secondary.contrastText' : 'text.secondary',
+                      '&:hover': {
+                        bgcolor: canSend ? 'secondary.dark' : undefined,
+                      },
+                      '&.Mui-disabled': {
+                        bgcolor: pendingUploads.length > 0 ? (theme) => alpha(theme.palette.secondary.main, 0.3) : 'transparent',
+                        color: 'text.disabled',
+                      },
+                    }}
+                  >
+                    {pendingUploads.length > 0 ? (
+                      <CircularProgress size={16} sx={{ color: 'secondary.main' }} />
+                    ) : (
+                      <SendHorizontal size={18} />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )
+          })()}
+        </Box>
       </Box>
 
       {/* Keyboard hint */}
       <Box
         sx={{
           display: 'flex',
-          justifyContent: 'space-between',
-          mt: 0.5,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          mt: 0.75,
           px: 0.5,
+          flexWrap: 'wrap',
         }}
       >
-        <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-          Enter = queue, Ctrl+Enter = interrupt, Shift+Enter = new line
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          {queuedMessages.length > 0 && (
-            <Typography variant="caption" sx={{ color: 'primary.main' }}>
-              {queuedMessages.length} in queue
-            </Typography>
-          )}
-          {hasHistory && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <ListStart size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Enter = queue
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Zap size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Ctrl+Enter = interrupt
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <SendHorizontal size={12} style={{ opacity: 0.6 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
+            Shift+Enter = new line
+          </Typography>
+        </Box>
+        {hasHistory && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <History size={12} style={{ opacity: 0.6 }} />
             <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
               ↑/↓ history
             </Typography>
-          )}
-        </Box>
+          </Box>
+        )}
+        {queuedMessages.length > 0 && (
+          <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 500 }}>
+            {queuedMessages.length} in queue
+          </Typography>
+        )}
       </Box>
 
       {/* History menu */}
@@ -1134,7 +1463,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  <Search size={18} />
                 </InputAdornment>
               ),
             }}
@@ -1181,7 +1510,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               {pinnedCount > 0 && (
                 <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
                   <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <PushPinIcon sx={{ fontSize: 14 }} />
+                    <Pin size={14} />
                     Pinned ({pinnedCount})
                   </Typography>
                 </Box>
@@ -1225,9 +1554,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                     >
                       <ListItemIcon>
                         {isPinned ? (
-                          <PushPinIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                          <Pin size={20} />
                         ) : (
-                          <CheckCircleOutlineIcon fontSize="small" sx={{ color: 'success.main', opacity: 0.6 }} />
+                          <CheckCircle size={20} style={{ opacity: 0.6 }} />
                         )}
                       </ListItemIcon>
                       <ListItemText
@@ -1256,9 +1585,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                           }}
                         >
                           {isPinned ? (
-                            <PushPinIcon sx={{ fontSize: 16 }} />
+                            <Pin size={16} />
                           ) : (
-                            <PushPinOutlinedIcon sx={{ fontSize: 16 }} />
+                            <PinOff size={16} />
                           )}
                         </IconButton>
                       </Tooltip>

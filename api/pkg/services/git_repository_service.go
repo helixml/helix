@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -97,6 +98,12 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 
 // CreateRepository creates a new git repository
 func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	// Enable Kodit indexing by default for all new repositories
+	// This provides code intelligence (MCP server for snippets/architecture) out of the box
+	// Note: Since KoditIndexing is a bool (not *bool), we can't distinguish "explicitly false" from "unset"
+	// If users want to disable it, they can update the repo after creation via the update API
+	request.KoditIndexing = true
+
 	if request.ExternalType == types.ExternalRepositoryTypeADO {
 		if request.AzureDevOps == nil {
 			return nil, fmt.Errorf("azure devops repository not provided")
@@ -2384,18 +2391,31 @@ func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, git
 }
 
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
+	// Strip credentials from the URL (e.g., https://user@host.com -> https://host.com)
+	repoURL := stripCredentialsFromURL(repo.ExternalURL)
+
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
-		return fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/pullrequest/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeGitHub:
-		// Repo the suffix .git if it's there
-		repoURL := strings.TrimSuffix(repo.ExternalURL, ".git")
-
+		// Remove the suffix .git if it's there
+		repoURL = strings.TrimSuffix(repoURL, ".git")
 		return fmt.Sprintf("%s/pull/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeGitLab:
-		return fmt.Sprintf("%s/merge_requests/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/merge_requests/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeBitbucket:
-		return fmt.Sprintf("%s/pull-requests/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/pull-requests/%s", repoURL, pullRequestID)
 	}
 	return ""
+}
+
+// stripCredentialsFromURL removes username:password@ or username@ from a URL
+func stripCredentialsFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL // Return as-is if parsing fails
+	}
+	// Clear the user info (username/password)
+	parsed.User = nil
+	return parsed.String()
 }

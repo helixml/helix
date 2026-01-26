@@ -30,6 +30,7 @@ export default function ReviewActionFooter({
         borderColor: 'divider',
         bgcolor: 'background.paper',
         p: 2,
+        pr: 10, // Extra right padding to avoid floating runner button overlap
         display: 'flex',
         gap: 2,
         justifyContent: 'flex-end',

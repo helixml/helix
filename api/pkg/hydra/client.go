@@ -59,6 +59,11 @@ func NewRevDialClient(connman connmanInterface, deviceID string) *RevDialClient 
 	}
 }
 
+// DeviceID returns the device ID used for RevDial connections
+func (c *RevDialClient) DeviceID() string {
+	return c.deviceID
+}
+
 // CreateDockerInstance creates or resumes a Docker instance for the given scope
 func (c *Client) CreateDockerInstance(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstanceResponse, error) {
 	body, err := json.Marshal(req)
@@ -535,6 +540,98 @@ func (c *RevDialClient) ListDevContainers(ctx context.Context) (*ListDevContaine
 	}
 
 	var result ListDevContainersResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetSystemStats gets system statistics (GPU info, container counts) via RevDial
+func (c *RevDialClient) GetSystemStats(ctx context.Context) (*SystemStatsResponse, error) {
+	respBody, err := c.doRequest(ctx, "GET", "/api/v1/system-stats", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result SystemStatsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// DevContainerClientsResponse is the response from the /clients endpoint
+type DevContainerClientsResponse struct {
+	SessionID string             `json:"session_id"`
+	Clients   []ConnectedClient  `json:"clients"`
+}
+
+// ConnectedClient represents a connected WebSocket client
+type ConnectedClient struct {
+	ID        uint32 `json:"id"`
+	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	Color     string `json:"color"`
+	LastX     int32  `json:"last_x"`
+	LastY     int32  `json:"last_y"`
+	LastSeen  string `json:"last_seen"`
+}
+
+// GetDevContainerClients gets connected WebSocket clients for a dev container via RevDial
+func (c *RevDialClient) GetDevContainerClients(ctx context.Context, sessionID string) (*DevContainerClientsResponse, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/clients", sessionID)
+
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DevContainerClientsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VideoStatsResponse contains video streaming statistics from the desktop server
+type VideoStatsResponse struct {
+	SessionID string        `json:"session_id"`
+	Sources   []SourceStats `json:"sources"`
+}
+
+// SourceStats contains statistics for a single shared video source
+type SourceStats struct {
+	NodeID         uint32              `json:"node_id"`
+	Running        bool                `json:"running"`
+	ClientCount    int                 `json:"client_count"`
+	FramesReceived uint64              `json:"frames_received"`
+	FramesDropped  uint64              `json:"frames_dropped"`
+	GOPBufferSize  int                 `json:"gop_buffer_size"`
+	Clients        []ClientBufferStats `json:"clients"`
+}
+
+// ClientBufferStats contains buffer statistics for a single streaming client
+type ClientBufferStats struct {
+	ClientID   uint64 `json:"client_id"`
+	BufferUsed int    `json:"buffer_used"`
+	BufferSize int    `json:"buffer_size"`
+	BufferPct  int    `json:"buffer_pct"`
+}
+
+// GetDevContainerVideoStats gets video streaming statistics for a dev container via RevDial
+func (c *RevDialClient) GetDevContainerVideoStats(ctx context.Context, sessionID string) (*VideoStatsResponse, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/video/stats", sessionID)
+
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VideoStatsResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}

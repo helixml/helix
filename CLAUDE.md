@@ -1,5 +1,7 @@
 # Helix Development Rules
 
+**Current year: 2026** - When searching for browser API support, documentation, or library versions, include "2026" in searches to get current information.
+
 See also: `.cursor/rules/*.mdc`
 
 ## 🚨 FORBIDDEN ACTIONS 🚨
@@ -12,6 +14,16 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** amend commits on main — create new commits instead
 - **NEVER** delete source files — fix errors, don't delete
 - **Before switching branches**: run `git status`, note changes, use `git stash push -m "description"`, restore with `git stash apply`
+
+### Commit Practices
+- **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
+- **Update design docs** — when completing roadmap items, update the design doc to reflect progress
+- **Keep commits atomic** — one logical change per commit, easier to review and revert
+
+### Debugging
+- **Ask user to verify after changes** — UI/behavior changes can break things silently
+- **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
+- **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
 
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
@@ -38,7 +50,7 @@ See also: `.cursor/rules/*.mdc`
 ```
 helix-sandbox (outer container)
 ├── hydra (Go, dev container lifecycle, Docker isolation)
-└── helix-sway.tar / helix-ubuntu.tar (desktop images)
+└── helix-sway / helix-ubuntu (desktop images, pulled from local registry)
     ├── Desktop environment (Sway or GNOME)
     ├── Zed IDE
     ├── Qwen Code agent
@@ -51,8 +63,8 @@ helix-sandbox (outer container)
 | Changed | Command | Notes |
 |---------|---------|-------|
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
-| Desktop image (helix-sway) | `./stack build-sway` | Creates tarball in sandbox-images/ |
-| Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Creates tarball in sandbox-images/ |
+| Desktop image (helix-sway) | `./stack build-sway` | Pushes to local registry, updates `sandbox-images/helix-sway.version` |
+| Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Pushes to local registry, updates `sandbox-images/helix-ubuntu.version` |
 | Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
 | Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` or `./stack build-sway` | Rust plugin built inside desktop image |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
@@ -65,15 +77,15 @@ helix-sandbox (outer container)
 # 1. Build Zed (if changed)
 ./stack build-zed
 
-# 2. Build desktop images (creates tarballs, includes streaming + zerocopy plugin)
+# 2. Build desktop images (pushes to local registry, includes streaming + zerocopy plugin)
 ./stack build-sway
 ./stack build-ubuntu
 
-# 3. Build sandbox (embeds desktop tarballs)
+# 3. Build sandbox (only if Hydra or sandbox scripts changed)
 ./stack build-sandbox
 
-# 4. Restart sandbox to use new image
-docker compose down sandbox && docker compose up -d sandbox
+# 4. Start a new session to use the updated desktop image
+# No sandbox restart needed - new sessions auto-pull from local registry
 ```
 
 ### Verify Build
@@ -83,11 +95,11 @@ docker compose down sandbox && docker compose up -d sandbox
 cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
-# Verify image is loaded in sandbox's dockerd
+# Verify image is available in sandbox's dockerd
 docker compose exec -T sandbox docker images | grep helix-
 ```
 
-New sessions use updated image; existing containers don't update.
+New sessions auto-pull from local registry. Version flow: build writes `.version` files → sandbox heartbeat reads them → API looks up version from heartbeat when starting sessions. Existing containers don't update.
 
 ## Code Patterns
 
@@ -96,14 +108,51 @@ New sessions use updated image; existing containers don't update.
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
+- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested and add complexity. If something doesn't work, fix it properly instead of adding a fallback.
 
 ### TypeScript/React
+
+#### 🚨 CRITICAL: ALWAYS Use Generated TypeScript API Client 🚨
+
+**NEVER use manual `fetch()`, `api.post()`, `api.get()`, or raw HTTP calls in frontend code.**
+
+The generated API client (`frontend/src/api/api.ts`) provides type-safe methods for ALL backend endpoints:
+
+```typescript
+// ✅ CORRECT - use generated client
+const apiClient = api.getApiClient();
+await apiClient.v1SessionsResumeCreate(sessionId);
+await apiClient.v1ExternalAgentsUploadCreate(sessionId, { file }, { open_file_manager: false });
+
+// ❌ WRONG - never do this
+await api.post(`/api/v1/sessions/${sessionId}/resume`);
+await fetch(`/api/v1/external-agents/${sessionId}/upload`, { ... });
+```
+
+**If an endpoint is missing from the generated client:**
+1. Add swagger annotations to the Go handler (see `api/pkg/server/*_handlers.go`)
+2. Run `./stack update_openapi` to regenerate the client
+3. Then use the generated method
+
+**Benefits:**
+- Type safety for request/response bodies
+- Auto-completion in IDE
+- Breaking API changes caught at compile time
+- Consistent error handling
+
 - Use generated API client + React Query for ALL API calls
 - Extract `.data` from Axios responses in query functions
 - No `setTimeout` for async — use events/promises
 - Extract components when files exceed 500 lines
 - No `type="number"` inputs — use text + parseInt
-- **useEffect dependency arrays**: Never include context values like `streaming`, `api`, `snackbar`, etc. — they don't need to be dependencies. Use refs for one-time async actions.
+- **useEffect/useCallback dependency arrays**: ONLY include primitive data values that actually change. NEVER include:
+  - Context values (`streaming`, `api`, `snackbar`, `helixApi`, `account`, etc.)
+  - Functions (they're stable references from hooks)
+  - Refs (they're mutable and don't trigger re-renders)
+  - Objects from hooks (use specific primitive properties instead)
+
+  **Correct**: `[sessionId]` or `[sessionId, projectId]`
+  **WRONG**: `[sessionId, helixApi]` or `[sessionId, snackbar]`
 
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
@@ -186,7 +235,7 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Build helix CLI: `cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .` (creates executable)
 - Regenerate API client: `./stack update_openapi`
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
-- Design docs go in `design/YYYY-MM-DD-name.md`
+- Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
 
 ## Testing CLI Commands
 
@@ -265,11 +314,11 @@ docker compose exec -T sandbox docker images | grep helix-
 
 ### Image Versions
 ```bash
-# Check current desktop image versions
+# Check desktop image versions
 cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
-# Verify image is loaded in sandbox's dockerd
+# Verify image is available in sandbox's dockerd
 docker compose exec -T sandbox docker images | grep helix-
 ```
 
@@ -391,7 +440,7 @@ GNOME uses **damage-based ScreenCast** in headless mode:
 |---------------|--------------|-------|
 | Static screen | 10 | Keepalive timer, NOT a bug |
 | Kitty terminal | ~17 | Kitty has internal frame pacing |
-| gnome-terminal fast output | 35-40 | More damage events |
+| Terminal (ghostty) fast output | 35-40 | More damage events |
 | vkcube (GPU rendering) | 55-60 | Constant damage at refresh rate |
 
 ### Debug Commands

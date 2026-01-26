@@ -5,7 +5,7 @@ import { FormModal } from "./component/modal/form";
 import { showMessage, showModal } from "./component/modal/index";
 import { buildUrl } from "./config_";
 
-// IMPORTANT: this should be a bit bigger than the moonlight-common reqwest backend timeout if some hosts are offline!
+// API timeout for host discovery requests
 const API_TIMEOUT = 6000
 
 let currentApi: Api | null = null

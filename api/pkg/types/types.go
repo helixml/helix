@@ -832,6 +832,7 @@ type ApiKey struct { //nolint:revive
 	AppID      *sql.NullString `json:"app_id"`
 	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
 	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
+	SessionID  string          `json:"session_id"`   // Session this key is scoped to (ephemeral keys)
 }
 
 type OwnerContext struct {
@@ -1870,10 +1871,8 @@ type KeyPair struct {
 
 // DesktopAgent represents a Zed editor instance configuration
 type DesktopAgent struct {
-	// Session ID for tracking the desktop agent instance
+	// Session ID - the Helix session this desktop agent serves
 	SessionID string `json:"session_id"`
-	// Helix session ID - the actual Helix session this agent serves (if created by Helix)
-	HelixSessionID string `json:"helix_session_id,omitempty"`
 	// User ID for security validation and access control
 	UserID string `json:"user_id"`
 	// Initial prompt or task for the agent
@@ -1953,6 +1952,18 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	}
 
 	return width, height, refreshRate
+}
+
+// DesktopAgentAPIEnvVars returns the standard API-related environment variables
+// that desktop agents need for LLM access and Git operations.
+// This function ensures consistent env var names across all code paths.
+func DesktopAgentAPIEnvVars(apiKey string) []string {
+	return []string{
+		"USER_API_TOKEN=" + apiKey,    // Git operations and RevDial
+		"ANTHROPIC_API_KEY=" + apiKey, // Zed built-in agent (Anthropic)
+		"OPENAI_API_KEY=" + apiKey,    // Zed built-in agent (OpenAI)
+		"ZED_HELIX_TOKEN=" + apiKey,   // Zed external sync WebSocket auth
+	}
 }
 
 // DesktopAgentResponse represents the response from a Zed agent execution
@@ -2348,9 +2359,10 @@ type LLMCall struct {
 }
 
 type CreateSecretRequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	AppID string `json:"app_id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	AppID     string `json:"app_id"`
+	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
 }
 
 type Secret struct {
@@ -2361,7 +2373,8 @@ type Secret struct {
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
-	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
+	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
 }
 
 // LicenseKey represents a license key in the database

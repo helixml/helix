@@ -26,6 +26,9 @@ const (
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
+// ProjectSecretsGetter is a function that retrieves project secrets as environment variables
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -43,6 +46,7 @@ type SpecDrivenTaskService struct {
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
+	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	wg                       sync.WaitGroup
 }
 
@@ -440,15 +444,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		primaryRepoID = projectRepos[0].ID
 	}
 
-	// Get user's personal API token for git operations (not app-scoped keys)
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
-		UserID:     task.CreatedBy,
-		ProjectID:  task.ProjectID,
-		SpecTaskID: task.ID,
+	// Get session-scoped ephemeral API key for this dev container
+	// Key is minted now and will be revoked when the desktop shuts down
+	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
+		UserID:    task.CreatedBy,
+		SessionID: session.ID,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for SpecTask")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for SpecTask")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get session API key: %v", err))
 		return
 	}
 
@@ -493,9 +497,22 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
+	// Build env vars (base + locale + project secrets)
+	envVars := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+
+	// Inject project secrets as environment variables
+	if s.GetProjectSecrets != nil && task.ProjectID != "" {
+		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets, continuing without them")
+		} else if len(projectSecrets) > 0 {
+			envVars = append(envVars, projectSecrets...)
+			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
+		}
+	}
+
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
-		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
 		ProjectPath:         "workspace",        // Use relative path
@@ -509,13 +526,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
+		Env:                 envVars,
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
 	// Check if executor is nil
 	if s.externalAgentExecutor == nil {
@@ -838,15 +855,15 @@ Follow these guidelines when making changes:
 		}
 	}
 
-	// Get user's personal API token for git operations
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
-		UserID:     task.CreatedBy,
-		ProjectID:  task.ProjectID,
-		SpecTaskID: task.ID,
+	// Get session-scoped ephemeral API key for this dev container
+	// Key is minted now and will be revoked when the desktop shuts down
+	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
+		UserID:    task.CreatedBy,
+		SessionID: session.ID,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for Just Do It task")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for Just Do It task")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get session API key: %v", err))
 		return
 	}
 
@@ -882,10 +899,23 @@ Follow these guidelines when making changes:
 		}
 	}
 
+	// Build env vars (base + locale + project secrets)
+	envVarsJDI := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+
+	// Inject project secrets as environment variables
+	if s.GetProjectSecrets != nil && task.ProjectID != "" {
+		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets for JDI mode, continuing without them")
+		} else if len(projectSecrets) > 0 {
+			envVarsJDI = append(envVarsJDI, projectSecrets...)
+			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Just Do It: Injected project secrets into desktop env")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
-		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
 		ProjectPath:         "workspace",        // Use relative path
@@ -899,7 +929,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
+		Env:                 envVarsJDI,
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -931,9 +961,14 @@ Follow these guidelines when making changes:
 // buildEnvWithLocale constructs the environment variable array for desktop containers
 // Includes the API token and optional locale settings (keyboard layout, timezone)
 func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []string {
-	env := []string{
-		fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
-	}
+	// Use shared helper for API-related env vars (same as addUserAPITokenToAgent in external_agent_handlers.go)
+	env := types.DesktopAgentAPIEnvVars(userAPIKey)
+
+	// Log token injection for debugging helix-in-helix issues
+	log.Info().
+		Int("token_env_vars_count", len(env)).
+		Bool("user_api_key_set", userAPIKey != "").
+		Msg("✅ buildEnvWithLocale: Added API tokens (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
 
 	// Add keyboard layout if specified (from browser locale detection)
 	if opts.KeyboardLayout != "" {
@@ -1319,20 +1354,29 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 	return false
 }
 
-type SandboxAPIKeyRequest struct {
-	UserID     string
-	ProjectID  string
-	SpecTaskID string
+// SessionAPIKeyRequest specifies the scope for a session-scoped ephemeral API key.
+// Keys are minted when a desktop starts and revoked when it shuts down.
+// The SessionID is used for key lifecycle management (creation/revocation).
+type SessionAPIKeyRequest struct {
+	UserID    string
+	SessionID string
 }
 
-// getOrCreatePersonalAPIKey gets or creates a personal API key for the user
-// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, req *SandboxAPIKeyRequest) (string, error) {
+// GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
+// Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
+// The key capabilities vary based on session type:
+// - SpecTask sessions: git push rights to specific branch, LLM calls
+// - Non-SpecTask sessions: LLM calls only
+func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, req *SessionAPIKeyRequest) (string, error) {
+	if req.SessionID == "" {
+		return "", fmt.Errorf("session ID is required for session-scoped API key")
+	}
+
+	// Check for existing session-scoped key
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
-		Owner:      req.UserID,
-		OwnerType:  types.OwnerTypeUser,
-		ProjectID:  req.ProjectID,
-		SpecTaskID: req.SpecTaskID,
+		Owner:     req.UserID,
+		OwnerType: types.OwnerTypeUser,
+		SessionID: req.SessionID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -1342,9 +1386,22 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		return existing.Key, nil
 	}
 
-	_, err = s.store.GetProject(ctx, req.ProjectID)
+	// Look up session to derive scope for attribution
+	session, err := s.store.GetSession(ctx, req.SessionID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get project '%s': %w", req.ProjectID, err)
+		return "", fmt.Errorf("failed to get session '%s': %w", req.SessionID, err)
+	}
+
+	// Derive project ID and spec task ID from session metadata
+	var projectID, specTaskID string
+	if session.Metadata.SpecTaskID != "" {
+		specTaskID = session.Metadata.SpecTaskID
+		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
+		} else {
+			projectID = specTask.ProjectID
+		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -1352,14 +1409,21 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		return "", fmt.Errorf("failed to generate API key: %w", err)
 	}
 
+	// Create session-scoped ephemeral key
+	keyName := fmt.Sprintf("Session key - %s", req.SessionID)
+	if specTaskID != "" {
+		keyName = fmt.Sprintf("Session key - %s (task: %s)", req.SessionID, specTaskID)
+	}
+
 	apiKey := &types.ApiKey{
 		Owner:      req.UserID,
 		OwnerType:  types.OwnerTypeUser,
 		Key:        newKey,
-		Name:       "Auto-generated for sandbox agent access - " + req.ProjectID + " - " + req.SpecTaskID,
+		Name:       keyName,
 		Type:       types.APIkeytypeAPI,
-		ProjectID:  req.ProjectID,
-		SpecTaskID: req.SpecTaskID,
+		SessionID:  req.SessionID,
+		ProjectID:  projectID,  // For metrics/attribution
+		SpecTaskID: specTaskID, // For metrics/attribution
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -1369,12 +1433,47 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 
 	log.Info().
 		Str("user_id", req.UserID).
-		Str("project_id", req.ProjectID).
-		Str("spec_task_id", req.SpecTaskID).
-		Str("key_name", createdKey.Name).
-		Msg("✅ Created personal API key for agent access")
+		Str("session_id", req.SessionID).
+		Str("project_id", projectID).
+		Str("spec_task_id", specTaskID).
+		Bool("is_spec_task", specTaskID != "").
+		Msg("✅ Created ephemeral session API key")
 
 	return createdKey.Key, nil
+}
+
+// RevokeSessionAPIKeys revokes all API keys associated with a session.
+// This should be called when a desktop shuts down to clean up ephemeral keys.
+func (s *SpecDrivenTaskService) RevokeSessionAPIKeys(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required to revoke session keys")
+	}
+
+	// Find all keys for this session
+	keys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{})
+	if err != nil {
+		return fmt.Errorf("failed to list API keys: %w", err)
+	}
+
+	var revokedCount int
+	for _, key := range keys {
+		if key.SessionID == sessionID {
+			if err := s.store.DeleteAPIKey(ctx, key.Key); err != nil {
+				log.Warn().Err(err).Str("key", key.Key[:8]+"...").Str("session_id", sessionID).Msg("Failed to revoke session API key")
+				continue
+			}
+			revokedCount++
+		}
+	}
+
+	if revokedCount > 0 {
+		log.Info().
+			Str("session_id", sessionID).
+			Int("revoked_count", revokedCount).
+			Msg("🔒 Revoked ephemeral session API keys")
+	}
+
+	return nil
 }
 
 // getCodeAgentRuntimeForTask gets the CodeAgentRuntime from the task's associated app configuration.
@@ -1447,13 +1546,14 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		}
 	}
 
-	// Get or create API key for the user
-	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
-		UserID:     task.CreatedBy,
-		SpecTaskID: task.ID,
+	// Get or create session-scoped ephemeral API key for this dev container
+	// For resumed sessions, reuse any existing key or mint a new one
+	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
+		UserID:    task.CreatedBy,
+		SessionID: session.ID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to get API key for resume: %w", err)
+		return fmt.Errorf("failed to get session API key for resume: %w", err)
 	}
 
 	// Use display settings from session metadata or defaults
@@ -1472,9 +1572,8 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
-		SessionID:           session.ID,
-		HelixSessionID:      session.ID,
-		UserID:              task.CreatedBy,
+		SessionID: session.ID,
+		UserID:    task.CreatedBy,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,

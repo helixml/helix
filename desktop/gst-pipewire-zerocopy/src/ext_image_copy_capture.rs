@@ -44,11 +44,16 @@ fn wl_shm_to_drm_fourcc(format: wl_shm::Format) -> u32 {
 }
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+// Use crossbeam-channel instead of std::sync::mpsc to avoid race conditions
+// where recv_timeout can miss messages sent during timeout processing.
+// See: https://github.com/rust-lang/rust/issues/94518
+use crossbeam_channel::{self as channel, Receiver, Sender};
 use wayland_client::{
-    protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool},
+    protocol::{wl_buffer, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
 
@@ -219,6 +224,7 @@ impl Drop for ShmBuffer {
 unsafe impl Send for ShmBuffer {}
 unsafe impl Sync for ShmBuffer {}
 
+
 /// State for ext-image-copy-capture Wayland client
 struct ExtCaptureState {
     // Wayland globals
@@ -226,6 +232,8 @@ struct ExtCaptureState {
     source_manager: Option<ExtOutputImageCaptureSourceManagerV1>,
     shm: Option<wl_shm::WlShm>,
     outputs: Vec<wl_output::WlOutput>,
+    seat: Option<wl_seat::WlSeat>,
+    pointer: Option<wl_pointer::WlPointer>,
 
     // Capture state
     source: Option<ExtImageCaptureSourceV1>,
@@ -249,7 +257,7 @@ struct ExtCaptureState {
     buffer_size_received: bool,
 
     // Communication
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     capturing: bool,
     shutdown: Arc<AtomicBool>,
     frame_interval: Duration,
@@ -258,7 +266,7 @@ struct ExtCaptureState {
 
 impl ExtCaptureState {
     fn new(
-        frame_tx: mpsc::SyncSender<FrameData>,
+        frame_tx: Sender<FrameData>,
         shutdown: Arc<AtomicBool>,
         target_fps: u32,
     ) -> Self {
@@ -277,9 +285,12 @@ impl ExtCaptureState {
             source_manager: None,
             shm: None,
             outputs: Vec::new(),
+            seat: None,
+            pointer: None,
             source: None,
             session: None,
             current_frame: None,
+            // Format negotiation
             shm_formats: Vec::new(),
             selected_format: None,
             buffer_size: None,
@@ -307,10 +318,10 @@ impl ExtCaptureState {
         let source = source_manager.create_source(output, qh, ());
         eprintln!("[EXT_IMAGE_COPY] Created capture source");
 
-        // Create capture session with paint_cursors to include mouse cursor
-        let options = ext_image_copy_capture_manager_v1::Options::PaintCursors;
+        // Create capture session WITHOUT paint_cursors - cursor is rendered client-side
+        let options = ext_image_copy_capture_manager_v1::Options::empty();
         let session = capture_manager.create_session(&source, options, qh, ());
-        eprintln!("[EXT_IMAGE_COPY] Created capture session");
+        eprintln!("[EXT_IMAGE_COPY] Created capture session (cursor hidden for client-side rendering)");
 
         self.source = Some(source);
         self.session = Some(session);
@@ -548,6 +559,7 @@ impl ExtCaptureState {
             self.request_capture(qh);
         }
     }
+
 }
 
 // Dispatch for wl_registry
@@ -588,6 +600,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for ExtCaptureState {
                     eprintln!("[EXT_IMAGE_COPY] Found wl_shm v{}", version);
                     let shm: wl_shm::WlShm = registry.bind(name, version.min(1), qh, ());
                     state.shm = Some(shm);
+                }
+                "wl_seat" => {
+                    // Only bind the first seat (usually there's only one)
+                    if state.seat.is_none() {
+                        eprintln!("[EXT_IMAGE_COPY] Found wl_seat v{}", version);
+                        let seat: wl_seat::WlSeat = registry.bind(name, version.min(8), qh, ());
+                        state.seat = Some(seat);
+                    }
                 }
                 _ => {}
             }
@@ -636,6 +656,41 @@ impl Dispatch<wl_shm_pool::WlShmPool, ()> for ExtCaptureState {
         _qh: &QueueHandle<Self>,
     ) {
         // No events for wl_shm_pool
+    }
+}
+
+// Dispatch for wl_seat - get pointer capability
+impl Dispatch<wl_seat::WlSeat, ()> for ExtCaptureState {
+    fn event(
+        state: &mut Self,
+        seat: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities { capabilities } = event {
+            let caps = wl_seat::Capability::from_bits_truncate(capabilities.into());
+            if caps.contains(wl_seat::Capability::Pointer) && state.pointer.is_none() {
+                eprintln!("[EXT_IMAGE_COPY] Seat has pointer capability, getting pointer");
+                let pointer = seat.get_pointer(qh, ());
+                state.pointer = Some(pointer);
+            }
+        }
+    }
+}
+
+// Dispatch for wl_pointer - required for seat capabilities
+impl Dispatch<wl_pointer::WlPointer, ()> for ExtCaptureState {
+    fn event(
+        _state: &mut Self,
+        _pointer: &wl_pointer::WlPointer,
+        _event: wl_pointer::Event,
+        _: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // We don't need to process pointer events
     }
 }
 
@@ -697,7 +752,7 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, ()> for ExtCaptureState {
     }
 }
 
-// Dispatch for ExtImageCopyCaptureSessionV1
+// Dispatch for ExtImageCopyCaptureSessionV1 - handles screen capture sessions
 impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
     fn event(
         state: &mut Self,
@@ -710,7 +765,6 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
         match event {
             ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
                 eprintln!("[EXT_IMAGE_COPY] Session buffer size: {}x{}", width, height);
-                // Store initial buffer size hint from session
                 if state.buffer_size.is_none() {
                     state.buffer_size = Some(BufferSize { width, height });
                 }
@@ -750,7 +804,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for ExtCaptureState {
     }
 }
 
-// Dispatch for ExtImageCopyCaptureFrameV1
+// Dispatch for ExtImageCopyCaptureFrameV1 - handles screen frames
 impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for ExtCaptureState {
     fn event(
         state: &mut Self,
@@ -785,7 +839,7 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for ExtCaptureState {
 /// ext-image-copy-capture stream for Sway 1.10+
 pub struct ExtImageCopyCaptureStream {
     thread: Option<JoinHandle<()>>,
-    frame_rx: mpsc::Receiver<FrameData>,
+    frame_rx: Receiver<FrameData>,
     shutdown: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
 }
@@ -793,7 +847,7 @@ pub struct ExtImageCopyCaptureStream {
 impl ExtImageCopyCaptureStream {
     /// Connect and start capturing
     pub fn connect(target_fps: u32) -> Result<Self, String> {
-        let (frame_tx, frame_rx) = mpsc::sync_channel(8);
+        let (frame_tx, frame_rx) = channel::bounded(8);
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
         let error = Arc::new(Mutex::new(None));
@@ -901,8 +955,8 @@ impl ExtImageCopyCaptureStream {
             return Err(RecvError::Error(err));
         }
         self.frame_rx.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
-            mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
+            channel::RecvTimeoutError::Timeout => RecvError::Timeout,
+            channel::RecvTimeoutError::Disconnected => RecvError::Disconnected,
         })
     }
 }
@@ -917,7 +971,7 @@ impl Drop for ExtImageCopyCaptureStream {
 }
 
 fn run_capture_loop(
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     shutdown: Arc<AtomicBool>,
     target_fps: u32,
 ) -> Result<(), String> {
@@ -964,7 +1018,7 @@ fn run_capture_loop(
         state.outputs.len()
     );
 
-    // Initialize session
+    // Initialize screen capture session
     state
         .init_session(&qh)
         .map_err(|e| format!("Failed to init session: {}", e))?;
@@ -975,7 +1029,7 @@ fn run_capture_loop(
         .map_err(|e| format!("Session roundtrip failed: {}", e))?;
 
     eprintln!(
-        "[EXT_IMAGE_COPY] Session ready, {} formats available",
+        "[EXT_IMAGE_COPY] Screen session ready, {} formats available",
         state.shm_formats.len()
     );
 

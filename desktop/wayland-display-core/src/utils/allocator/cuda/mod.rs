@@ -526,7 +526,7 @@ impl CUDAImage {
         )?;
 
         // Copy data to the buffer
-        let video_info = ffi::copy_to_gst_buffer(egl_frame, &mut buffer, cuda_context)?;
+        let video_info = ffi::copy_to_gst_buffer(egl_frame, &mut buffer, cuda_context, cuda_egl_fn)?;
 
         let buffer_ref = buffer.get_mut().unwrap();
         VideoMeta::add_full(

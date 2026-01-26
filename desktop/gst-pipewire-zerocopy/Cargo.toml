@@ -34,6 +34,10 @@ tracing = "0.1"
 once_cell = "1.17"
 parking_lot = "0.12"
 libc = "0.2"
+# Use crossbeam-channel instead of std::sync::mpsc to avoid race conditions
+# where recv_timeout can miss messages sent during timeout processing.
+# See: https://github.com/rust-lang/rust/issues/94518
+crossbeam-channel = "0.5"
 
 [lib]
 name = "gstpipewirezerocopy"

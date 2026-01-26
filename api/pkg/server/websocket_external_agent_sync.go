@@ -626,12 +626,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 			helixSessionID = mappedSessionID // Use the mapped session
 
-			// Clean up the request mappings now that we have the thread mapping
+			// Clean up only the session mapping - we still need requestToCommenterMapping
+			// for streaming updates (message_added, message_completed come AFTER user_created_thread)
 			delete(apiServer.requestToSessionMapping, requestID)
-			delete(apiServer.requestToCommenterMapping, requestID)
+			// NOTE: Do NOT delete requestToCommenterMapping here - it's needed for message streaming
 			log.Info().
 				Str("request_id", requestID).
-				Msg("🧹 [HELIX] Cleaned up request_id mappings")
+				Msg("🧹 [HELIX] Cleaned up request_id → session mapping")
 		}
 	}
 
@@ -874,17 +875,72 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
 		if err != nil || foundSession == nil {
-			return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+			// No session found for this thread. For user messages, create a session on-the-fly.
+			// This handles the race condition where MessageAdded(role=user) arrives before UserCreatedThread.
+			if role != "assistant" {
+				log.Info().
+					Str("context_id", contextID).
+					Str("agent_session_id", sessionID).
+					Msg("🔧 [HELIX] No session for user message - creating session on-the-fly")
+
+				// Get the existing agent session to copy config from
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+				if err != nil {
+					return fmt.Errorf("failed to load agent session to copy config: %w", err)
+				}
+
+				// Create new session with same config as agent session
+				newSession := &types.Session{
+					ID:             system.GenerateSessionID(),
+					Created:        time.Now(),
+					Updated:        time.Now(),
+					Mode:           types.SessionModeInference,
+					Type:           existingSession.Type,
+					ModelName:      existingSession.ModelName,
+					ParentApp:      existingSession.ParentApp,
+					OrganizationID: existingSession.OrganizationID,
+					Owner:          existingSession.Owner,
+					OwnerType:      existingSession.OwnerType,
+					Metadata: types.SessionMetadata{
+						ZedThreadID:         contextID,
+						AgentType:           existingSession.Metadata.AgentType,
+						ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+					},
+					Name: "Zed Chat", // Default name, will be updated by thread_title_changed
+				}
+
+				_, err = apiServer.Controller.Options.Store.CreateSession(ctx, *newSession)
+				if err != nil {
+					return fmt.Errorf("failed to create on-the-fly session: %w", err)
+				}
+
+				helixSessionID = newSession.ID
+				apiServer.contextMappingsMutex.Lock()
+				apiServer.contextMappings[contextID] = helixSessionID
+				apiServer.contextMappingsMutex.Unlock()
+
+				log.Info().
+					Str("context_id", contextID).
+					Str("helix_session_id", helixSessionID).
+					Msg("✅ [HELIX] Created on-the-fly session for user message")
+			} else {
+				// Assistant message with no session is an error - shouldn't happen
+				return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+			}
+		} else {
+			helixSessionID = foundSession.ID
+			// Restore the mapping for future messages
+			apiServer.contextMappingsMutex.Lock()
+			apiServer.contextMappings[contextID] = helixSessionID
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 		}
-		helixSessionID = foundSession.ID
-		// Restore the mapping for future messages
-		apiServer.contextMappingsMutex.Lock()
-		apiServer.contextMappings[contextID] = helixSessionID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("context_id", contextID).
-			Str("helix_session_id", helixSessionID).
-			Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 	}
 
 	// Get the Helix session
@@ -1037,11 +1093,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// IMPORTANT: Get the pending comment ID synchronously to avoid race conditions
 			// If we spawn a goroutine and it runs after message_completed, the next comment
 			// might already have RequestID set, causing us to update the wrong comment.
+			var requestIDForPublish string // Captured for passing to publishSessionUpdateToFrontend
 			pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
 			if err == nil && pendingComment != nil {
 				// Found a pending comment - capture its ID and RequestID synchronously
 				commentID := pendingComment.ID
 				requestID := pendingComment.RequestID
+				requestIDForPublish = requestID // Capture for use outside this block
 
 				// Update the comment with streaming response content
 				go func(sessionID, commentID, requestID, responseContent string) {
@@ -1103,11 +1161,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						Msg("🔍 [DEBUG] About to publish session update")
 
 					// Publish session update to frontend so UI updates in real-time
-					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+					// Pass requestIDForPublish so commenter also receives the update (for design review streaming)
+					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, requestIDForPublish)
 					if err != nil {
 						log.Error().Err(err).
 							Str("session_id", helixSessionID).
 							Str("interaction_id", targetInteraction.ID).
+							Str("request_id", requestIDForPublish).
 							Msg("Failed to publish session update to frontend")
 					}
 				}
@@ -1127,6 +1187,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			Updated:       time.Now(),
 			SessionID:     helixSessionID,
 			UserID:        helixSession.Owner,
+			GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
 			Mode:          types.SessionModeInference,
 			PromptMessage: content,
 			State:         types.InteractionStateWaiting,
@@ -1721,13 +1782,50 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// Extract request_id from message data for commenter notification
+	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+
+	// CRITICAL: Publish final session update to frontend so it gets the complete state
+	// Without this, the frontend never receives the final update with state=complete
+	// Must reload session and list ALL interactions to avoid sending stale/partial data
+	reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session for final publish")
+	} else {
+		allInteractions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: reloadedSession.GenerationID,
+			PerPage:      1000,
+		})
+		if err == nil && len(allInteractions) > 0 {
+			reloadedSession.Interactions = allInteractions
+			log.Info().
+				Str("session_id", helixSessionID).
+				Int("interaction_count", len(allInteractions)).
+				Int("last_interaction_response_len", len(allInteractions[len(allInteractions)-1].ResponseMessage)).
+				Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
+				Msg("🔍 [DEBUG] Publishing final session update after message_completed")
+
+			// Pass messageRequestID so commenter also receives the final update
+			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, messageRequestID)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", targetInteraction.ID).
+					Str("request_id", messageRequestID).
+					Msg("Failed to publish final session update to frontend")
+			}
+		}
+	}
+
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
 	// FALLBACK: Session-based lookup (for backwards compatibility with agents that don't echo request_id)
+	// NOTE: messageRequestID was already extracted above for publishSessionUpdateToFrontend
 
-	messageRequestID, hasRequestID := syncMsg.Data["request_id"].(string)
-	if hasRequestID && messageRequestID != "" {
+	if messageRequestID != "" {
 		// PRIMARY: Use request_id from message data directly
 		log.Info().
 			Str("request_id", messageRequestID).
@@ -1757,6 +1855,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				default:
 					log.Debug().Msg("Done channel full")
 				}
+			}
+
+			// Clean up requestToCommenterMapping now that response is complete
+			if apiServer.requestToCommenterMapping != nil {
+				delete(apiServer.requestToCommenterMapping, requestID)
+				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
 			}
 		}(helixSessionID, messageRequestID)
 	} else {
@@ -1795,6 +1899,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 					default:
 						log.Debug().Msg("Done channel full")
 					}
+				}
+
+				// Clean up requestToCommenterMapping now that response is complete
+				if apiServer.requestToCommenterMapping != nil {
+					delete(apiServer.requestToCommenterMapping, requestID)
+					log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
 				}
 			}(helixSessionID, commentID, requestID)
 		} else {
@@ -1889,37 +1999,32 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
+	// Once we start processing, mark it done so no other process picks it up.
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+		// Continue anyway - better to risk duplicate than lose the message
 	}
 
-	// Send the prompt to the session
-	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
-	if err != nil {
+	// Send the prompt to the session (creates interaction and sends to agent)
+	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
+		// Interaction creation failed - revert to 'failed' so it can be retried
 		log.Error().
 			Err(err).
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to send pending prompt to session")
-
-		// Mark as failed
+			Msg("Failed to create interaction for pending prompt - reverting to failed")
 		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
-	}
-
-	// Mark as sent
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("prompt_id", nextPrompt.ID).
 		Bool("interrupt", nextPrompt.Interrupt).
-		Msg("✅ [QUEUE] Successfully sent pending prompt to session")
+		Msg("✅ [QUEUE] Successfully processed pending prompt")
 }
 
 // sendQueuedPromptToSession sends a queued prompt to an external agent session
@@ -1931,6 +2036,12 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
+	// Check if session has required metadata for queue processing
+	// External agent sessions need ZedThreadID to route messages
+	if session.Metadata.ZedThreadID == "" {
+		return fmt.Errorf("session %s has no ZedThreadID - cannot process queued prompt (is this an external agent session?)", sessionID)
+	}
+
 	// CRITICAL: Create an interaction BEFORE sending the message
 	// This ensures that when the agent responds, handleMessageAdded has an interaction to update
 	interaction := &types.Interaction{
@@ -1940,6 +2051,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Scheduled:     time.Now(),
 		SessionID:     sessionID,
 		UserID:        session.Owner,
+		GenerationID:  session.GenerationID, // Must match session's generation for query to find it
 		Mode:          types.SessionModeInference,
 		PromptMessage: prompt.Content,
 		State:         types.InteractionStateWaiting,
@@ -1992,7 +2104,21 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 
 	// Use the unified sendCommandToExternalAgent which handles connection lookup,
 	// adds session_id to data, and updates agent work state
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
+	//
+	// IMPORTANT: We don't return error if sending to agent fails, because the
+	// interaction was already created. The queue's job is to persist the message
+	// to the backend - which succeeded. Agent send failures are logged but don't
+	// affect the prompt status. The user will see the interaction in the session
+	// and can retry if needed.
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Str("interaction_id", createdInteraction.ID).
+			Str("prompt_id", prompt.ID).
+			Msg("❌ [QUEUE] Failed to send to agent, but interaction was created - prompt will be marked as sent")
+	}
+
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters
@@ -2314,6 +2440,21 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		title = "New Chat" // Default title
 	}
 
+	// IDEMPOTENCY: Check if we already have a session for this thread
+	// This can happen if MessageAdded(role=user) arrived before UserCreatedThread
+	// and created the session on-the-fly
+	apiServer.contextMappingsMutex.RLock()
+	existingMappedSession, alreadyExists := apiServer.contextMappings[acpThreadID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if alreadyExists {
+		log.Info().
+			Str("acp_thread_id", acpThreadID).
+			Str("existing_session_id", existingMappedSession).
+			Msg("✅ [HELIX] Session already exists for thread (created on-the-fly), skipping creation")
+		return nil
+	}
+
 	// Get the existing Helix session (agentSessionID is the session ID)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -2481,3 +2622,5 @@ If you need to verify the current state, check the git status and any running pr
 			Msg("Failed to send continue prompt - channel full")
 	}
 }
+
+

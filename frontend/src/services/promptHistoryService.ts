@@ -17,6 +17,9 @@ export interface LocalPromptHistoryEntry {
   sessionId?: string
   interrupt?: boolean       // If true, interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
+  // Retry tracking
+  retryCount?: number       // Number of retry attempts
+  nextRetryAt?: number      // Timestamp when retry will happen
   // Library features
   pinned?: boolean          // User pinned this prompt for quick access
   usageCount?: number       // How many times this prompt was reused
@@ -86,6 +89,9 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     sessionId: entry.session_id,
     interrupt: entry.interrupt ?? true,
     queuePosition: entry.queue_position,
+    // Retry tracking
+    retryCount: entry.retry_count ?? 0,
+    nextRetryAt: entry.next_retry_at ? new Date(entry.next_retry_at).getTime() : undefined,
     // Library features
     pinned: entry.pinned ?? false,
     usageCount: entry.usage_count ?? 0,

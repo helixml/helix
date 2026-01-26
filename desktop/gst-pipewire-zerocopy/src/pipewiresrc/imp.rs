@@ -7,7 +7,7 @@
 //! No EGL probing, no fallbacks, no guessing. The element does exactly what it's told.
 
 use crate::ext_image_copy_capture::ExtImageCopyCaptureStream;
-use crate::pipewire_stream::{DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
+use crate::pipewire_stream::{BufferPoolState, CudaResources, DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -172,7 +172,7 @@ impl Default for Settings {
             pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             cuda_device_id: -1,
-            keepalive_time_ms: 500,
+            keepalive_time_ms: 500, // 2 FPS minimum on static screens
             target_fps: 60,
             capture_source: CaptureSource::PipeWire,
             buffer_type: BufferType::Shm,
@@ -298,14 +298,14 @@ pub struct State {
     stream: Option<FrameStream>,
     video_info: Option<VideoInfo>,
     egl_display: Option<Arc<EGLDisplay>>,
-    buffer_pool: Option<CUDABufferPool>,
     output_mode: OutputMode,
     frame_count: u64,
-    last_buffer: Option<gst::Buffer>,
-    buffer_pool_configured: bool,
     dmabuf_allocator: Option<DmaBufAllocator>,
     drm_format_string: Option<String>,
     timing: TimingStats,
+    // Note: buffer_pool is now in CudaResources, passed to PipeWire thread
+    // Last buffer for keepalive - resent when no new frames arrive
+    last_buffer: Option<gst::Buffer>,
 }
 
 impl Default for State {
@@ -314,14 +314,12 @@ impl Default for State {
             stream: None,
             video_info: None,
             egl_display: None,
-            buffer_pool: None,
             output_mode: OutputMode::System,
             frame_count: 0,
-            last_buffer: None,
-            buffer_pool_configured: false,
             dmabuf_allocator: None,
             drm_format_string: None,
             timing: TimingStats::default(),
+            last_buffer: None,
         }
     }
 }
@@ -383,7 +381,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                     .blurb("Resend last buffer after this many ms (0=disabled)")
                     .minimum(0)
                     .maximum(60000)
-                    .default_value(500)
+                    .default_value(500) // 2 FPS minimum on static screens
                     .construct()
                     .build(),
                 glib::ParamSpecUInt::builder("target-fps")
@@ -666,14 +664,26 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 })?;
                 drop(cuda_ctx);
 
-                state.egl_display = Some(Arc::new(display));
-                state.buffer_pool = Some(pool);
+                let egl_display_arc = Arc::new(display);
+                state.egl_display = Some(egl_display_arc.clone());
                 state.output_mode = OutputMode::Cuda;
 
-                // Connect to PipeWire with NVIDIA DmaBuf modifiers
+                // Create CudaResources for PipeWire thread
+                // CRITICAL: This allows CUDA processing to happen in PipeWire thread
+                // BEFORE returning the buffer to the compositor, preventing race conditions.
+                let cuda_resources = CudaResources {
+                    egl_display: egl_display_arc,
+                    cuda_context: cuda_context.clone(),
+                    buffer_pool_state: Arc::new(parking_lot::Mutex::new(BufferPoolState {
+                        pool: Some(pool),
+                        configured: false,
+                    })),
+                };
+
+                // Connect to PipeWire with NVIDIA DmaBuf modifiers AND CUDA resources
                 let dmabuf_caps = get_nvidia_dmabuf_caps();
                 let stream =
-                    PipeWireStream::connect(node_id, pipewire_fd, Some(dmabuf_caps), target_fps)
+                    PipeWireStream::connect(node_id, pipewire_fd, Some(dmabuf_caps), target_fps, Some(cuda_resources))
                         .map_err(|e| {
                             gst::error_msg!(
                                 gst::LibraryError::Init,
@@ -687,8 +697,8 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 eprintln!("[PIPEWIRESRC] Using PipeWire SHM (GNOME+AMD or fallback)");
                 state.output_mode = OutputMode::System;
 
-                // Connect to PipeWire WITHOUT DmaBuf caps - forces SHM negotiation
-                let stream = PipeWireStream::connect(node_id, pipewire_fd, None, target_fps)
+                // Connect to PipeWire WITHOUT DmaBuf caps or CUDA - forces SHM negotiation
+                let stream = PipeWireStream::connect(node_id, pipewire_fd, None, target_fps, None)
                     .map_err(|e| {
                         gst::error_msg!(gst::LibraryError::Init, ("PipeWire SHM failed: {}", e))
                     })?;
@@ -732,7 +742,15 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         let output_mode = g
             .as_ref()
             .map(|s| s.output_mode)
-            .unwrap_or(OutputMode::System);
+            .unwrap_or_else(|| {
+                // State not initialized yet (caps negotiation before start())
+                // Determine output mode from settings (buffer-type property)
+                let settings = self.settings.lock();
+                match settings.buffer_type {
+                    BufferType::DmaBuf => OutputMode::Cuda, // dmabuf → CUDA output
+                    BufferType::Shm => OutputMode::System,
+                }
+            });
         drop(g);
 
         let formats = [
@@ -782,116 +800,94 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         &self,
         _buffer: Option<&mut gst::BufferRef>,
     ) -> Result<CreateSuccess, gst::FlowError> {
-        let (cuda_context, keepalive_time_ms) = {
-            let s = self.settings.lock();
-            (s.cuda_context.clone(), s.keepalive_time_ms)
-        };
+        // Get keepalive time from settings
+        let keepalive_time_ms = self.settings.lock().keepalive_time_ms;
 
         let mut g = self.state.lock();
         let state = g.as_mut().ok_or(gst::FlowError::Eos)?;
         let stream = state.stream.as_ref().ok_or(gst::FlowError::Error)?;
 
-        // Timeout: 30s for first frame, keepalive_time_ms for subsequent
-        let has_last = state.last_buffer.is_some();
-        let timeout = if !has_last {
-            Duration::from_secs(30)
-        } else if keepalive_time_ms > 0 {
+        // Use keepalive time as timeout if configured, otherwise 30 seconds
+        let timeout = if keepalive_time_ms > 0 {
             Duration::from_millis(keepalive_time_ms as u64)
         } else {
             Duration::from_secs(30)
         };
 
+        // Wait for frame from PipeWire with timeout
         let frame = match stream.recv_frame_timeout(timeout) {
-            Ok(f) => f,
-            Err(RecvError::Timeout) if keepalive_time_ms > 0 && has_last => {
-                // Keepalive: resend last buffer
-                let buf = state.last_buffer.as_ref().unwrap().copy();
-                state.frame_count += 1;
-                drop(g);
-                return Ok(CreateSuccess::NewBuffer(buf));
+            Ok(f) => {
+                // Log periodically
+                static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if count < 5 || count % 60 == 0 {
+                    eprintln!("[FRAME] Real frame #{}", count);
+                }
+                Some(f)
             }
             Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
+            Err(RecvError::Timeout) if keepalive_time_ms > 0 => {
+                // Timeout with keepalive enabled - resend last buffer
+                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if count < 5 || count % 60 == 0 {
+                    eprintln!("[KEEPALIVE] Resending last buffer #{}", count);
+                }
+                None // Signal to use last_buffer
+            }
             Err(_) => return Err(gst::FlowError::Error),
         };
 
+        // Handle keepalive case - resend last buffer with updated PTS
+        if frame.is_none() {
+            if let Some(ref last_buf) = state.last_buffer {
+                let mut buf = last_buf.copy();
+                // Update PTS to current wall clock time
+                let wall_clock_ns = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                if let Some(buffer_ref) = buf.get_mut() {
+                    buffer_ref.set_pts(gst::ClockTime::from_nseconds(wall_clock_ns));
+                }
+                return Ok(CreateSuccess::NewBuffer(buf));
+            } else {
+                // No last buffer yet, wait for first real frame
+                eprintln!("[KEEPALIVE] No last buffer available, waiting for first frame");
+                return Err(gst::FlowError::Error);
+            }
+        }
+
+        let frame = frame.unwrap();
+
         let (mut buffer, actual_format, width, height, pts_ns) = match frame {
-            FrameData::DmaBuf { dmabuf, pts_ns } if state.output_mode == OutputMode::Cuda => {
-                // CUDA path: DmaBuf → EGL → CUDA
-                // === TIMING INSTRUMENTATION ===
-                let t_start = std::time::Instant::now();
-
-                let cuda_ctx_arc = cuda_context.as_ref().ok_or(gst::FlowError::Error)?;
-                let cuda_ctx = cuda_ctx_arc.lock().unwrap();
-                let egl_display = state.egl_display.as_ref().ok_or(gst::FlowError::Error)?;
-                let raw_display: RawEGLDisplay = egl_display.get_display_handle().handle;
-
-                let w = dmabuf.width() as u32;
-                let h = dmabuf.height() as u32;
-
-                let t_egl_start = std::time::Instant::now();
-                let egl_image =
-                    EGLImage::from(&dmabuf, &raw_display).map_err(|_| gst::FlowError::Error)?;
-                let t_egl_done = std::time::Instant::now();
-
-                let t_cuda_reg_start = std::time::Instant::now();
-                let cuda_image =
-                    CUDAImage::from(egl_image, &cuda_ctx).map_err(|_| gst::FlowError::Error)?;
-                let t_cuda_reg_done = std::time::Instant::now();
-
-                let drm_format = dmabuf.format();
-                let video_format = drm_fourcc_to_video_format(drm_format.code);
-                let base_info = VideoInfo::builder(video_format, w, h)
-                    .build()
-                    .map_err(|_| gst::FlowError::Error)?;
-                let dma_video_info = VideoInfoDmaDrm::new(
-                    base_info,
-                    drm_format.code as u32,
-                    drm_format.modifier.into(),
-                );
-
-                // Configure buffer pool on first frame
-                if !state.buffer_pool_configured {
-                    if let Some(ref pool) = state.buffer_pool {
-                        let pool_caps = VideoCapsBuilder::new()
-                            .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
-                            .format(video_format)
-                            .width(w as i32)
-                            .height(h as i32)
-                            .framerate(gst::Fraction::new(60, 1))
-                            .build();
-                        let buffer_size = w * h * 4;
-                        if pool.configure_basic(&pool_caps, buffer_size, 8, 16).is_ok() {
-                            if pool.activate().is_ok() {
-                                state.buffer_pool_configured = true;
-                            }
-                        }
-                    }
+            // NEW: CudaBuffer - CUDA processing already done in PipeWire thread
+            // This is the fast path that prevents the buffer reuse race condition
+            FrameData::CudaBuffer {
+                buffer,
+                width,
+                height,
+                format,
+                pts_ns,
+            } => {
+                // Buffer is ready to use - CUDA copy already completed before PipeWire buffer was returned
+                static CUDA_BUFFER_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = CUDA_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if count == 1 || count % 1000 == 0 {
+                    eprintln!("[PIPEWIRESRC] CudaBuffer #{}: {}x{} {:?}", count, width, height, format);
                 }
 
-                let t_copy_start = std::time::Instant::now();
-                let buf = cuda_image
-                    .to_gst_buffer(dma_video_info, &cuda_ctx, state.buffer_pool.as_ref())
-                    .map_err(|_| gst::FlowError::Error)?;
-                let t_copy_done = std::time::Instant::now();
-
-                // cuda_image drops here, which calls cuGraphicsUnregisterResource
-                // === AGGREGATE TIMING ===
-                let egl_us = t_egl_done.duration_since(t_egl_start).as_micros() as u64;
-                let cuda_reg_us = t_cuda_reg_done.duration_since(t_cuda_reg_start).as_micros() as u64;
-                let copy_us = t_copy_done.duration_since(t_copy_start).as_micros() as u64;
-                let total_us = t_start.elapsed().as_micros() as u64;
-
-                state.timing.path_name = "CUDA";
-                state.timing.record_cuda_frame(egl_us, cuda_reg_us, copy_us, total_us);
-                if state.timing.should_log() {
-                    state.timing.log_and_reset(w, h);
-                }
-
-                let actual_fmt = buf
+                let actual_fmt = buffer
                     .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())
-                    .unwrap_or(video_format);
-                (buf, actual_fmt, w, h, pts_ns)
+                    .unwrap_or(format);
+                (buffer, actual_fmt, width, height, pts_ns)
+            }
+            // ERROR: Got raw DmaBuf in CUDA mode - this should never happen
+            // CUDA processing should happen in PipeWire thread, producing CudaBuffer
+            FrameData::DmaBuf { .. } if state.output_mode == OutputMode::Cuda => {
+                eprintln!("[PIPEWIRESRC] ERROR: Received DmaBuf in CUDA mode - CUDA processing failed in PipeWire thread");
+                return Err(gst::FlowError::Error);
             }
             FrameData::DmaBuf { dmabuf, pts_ns } => {
                 // Should not happen with explicit buffer_type, but handle gracefully
@@ -938,6 +934,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 (buf, video_format, width, height, pts_ns)
             }
         };
+
+        // Store buffer for keepalive (clone before we move it)
+        if keepalive_time_ms > 0 {
+            state.last_buffer = Some(buffer.clone());
+        }
 
         // Update caps if format/size changed
         let needs_update = match &state.video_info {
@@ -987,28 +988,26 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 state.video_info = Some(info);
             }
 
-            if keepalive_time_ms > 0 {
-                state.last_buffer = Some(buffer.clone());
-            }
-
             drop(g);
 
             let pad = self.obj().static_pad("src").expect("src pad");
             pad.push_event(gst::event::Caps::new(&new_caps));
         } else {
-            if keepalive_time_ms > 0 {
-                state.last_buffer = Some(buffer.clone());
-            }
             state.frame_count += 1;
             drop(g);
         }
 
-        // Set PTS from compositor timestamp (PipeWire spa_meta_header.pts)
-        // This is set by Mutter/compositor when the frame was captured
-        // pts_ns is in nanoseconds, which matches GStreamer's ClockTime unit
-        if pts_ns > 0 {
-            if let Some(buffer_ref) = buffer.get_mut() {
-                buffer_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns as u64));
+        // Set PTS for encoder latency measurement
+        // We use wall clock time (nanoseconds since UNIX epoch) so Go can compare directly with time.Now()
+        // spa_meta_header.pts from Mutter is in CLOCK_MONOTONIC, which can't be compared to wall clock,
+        // so we always use wall clock here for consistent latency measurement.
+        let wall_clock_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        if let Some(buffer_ref) = buffer.get_mut() {
+            if wall_clock_ns > 0 {
+                buffer_ref.set_pts(gst::ClockTime::from_nseconds(wall_clock_ns));
             }
         }
 

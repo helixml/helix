@@ -2,16 +2,9 @@ import React, { createContext, useContext, useState, ReactNode } from 'react'
 import { TypesDashboardRunner } from '../api/api'
 
 interface FloatingModalConfig {
-  type: 'logs' | 'rdp' | 'exploratory_session'
+  type: 'logs' | 'rdp'
   runner?: TypesDashboardRunner
   sessionId?: string
-  // Display settings for streaming (from app's ExternalAgentConfig)
-  displayWidth?: number
-  displayHeight?: number
-  displayFps?: number
-  // Prompt history sync (for exploratory_session)
-  specTaskId?: string
-  projectId?: string
 }
 
 interface FloatingModalContextType {

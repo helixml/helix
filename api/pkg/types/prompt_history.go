@@ -23,6 +23,10 @@ type PromptHistoryEntry struct {
 	// Values: "pending", "sent", "failed"
 	Status string `json:"status" gorm:"size:50;not null;default:sent"`
 
+	// Retry tracking for failed prompts
+	RetryCount  int        `json:"retry_count" gorm:"not null;default:0"`       // Number of retry attempts
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty" gorm:"index"`        // When to retry (for exponential backoff)
+
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes
 	Interrupt bool `json:"interrupt" gorm:"not null;default:true"`

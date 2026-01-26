@@ -351,16 +351,28 @@ const EVDEV_MAPPINGS: Record<string, number | null> = {
 /**
  * Convert a browser KeyboardEvent to a Linux evdev keycode.
  *
+ * This function maps physical key positions (event.code) to evdev keycodes.
+ * For devices where event.code is unavailable (iPad/iOS), keysym mode should
+ * be used instead (see keysym.ts).
+ *
  * @param event - The browser keyboard event
  * @returns The evdev keycode, or null if no mapping exists
  */
 export function convertToEvdevKey(event: KeyboardEvent): number | null {
+  // First try event.code (physical key location) - works on desktop browsers
   const key = EVDEV_MAPPINGS[event.code] ?? null
-  if (key === null) {
-    // Fallback to event.key for some special cases
-    return EVDEV_MAPPINGS[event.key] ?? null
+  if (key !== null) {
+    return key
   }
-  return key
+
+  // Fallback to EVDEV_MAPPINGS with event.key (for named keys like "Escape")
+  const namedKey = EVDEV_MAPPINGS[event.key] ?? null
+  if (namedKey !== null) {
+    return namedKey
+  }
+
+  // No mapping found - caller should try keysym mode for iPad/iOS
+  return null
 }
 
 /**

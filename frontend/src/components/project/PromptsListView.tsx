@@ -198,7 +198,6 @@ const PromptsListView: FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [expandedSections, setExpandedSections] = useState({
     pinned: true,
-    recent: true,
   })
 
   // Debounce search query
@@ -419,12 +418,48 @@ const PromptsListView: FC = () => {
             'pinned',
             '#ed6c02' // warning.main
           )}
-          {renderSection(
-            'Recent Prompts',
-            <HistoryIcon />,
-            recentPrompts.filter(p => !pinnedIds.has(p.id)),
-            'recent',
-            'text.secondary'
+          {/* Recent Prompts - shown directly without collapse */}
+          {recentPrompts.filter(p => !pinnedIds.has(p.id)).length > 0 && (
+            <Paper variant="outlined" sx={{ mb: 2, borderRadius: 2 }}>
+              <ListItem
+                component="div"
+                sx={{
+                  py: 1.5,
+                  px: 2,
+                  bgcolor: 'background.default',
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 36, color: 'text.secondary' }}>
+                  <HistoryIcon />
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="subtitle1" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                        Recent Prompts
+                      </Typography>
+                      <Chip
+                        label={recentPrompts.filter(p => !pinnedIds.has(p.id)).length}
+                        size="small"
+                        sx={{ height: 20, fontSize: '0.75rem' }}
+                      />
+                    </Box>
+                  }
+                />
+              </ListItem>
+              <Divider />
+              <List disablePadding>
+                {recentPrompts.filter(p => !pinnedIds.has(p.id)).map((entry) => (
+                  <PromptItem
+                    key={entry.id}
+                    entry={entry}
+                    onCopy={handleCopy}
+                    onPin={() => handlePin(entry.id || '', pinnedIds.has(entry.id))}
+                    isPinned={pinnedIds.has(entry.id)}
+                  />
+                ))}
+              </List>
+            </Paper>
           )}
           {pinnedPrompts.length === 0 && recentPrompts.length === 0 && (
             <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>

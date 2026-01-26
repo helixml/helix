@@ -364,6 +364,32 @@ export function usePushToRemote() {
   });
 }
 
+export function useSyncAllBranches() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, force = false }: { repositoryId: string; force?: boolean }) => {
+      const response = await api.getApiClient().syncAllBranches(repositoryId, { force });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'branches']
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'tree']
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'commits']
+      });
+    },
+  });
+}
+
 export function useCreateBranch() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -374,11 +400,11 @@ export function useCreateBranch() {
       return response.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: ['git-repositories', variables.repositoryId, 'branches'] 
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'branches']
       });
-      queryClient.invalidateQueries({ 
-        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId)
       });
     },
   });
@@ -573,6 +599,7 @@ const gitRepositoryService = {
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   usePullFromRemote,
+  useSyncAllBranches,
   useCreateBranch,
   useCreateGitRepositoryPullRequest,
   useBrowseRemoteRepositories,

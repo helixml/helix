@@ -31,8 +31,8 @@ services:
         ipv4_address: 172.19.0.20
     ports:
       - ${API_PORT:-8080}:8080
-      - "3478:3478/udp" # TURN server for WebRTC NAT traversal
-      - "3478:3478/tcp" # TURN server TCP transport (firewall fallback)
+      # Port range for expose endpoint (port-based proxy for dev container services)
+      - "30000-30100:30000-30100"
     restart: always
     env_file:
       - .env
@@ -100,13 +100,6 @@ services:
       - HELIX_DEV_MODE=true # Enable dev file bind-mounts for hot-reloading
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      # TURN server configuration for WebRTC
-      - TURN_ENABLED=true
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api} # Use 'api' hostname for local relay (auto-detects public IP)
-      - TURN_PORT=3478
-      - TURN_REALM=helix.ai
-      - TURN_USERNAME=helix
-      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:
@@ -333,18 +326,6 @@ services:
       - /dev/dri
       - /dev/uinput
       - /dev/uhid
-    ports:
-      # Streaming protocol ports
-      - "47984:47984" # HTTPS
-      - "47989:47989" # HTTP (pairing, serverinfo)
-      - "48010:48010" # RTSP
-      - "47415:47415/udp" # Discovery
-      - "47999:47999/udp" # Control
-      - "48100:48100/udp" # Video RTP
-      - "48200:48200/udp" # Audio RTP
-      # WebRTC streaming
-      - "8081:8080" # Web interface
-      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     runtime: nvidia
     deploy:
       resources:
@@ -355,11 +336,7 @@ services:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
-        ]
+      test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -436,28 +413,12 @@ services:
       - /dev/dri
       - /dev/uinput
       - /dev/uhid
-    ports:
-      # Streaming protocol ports
-      - "47984:47984" # HTTPS
-      - "47989:47989" # HTTP (pairing, serverinfo)
-      - "48010:48010" # RTSP
-      - "47415:47415/udp" # Discovery
-      - "47999:47999/udp" # Control
-      - "48100:48100/udp" # Video RTP
-      - "48200:48200/udp" # Audio RTP
-      # WebRTC streaming
-      - "8081:8080" # Web interface
-      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     # No nvidia runtime for AMD - uses device pass-through instead
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
-        ]
+      test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -536,28 +497,12 @@ services:
     devices:
       - /dev/uinput
       - /dev/uhid
-    ports:
-      # Streaming protocol ports
-      - "47984:47984" # HTTPS
-      - "47989:47989" # HTTP (pairing, serverinfo)
-      - "48010:48010" # RTSP
-      - "47415:47415/udp" # Discovery
-      - "47999:47999/udp" # Control
-      - "48100:48100/udp" # Video RTP
-      - "48200:48200/udp" # Audio RTP
-      # WebRTC streaming
-      - "8081:8080" # Web interface
-      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     # No nvidia runtime for software rendering
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
-        ]
+      test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
       interval: 30s
       timeout: 5s
       retries: 3

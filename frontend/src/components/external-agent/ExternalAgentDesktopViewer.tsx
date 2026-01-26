@@ -14,6 +14,8 @@ import useSnackbar from '../../hooks/useSnackbar';
 import { useStreaming } from '../../contexts/streaming';
 import { SESSION_TYPE_TEXT } from '../../types';
 import { Api } from '../../api/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
 
 // Hook to track sandbox container state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -66,8 +68,10 @@ const useSandboxState = (sessionId: string) => {
   }, [sessionId]);
 
   // Backend now returns 'starting' state for recently-created containers
+  // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
+  // before we know the real state (avoids mount/unmount flicker)
   const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
-  const isStarting = sandboxState === 'starting';
+  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === 'absent';
 
@@ -109,7 +113,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const streaming = useStreaming();
+  const queryClient = useQueryClient();
+  const { NewInference, setCurrentSessionId } = useStreaming();
   const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
@@ -119,6 +124,14 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Track uploaded file paths to append to prompt input (uses unique key to trigger append)
   const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
   const uploadCountRef = useRef(0);
+
+  // Set current session ID in streaming context when session panel is open
+  // This enables WebSocket updates and proper query invalidation
+  useEffect(() => {
+    if (showSessionPanel && sessionPanelOpen && sessionId) {
+      setCurrentSessionId(sessionId);
+    }
+  }, [showSessionPanel, sessionPanelOpen, sessionId]);
 
   // Handle file upload from drag/drop - append path to prompt input with a unique key
   const handleFileUploaded = useCallback((filePath: string) => {
@@ -130,27 +143,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Handle image paste in RobustPromptInput - uploads without opening file manager
   const handleImagePaste = useCallback(async (file: File): Promise<string | null> => {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(
-        `/api/v1/external-agents/${sessionId}/upload?open_file_manager=false`,
-        {
-          method: 'POST',
-          body: formData,
-        }
+      const response = await api.getApiClient().v1ExternalAgentsUploadCreate(
+        sessionId,
+        { file },
+        { open_file_manager: false }
       );
 
-      if (!response.ok) {
-        console.error('Image upload failed:', response.statusText);
-        snackbar.error('Failed to upload image');
-        return null;
-      }
-
-      const data = await response.json();
-      if (data.path) {
+      if (response.data?.path) {
         snackbar.success(`${file.name} uploaded to ~/work/incoming`);
-        return data.path;
+        return response.data.path;
       }
       return null;
     } catch (error) {
@@ -158,7 +159,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       snackbar.error('Failed to upload image');
       return null;
     }
-  }, [sessionId, snackbar]);
+  }, [sessionId]);
 
   // Once running, remember it to prevent unmounting on transient state changes
   useEffect(() => {
@@ -171,7 +172,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     e?.stopPropagation(); // Prevent click from bubbling to parent (e.g., Kanban card navigation)
     setIsResuming(true);
     try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      await api.getApiClient().v1SessionsResumeCreate(sessionId);
       snackbar.success('External agent started successfully');
       // Success - don't reset isResuming here
       // The useEffect below will reset it when container state changes
@@ -209,13 +210,16 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
   const handleSendMessage = useCallback(async (message: string, interrupt?: boolean) => {
-    await streaming.NewInference({
+    await NewInference({
       type: SESSION_TYPE_TEXT,
       message,
       sessionId,
       interrupt: interrupt ?? true,
     });
-  }, [streaming, sessionId]);
+    // Immediately invalidate session query to refresh the interaction list
+    // This ensures the user's message appears right away without waiting for poll
+    queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+  }, [NewInference, sessionId, queryClient]);
 
   // Session panel width
   const SESSION_PANEL_WIDTH = 400;

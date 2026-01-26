@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -105,7 +105,7 @@ func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, sc
 	}
 	defer os.RemoveAll(tempClone) // Cleanup
 
-	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+	repo, err := git.PlainClone(tempClone, &git.CloneOptions{
 		URL: codeRepoPath, // Clone from bare repo
 	})
 	if err != nil {
@@ -533,7 +533,7 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 	}
 	defer os.RemoveAll(tempClone)
 
-	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+	repo, err := git.PlainClone(tempClone, &git.CloneOptions{
 		URL:      sampleRepoURL,
 		Progress: os.Stdout,
 		Depth:    1, // Shallow clone for speed
@@ -639,7 +639,7 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 	}
 	defer os.RemoveAll(tempClone) // Cleanup
 
-	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+	repo, err := git.PlainClone(tempClone, &git.CloneOptions{
 		URL:           codeRepoPath, // Clone from bare repo
 		ReferenceName: helixSpecsRef,
 		SingleBranch:  true,

@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -16,31 +18,43 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// addUserAPITokenToAgent adds the user's API token to agent environment for git operations
-// This ensures RBAC is enforced - agent can only access repos the user can access
-// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
+// addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
+// The token is minted when the desktop starts and revoked when it shuts down.
+// This ensures RBAC is enforced - agent can only access repos the user can access.
+// Uses getAPIKeyForSession for consistent token selection logic across the codebase.
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
-	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
-		UserID:     userID,
-		ProjectID:  agent.ProjectID,
-		SpecTaskID: agent.SpecTaskID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get user API key for external agent: %w", err)
+	if agent.SessionID == "" {
+		return fmt.Errorf("agent has no SessionID - session must be created before adding API token")
 	}
 
-	// Add USER_API_TOKEN to agent environment using personal API key
-	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey))
+	// Get the session to use for session-scoped API key
+	session, err := apiServer.Store.GetSession(ctx, agent.SessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session %s: %w", agent.SessionID, err)
+	}
 
-	log.Debug().
+	// Get session-scoped ephemeral API key
+	apiKey, err := apiServer.getAPIKeyForSession(ctx, session)
+	if err != nil {
+		return fmt.Errorf("failed to get session API key for external agent: %w", err)
+	}
+
+	// Add API tokens to agent environment
+	// These are appended LAST in hydra_executor.go, overriding runner token defaults
+	tokenEnvVars := types.DesktopAgentAPIEnvVars(apiKey)
+	agent.Env = append(agent.Env, tokenEnvVars...)
+
+	log.Info().
 		Str("user_id", userID).
-		Bool("key_is_personal", true).
-		Msg("Added user API token to agent for git operations")
+		Str("session_id", agent.SessionID).
+		Str("spec_task_id", agent.SpecTaskID).
+		Int("token_env_vars_count", len(tokenEnvVars)).
+		Bool("user_api_token_set", apiKey != "").
+		Msg("✅ Added session-scoped API tokens to agent (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
 
 	return nil
 }
@@ -60,519 +74,10 @@ func (apiServer *HelixAPIServer) RegisterRequestToSessionMapping(requestID, sess
 		Msg("✅ Registered request_id -> session_id mapping")
 }
 
-// createExternalAgent handles POST /api/v1/external-agents
-func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var agent types.DesktopAgent
-	err := json.NewDecoder(req.Body).Decode(&agent)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
-		return
-	}
-
-	// Generate session ID if not provided
-	if agent.SessionID == "" {
-		agent.SessionID = system.GenerateRequestID()
-	}
-
-	// CRITICAL: Set UserID from authenticated user for git commit email lookup
-	// executor uses agent.UserID to look up user email for git config
-	agent.UserID = user.ID
-
-	// WorkDir is handled by the executor - don't override here
-
-	// Validate required fields
-	if agent.Input == "" {
-		http.Error(res, "input is required", http.StatusBadRequest)
-		return
-	}
-
-	// External agent executor should be initialized in server constructor
-	if apiServer.externalAgentExecutor == nil {
-		log.Error().Str("session_id", agent.SessionID).Msg("External agent executor not available")
-		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Str("user_id", agent.UserID).
-		Str("project_path", agent.ProjectPath).
-		Msg("Creating external agent via API endpoint")
-
-	// Store user mapping for this external agent session
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.externalAgentUserMapping == nil {
-		apiServer.externalAgentUserMapping = make(map[string]string)
-	}
-	apiServer.externalAgentUserMapping[agent.SessionID] = user.ID
-	apiServer.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Str("user_id", user.ID).
-		Msg("Stored user mapping for external agent session")
-
-	// Create Helix session FIRST so responses can be routed to it
-	helixSession := types.Session{
-		ID:        "", // Will be generated
-		Name:      fmt.Sprintf("Zed Agent %s", agent.SessionID[:8]),
-		Owner:     user.ID,
-		OwnerType: types.OwnerTypeUser,
-		Type:      types.SessionTypeText,
-		Mode:      types.SessionModeInference,
-		ModelName: "claude-sonnet-4-5-latest", // Force Sonnet 4.5 for external agents
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		Metadata: types.SessionMetadata{
-			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
-			AgentType:    "zed_external",
-		},
-	}
-
-	createdSession, err := apiServer.Controller.Options.Store.CreateSession(req.Context(), helixSession)
-	if err != nil {
-		log.Error().Err(err).Str("agent_session_id", agent.SessionID).Msg("failed to create Helix session")
-		http.Error(res, fmt.Sprintf("failed to create Helix session: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().
-		Str("agent_session_id", agent.SessionID).
-		Str("helix_session_id", createdSession.ID).
-		Str("user_id", user.ID).
-		Msg("✅ Created Helix session for external agent")
-
-	// Store mapping: agent_session_id -> helix_session_id
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.externalAgentSessionMapping == nil {
-		apiServer.externalAgentSessionMapping = make(map[string]string)
-	}
-	apiServer.externalAgentSessionMapping[agent.SessionID] = createdSession.ID
-
-	// Generate request_id for initial message and store mapping
-	requestID := system.GenerateRequestID()
-	if apiServer.requestToSessionMapping == nil {
-		apiServer.requestToSessionMapping = make(map[string]string)
-	}
-	apiServer.requestToSessionMapping[requestID] = createdSession.ID
-	apiServer.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("request_id", requestID).
-		Str("helix_session_id", createdSession.ID).
-		Msg("✅ Stored request_id -> session mapping for initial message")
-
-	// Create initial interaction for the user's message
-	interaction := &types.Interaction{
-		ID:              "", // Will be generated
-		GenerationID:    0,
-		Created:         time.Now(),
-		Updated:         time.Now(),
-		Scheduled:       time.Now(),
-		Completed:       time.Time{},
-		SessionID:       createdSession.ID,
-		UserID:          user.ID,
-		Mode:            types.SessionModeInference,
-		PromptMessage:   agent.Input,
-		State:           types.InteractionStateWaiting,
-		ResponseMessage: "",
-	}
-
-	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(req.Context(), interaction)
-	if err != nil {
-		log.Error().Err(err).Str("helix_session_id", createdSession.ID).Msg("failed to create initial interaction")
-		http.Error(res, fmt.Sprintf("failed to create interaction: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	// Store session -> waiting interaction mapping
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string]string)
-	}
-	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
-	apiServer.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("interaction_id", createdInteraction.ID).
-		Str("helix_session_id", createdSession.ID).
-		Msg("✅ Created initial interaction for external agent")
-
-	// Generate auth token for WebSocket connection
-	token, err := apiServer.generateExternalAgentToken(agent.SessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to generate external agent token")
-		http.Error(res, fmt.Sprintf("failed to create external agent: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	// Set the Helix session ID on the agent so container knows which session this serves
-	agent.HelixSessionID = createdSession.ID
-
-	// Add user's API token for git operations
-	if err := apiServer.addUserAPITokenToAgent(req.Context(), &agent, user.ID); err != nil {
-		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token (continuing without git)")
-		// Don't fail - external agents can work without git
-	}
-
-	// Start the external agent
-	response, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), &agent)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to start external agent")
-		http.Error(res, fmt.Sprintf("failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Str("status", response.Status).
-		Str("lobby_id", response.DevContainerID).
-		Msg("External agent started successfully")
-
-	// Store the container ID and sandbox ID in the Helix session
-	if response.DevContainerID != "" {
-		createdSession.Metadata.DevContainerID = response.DevContainerID
-	}
-	// CRITICAL: Store SandboxID on session record - required for streaming proxy
-	if response.SandboxID != "" {
-		createdSession.SandboxID = response.SandboxID
-	}
-
-	// Update session with container info
-	if response.DevContainerID != "" || response.SandboxID != "" {
-		_, err = apiServer.Controller.Options.Store.UpdateSession(req.Context(), *createdSession)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store container info in session")
-			// Continue anyway - container info just won't be in database
-		} else {
-			log.Info().
-				Str("helix_session_id", createdSession.ID).
-				Str("container_id", response.DevContainerID).
-				Str("sandbox_id", response.SandboxID).
-				Msg("✅ Stored container ID and sandbox ID in Helix session")
-		}
-	}
-
-	// Note: Container attachment happens via pending session config
-	// Pre-configured by ConfigurePendingSession API call after container creation
-
-	// Add WebSocket connection info to response
-	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
-	response.AuthToken = token
-
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Str("websocket_url", response.WebSocketURL).
-		Bool("has_auth_token", len(response.AuthToken) > 0).
-		Msg("External agent API response prepared")
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
-}
-
-// getExternalAgent handles GET /api/v1/external-agents/{sessionID}
-func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Msg("External agent session not found")
-		http.Error(res, fmt.Sprintf("session %s not found: %s", sessionID, err.Error()), http.StatusNotFound)
-		return
-	}
-
-	response := types.DesktopAgentResponse{
-		SessionID: session.SessionID,
-		Status:    "running",
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
-}
-
-// listExternalAgents handles GET /api/v1/external-agents
-func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		res.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(res).Encode([]types.DesktopAgentResponse{})
-		return
-	}
-
-	sessions := apiServer.externalAgentExecutor.ListSessions()
-	responses := make([]types.DesktopAgentResponse, len(sessions))
-
-	for i, session := range sessions {
-		responses[i] = types.DesktopAgentResponse{
-			SessionID: session.SessionID,
-			Status:    session.Status,
-		}
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(responses)
-}
-
-// deleteExternalAgent handles DELETE /api/v1/external-agents/{sessionID}
-func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	err := apiServer.externalAgentExecutor.StopDesktop(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent")
-		http.Error(res, fmt.Sprintf("failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	response := map[string]string{
-		"message":    "External agent stopped successfully",
-		"session_id": sessionID,
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
-}
-
-// getExternalAgentRDP handles GET /api/v1/external-agents/{sessionID}/rdp
-func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	log.Debug().
-		Str("session_id", sessionID).
-		Msg("Looking up external agent session for RDP info")
-
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Msg("Failed to find external agent session")
-
-		// Try to list all sessions to see what's available
-		allSessions := apiServer.externalAgentExecutor.ListSessions()
-		log.Debug().
-			Int("total_sessions", len(allSessions)).
-			Msg("Current external agent sessions")
-
-		for _, s := range allSessions {
-			log.Debug().
-				Str("available_session_id", s.SessionID).
-				Str("status", s.Status).
-				Msg("Available session")
-		}
-
-		http.Error(res, fmt.Sprintf("session %s not found: %s", sessionID, err.Error()), http.StatusNotFound)
-		return
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("status", session.Status).
-		Msg("Found external agent session")
-
-	// Return streaming connection details with WebSocket info
-	connectionInfo := types.ExternalAgentConnectionInfo{
-		SessionID:          session.SessionID,
-		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:          fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
-		Status:             session.Status,
-		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
-		WebsocketConnected: apiServer.isExternalAgentConnected(session.SessionID),
-	}
-
-	log.Info().
-		Str("session_id", session.SessionID).
-		Str("status", session.Status).
-		Bool("websocket_connected", connectionInfo.WebsocketConnected).
-		Msg("Returning streaming connection info")
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(connectionInfo)
-}
-
-// updateExternalAgent handles PUT /api/v1/external-agents/{sessionID}
-func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	var updateData types.ExternalAgentUpdateRequest
-	err := json.NewDecoder(req.Body).Decode(&updateData)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
-		return
-	}
-
-	// For now, just update the last access time
-	// In a full implementation, you might want to support updating other session properties
-	session, _ = apiServer.externalAgentExecutor.GetSession(sessionID)
-
-	response := types.DesktopAgentResponse{
-		SessionID:     session.SessionID,
-		ScreenshotURL: fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:     fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
-		Status:        session.Status,
-		ContainerAppID:     session.ContainerAppID,
-		ContainerName: session.ContainerName,
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
-}
-
-// getExternalAgentStats handles GET /api/v1/external-agents/{sessionID}/stats
-func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
-		return
-	}
-
-	stats := types.ExternalAgentStats{
-		SessionID:    session.SessionID,
-		PID:          0,
-		StartTime:    session.StartTime,
-		LastAccess:   session.LastAccess,
-		Uptime:       session.LastAccess.Sub(session.StartTime).Seconds(),
-		WorkspaceDir: session.ProjectPath,
-		DisplayNum:   1,
-		Status:       "running",
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(stats)
-}
-
 // isExternalAgentConnected checks if external agent is connected via WebSocket
 func (apiServer *HelixAPIServer) isExternalAgentConnected(sessionID string) bool {
 	_, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
 	return exists
-}
-
-// getExternalAgentConnections lists all active external agent connections
-func (apiServer *HelixAPIServer) getExternalAgentConnections(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	allConnections := make([]types.ExternalAgentConnection, 0) // Initialize as empty array, not nil
-
-	// Get Zed instance connections (via /external-agents/sync)
-	if apiServer.externalAgentWSManager != nil {
-		syncConnections := apiServer.externalAgentWSManager.listConnections()
-		allConnections = append(allConnections, syncConnections...)
-	}
-
-	// Get external agent runner connections (via /ws/external-agent-runner)
-	if apiServer.externalAgentRunnerManager != nil {
-		runnerConnections := apiServer.externalAgentRunnerManager.listConnections()
-		allConnections = append(allConnections, runnerConnections...)
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(allConnections)
 }
 
 // sendCommandToExternalAgentHandler allows manual command sending for testing
@@ -673,7 +178,12 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	defer revDialConn.Close()
 
 	// Send HTTP request over RevDial tunnel
-	httpReq, err := http.NewRequest("GET", "http://localhost:9876/screenshot", nil)
+	// Forward query parameters (format, quality, include_cursor) to the desktop container
+	screenshotURL := "http://localhost:9876/screenshot"
+	if req.URL.RawQuery != "" {
+		screenshotURL += "?" + req.URL.RawQuery
+	}
+	httpReq, err := http.NewRequest("GET", screenshotURL, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create screenshot request")
 		http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
@@ -721,6 +231,81 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
+}
+
+// getExternalAgentVideoStats handles GET /api/v1/external-agents/{sessionID}/video/stats
+// Returns video streaming statistics including per-client buffer usage
+func (apiServer *HelixAPIServer) getExternalAgentVideoStats(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for video stats")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership (or admin access)
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for video stats")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Str("session_id", sessionID).Msg("Failed to connect to sandbox via RevDial for video stats")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/video/stats", nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create video stats request")
+		http.Error(res, "Failed to create video stats request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send video stats request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	statsResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read video stats response from RevDial")
+		http.Error(res, "Failed to read video stats response", http.StatusInternalServerError)
+		return
+	}
+	defer statsResp.Body.Close()
+
+	// Check response status
+	if statsResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(statsResp.Body)
+		log.Error().Int("status", statsResp.StatusCode).Str("session_id", sessionID).Str("error_body", string(errorBody)).Msg("Video stats server returned error")
+		http.Error(res, "Failed to retrieve video stats from container", statsResp.StatusCode)
+		return
+	}
+
+	// Return JSON response directly
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	io.Copy(res, statsResp.Body)
 }
 
 // @Summary Execute command in sandbox
@@ -831,16 +416,14 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 
 // @Summary Bandwidth probe for adaptive bitrate
 // @Description Returns random uncompressible data for measuring available bandwidth.
-// @Description This endpoint starts sending bytes immediately, unlike screenshot which
-// @Description has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+// @Description Used by adaptive bitrate algorithm to probe network throughput.
+// @Description Only requires authentication, not session ownership.
 // @Tags ExternalAgents
 // @Produce application/octet-stream
-// @Param sessionID path string true "Session ID"
-// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
+// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB, max 2MB)"
 // @Success 200 {file} binary
 // @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Router /api/v1/external-agents/{sessionID}/bandwidth-probe [get]
+// @Router /api/v1/bandwidth-probe [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
@@ -849,26 +432,11 @@ func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req 
 		return
 	}
 
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	// Verify session ownership (lightweight check - just verify session exists and user owns it)
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	if session.Owner != user.ID {
-		http.Error(res, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Parse size parameter (default 512KB)
+	// Parse size parameter (default 512KB, max 2MB to limit abuse)
 	size := 524288 // 512KB default
 	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
-		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 10*1024*1024 {
-			size = parsedSize // Max 10MB to prevent abuse
+		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 2*1024*1024 {
+			size = parsedSize // Max 2MB
 		}
 	}
 
@@ -886,51 +454,6 @@ func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req 
 	res.Header().Set("Content-Length", strconv.Itoa(size))
 	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	res.Header().Set("Content-Encoding", "identity") // Explicitly disable compression
-	res.WriteHeader(http.StatusOK)
-
-	// Write data directly - starts sending immediately
-	res.Write(data)
-}
-
-// @Summary Initial bandwidth probe (no session required)
-// @Description Returns random uncompressible data for measuring available bandwidth before session creation.
-// @Description Used by adaptive bitrate to determine optimal initial bitrate before connecting.
-// @Description Only requires authentication, not session ownership.
-// @Tags ExternalAgents
-// @Produce application/octet-stream
-// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
-// @Success 200 {file} binary
-// @Failure 401 {object} system.HTTPError
-// @Router /api/v1/bandwidth-probe [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getInitialBandwidthProbe(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse size parameter (default 512KB, max 2MB for initial probe to limit abuse)
-	size := 524288 // 512KB default
-	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
-		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 2*1024*1024 {
-			size = parsedSize // Max 2MB for initial probe (smaller than session probe)
-		}
-	}
-
-	// Generate random data - crypto/rand produces incompressible data
-	data := make([]byte, size)
-	if _, err := rand.Read(data); err != nil {
-		log.Error().Err(err).Msg("Failed to generate random data for initial bandwidth probe")
-		http.Error(res, "Failed to generate probe data", http.StatusInternalServerError)
-		return
-	}
-
-	// Set headers to prevent caching and compression
-	res.Header().Set("Content-Type", "application/octet-stream")
-	res.Header().Set("Content-Length", strconv.Itoa(size))
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.Header().Set("Content-Encoding", "identity")
 	res.WriteHeader(http.StatusOK)
 
 	res.Write(data)
@@ -1288,6 +811,7 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 // @Produce json
 // @Param sessionID path string true "Session ID"
 // @Param file formData file true "File to upload"
+// @Param open_file_manager query bool false "Open file manager to show uploaded file (default: true)"
 // @Success 200 {object} types.SandboxFileUploadResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError
@@ -1603,27 +1127,54 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 		return
 	}
 
-	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection established, starting bidirectional proxy")
+	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection established, starting resilient proxy")
 
-	// Bidirectional copy between client and server
-	done := make(chan struct{})
+	// Generate a unique proxy session ID
+	proxySessionID := generateProxySessionID()
 
-	// Client -> Server
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(serverConn, clientConn)
-	}()
+	// Create dial function that uses connman with grace period support
+	dialFunc := func(ctx context.Context) (net.Conn, error) {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
 
-	// Server -> Client
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(clientConn, serverConn)
-	}()
+	// Create upgrade function for WebSocket
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/input", wsKey)
 
-	// Wait for either direction to complete
-	<-done
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+		SessionID:   proxySessionID,
+		ClientConn:  clientConn,
+		ServerConn:  serverConn,
+		DialFunc:    dialFunc,
+		UpgradeFunc: upgradeFunc,
+	})
+	defer resilientProxy.Close()
 
-	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection closed")
+	// Run the proxy (blocks until connection closes or error)
+	if err := resilientProxy.Run(req.Context()); err != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("proxy_session_id", proxySessionID).
+			Err(err).
+			Msg("Resilient proxy ended with error")
+	}
+
+	stats := resilientProxy.Stats()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("proxy_session_id", proxySessionID).
+		Int64("reconnect_count", stats.ReconnectCount).
+		Int64("input_bytes_buffered", stats.InputBytesBuffered).
+		Int64("output_bytes_buffered", stats.OutputBytesBuffered).
+		Msg("Input WebSocket connection closed")
+}
+
+// generateProxySessionID generates a unique session ID for proxy connections
+func generateProxySessionID() string {
+	buf := make([]byte, 8)
+	rand.Read(buf)
+	return hex.EncodeToString(buf)
 }
 
 // proxyStreamWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/stream
@@ -1752,26 +1303,269 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		return
 	}
 
-	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting bidirectional proxy")
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
-	// Bidirectional copy between client and server
-	// Video frames go server→client, init/ping messages go client→server
-	done := make(chan struct{})
+	// Generate a unique proxy session ID
+	proxySessionID := generateProxySessionID()
 
-	// Client -> Server (init message, pongs)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(serverConn, clientConn)
-	}()
+	// Create dial function that uses connman with grace period support
+	dialFunc := func(ctx context.Context) (net.Conn, error) {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
 
-	// Server -> Client (video frames, pings)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(clientConn, serverConn)
-	}()
+	// Create upgrade function for WebSocket
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey)
 
-	// Wait for either direction to complete
-	<-done
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+		SessionID:   proxySessionID,
+		ClientConn:  clientConn,
+		ServerConn:  serverConn,
+		DialFunc:    dialFunc,
+		UpgradeFunc: upgradeFunc,
+	})
+	defer resilientProxy.Close()
 
-	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection closed")
+	// Run the proxy (blocks until connection closes or error)
+	if err := resilientProxy.Run(req.Context()); err != nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("proxy_session_id", proxySessionID).
+			Err(err).
+			Msg("Resilient proxy ended with error")
+	}
+
+	stats := resilientProxy.Stats()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("proxy_session_id", proxySessionID).
+		Int64("reconnect_count", stats.ReconnectCount).
+		Int64("input_bytes_buffered", stats.InputBytesBuffered).
+		Int64("output_bytes_buffered", stats.OutputBytesBuffered).
+		Msg("Stream WebSocket connection closed")
+}
+
+// @Summary Get file diff from container
+// @Description Returns git diff information from the running desktop container.
+// @Description Shows changes between the current working directory and base branch,
+// @Description including uncommitted changes.
+// @Tags ExternalAgents
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param base query string false "Base branch to compare against (default: main)"
+// @Param include_content query bool false "Include full diff content for each file (default: false)"
+// @Param path query string false "Filter to specific file path"
+// @Param workspace query string false "Name of the workspace/repo to diff (optional, defaults to first found)"
+// @Param helix_specs query bool false "If true, diff the helix-specs branch uncommitted changes instead"
+// @Success 200 {object} object "Diff response with files list"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/diff [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for diff")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for diff")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for diff")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Build the diff URL with query parameters
+	diffURL := "http://localhost:9876/diff"
+	if req.URL.RawQuery != "" {
+		diffURL += "?" + req.URL.RawQuery
+	}
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", diffURL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create diff request")
+		http.Error(res, "Failed to create diff request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send diff request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	diffResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read diff response from RevDial")
+		http.Error(res, "Failed to read diff response", http.StatusInternalServerError)
+		return
+	}
+	defer diffResp.Body.Close()
+
+	// Check response status
+	if diffResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(diffResp.Body)
+		log.Error().
+			Int("status", diffResp.StatusCode).
+			Str("session_id", sessionID).
+			Str("error_body", string(errorBody)).
+			Msg("Diff server returned error")
+		http.Error(res, "Failed to get diff from container", diffResp.StatusCode)
+		return
+	}
+
+	// Return JSON directly
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.WriteHeader(http.StatusOK)
+
+	// Stream the diff JSON from container to response
+	_, err = io.Copy(res, diffResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream diff data")
+		return
+	}
+
+	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved diff from container")
+}
+
+// @Summary Get workspaces from container
+// @Description Returns a list of git workspaces (repositories) in the container.
+// @Description Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+// @Tags ExternalAgents
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Success 200 {object} object "Workspaces response with list of repos"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspaces [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentWorkspaces(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for workspaces")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for workspaces")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for workspaces")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Build the workspaces URL
+	workspacesURL := "http://localhost:9876/workspaces"
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", workspacesURL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create workspaces request")
+		http.Error(res, "Failed to create workspaces request", http.StatusInternalServerError)
+		return
+	}
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send workspaces request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	workspacesResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read workspaces response from RevDial")
+		http.Error(res, "Failed to read workspaces response", http.StatusInternalServerError)
+		return
+	}
+	defer workspacesResp.Body.Close()
+
+	// Check status code
+	if workspacesResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(workspacesResp.Body)
+		log.Warn().
+			Int("status", workspacesResp.StatusCode).
+			Str("session_id", sessionID).
+			Str("error", string(errorBody)).
+			Msg("Workspaces server returned error")
+		http.Error(res, "Failed to get workspaces from container", workspacesResp.StatusCode)
+		return
+	}
+
+	// Set response headers
+	res.Header().Set("Content-Type", "application/json")
+	for key, values := range workspacesResp.Header {
+		for _, value := range values {
+			res.Header().Set(key, value)
+		}
+	}
+
+	// Stream the workspaces JSON from container to response
+	_, err = io.Copy(res, workspacesResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream workspaces data")
+		return
+	}
+
+	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved workspaces from container")
 }

@@ -3,6 +3,7 @@ import { ByteBuffer, I16_MAX, U16_MAX, U8_MAX } from "./buffer"
 import { ControllerConfig, extractGamepadState, GamepadState, SUPPORTED_BUTTONS } from "./gamepad"
 import { convertToKey, convertToModifiers } from "./keyboard"
 import { convertToEvdevKey, convertToEvdevModifiers } from "./evdev-keys"
+import { convertToKeysym, shouldUseKeysym } from "./keysym"
 import { convertToButton } from "./mouse"
 
 // Smooth scrolling multiplier
@@ -168,8 +169,18 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
+        // Check if we should use keysym mode (iPad/iOS with empty event.code)
+        if (this.config.useEvdevCodes && shouldUseKeysym(event)) {
+            const keysym = convertToKeysym(event)
+            if (keysym) {
+                const modifiers = convertToEvdevModifiers(event)
+                this.sendKeysym(isDown, keysym, modifiers)
+                return
+            }
+            // Fall through to try evdev mode if keysym conversion failed
+        }
+
         // Use evdev codes for direct WebSocket mode (Linux backend)
-        // VK codes are only needed for Moonlight/Wolf compatibility
         let key: number | null
         let modifiers: number
         if (this.config.useEvdevCodes) {
@@ -205,18 +216,160 @@ export class StreamInput {
         trySendChannel(this.keyboard, this.buffer)
     }
 
+    /**
+     * Send a keyboard event using X11 keysym.
+     *
+     * Used when event.code is unavailable (iPad/iOS) but event.key contains
+     * the character. Keysyms provide layout-independent character input.
+     *
+     * Format: [subType:1][isDown:1][modifiers:1][keysym:4 BE]
+     * subType=2 for keysym
+     */
+    sendKeysym(isDown: boolean, keysym: number, modifiers: number) {
+        this.buffer.reset()
+        this.buffer.putU8(2) // subType 2 = keysym
+
+        this.buffer.putBool(isDown)
+        this.buffer.putU8(modifiers)
+        this.buffer.putU32(keysym)
+
+        trySendChannel(this.keyboard, this.buffer)
+    }
+
+    /**
+     * Send a keysym "tap" (press + release) for text input.
+     *
+     * Used for Android virtual keyboards and swipe typing where we only
+     * get the final character, not separate key down/up events.
+     *
+     * Format: [subType:1][modifiers:1][keysym:4 BE]
+     * subType=3 for keysym tap
+     */
+    sendKeysymTap(keysym: number, modifiers: number = 0) {
+        this.buffer.reset()
+        this.buffer.putU8(3) // subType 3 = keysym tap (press + release)
+
+        this.buffer.putU8(modifiers)
+        this.buffer.putU32(keysym)
+
+        trySendChannel(this.keyboard, this.buffer)
+    }
+
+    /**
+     * Handle beforeinput events for Android virtual keyboards and swipe typing.
+     *
+     * Android virtual keyboards don't fire proper keydown events (key="Unidentified").
+     * Swipe keyboards (Gboard, SwiftKey) on both Android and iOS use IME composition.
+     * The beforeinput event gives us the actual text being inserted/deleted.
+     *
+     * @param event - The InputEvent from beforeinput
+     * @returns true if the event was handled, false otherwise
+     */
+    onBeforeInput(event: InputEvent): boolean {
+        // Only handle in evdev mode (WebSocket streaming)
+        if (!this.config.useEvdevCodes) {
+            return false
+        }
+
+        const inputType = event.inputType
+        const data = event.data
+
+        switch (inputType) {
+            case 'insertText':
+            case 'insertCompositionText':
+                // Insert text - send keysym tap for each character
+                if (data) {
+                    for (const char of data) {
+                        const keysym = this.charToKeysym(char)
+                        if (keysym) {
+                            this.sendKeysymTap(keysym)
+                        }
+                    }
+                    return true
+                }
+                break
+
+            case 'deleteContentBackward':
+                // Backspace - delete one character
+                this.sendKeysymTap(0xff08) // XK_BackSpace
+                return true
+
+            case 'deleteContentForward':
+                // Delete key - delete one character forward
+                this.sendKeysymTap(0xffff) // XK_Delete
+                return true
+
+            case 'deleteWordBackward':
+                // Ctrl+Backspace - delete word backward
+                this.sendKeysymTap(0xff08, 0x02) // XK_BackSpace with Ctrl modifier
+                return true
+
+            case 'deleteWordForward':
+                // Ctrl+Delete - delete word forward
+                this.sendKeysymTap(0xffff, 0x02) // XK_Delete with Ctrl modifier
+                return true
+
+            case 'deleteSoftLineBackward':
+            case 'deleteHardLineBackward':
+                // Delete to start of line - typically Ctrl+Shift+Backspace or Cmd+Backspace
+                // Most apps don't have a direct "delete to line start" action, so we send
+                // Ctrl+Backspace which deletes word-by-word. This is imperfect but better
+                // than nothing. The user may need to repeat the gesture for long lines.
+                this.sendKeysymTap(0xff08, 0x02) // XK_BackSpace with Ctrl modifier
+                return true
+
+            case 'insertLineBreak':
+            case 'insertParagraph':
+                // Enter key
+                this.sendKeysymTap(0xff0d) // XK_Return
+                return true
+
+            // Ignore composition events that don't insert text
+            case 'insertFromComposition':
+            case 'deleteByComposition':
+                // These are handled by insertText/deleteContentBackward
+                return false
+
+            default:
+                // Unknown input type - let it fall through to keydown
+                return false
+        }
+
+        return false
+    }
+
+    /**
+     * Convert a single character to an X11 keysym.
+     * Uses Unicode mapping: Latin-1 chars map directly, others use 0x01000000 + codepoint.
+     *
+     * Note: For characters outside BMP (emoji, CJK Extension B), char.length may be 2
+     * due to UTF-16 surrogate pairs, but codePointAt(0) correctly returns the full
+     * code point. We use codePointAt rather than charCodeAt for this reason.
+     */
+    private charToKeysym(char: string): number | null {
+        const codePoint = char.codePointAt(0)
+        if (codePoint === undefined) {
+            return null
+        }
+        // Latin-1 range: keysym = Unicode code point
+        if (codePoint >= 0x0020 && codePoint <= 0x00ff) {
+            return codePoint
+        }
+        // Unicode beyond Latin-1: keysym = code point | 0x01000000
+        if (codePoint >= 0x0100) {
+            return codePoint | 0x01000000
+        }
+        return null
+    }
+
     // -- Mouse
     onMouseDown(event: MouseEvent, rect: DOMRect) {
-        console.log(`[StreamInput] onMouseDown: event.button=${event.button}, mouseMode=${this.config.mouseMode}`)
         const button = convertToButton(event)
         if (button == null) {
-            console.warn(`[StreamInput] onMouseDown: convertToButton returned null for event.button=${event.button}`)
             return
         }
-        console.log(`[StreamInput] onMouseDown: converted button=${button}`)
 
         if (this.config.mouseMode == "relative" || this.config.mouseMode == "follow") {
-            console.log(`[StreamInput] onMouseDown: calling sendMouseButton(true, ${button})`)
             this.sendMouseButton(true, button)
         } else if (this.config.mouseMode == "pointAndDrag") {
             this.sendMousePositionClientCoordinates(event.clientX, event.clientY, rect, button)
@@ -242,19 +395,11 @@ export class StreamInput {
             }
         }
     }
-    private scrollEventCount = 0;
-
     onMouseWheel(event: WheelEvent) {
         // Normalize wheel deltas to pixels, then pass through to backend.
         // Backend handles compositor-specific conversion (Mutter, Sway, etc.)
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
-
-        // Debug: log first 10 events and every 50th to see actual values
-        this.scrollEventCount++;
-        if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
-            console.log(`[Scroll] Event #${this.scrollEventCount}: deltaX=${deltaX.toFixed(3)}, deltaY=${deltaY.toFixed(3)}, deltaMode=${event.deltaMode}`);
-        }
 
         // Normalize deltaMode to pixels
         if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
@@ -273,9 +418,6 @@ export class StreamInput {
         if (this.config.mouseScrollMode == "highres") {
             // Pass through directly - browser already handles natural scrolling
             // direction based on OS settings (no negation needed)
-            if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
-                console.log(`[Scroll] Sending float: X=${deltaX.toFixed(3)}, Y=${deltaY.toFixed(3)}`);
-            }
             this.sendMouseWheelHighRes(deltaX, deltaY);
         } else if (this.config.mouseScrollMode == "normal") {
             // Normal mode uses Int8 (-128 to 127) - still integer-based
@@ -310,25 +452,11 @@ export class StreamInput {
 
         trySendChannel(this.mouseAbsolute, this.buffer)
     }
-    // Debug logging counter for mouse position
-    private mousePositionLogCount = 0;
 
     sendMousePositionClientCoordinates(clientX: number, clientY: number, rect: DOMRect, mouseButton?: number) {
         const position = this.calcNormalizedPosition(clientX, clientY, rect)
         if (position) {
             const [x, y] = position
-
-            // Debug logging: log first 5 and then every 100th
-            this.mousePositionLogCount++;
-            if (this.mousePositionLogCount <= 5 || this.mousePositionLogCount % 100 === 0) {
-                console.log(`[INPUT_DEBUG] sendMousePosition #${this.mousePositionLogCount}: ` +
-                    `client=(${clientX.toFixed(1)},${clientY.toFixed(1)}) ` +
-                    `rect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)} ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) ` +
-                    `normalized=(${x.toFixed(4)},${y.toFixed(4)}) ` +
-                    `moonlight=(${(x * 4096).toFixed(0)},${(y * 4096).toFixed(0)} ref=4096x4096) ` +
-                    `streamerSize=(${this.streamerSize[0]}x${this.streamerSize[1]})`);
-            }
-
             this.sendMousePosition(x * 4096.0, y * 4096.0, 4096.0, 4096.0)
 
             if (mouseButton != undefined) {

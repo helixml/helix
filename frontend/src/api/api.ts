@@ -46,6 +46,17 @@ export interface FilestoreItem {
   url?: string;
 }
 
+export interface GithubComHelixmlHelixApiPkgServerClientInfo {
+  avatar_url?: string;
+  color?: string;
+  id?: number;
+  last_seen?: string;
+  last_x?: number;
+  last_y?: number;
+  user_id?: string;
+  user_name?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesCommit {
   author?: string;
   email?: string;
@@ -69,6 +80,32 @@ export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
   valid?: boolean;
+}
+
+export enum HydraDevContainerStatus {
+  DevContainerStatusStarting = "starting",
+  DevContainerStatusRunning = "running",
+  DevContainerStatusStopped = "stopped",
+  DevContainerStatusError = "error",
+}
+
+export enum HydraDevContainerType {
+  DevContainerTypeSway = "sway",
+  DevContainerTypeUbuntu = "ubuntu",
+  DevContainerTypeHeadless = "headless",
+}
+
+export interface HydraGPUInfo {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
 }
 
 export interface KoditRepositoryStatusSummaryAttributes {
@@ -512,6 +549,8 @@ export interface OpenaiViolence {
 }
 
 export interface ServerAgentSandboxesDebugResponse {
+  dev_containers?: ServerDevContainerWithClients[];
+  gpus?: HydraGPUInfo[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
 }
@@ -530,6 +569,13 @@ export interface ServerAppCreateResponse {
   updated?: string;
   /** Owner user struct, populated by the server for organization views */
   user?: TypesUser;
+}
+
+export interface ServerClientBufferStats {
+  buffer_pct?: number;
+  buffer_size?: number;
+  buffer_used?: number;
+  client_id?: number;
 }
 
 export interface ServerCloneCommandResponse {
@@ -563,6 +609,56 @@ export interface ServerDesignDocument {
   content?: string;
   filename?: string;
   path?: string;
+}
+
+export interface ServerDevContainerWithClients {
+  clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
+  container_id?: string;
+  container_name?: string;
+  /** Container type */
+  container_type?: HydraDevContainerType;
+  /** Desktop environment info (for debug panel) */
+  desktop_version?: string;
+  error?: string;
+  /** nvidia, amd, intel, or "" */
+  gpu_vendor?: string;
+  /** Network info for RevDial/screenshot-server connections */
+  ip_address?: string;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
+  sandbox_id?: string;
+  session_id?: string;
+  status?: HydraDevContainerStatus;
+  video_stats?: ServerVideoStreamingStats;
+}
+
+export interface ServerExposePortRequest {
+  name?: string;
+  port?: number;
+  /** defaults to "http" */
+  protocol?: string;
+}
+
+export interface ServerExposePortResponse {
+  /** for random port mode */
+  allocated_port?: number;
+  name?: string;
+  port?: number;
+  protocol?: string;
+  session_id?: string;
+  status?: string;
+  urls?: string[];
+}
+
+export interface ServerExposedPort {
+  created_at?: string;
+  name?: string;
+  port?: number;
+  /** "http" or "tcp" */
+  protocol?: string;
+  /** "active", "inactive" */
+  status?: string;
+  url?: string;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -607,6 +703,11 @@ export interface ServerInteractionWithContext {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerListExposedPortsResponse {
+  exposed_ports?: ServerExposedPort[];
+  session_id?: string;
 }
 
 export interface ServerLogsSummary {
@@ -690,15 +791,11 @@ export interface ServerSampleProjectTask {
 }
 
 export interface ServerSampleTaskPrompt {
-  /** Any specific constraints or requirements */
-  constraints?: string;
-  /** Additional context about the codebase */
-  context?: string;
   /** Tags for organization */
   labels?: string[];
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
-  /** Natural language request */
+  /** Natural language request (include all context here) */
   prompt?: string;
 }
 
@@ -775,6 +872,8 @@ export interface ServerSimpleSampleProject {
   readme_url?: string;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
+  /** Enable host Docker access (for Helix-in-Helix dev) */
+  use_host_docker?: boolean;
 }
 
 export interface ServerSlotLogSummary {
@@ -805,6 +904,13 @@ export interface ServerTaskSpecsResponse {
   status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
+}
+
+export interface ServerVideoStreamingStats {
+  client_buffers?: ServerClientBufferStats[];
+  client_count?: number;
+  frames_received?: number;
+  gop_buffer_size?: number;
 }
 
 export interface ServicesKoditEnrichmentAttributes {
@@ -1010,6 +1116,8 @@ export interface TypesApiKey {
   owner_type?: TypesOwnerType;
   /** Used for isolation and metrics tracking */
   project_id?: string;
+  /** Session this key is scoped to (ephemeral keys) */
+  session_id?: string;
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
   type?: TypesAPIKeyType;
@@ -1457,6 +1565,8 @@ export interface TypesCloneGroup {
 export interface TypesCloneGroupProgress {
   clone_group_id?: string;
   completed_tasks?: number;
+  /** Full task objects for TaskCard rendering */
+  full_tasks?: TypesSpecTaskWithProject[];
   progress_pct?: number;
   source_task?: TypesCloneGroupSourceTask;
   /** status -> count */
@@ -1622,6 +1732,14 @@ export interface TypesCreateSampleRepositoryRequest {
   organization_id?: string;
   owner_id?: string;
   sample_type?: string;
+}
+
+export interface TypesCreateSecretRequest {
+  app_id?: string;
+  name?: string;
+  /** optional, if set, the secret will be available to the specified project */
+  project_id?: string;
+  value?: string;
 }
 
 export interface TypesCreateTaskRequest {
@@ -2927,6 +3045,8 @@ export interface TypesPromptHistoryEntry {
   is_template?: boolean;
   /** Last time reused */
   last_used_at?: string;
+  /** When to retry (for exponential backoff) */
+  next_retry_at?: string;
   /** Library features for prompt reuse */
   pinned?: boolean;
   /** For reference, but primary grouping is by spec_task */
@@ -2936,6 +3056,8 @@ export interface TypesPromptHistoryEntry {
    * Lower values = earlier in queue. Null for sent messages.
    */
   queue_position?: number;
+  /** Retry tracking for failed prompts */
+  retry_count?: number;
   /** Optional - which session this was sent to */
   session_id?: string;
   spec_task_id?: string;
@@ -3390,6 +3512,8 @@ export interface TypesSecret {
   name?: string;
   owner?: string;
   ownerType?: TypesOwnerType;
+  /** optional, if set, the secret will be available as env var in project sessions */
+  project_id?: string;
   updated?: string;
   value?: number[];
 }
@@ -4077,6 +4201,117 @@ export interface TypesSpecTaskUpdateRequest {
   user_short_title?: string;
 }
 
+export interface TypesSpecTaskWithProject {
+  /** Current agent work state (idle/working/done) from activity tracking */
+  agent_work_state?: TypesAgentWorkState;
+  /** Archive to hide from main view */
+  archived?: boolean;
+  /** The base branch this was created from */
+  base_branch?: string;
+  /** "new" or "existing" */
+  branch_mode?: TypesBranchMode;
+  /** Git tracking */
+  branch_name?: string;
+  /** User-specified prefix for new branches (task# appended) */
+  branch_prefix?: string;
+  /** Groups tasks from same clone operation */
+  clone_group_id?: string;
+  /** Clone tracking */
+  cloned_from_id?: string;
+  /** Original project */
+  cloned_from_project_id?: string;
+  completed_at?: string;
+  created_at?: string;
+  /** Metadata */
+  created_by?: string;
+  description?: string;
+  design_doc_path?: string;
+  /** When design docs were pushed to helix-specs branch */
+  design_docs_pushed_at?: string;
+  /** Simple tracking */
+  estimated_hours?: number;
+  /** External agent tracking (single agent per SpecTask, spans entire workflow) */
+  external_agent_id?: string;
+  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  helix_app_id?: string;
+  id?: string;
+  implementation_approved_at?: string;
+  /** Implementation tracking */
+  implementation_approved_by?: string;
+  /** Discrete tasks breakdown (markdown) */
+  implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
+  labels?: string[];
+  /** Last prompt sent to agent (for continue functionality) */
+  last_prompt_content?: string;
+  /** When branch was last pushed */
+  last_push_at?: string;
+  /** Git tracking */
+  last_push_commit_hash?: string;
+  /** Merge commit hash */
+  merge_commit_hash?: string;
+  /** When merge happened */
+  merged_at?: string;
+  /** Whether branch was merged to main */
+  merged_to_main?: boolean;
+  metadata?: Record<string, any>;
+  name?: string;
+  /** Kiro's actual approach: simple, human-readable artifacts */
+  original_prompt?: string;
+  planning_options?: TypesStartPlanningOptions;
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
+  planning_session_id?: string;
+  planning_started_at?: string;
+  /** "low", "medium", "high", "critical" */
+  priority?: TypesSpecTaskPriority;
+  project_id?: string;
+  project_name?: string;
+  project_path?: string;
+  pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
+  /** User stories + EARS acceptance criteria (markdown) */
+  requirements_spec?: string;
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  session_updated_at?: string;
+  /**
+   * Short title for tab display (auto-generated from agent writing short-title.txt)
+   * UserShortTitle takes precedence if set (user override)
+   */
+  short_title?: string;
+  spec_approval?: TypesSpecApprovalResponse;
+  spec_approved_at?: string;
+  /** Approval tracking */
+  spec_approved_by?: string;
+  /** Number of spec revisions requested */
+  spec_revision_count?: number;
+  started_at?: string;
+  /** Spec-driven workflow statuses - see constants below */
+  status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
+  /** Design document (markdown) */
+  technical_design?: string;
+  /** "feature", "bug", "refactor" */
+  type?: string;
+  updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
+  /** User override */
+  user_short_title?: string;
+  workspace_config?: number[];
+  /** Multi-session support */
+  zed_instance_id?: string;
+}
+
 export interface TypesSpecTaskWorkSession {
   /** Configuration */
   agent_config?: number[];
@@ -4182,6 +4417,12 @@ export interface TypesStepInfo {
 
 export interface TypesStepInfoDetails {
   arguments?: Record<string, any>;
+}
+
+export interface TypesSyncAllResponse {
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
 }
 
 export interface TypesSystemSettingsRequest {
@@ -4760,7 +5001,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4850,13 +5091,17 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title No title
- * @contact
+ * @title HelixML API reference
+ * @version 0.1
+ * @baseUrl https://app.helix.ml
+ * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
+ *
+ * This is the HelixML API.
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
-     * @description Retrieves debug data for agent sandboxes (Hydra-based)
+     * @description Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients
      *
      * @tags Admin
      * @name V1AdminAgentSandboxesDebugList
@@ -5657,17 +5902,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns random uncompressible data for measuring available bandwidth before session creation. Used by adaptive bitrate to determine optimal initial bitrate before connecting. Only requires authentication, not session ownership.
+     * @description Returns random uncompressible data for measuring available bandwidth. Used by adaptive bitrate algorithm to probe network throughput. Only requires authentication, not session ownership.
      *
      * @tags ExternalAgents
      * @name V1BandwidthProbeList
-     * @summary Initial bandwidth probe (no session required)
+     * @summary Bandwidth probe for adaptive bitrate
      * @request GET:/api/v1/bandwidth-probe
      * @secure
      */
     v1BandwidthProbeList: (
       query?: {
-        /** Size of data to return in bytes (default 524288 = 512KB) */
+        /** Size of data to return in bytes (default 524288 = 512KB, max 2MB) */
         size?: number;
       },
       params: RequestParams = {},
@@ -5755,31 +6000,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsBandwidthProbeDetail
-     * @summary Bandwidth probe for adaptive bitrate
-     * @request GET:/api/v1/external-agents/{sessionID}/bandwidth-probe
-     * @secure
-     */
-    v1ExternalAgentsBandwidthProbeDetail: (
-      sessionId: string,
-      query?: {
-        /** Size of data to return in bytes (default 524288 = 512KB) */
-        size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<File, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/bandwidth-probe`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Fetch current clipboard content from remote desktop
      *
      * @tags ExternalAgents
@@ -5841,6 +6061,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns git diff information from the running desktop container. Shows changes between the current working directory and base branch, including uncommitted changes.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsDiffDetail
+     * @summary Get file diff from container
+     * @request GET:/api/v1/external-agents/{sessionID}/diff
+     * @secure
+     */
+    v1ExternalAgentsDiffDetail: (
+      sessionId: string,
+      query?: {
+        /** Base branch to compare against (default: main) */
+        base?: string;
+        /** Include full diff content for each file (default: false) */
+        include_content?: boolean;
+        /** Filter to specific file path */
+        path?: string;
+        /** Name of the workspace/repo to diff (optional, defaults to first found) */
+        workspace?: string;
+        /** If true, diff the helix-specs branch uncommitted changes instead */
+        helix_specs?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/diff`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
      *
      * @tags ExternalAgents
@@ -5895,14 +6149,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** File to upload */
         file: File;
       },
+      query?: {
+        /** Open file manager to show uploaded file (default: true) */
+        open_file_manager?: boolean;
+      },
       params: RequestParams = {},
     ) =>
       this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/upload`,
         method: "POST",
+        query: query,
         body: data,
         secure: true,
         type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspacesDetail
+     * @summary Get workspaces from container
+     * @request GET:/api/v1/external-agents/{sessionID}/workspaces
+     * @secure
+     */
+    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspaces`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -6807,6 +7084,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServicesKoditSearchResult[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
         method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Syncs all branches from the upstream remote repository to the local repository
+     *
+     * @tags git-repositories
+     * @name SyncAllBranches
+     * @summary Sync all branches from upstream
+     * @request POST:/api/v1/git/repositories/{id}/sync-all
+     * @secure
+     */
+    syncAllBranches: (
+      id: string,
+      query?: {
+        /** Force sync (default: false) */
+        force?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSyncAllResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/sync-all`,
+        method: "POST",
         query: query,
         secure: true,
         format: "json",
@@ -8098,6 +8401,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all secrets associated with a specific project.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsDetail
+     * @summary List secrets for a project
+     * @request GET:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSecret[], any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsCreate
+     * @summary Create a secret for a project
+     * @request POST:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
+      this.request<TypesSecret, any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description Get git commit history for project startup script
      *
      * @tags Projects
@@ -9231,6 +9570,56 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns all ports currently exposed from the session's dev container
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDetail
+     * @summary List exposed ports for a session
+     * @request GET:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerListExposedPortsResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Makes a port from the session's dev container accessible via a public URL
+     *
+     * @tags sessions
+     * @name V1SessionsExposeCreate
+     * @summary Expose a port from the session's dev container
+     * @request POST:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
+      this.request<ServerExposePortResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes public access to a previously exposed port
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDelete
+     * @summary Unexpose a port from the session's dev container
+     * @request DELETE:/api/v1/sessions/{id}/expose/{port}
+     */
+    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/sessions/${id}/expose/${port}`,
+        method: "DELETE",
+        format: "json",
         ...params,
       }),
 

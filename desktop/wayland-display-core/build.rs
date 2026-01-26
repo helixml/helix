@@ -14,6 +14,8 @@ fn main() {
                 e
             );
         }
+        // Note: CUDA driver functions (cuStreamSynchronize, cuMemcpy2DAsync) are loaded
+        // dynamically at runtime via libloading, no link-time dependency on libcuda.so
     }
 
     // Rerun if build script changes

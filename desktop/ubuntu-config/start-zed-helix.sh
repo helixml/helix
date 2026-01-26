@@ -12,7 +12,7 @@
 HELIX_DESKTOP_NAME="Ubuntu GNOME"
 
 # =========================================
-# Terminal launcher (Ubuntu uses gnome-terminal)
+# Terminal launcher (Ubuntu uses ghostty)
 # =========================================
 
 launch_terminal() {
@@ -20,7 +20,9 @@ launch_terminal() {
     local working_dir="$2"
     shift 2
     # Remaining args are the command
-    gnome-terminal --title="$title" --geometry=120x40 --working-directory="$working_dir" -- "$@" &
+    # Ghostty options: --title, --working-directory, -e for command
+    # CRITICAL: --gtk-single-instance=false prevents D-Bus activation which loses our -e args
+    ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
 }
 
 # =========================================

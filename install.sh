@@ -134,8 +134,6 @@ PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
-TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
-# MOONLIGHT_CREDENTIALS removed - no longer used (direct WebSocket streaming)
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 
 # Enhanced environment detection
@@ -248,7 +246,6 @@ Options:
   --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
-  --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
   --privileged-docker        Enable privileged Docker mode in sandbox (allows agents to access host Docker socket for Helix-in-Helix development)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
@@ -310,7 +307,7 @@ Examples:
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
 15. Install sandbox node (RevDial client with direct WebSocket streaming):
-    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD
+    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
 EOF
 }
@@ -400,14 +397,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --runner-token)
             RUNNER_TOKEN="$2"
-            shift 2
-            ;;
-        --turn-password=*)
-            TURN_PASSWORD="${1#*=}"
-            shift
-            ;;
-        --turn-password)
-            TURN_PASSWORD="$2"
             shift 2
             ;;
         --privileged-docker)
@@ -1147,11 +1136,10 @@ if [ "$SANDBOX" = true ]; then
         echo "Error: When installing sandbox node, you must specify --api-host, --runner-token"
         echo "to connect to an external controlplane, for example:"
         echo
-        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD"
+        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
         echo
-        echo "You can find these values in <HELIX_INSTALL_DIR>/.env on the controlplane node:"
+        echo "You can find this value in <HELIX_INSTALL_DIR>/.env on the controlplane node:"
         echo "  - RUNNER_TOKEN=..."
-        echo "  - TURN_PASSWORD=... (optional)"
         exit 1
     fi
 fi
@@ -1645,11 +1633,6 @@ EOF
             ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | sed 's/^ANTHROPIC_API_KEY=//' || echo "")
         fi
 
-        # Preserve Code credentials if --code flag is set
-        if [[ -n "$CODE" ]]; then
-            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
-        fi
-
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
@@ -1657,11 +1640,6 @@ EOF
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
-
-        # Generate Code credentials if --code flag is set
-        if [[ -n "$CODE" ]]; then
-            TURN_PASSWORD=$(generate_password)
-        fi
     fi
 
     # Build comma-separated list of Docker Compose profiles
@@ -1821,8 +1799,8 @@ EOF
 
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
-        # Extract hostname from API_HOST for TURN server
-        TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+        # Extract hostname from API_HOST for display
+        HELIX_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
         # NOTE: Render node selection is done inside the desktop container at startup.
         # All /dev/dri/* devices are bind-mounted, and the container detects which
@@ -1839,21 +1817,8 @@ ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
 # Helix hostname (displayed in browser to distinguish between servers)
-HELIX_HOSTNAME=${TURN_HOST}
+HELIX_HOSTNAME=${HELIX_HOST}
 
-# TURN server for WebRTC NAT traversal
-TURN_ENABLED=true
-TURN_PUBLIC_IP=${TURN_HOST}
-TURN_PORT=3478
-TURN_REALM=${TURN_HOST}
-TURN_USERNAME=helix
-TURN_PASSWORD=${TURN_PASSWORD}
-
-# GOP size (keyframe interval in frames)
-# 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
-# 60 = keyframe every 1s (balanced)
-# 120 = keyframe every 2s (lower bandwidth, recommended for Helix Code)
-GOP_SIZE=120
 EOF
 
     fi
@@ -1969,12 +1934,6 @@ CADDYEOF"
         echo "│   - TCP 443: HTTPS (Caddy reverse proxy)"
     else
         echo "│   - TCP 8080: Main API"
-    fi
-    if [[ -n "$CODE" ]]; then
-        echo "│"
-        echo "│ ⚠️  Additional ports for desktop streaming (Helix Code):"
-        echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
-        echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
     # When sandbox is being installed with controlplane, we start services later (after sandbox setup)
     if [ "$SANDBOX" = true ]; then
@@ -2397,8 +2356,6 @@ SANDBOX_INSTANCE_ID="${SANDBOX_INSTANCE_ID}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 GPU_VENDOR="${GPU_VENDOR}"
 MAX_SANDBOXES="${MAX_SANDBOXES}"
-TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
-TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
@@ -2486,7 +2443,6 @@ echo "  Control Plane: $HELIX_API_URL"
 echo "  Sandbox Instance ID: $SANDBOX_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
-echo "  TURN Server: $TURN_PUBLIC_IP"
 echo "  Privileged Docker Mode: ${PRIVILEGED_DOCKER:-false}"
 
 # Build privileged Docker flags (mount host Docker socket for Helix-in-Helix development)
@@ -2513,14 +2469,11 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
     -e ZED_IMAGE=helix-sway:latest \
-    -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
-    -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -e GOP_SIZE=120 \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
@@ -2582,10 +2535,9 @@ else
 fi
 EOF
 
-    # Extract hostname from API_HOST for TURN server and display name
+    # Extract hostname from API_HOST for display name
     # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
-    TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
-    HELIX_HOSTNAME="$TURN_PUBLIC_IP"
+    HELIX_HOSTNAME=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
@@ -2600,8 +2552,6 @@ EOF
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 
@@ -2671,15 +2621,6 @@ EOF
     echo "│"
     echo "│ Connected to: $API_HOST"
     echo "│ Sandbox Instance ID: $SANDBOX_ID"
-    echo "│ TURN Server: $TURN_PUBLIC_IP"
-    echo "│"
-    echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
-    echo "│"
-    echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
-    echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
-    echo "│"
-    echo "│ ⚠️  Ensure the control plane has these ports open:"
-    echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"
     echo "│"
     echo "│ To check logs:"
     if [ "$NEED_SUDO" = "true" ]; then

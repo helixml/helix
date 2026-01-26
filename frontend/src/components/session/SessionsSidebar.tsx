@@ -10,7 +10,6 @@ import Tooltip from '@mui/material/Tooltip'
 import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
 import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
 import ExpandMore from '@mui/icons-material/ExpandMore'
 import ExpandLess from '@mui/icons-material/ExpandLess'
 
@@ -22,7 +21,6 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
 import SlideMenuContainer from '../system/SlideMenuContainer'
-import UnifiedSearchBar from '../common/UnifiedSearchBar'
 
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -551,15 +549,6 @@ export const SessionsSidebar: FC<{
 
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
-      {/* Unified Search Bar */}
-      <Box sx={{ pl: 3, pr: 0, py: 1 }}>
-        <UnifiedSearchBar
-          placeholder="Search..."
-          compact
-        />
-      </Box>
-      <Divider sx={{ mb: 1 }} />
-
       <List
         sx={{
           py: 1,

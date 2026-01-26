@@ -26,6 +26,7 @@ launch_terminal() {
     local working_dir="$2"
     shift 2
     # Remaining args are the command
+    # The script itself has a trap to keep terminal open on exit
     kitty --title="$title" --directory="$working_dir" "$@" &
 }
 

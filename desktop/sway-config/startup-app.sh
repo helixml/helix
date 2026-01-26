@@ -113,6 +113,16 @@ chooser_type=none
 PORTAL_EOF
 echo "✅ xdg-desktop-portal-wlr configured for headless screen capture"
 
+# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
+# This enables clicking URLs in Zed/agent output to open in Firefox inside the desktop.
+# Both xdg-mime and BROWSER env var are set for maximum compatibility.
+# See: design/2025-12-08-ubuntu-launch-firefox.md
+export BROWSER=firefox
+xdg-mime default firefox.desktop x-scheme-handler/http 2>/dev/null || true
+xdg-mime default firefox.desktop x-scheme-handler/https 2>/dev/null || true
+xdg-mime default firefox.desktop text/html 2>/dev/null || true
+echo "✅ Firefox set as default browser for URL handling"
+
 # Configure Qwen Code session persistence
 # Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
 # By setting QWEN_DATA_DIR to workspace, sessions persist across container restarts

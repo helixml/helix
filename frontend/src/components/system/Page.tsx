@@ -8,7 +8,6 @@ import AppBar from './AppBar'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
-import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   IPageBreadcrumb,
@@ -31,6 +30,8 @@ const Page: React.FC<{
   showDrawerButton?: boolean,
   px?: number,
   sx?: SxProps,
+  // if true, disables the default overflowY: auto on content area (for pages that manage their own scroll)
+  disableContentScroll?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -45,9 +46,9 @@ const Page: React.FC<{
   showDrawerButton = true,
   px = 3,
   sx = {},
+  disableContentScroll = false,
   children,
 }) => {
-  const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
@@ -68,14 +69,13 @@ const Page: React.FC<{
         title: account.organizationTools.organization?.name || '',
       })
     }
-    // Use custom parent breadcrumb if provided, otherwise default to "Home"
-    useBreadcrumbTitles.unshift(breadcrumbParent || {
-      title: 'Home',
-      routeName: 'home',
-    })
+    // Only add parent breadcrumb if explicitly provided
+    if (breadcrumbParent) {
+      useBreadcrumbTitles.unshift(breadcrumbParent)
+    }
   }
   
-  let useTopbarTitle = isBigScreen && useBreadcrumbTitles.length > 0 ? (
+  let useTopbarTitle = useBreadcrumbTitles.length > 0 ? (
     <Box
       component="span"
       sx={{
@@ -83,11 +83,18 @@ const Page: React.FC<{
         flexDirection: 'row',
         alignItems: 'center',
         gap: '4px',
+        minWidth: 0, // Allow flex items to shrink below content size
+        overflow: 'hidden',
       }}
     >
       {
         useBreadcrumbTitles.map((breadcrumb, index) => {
           const isLast = index == useBreadcrumbTitles.length - 1
+          // On narrow screens, truncate earlier breadcrumbs more aggressively
+          // Last item gets more space, middle items less
+          const maxWidth = isLast
+            ? { xs: '120px', sm: '200px', md: 'none' }
+            : { xs: '60px', sm: '100px', md: '150px', lg: 'none' }
           return (
             <Box
               component="span"
@@ -95,9 +102,11 @@ const Page: React.FC<{
               sx={{
                 display: 'flex',
                 alignItems: 'center',
-                fontSize: '0.875rem',
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
                 color: isLast ? lightTheme.textColor : lightTheme.textColor + '99',
                 fontWeight: isLast ? 500 : 400,
+                minWidth: 0,
+                flexShrink: isLast ? 0 : 1,
               }}
             >
               {
@@ -112,18 +121,40 @@ const Page: React.FC<{
                       '&:hover': {
                         color: lightTheme.textColor,
                       },
+                      maxWidth,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'block',
                     }}
                     onClick={ () => {
-                      if(orgBreadcrumbs) {
+                      // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
+                      const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
+                        ? breadcrumb.useOrgRouter
+                        : orgBreadcrumbs
+                      if(shouldUseOrgRouter) {
                         account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
                       } else {
-                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) 
+                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
                       }
                     }}
                   >
                     { breadcrumb.title }
                   </Link>
-                ) : breadcrumb.title
+                ) : (
+                  <Box
+                    component="span"
+                    sx={{
+                      maxWidth,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'block',
+                    }}
+                  >
+                    { breadcrumb.title }
+                  </Box>
+                )
               }
               { index < useBreadcrumbTitles.length - 1 ? (
                 <Box
@@ -132,6 +163,7 @@ const Page: React.FC<{
                     mx: '4px',
                     color: lightTheme.textColor + '66',
                     fontSize: '0.75rem',
+                    flexShrink: 0,
                   }}
                 >
                   /
@@ -147,7 +179,7 @@ const Page: React.FC<{
   return (
     <Box
       sx={{
-        height: '100vh',
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
         ...sx
@@ -184,12 +216,15 @@ const Page: React.FC<{
       <Box
         sx={{
           flexGrow: 1,
-          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: disableContentScroll ? 'hidden' : 'auto',
           overflowX: 'hidden',
           width: '100%',
           maxWidth: '100vw',
+          minHeight: 0,
         }}
-      >    
+      >
         { children }
       </Box>
       {

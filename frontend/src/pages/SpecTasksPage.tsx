@@ -6,7 +6,7 @@ import {
   Typography,
   Alert,
   Chip,
-  Stack,  
+  Stack,
   TextField,
   FormControl,
   InputLabel,
@@ -14,17 +14,18 @@ import {
   MenuItem,
   Menu,
   CircularProgress,
-  IconButton,  
+  IconButton,
   Checkbox,
   FormControlLabel,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
-  SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
   Tab as TabIcon,
@@ -32,11 +33,10 @@ import {
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings, MoreHorizontal, Code, GitMerge } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
-import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
 import PreviewPanel from '../components/app/PreviewPanel';
@@ -71,7 +71,6 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useFloatingModal } from '../contexts/floatingModal';
 import EditIcon from '@mui/icons-material/Edit';
 import {
   useGetProject,
@@ -82,7 +81,7 @@ import {
   useResumeProjectExploratorySession,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
-import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
+import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
 
 const SpecTasksPage: FC = () => {
@@ -91,7 +90,8 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
-  const floatingModal = useFloatingModal();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -108,22 +108,6 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
-  // Query sandbox instances to check for privileged mode availability
-  const { data: sandboxInstances } = useQuery({
-    queryKey: ['sandbox-instances'],
-    queryFn: async () => {
-      // API endpoint still named WolfInstances for backwards compatibility
-      const response = await api.getApiClient().v1WolfInstancesList();
-      return response.data;
-    },
-    staleTime: 60000, // Cache for 1 minute
-  });
-
-  // Check if any sandbox has privileged mode enabled
-  const hasPrivilegedSandbox = useMemo(() => {
-    return sandboxInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
-  }, [sandboxInstances]);
-
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
   useEffect(() => {
@@ -134,19 +118,35 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // State for view management - persist preference in localStorage
-  const [viewMode, setViewMode] = useState<'kanban' | 'tabs' | 'audit'>(() => {
-    const saved = localStorage.getItem('helix_spectask_view_mode');
-    if (saved === 'kanban' || saved === 'tabs' || saved === 'audit') {
-      return saved;
+  // Read query params for view mode override and task/desktop/review opening
+  const queryTab = router.params.tab as string | undefined;
+  const openTaskId = router.params.openTask as string | undefined;
+  const openDesktopId = router.params.openDesktop as string | undefined;
+  const openReviewId = router.params.openReview as string | undefined;
+
+  // State for view management - always default to kanban, but respect query param
+  const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
+    // Check query param - allows "Split Screen" links to work
+    if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
+      return queryTab;
     }
+    // Always default to kanban (no localStorage persistence - user prefers fresh start)
     return 'kanban';
   });
 
-  // Persist view mode preference when it changes
+  // Update view mode if query param changes
   useEffect(() => {
-    localStorage.setItem('helix_spectask_view_mode', viewMode);
-  }, [viewMode]);
+    if (queryTab === 'workspace' || queryTab === 'kanban' || queryTab === 'audit') {
+      setViewMode(queryTab);
+    }
+  }, [queryTab]);
+
+  // On mobile, fallback to kanban if workspace is selected (workspace doesn't work on small screens)
+  useEffect(() => {
+    if (isMobile && viewMode === 'workspace') {
+      setViewMode('kanban');
+    }
+  }, [isMobile, viewMode]);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -223,7 +223,7 @@ const SpecTasksPage: FC = () => {
     localStorage.setItem('helix_chat_panel_open', chatPanelOpen ? 'true' : 'false');
   }, [chatPanelOpen]);
 
-  // Fetch tasks for TabsView
+  // Fetch tasks for Workspace view
   const { data: tasksData } = useQuery({
     queryKey: ['spec-tasks', projectId, refreshTrigger],
     queryFn: async () => {
@@ -232,8 +232,8 @@ const SpecTasksPage: FC = () => {
       });
       return response.data || [];
     },
-    enabled: !!projectId && viewMode === 'tabs',
-    refetchInterval: 3000, // Refresh every 3 seconds for live updates
+    enabled: !!projectId && viewMode === 'workspace',
+    refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
   // Create task form state (SIMPLIFIED)
@@ -294,9 +294,6 @@ const SpecTasksPage: FC = () => {
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [agentError, setAgentError] = useState('');
   // Repository configuration moved to project level - no task-level repo selection needed
-
-  // Task detail windows state - array to support multiple windows
-  const [openTaskWindows, setOpenTaskWindows] = useState<TypesSpecTask[]>([]);
 
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
@@ -667,18 +664,12 @@ const SpecTasksPage: FC = () => {
   const handleStartExploratorySession = async () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
-      snackbar.success('Exploratory session started');
-      // Open in floating window instead of navigating
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        displayWidth: exploratoryDisplaySettings.width,
-        displayHeight: exploratoryDisplaySettings.height,
-        displayFps: exploratoryDisplaySettings.fps,
-      }, { x: window.innerWidth - 400, y: 100 });
+      snackbar.success('Team Desktop started');
+      // Navigate to the Team Desktop page
+      account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err: any) {
       // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session';
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Team Desktop';
       snackbar.error(errorMessage);
     }
   };
@@ -689,17 +680,11 @@ const SpecTasksPage: FC = () => {
     try {
       // Use the mutation hook which properly invalidates the cache
       const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success('Exploratory session resumed');
-      // Open floating window
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        displayWidth: exploratoryDisplaySettings.width,
-        displayHeight: exploratoryDisplaySettings.height,
-        displayFps: exploratoryDisplaySettings.fps,
-      }, { x: e.clientX, y: e.clientY });
+      snackbar.success('Team Desktop resumed');
+      // Navigate to the Team Desktop page
+      account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err) {
-      snackbar.error('Failed to resume exploratory session');
+      snackbar.error('Failed to resume Team Desktop');
     }
   };
 
@@ -854,12 +839,27 @@ const SpecTasksPage: FC = () => {
       ] : undefined}
       breadcrumbTitle={project ? undefined : "SpecTasks"}
       orgBreadcrumbs={true}
-      showDrawerButton={false}
+      showDrawerButton={true}
+      disableContentScroll={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
-          {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
+          {/* View mode toggle: Board vs Workspace vs Audit Trail */}
           <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
-            <Tooltip title="Kanban View">
+            <Tooltip
+              title={
+                <Box sx={{ p: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Board View</Typography>
+                  <Typography variant="caption" component="div">
+                    • Manage a fleet of AI agents working in parallel<br />
+                    • Each task runs in its own isolated environment<br />
+                    • Spec-driven workflow: planning → review → implement → PR<br />
+                    • Watch agents work live on their desktops
+                  </Typography>
+                </Box>
+              }
+              arrow
+              placement="bottom"
+            >
               <IconButton
                 size="small"
                 onClick={() => setViewMode('kanban')}
@@ -872,20 +872,51 @@ const SpecTasksPage: FC = () => {
                 <KanbanIcon fontSize="small" color={viewMode === 'kanban' ? 'primary' : 'inherit'} />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Tabs View">
-              <IconButton
-                size="small"
-                onClick={() => setViewMode('tabs')}
-                sx={{
-                  bgcolor: viewMode === 'tabs' ? 'background.paper' : 'transparent',
-                  boxShadow: viewMode === 'tabs' ? 1 : 0,
-                  '&:hover': { bgcolor: viewMode === 'tabs' ? 'background.paper' : 'action.selected' },
-                }}
+            {/* Workspace toggle hidden on phones - multi-panel layout doesn't work on small screens */}
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}>
+              <Tooltip
+                title={
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Split Screen</Typography>
+                    <Typography variant="caption" component="div">
+                      • Work on multiple tasks side-by-side<br />
+                      • Drag dividers to resize panels<br />
+                      • Open tasks and desktops in tabs<br />
+                      • Drag tabs between panels
+                    </Typography>
+                  </Box>
+                }
+                arrow
+                placement="bottom"
               >
-                <TabIcon fontSize="small" color={viewMode === 'tabs' ? 'primary' : 'inherit'} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Audit Trail">
+                <IconButton
+                  size="small"
+                  onClick={() => setViewMode('workspace')}
+                  sx={{
+                    bgcolor: viewMode === 'workspace' ? 'background.paper' : 'transparent',
+                    boxShadow: viewMode === 'workspace' ? 1 : 0,
+                    '&:hover': { bgcolor: viewMode === 'workspace' ? 'background.paper' : 'action.selected' },
+                  }}
+                >
+                  <TabIcon fontSize="small" color={viewMode === 'workspace' ? 'primary' : 'inherit'} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            <Tooltip
+              title={
+                <Box sx={{ p: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>Audit Trail</Typography>
+                  <Typography variant="caption" component="div">
+                    • View all project activity<br />
+                    • Track task status changes<br />
+                    • See agent actions and decisions<br />
+                    • Review approval history
+                  </Typography>
+                </Box>
+              }
+              arrow
+              placement="bottom"
+            >
               <IconButton
                 size="small"
                 onClick={() => setViewMode('audit')}
@@ -903,68 +934,65 @@ const SpecTasksPage: FC = () => {
           {/* Project's default agent lozenge */}
           {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
             <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-              <Box
+              <Chip
+                label={appNamesMap[project.default_helix_app_id]}
+                size="small"
                 onClick={() => {
                   if (project.default_helix_app_id) {
                     account.orgNavigate('app', { app_id: project.default_helix_app_id });
                   }
                 }}
                 sx={{
-                  px: 1.5,
-                  py: 0.5,
+                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500,
                   fontSize: '0.75rem',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
                   cursor: 'pointer',
-                  backgroundColor: 'transparent',
-                  borderRadius: 0,
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  },
                 }}
-              >
-                {appNamesMap[project.default_helix_app_id]}
-              </Box>
+              />
             </Tooltip>
           )}
           {!exploratorySessionData ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<ExploreIcon />}
-              onClick={handleStartExploratorySession}
-              disabled={startExploratorySessionMutation.isPending}
-              sx={{ flexShrink: 0 }}
-            >
-              {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
-            </Button>
+            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<ExploreIcon />}
+                onClick={handleStartExploratorySession}
+                disabled={startExploratorySessionMutation.isPending}
+                sx={{ flexShrink: 0 }}
+              >
+                {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Team Desktop'}
+              </Button>
+            </Tooltip>
           ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<Play size={18} />}
-              onClick={handleResumeExploratorySession}
-              disabled={resumeExploratorySessionMutation.isPending}
-              sx={{ flexShrink: 0 }}
-            >
-              {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
-            </Button>
+            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<Play size={18} />}
+                onClick={handleResumeExploratorySession}
+                disabled={resumeExploratorySessionMutation.isPending}
+                sx={{ flexShrink: 0 }}
+              >
+                {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Team Desktop'}
+              </Button>
+            </Tooltip>
           ) : (
             <>
               <Button
                 variant="contained"
                 color="primary"
                 startIcon={<Play size={18} />}
-                onClick={(e) => {
-                  floatingModal.showFloatingModal({
-                    type: 'exploratory_session',
-                    sessionId: exploratorySessionData.id,
-                    displayWidth: exploratoryDisplaySettings.width,
-                    displayHeight: exploratoryDisplaySettings.height,
-                    displayFps: exploratoryDisplaySettings.fps,
-                  }, { x: e.clientX, y: e.clientY });
+                onClick={() => {
+                  // Navigate to the Team Desktop page
+                  account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
                 }}
                 sx={{ flexShrink: 0 }}
               >
-                View Session
+                View Team Desktop
               </Button>
               <Button
                 variant="outlined"
@@ -994,8 +1022,8 @@ const SpecTasksPage: FC = () => {
           {defaultRepoId && (
             <Button
               variant="outlined"
-              startIcon={<Code size={18} />}
-              href={account.organizationTools.organization?.name 
+              startIcon={<FolderOpen size={18} />}
+              href={account.organizationTools.organization?.name
                 ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
                 : `/git-repos/${defaultRepoId}`}
               onClick={(e: React.MouseEvent) => {
@@ -1005,7 +1033,7 @@ const SpecTasksPage: FC = () => {
               }}
               sx={{ flexShrink: 0 }}
             >
-              Code
+              Files
             </Button>
           )}
           <Button
@@ -1057,7 +1085,8 @@ const SpecTasksPage: FC = () => {
         display: 'flex',
         flexDirection: 'row',
         width: '100%',
-        height: 'calc(100vh - 120px)',
+        flex: 1,
+        minHeight: 0,
         overflow: 'hidden',
         position: 'relative',
       }}>
@@ -1068,6 +1097,7 @@ const SpecTasksPage: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
           overflow: 'hidden',
           transition: 'all 0.3s ease-in-out',
           px: 3,
@@ -1088,7 +1118,7 @@ const SpecTasksPage: FC = () => {
                 </Button>
               }
             >
-              No code repositories attached. Attach a repository in Settings to give agents access to your code.
+              No file storage attached. Go to Settings to connect a repository for file storage.
             </Alert>
           )}
 
@@ -1100,12 +1130,8 @@ const SpecTasksPage: FC = () => {
                 projectId={projectId}
                 onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
-                  // Add to array of open windows if not already open
-                  setOpenTaskWindows(prev => {
-                    const alreadyOpen = prev.some(t => t.id === task.id);
-                    if (alreadyOpen) return prev;
-                    return [...prev, task];
-                  });
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId: task.id });
                 }}
                 onRefresh={() => {
                   setRefreshing(true);
@@ -1120,26 +1146,24 @@ const SpecTasksPage: FC = () => {
                 showMerged={showMerged}
               />
             )}
-            {viewMode === 'tabs' && (
+            {viewMode === 'workspace' && (
               <TabsView
                 projectId={projectId}
                 tasks={tasksData || []}
                 onCreateTask={handleOpenCreateDialog}
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
+                initialTaskId={openTaskId}
+                initialDesktopId={openDesktopId}
+                initialReviewId={openReviewId}
+                exploratorySessionId={exploratorySessionData?.id}
               />
             )}
             {viewMode === 'audit' && (
               <ProjectAuditTrail
                 projectId={projectId || ''}
                 onTaskClick={(taskId) => {
-                  // Fetch task and open in dialog
-                  // For now, we just need the ID to add a placeholder
-                  setOpenTaskWindows(prev => {
-                    const alreadyOpen = prev.some(t => t.id === taskId);
-                    if (alreadyOpen) return prev;
-                    // Create minimal task object for dialog
-                    return [...prev, { id: taskId } as TypesSpecTask];
-                  });
+                  // Navigate to task detail page
+                  account.orgNavigate('project-task-detail', { id: projectId, taskId });
                 }}
               />
             )}
@@ -1489,33 +1513,6 @@ const SpecTasksPage: FC = () => {
                   />
                 </Tooltip>
               </FormControl>
-
-              {/* Use Host Docker Checkbox (for Helix-in-Helix development) - only show if a privileged sandbox is available */}
-              {hasPrivilegedSandbox && (
-                <FormControl fullWidth>
-                  <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={useHostDocker}
-                          onChange={(e) => setUseHostDocker(e.target.checked)}
-                          color="info"
-                        />
-                      }
-                      label={
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Use Host Docker 🐳
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            For Helix-in-Helix development — agent can build and run Helix containers
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </Tooltip>
-                </FormControl>
-              )}
             </Stack>
           </Box>
 
@@ -1715,18 +1712,6 @@ const SpecTasksPage: FC = () => {
         )}
 
       </Box>
-
-      {/* Task Detail Dialogs - one per open task */}
-      {openTaskWindows.map((task) => (
-        <SpecTaskDetailDialog
-          key={task.id}
-          task={task}
-          open={true}
-          onClose={() => {
-            setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
-          }}
-        />
-      ))}
 
     </Page>
   );

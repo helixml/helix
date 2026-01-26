@@ -40,8 +40,9 @@ elseif win_class == "dev.zed.Zed-Dev" or win_class == "dev.zed.Zed"
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
 
 -- Terminal windows -> Left column (column 1)
--- Match various terminal emulators: gnome-terminal, xfce4-terminal, kitty, etc.
-elseif win_class == "Gnome-terminal" or win_class == "gnome-terminal"
+-- Match various terminal emulators: ghostty, gnome-terminal, kitty, etc.
+elseif win_class == "com.mitchellh.ghostty" or win_class == "ghostty"
+       or win_class == "Gnome-terminal" or win_class == "gnome-terminal"
        or win_class == "gnome-terminal-server"
        or win_class == "Xfce4-terminal" or win_class == "xfce4-terminal"
        or win_class == "kitty" or win_class == "Kitty"

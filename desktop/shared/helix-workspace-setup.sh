@@ -18,7 +18,50 @@
 #   $HOME/.helix-setup-complete  - Touched when setup is done
 #   $HOME/.helix-zed-folders     - List of folders for Zed to open
 
+# Exit on error - but trap will catch it and keep terminal open
 set -e
+
+# Trap any exit (success or failure) to show interactive menu
+# This ensures users can see errors and debug
+cleanup_and_prompt() {
+    local exit_code=$?
+    echo ""
+    if [ $exit_code -ne 0 ]; then
+        echo "========================================="
+        echo "❌ Setup failed with exit code $exit_code"
+        echo "========================================="
+        echo ""
+        echo "Check the errors above."
+    fi
+
+    echo ""
+    echo "What would you like to do?"
+    echo "  1) Close this window"
+    echo "  2) Start an interactive shell for debugging"
+    echo ""
+    read -p "Enter choice [1-2]: " choice
+
+    case "$choice" in
+        1)
+            # Disable trap before exiting to avoid infinite loop
+            trap - EXIT
+            exit $exit_code
+            ;;
+        2|*)
+            echo ""
+            echo "Starting interactive shell..."
+            echo "Type 'exit' to close this window."
+            echo ""
+            if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$HOME/work/$HELIX_PRIMARY_REPO_NAME" ]; then
+                cd "$HOME/work/$HELIX_PRIMARY_REPO_NAME"
+            else
+                cd "$HOME/work"
+            fi
+            exec bash
+            ;;
+    esac
+}
+trap cleanup_and_prompt EXIT
 
 echo "========================================="
 echo "Helix Workspace Setup - $(date)"
@@ -106,9 +149,10 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     git config --global user.email "$GIT_USER_EMAIL"
     echo "  Git user.email: $GIT_USER_EMAIL"
 else
-    echo "  FATAL: GIT_USER_EMAIL not set"
-    echo "  Enterprise ADO deployments reject commits from non-corporate email addresses"
-    exit 1
+    echo "  ⚠️  WARNING: GIT_USER_EMAIL not set"
+    echo "  Enterprise ADO deployments may reject commits from non-corporate email addresses"
+    echo "  Using fallback email: agent@helix.ml"
+    git config --global user.email "agent@helix.ml"
 fi
 
 # Configure git to use merge commits (not rebase) for concurrent agent work
@@ -116,8 +160,11 @@ git config --global pull.rebase false
 echo "  Git pull strategy: merge"
 
 # Configure git credentials for HTTP operations (MUST happen before cloning!)
+# Always overwrite credentials on startup as API key may have changed
+rm -f ~/.git-credentials
+git config --global credential.helper 'store --file ~/.git-credentials'
+
 if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
-    git config --global credential.helper 'store --file ~/.git-credentials'
     GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
     GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
     echo "${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}" > ~/.git-credentials
@@ -162,17 +209,19 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
         GIT_CLONE_URL="${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}/git/${REPO_ID}"
 
-        if git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
-            echo "    Successfully cloned to $CLONE_DIR"
-        else
-            echo "    Failed to clone $REPO_NAME"
+        if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
+            echo ""
+            echo "    ❌ FAILED to clone $REPO_NAME"
             echo ""
             echo "    This could be caused by:"
             echo "      - Invalid repository credentials"
             echo "      - Repository doesn't exist"
             echo "      - Network connectivity issues"
             echo ""
+            echo "    The terminal will stay open so you can see this error."
+            exit 1
         fi
+        echo "    ✅ Successfully cloned to $CLONE_DIR"
     done
 
     echo "========================================="
@@ -471,10 +520,16 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# Fallback to work directory if no folders found
+# FAIL if no folders found - don't start Zed with empty workspace
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
-    ZED_FOLDERS+=("$WORK_DIR")
-    echo "  Fallback: ~/work (no repositories cloned)"
+    echo ""
+    echo "❌ ERROR: No repositories were cloned successfully"
+    echo ""
+    echo "Cannot start Zed without a proper workspace."
+    echo "Check the errors above and fix the issue."
+    echo ""
+    echo "The terminal will stay open so you can debug."
+    exit 1
 fi
 
 # Write folders to file for main script to read
@@ -484,14 +539,53 @@ echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
 # =========================================
-# Signal completion
+# Signal completion - Zed can now start
 # =========================================
+# Signal BEFORE running startup script so Zed starts in parallel
+# This allows the agent to respond to requests immediately while
+# the startup script (e.g., npm install, build) runs in the background
 touch "$COMPLETE_SIGNAL"
 
 echo "========================================="
-echo "Setup complete!"
+echo "✅ Repos ready! Zed is starting..."
 echo "========================================="
-echo ""
-echo "Zed is starting now. This terminal will remain open."
-echo "You can run commands here or close this window."
-echo ""
+
+# =========================================
+# Run startup script (if exists) - runs in PARALLEL with Zed
+# =========================================
+# Note: Startup script failures are NOT fatal - we continue
+# The user can see the error and fix it
+STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
+if [ -f "$STARTUP_SCRIPT" ]; then
+    echo ""
+    echo "========================================="
+    echo "Running startup script (Zed starting in parallel)..."
+    echo "========================================="
+    echo "Script: $STARTUP_SCRIPT"
+    echo ""
+
+    # Change to primary repo for running commands
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Run startup script but don't fail if it errors (user can debug in terminal)
+    if bash -i "$STARTUP_SCRIPT"; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        EXIT_CODE=$?
+        echo ""
+        echo "❌ Startup script failed with exit code $EXIT_CODE"
+        echo ""
+        echo "You can debug this in the terminal."
+    fi
+    echo ""
+fi
+
+echo "========================================="
+echo "✅ All setup complete!"
+echo "========================================="
+# The EXIT trap will show the interactive menu

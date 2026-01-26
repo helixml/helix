@@ -41,13 +41,14 @@ func getTaskDirName(task *types.SpecTask) string {
 
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
-	Guidelines      string // Formatted guidelines section
-	PrimaryRepoName string // Name of the primary repository (e.g., "my-app")
-	TaskDirName     string // Design doc directory name
-	BranchName      string // Feature branch name
-	BaseBranch      string // Base branch (e.g., "main")
-	TaskName        string // Human-readable task name
-	OriginalPrompt  string // Original user request
+	Guidelines         string // Formatted guidelines section
+	PrimaryRepoName    string // Name of the primary repository (e.g., "my-app")
+	TaskDirName        string // Design doc directory name
+	BranchName         string // Feature branch name
+	BaseBranch         string // Base branch (e.g., "main")
+	TaskName           string // Human-readable task name
+	OriginalPrompt     string // Original user request
+	ClonedTaskPreamble string // Extra instructions for cloned tasks (empty if not cloned)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -82,7 +83,16 @@ type ImplementationReviewPromptData struct {
 // Compiled Templates
 // =============================================================================
 
-var approvalPromptTemplate = template.Must(template.New("approval").Parse(`# Design Approved - Begin Implementation
+var approvalPromptTemplate = template.Must(template.New("approval").Parse(`## CURRENT PHASE: IMPLEMENTATION
+
+You are now in the IMPLEMENTATION phase. The planning/spec-writing phase is complete.
+- Your design has been approved - now implement the code changes
+- You MAY now ask the user questions that were deferred from planning (e.g., preferences, clarifications)
+- You MAY now make code changes, edit files, and modify the codebase
+{{.ClonedTaskPreamble}}
+---
+
+# Design Approved - Begin Implementation
 
 Speak English.
 {{.Guidelines}}
@@ -93,8 +103,21 @@ Your design has been approved. Implement the code changes now.
 
 1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
-3. **Update tasks.md** - Mark [x] when you start each task, push immediately
+3. **Update tasks.md** - Mark [~] when you START a task, [x] when DONE, push immediately
 4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+
+## CRITICAL: Use tasks.md, NOT Internal To-Do Tools
+
+You may have access to an internal to-do list tool (TodoWrite, todo_write, or similar). **IGNORE IT.**
+
+Your ONLY to-do list is **/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md**.
+
+- Track ALL progress in tasks.md (mark [~] when starting, [x] when done)
+- Update tasks.md as your plan evolves (add new tasks, remove unnecessary ones, reorder)
+- Commit and push to helix-specs after EVERY change to tasks.md
+- The UI reads tasks.md to show progress - internal tools are invisible to users
+
+If you use an internal to-do tool instead of tasks.md, users cannot see your progress.
 
 ## Two Repositories - Don't Confuse Them
 
@@ -106,9 +129,10 @@ Your design has been approved. Implement the code changes now.
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
 
 - [ ] = not started
+- [~] = in progress (currently working on)
 - [x] = done
 
-When you START a task, change [ ] to [x] and push. Don't wait until "really done".
+When you START a task, change [ ] to [~] and push. When DONE, change [~] to [x] and push.
 Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
@@ -120,7 +144,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
-3. For each task in tasks.md: mark [x], push helix-specs, then do the work
+3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
 ## Don't Over-Engineer
@@ -248,14 +272,45 @@ Follow these guidelines when implementing:
 `
 	}
 
+	// Build cloned task preamble if this task was cloned from another
+	clonedTaskPreamble := ""
+	if task.ClonedFromID != "" {
+		clonedTaskPreamble = `
+
+## CLONED TASK - Read Specs First
+
+This task was cloned from a completed task in another project. The specs contain learnings from the original implementation.
+
+**Before you start implementing, you MUST:**
+
+1. **Read design.md and requirements.md carefully** - They may contain information that was discovered during the original implementation (decisions made, values confirmed with user, approaches that worked). Use this information instead of re-asking or re-discovering it.
+
+2. **Reset and adapt tasks.md:**
+   - All checkboxes are currently marked [x] complete from the original task
+   - Change all [x] back to [ ] (unchecked)
+   - REMOVE any tasks that are no longer needed based on what you learned from reading the specs
+   - ADD any new tasks specific to this repository if needed
+   - Push the updated tasks.md to helix-specs BEFORE doing any implementation work
+
+3. **Adapt to this repository** - The target repo may differ from the original:
+   - Check file paths and structure
+   - Verify naming conventions match
+   - Look for existing code that might change the approach
+
+The clone feature's value is that learnings transfer - you should NOT need to re-ask questions or re-discover things the original agent already figured out.
+
+`
+	}
+
 	data := ApprovalPromptData{
-		Guidelines:      guidelinesSection,
-		PrimaryRepoName: primaryRepoName,
-		TaskDirName:     taskDirName,
-		BranchName:      branchName,
-		BaseBranch:      baseBranch,
-		TaskName:        task.Name,
-		OriginalPrompt:  task.OriginalPrompt,
+		Guidelines:         guidelinesSection,
+		PrimaryRepoName:    primaryRepoName,
+		TaskDirName:        taskDirName,
+		BranchName:         branchName,
+		BaseBranch:         baseBranch,
+		TaskName:           task.Name,
+		OriginalPrompt:     task.OriginalPrompt,
+		ClonedTaskPreamble: clonedTaskPreamble,
 	}
 
 	var buf bytes.Buffer
@@ -371,12 +426,19 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
+	// Use messageSender which:
+	// 1. Creates an interaction in the database
+	// 2. Sets up sessionToWaitingInteraction mapping for response routing
+	// 3. Sends the message via WebSocket to the agent
+	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
+	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
+	// to the wrong (empty) interaction.
 	_, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}
 
-	return s.sendMessage(ctx, sessionID, userID, message)
+	return nil
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines

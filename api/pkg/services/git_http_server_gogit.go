@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/base64"
@@ -15,17 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/cache"
-	"github.com/go-git/go-git/v5/plumbing/format/pktline"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
-	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/server"
-	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-billy/v6/osfs"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/transport"
+	"github.com/go-git/go-git/v6/storage"
+	"github.com/go-git/go-git/v6/storage/filesystem"
+	gitutil "github.com/go-git/go-git/v6/utils/ioutil"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -71,7 +67,12 @@ func (fw *flushingWriter) Flush() {
 	}
 }
 
-// GitHTTPServer provides HTTP access to git repositories using pure Go (go-git).
+// Close implements io.Closer. It is a no-op for HTTP response writers.
+func (fw *flushingWriter) Close() error {
+	return nil
+}
+
+// GitHTTPServer provides HTTP access to git repositories using pure Go (go-git v6).
 // This is the primary implementation - no CGI or external git processes.
 type GitHTTPServer struct {
 	store                  store.Store
@@ -87,9 +88,6 @@ type GitHTTPServer struct {
 	sendMessageToAgentFunc SpecTaskMessageSender
 	triggerManager         *trigger.Manager
 	wg                     sync.WaitGroup
-
-	// go-git server for handling git protocol
-	gitServer transport.Transport
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -150,29 +148,16 @@ func NewGitHTTPServer(
 		triggerManager:  triggerManager,
 	}
 
-	// Create a custom loader that resolves repository IDs to filesystem storage
-	loader := &helixRepoLoader{server: s}
-	s.gitServer = server.NewServer(loader)
-
+	log.Info().Msg("Git HTTP server initialized (go-git v6)")
 	return s
 }
 
-// helixRepoLoader implements server.Loader to map repository IDs to storage
-type helixRepoLoader struct {
-	server *GitHTTPServer
-}
-
-// Load implements server.Loader - loads a repository's storage from endpoint
-func (l *helixRepoLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
-	repoID := strings.TrimPrefix(ep.Path, "/")
-	if repoID == "" {
-		return nil, transport.ErrRepositoryNotFound
-	}
-
-	repo, err := l.server.gitRepoService.GetRepository(context.Background(), repoID)
+// getStorage loads storage for a repository ID
+func (s *GitHTTPServer) getStorage(ctx context.Context, repoID string) (storage.Storer, *types.GitRepository, error) {
+	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	// Verify this is a bare repository
@@ -181,26 +166,26 @@ func (l *helixRepoLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
 
 	if _, err := os.Stat(objectsPath); os.IsNotExist(err) {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Not a valid bare repository (missing objects/)")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	if _, err := os.Stat(headPath); os.IsNotExist(err) {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Not a valid bare repository (missing HEAD)")
-		return nil, transport.ErrRepositoryNotFound
+		return nil, nil, transport.ErrRepositoryNotFound
 	}
 
 	// Reject non-bare repositories
 	dotGitPath := filepath.Join(repo.LocalPath, ".git")
 	if info, err := os.Stat(dotGitPath); err == nil && info.IsDir() {
 		log.Error().Str("repo_path", repo.LocalPath).Str("repo_id", repoID).Msg("Non-bare repository not supported")
-		return nil, fmt.Errorf("non-bare repository not supported: %s", repoID)
+		return nil, nil, fmt.Errorf("non-bare repository not supported: %s", repoID)
 	}
 
 	fs := osfs.New(repo.LocalPath)
-	storage := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	st := filesystem.NewStorage(fs, nil)
 
 	log.Debug().Str("repo_id", repoID).Str("repo_path", repo.LocalPath).Msg("Loaded repository storage")
-	return storage, nil
+	return st, repo, nil
 }
 
 // SetTestMode enables or disables test mode
@@ -376,17 +361,9 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 		return &types.User{ID: "test_user", Email: "test@example.com", Admin: false}, nil
 	}
 
-	if strings.HasPrefix(apiKey, "Basic ") {
-		encodedCreds := strings.TrimPrefix(apiKey, "Basic ")
-		decodedBytes, err := base64.StdEncoding.DecodeString(encodedCreds)
-		if err != nil {
-			return nil, fmt.Errorf("invalid Basic auth encoding")
-		}
-		parts := strings.SplitN(string(decodedBytes), ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid Basic auth format")
-		}
-		apiKey = parts[1]
+	apiKey = s.extractRawAPIKey(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("empty API key")
 	}
 
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: apiKey})
@@ -395,6 +372,84 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	}
 
 	return s.store.GetUser(ctx, &store.GetUserQuery{ID: apiKeyRecord.Owner})
+}
+
+// extractRawAPIKey extracts the raw API key from various auth formats
+func (s *GitHTTPServer) extractRawAPIKey(apiKey string) string {
+	if strings.HasPrefix(apiKey, "Basic ") {
+		encodedCreds := strings.TrimPrefix(apiKey, "Basic ")
+		decodedBytes, err := base64.StdEncoding.DecodeString(encodedCreds)
+		if err != nil {
+			return ""
+		}
+		parts := strings.SplitN(string(decodedBytes), ":", 2)
+		if len(parts) != 2 {
+			return ""
+		}
+		return parts[1]
+	}
+	return apiKey
+}
+
+// BranchRestriction holds the result of checking branch permissions for an API key
+type BranchRestriction struct {
+	IsAgentKey      bool     // True if this is a session-scoped agent key
+	AllowedBranches []string // The branches the agent can push to
+	ErrorMessage    string   // Error message if push should be denied
+}
+
+// getBranchRestrictionForAPIKey checks if the API key is an agent key and what branch it can push to.
+// - Regular user keys: no restrictions (IsAgentKey=false)
+// - Agent keys with valid spec_task: can only push to task's branch
+// - Agent keys without spec_task or branch: cannot push at all
+func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKey string) (*BranchRestriction, error) {
+	if s.testMode {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	apiKey = s.extractRawAPIKey(apiKey)
+	if apiKey == "" {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{Key: apiKey})
+	if err != nil || apiKeyRecord == nil {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	// Check if this is an agent key (has SessionID or SpecTaskID)
+	isAgentKey := apiKeyRecord.SessionID != "" || apiKeyRecord.SpecTaskID != ""
+	if !isAgentKey {
+		return &BranchRestriction{IsAgentKey: false}, nil
+	}
+
+	// This is an agent key - it MUST have a valid spec_task with a branch
+	if apiKeyRecord.SpecTaskID == "" {
+		return &BranchRestriction{
+			IsAgentKey:   true,
+			ErrorMessage: "In order to make changes to this Git repo, please create a spec_task.",
+		}, nil
+	}
+
+	task, err := s.store.GetSpecTask(ctx, apiKeyRecord.SpecTaskID)
+	if err != nil {
+		return &BranchRestriction{
+			IsAgentKey:   true,
+			ErrorMessage: fmt.Sprintf("Failed to get spec task %s: %v", apiKeyRecord.SpecTaskID, err),
+		}, nil
+	}
+
+	// Agents can always push to helix-specs for design docs.
+	// If they also have a feature branch assigned, they can push to both.
+	allowedBranches := []string{"helix-specs"}
+	if task.BranchName != "" {
+		allowedBranches = append(allowedBranches, task.BranchName)
+	}
+
+	return &BranchRestriction{
+		IsAgentKey:      true,
+		AllowedBranches: allowedBranches,
+	}, nil
 }
 
 // handleInfoRefs handles GET /info/refs
@@ -410,76 +465,47 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, err := transport.NewEndpoint("/" + repoID)
+	st, _, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		http.Error(w, "Invalid repository", http.StatusBadRequest)
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository storage")
+		if err == transport.ErrRepositoryNotFound {
+			http.Error(w, "Repository not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to access repository", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	var advRefs *packp.AdvRefs
-	if service == "git-upload-pack" {
-		session, err := s.gitServer.NewUploadPackSession(ep, nil)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to create upload-pack session")
-			if err == transport.ErrRepositoryNotFound {
-				http.Error(w, "Repository not found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Failed to access repository", http.StatusInternalServerError)
-			}
-			return
-		}
-		defer session.Close()
-		advRefs, err = session.AdvertisedReferencesContext(r.Context())
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get advertised references")
-			http.Error(w, "Failed to get references", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		session, err := s.gitServer.NewReceivePackSession(ep, nil)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to create receive-pack session")
-			if err == transport.ErrRepositoryNotFound {
-				http.Error(w, "Repository not found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Failed to access repository", http.StatusInternalServerError)
-			}
-			return
-		}
-		defer session.Close()
-		advRefs, err = session.AdvertisedReferencesContext(r.Context())
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get advertised references")
-			http.Error(w, "Failed to get references", http.StatusInternalServerError)
-			return
-		}
-
-		// Advertise no-thin capability to prevent clients from sending thin packs.
-		// go-git's PackfileWriter doesn't handle thin packs correctly (can't resolve
-		// external delta references). See: https://github.com/go-git/go-git/issues/190
-		if err := advRefs.Capabilities.Set(capability.Capability("no-thin")); err != nil {
-			log.Warn().Err(err).Msg("Failed to set no-thin capability")
-		}
-	}
+	version := r.Header.Get("Git-Protocol")
 
 	w.Header().Set("Content-Type", fmt.Sprintf("application/x-%s-advertisement", service))
 	setNoCacheHeaders(w)
 
-	pktEnc := pktline.NewEncoder(w)
-	if err := pktEnc.Encodef("# service=%s\n", service); err != nil {
-		log.Error().Err(err).Msg("Failed to write service header")
-		return
+	// Use transport.UploadPack/ReceivePack with AdvertiseRefs: true for info/refs
+	// This matches go-git v6's backend/http implementation
+	if service == "git-upload-pack" {
+		err = transport.UploadPack(r.Context(), st, nil, gitutil.WriteNopCloser(w),
+			&transport.UploadPackOptions{
+				GitProtocol:   version,
+				AdvertiseRefs: true,
+				StatelessRPC:  true,
+			})
+	} else {
+		err = transport.ReceivePack(r.Context(), st, nil, gitutil.WriteNopCloser(w),
+			&transport.ReceivePackOptions{
+				GitProtocol:   version,
+				AdvertiseRefs: true,
+				StatelessRPC:  true,
+			})
 	}
-	if err := pktEnc.Flush(); err != nil {
-		log.Error().Err(err).Msg("Failed to flush")
-		return
-	}
-	if err := advRefs.Encode(w); err != nil {
-		log.Error().Err(err).Msg("Failed to encode refs")
+
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to advertise references")
+		http.Error(w, "Failed to get references", http.StatusInternalServerError)
 		return
 	}
 
-	log.Info().Str("repo_id", repoID).Int("refs_count", len(advRefs.References)).Msg("Sent advertised references")
+	log.Info().Str("repo_id", repoID).Str("service", service).Msg("Sent advertised references")
 }
 
 // handleUploadPack handles POST /git-upload-pack (clone/fetch)
@@ -495,42 +521,47 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ep, _ := transport.NewEndpoint("/" + repoID)
-	session, err := s.gitServer.NewUploadPackSession(ep, nil)
+	st, repo, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create session")
+		log.Error().Err(err).Msg("Failed to get repository storage")
 		http.Error(w, "Failed to access repository", http.StatusInternalServerError)
 		return
 	}
-	defer session.Close()
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request", http.StatusInternalServerError)
-		return
+	// If this is an external repository, sync from upstream BEFORE serving the pull.
+	// This ensures users always get the latest data from the upstream repository.
+	if repo != nil && repo.ExternalURL != "" {
+		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+			// Log the error but don't fail the pull - serve what we have
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
+		} else {
+			log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
+		}
 	}
 
-	req := packp.NewUploadPackRequest()
-	if err := req.Decode(bytes.NewReader(bodyBytes)); err != nil {
-		log.Error().Err(err).Msg("Failed to decode request")
-		http.Error(w, fmt.Sprintf("Failed to parse request: %v", err), http.StatusBadRequest)
-		return
-	}
+	version := r.Header.Get("Git-Protocol")
 
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
+	w.Header().Set("Connection", "Keep-Alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	setNoCacheHeaders(w)
 
-	resp, err := session.UploadPack(r.Context(), req)
-	if err != nil {
-		log.Error().Err(err).Msg("Upload-pack failed")
-		http.Error(w, fmt.Sprintf("Upload-pack failed: %v", err), http.StatusInternalServerError)
-		return
+	// go-git v6 UploadPack handles the entire protocol exchange
+	// AdvertiseRefs: false because refs were already sent in info/refs
+	opts := &transport.UploadPackOptions{
+		GitProtocol:   version,
+		AdvertiseRefs: false,
+		StatelessRPC:  true,
 	}
 
 	// Use flushing writer for streaming large pack files
 	fw := newFlushingWriter(w)
-	if err := resp.Encode(fw); err != nil {
-		log.Error().Err(err).Msg("Failed to encode response")
+
+	if err := transport.UploadPack(r.Context(), st, r.Body, fw, opts); err != nil {
+		log.Error().Err(err).Msg("Upload-pack failed")
+		// Can't send HTTP error after we've started writing
 		return
 	}
 	fw.Flush()
@@ -551,72 +582,190 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ep, _ := transport.NewEndpoint("/" + repoID)
-	session, err := s.gitServer.NewReceivePackSession(ep, nil)
+	st, repo, err := s.getStorage(r.Context(), repoID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create session")
+		log.Error().Err(err).Msg("Failed to get repository storage")
 		http.Error(w, "Failed to access repository", http.StatusInternalServerError)
 		return
 	}
-	defer session.Close()
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request", http.StatusInternalServerError)
-		return
-	}
-
-	req := packp.NewReferenceUpdateRequest()
-	if err := req.Decode(bytes.NewReader(bodyBytes)); err != nil {
-		log.Error().Err(err).Msg("Failed to decode request")
-		http.Error(w, fmt.Sprintf("Failed to parse request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// Extract pushed branches from commands
-	var pushedBranches []string
-	for _, cmd := range req.Commands {
-		if strings.HasPrefix(string(cmd.Name), "refs/heads/") {
-			branchName := strings.TrimPrefix(string(cmd.Name), "refs/heads/")
-			pushedBranches = append(pushedBranches, branchName)
-		}
-	}
-
-	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Int("commands", len(req.Commands)).Msg("Parsed receive-pack commands")
-
-	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
-	setNoCacheHeaders(w)
-
-	resp, err := session.ReceivePack(r.Context(), req)
-	if err != nil {
-		log.Error().Err(err).Msg("Receive-pack failed")
-		http.Error(w, fmt.Sprintf("Receive-pack failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	if resp != nil {
-		// Use flushing writer for streaming response
-		fw := newFlushingWriter(w)
-		if err := resp.Encode(fw); err != nil {
-			log.Error().Err(err).Msg("Failed to encode response")
+	// If this is an external repository, sync from upstream BEFORE accepting the push.
+	// This ensures our local state is up-to-date with any changes made in the upstream,
+	// so the push will properly fail if the agent's changes conflict with upstream.
+	if repo != nil && repo.ExternalURL != "" {
+		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
+			http.Error(w, fmt.Sprintf("Failed to sync from upstream repository: %v", err), http.StatusConflict)
 			return
 		}
-		fw.Flush()
+		log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before push")
 	}
+
+	// Get branches before push to detect what changed
+	branchesBefore := s.getBranchHashes(st)
+
+	version := r.Header.Get("Git-Protocol")
+
+	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
+	w.Header().Set("Connection", "Keep-Alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	setNoCacheHeaders(w)
+
+	// go-git v6 ReceivePack handles the entire protocol exchange
+	// AdvertiseRefs: false because refs were already sent in info/refs
+	opts := &transport.ReceivePackOptions{
+		GitProtocol:   version,
+		AdvertiseRefs: false,
+		StatelessRPC:  true,
+	}
+
+	// Use flushing writer for streaming response
+	fw := newFlushingWriter(w)
+
+	if err := transport.ReceivePack(r.Context(), st, r.Body, fw, opts); err != nil {
+		log.Error().Err(err).Msg("Receive-pack failed")
+		// Can't send HTTP error after we've started writing
+		return
+	}
+	fw.Flush()
+
+	// Detect pushed branches by comparing before/after
+	branchesAfter := s.getBranchHashes(st)
+	pushedBranches := s.detectChangedBranches(branchesBefore, branchesAfter)
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
-	// Trigger post-push hooks asynchronously
+	// Check branch restrictions for agent API keys.
+	// Agents are only allowed to push to their assigned spec task branch.
+	// If they don't have a spec_task, they cannot push at all.
 	if len(pushedBranches) > 0 {
-		repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
-		if err == nil {
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
-			}()
+		apiKey := s.extractAPIKey(r)
+		restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		}
+		if restriction != nil && restriction.IsAgentKey {
+			// Agent keys have restrictions
+			if restriction.ErrorMessage != "" {
+				// Agent is not allowed to push at all
+				log.Error().
+					Str("repo_id", repoID).
+					Str("error", restriction.ErrorMessage).
+					Msg("Agent push denied - rolling back")
+				s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+				return
+			}
+			// Agent can only push to their allowed branches
+			for _, branch := range pushedBranches {
+				allowed := false
+				for _, ab := range restriction.AllowedBranches {
+					if branch == ab {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					log.Error().
+						Str("repo_id", repoID).
+						Str("pushed_branch", branch).
+						Strs("allowed_branches", restriction.AllowedBranches).
+						Msg("Agent attempted to push to unauthorized branch - rolling back")
+					s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+					return
+				}
+			}
+			log.Info().Str("repo_id", repoID).Strs("allowed_branches", restriction.AllowedBranches).Msg("Agent branch restriction verified")
 		}
 	}
+
+	// For external repos, SYNCHRONOUSLY push to upstream before confirming success.
+	// If this fails, rollback the refs so the middle repo stays in sync with upstream.
+	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
+		upstreamPushFailed := false
+		for _, branch := range pushedBranches {
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream (synchronous)")
+			if err := s.gitRepoService.PushBranchToRemote(r.Context(), repoID, branch, false); err != nil {
+				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Failed to push branch to upstream - rolling back")
+				upstreamPushFailed = true
+				break
+			}
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Successfully pushed branch to upstream")
+		}
+
+		if upstreamPushFailed {
+			// Rollback: restore refs to their pre-push state
+			log.Warn().Str("repo_id", repoID).Msg("Rolling back refs due to upstream push failure")
+			s.rollbackBranchRefs(st, branchesBefore, pushedBranches)
+			// The git client already thinks push succeeded, but on next fetch/push
+			// they'll see they need to push again (and will get proper conflict errors)
+			return
+		}
+	}
+
+	// Trigger post-push hooks asynchronously (only if upstream push succeeded or no upstream)
+	if len(pushedBranches) > 0 && repo != nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
+		}()
+	}
+}
+
+// rollbackBranchRefs restores branch refs to their previous state
+func (s *GitHTTPServer) rollbackBranchRefs(st storage.Storer, previousHashes map[string]string, branches []string) {
+	for _, branch := range branches {
+		refName := plumbing.NewBranchReferenceName(branch)
+		if prevHash, existed := previousHashes[branch]; existed {
+			// Branch existed before - restore to previous hash
+			ref := plumbing.NewHashReference(refName, plumbing.NewHash(prevHash))
+			if err := st.SetReference(ref); err != nil {
+				log.Error().Err(err).Str("branch", branch).Str("hash", prevHash).Msg("Failed to rollback branch ref")
+			} else {
+				log.Info().Str("branch", branch).Str("hash", prevHash).Msg("Rolled back branch ref")
+			}
+		} else {
+			// Branch was newly created - delete it
+			if err := st.RemoveReference(refName); err != nil {
+				log.Error().Err(err).Str("branch", branch).Msg("Failed to remove newly created branch ref")
+			} else {
+				log.Info().Str("branch", branch).Msg("Removed newly created branch ref")
+			}
+		}
+	}
+}
+
+// getBranchHashes returns a map of branch names to their current commit hashes
+func (s *GitHTTPServer) getBranchHashes(st storage.Storer) map[string]string {
+	result := make(map[string]string)
+	iter, err := st.IterReferences()
+	if err != nil {
+		return result
+	}
+	defer iter.Close()
+	for {
+		ref, err := iter.Next()
+		if err != nil {
+			break
+		}
+		if ref.Name().IsBranch() {
+			result[ref.Name().Short()] = ref.Hash().String()
+		}
+	}
+	return result
+}
+
+// detectChangedBranches compares before/after branch hashes to find changed branches
+func (s *GitHTTPServer) detectChangedBranches(before, after map[string]string) []string {
+	var changed []string
+	for branch, hash := range after {
+		if beforeHash, exists := before[branch]; !exists || beforeHash != hash {
+			changed = append(changed, branch)
+		}
+	}
+	return changed
 }
 
 // handlePostPushHook processes commits after a successful push
@@ -708,68 +857,50 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update spec task status")
 			}
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.checkCommentResolution(context.Background(), t.ID, repoPath, gitRepo)
-			}(task)
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
 
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision:
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.checkCommentResolution(context.Background(), t.ID, repoPath, gitRepo)
-			}(task)
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
 
 		case types.TaskStatusImplementation:
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
-			if repo.ExternalURL != "" {
-				s.wg.Add(1)
-				go func(t *types.SpecTask) {
-					defer s.wg.Done()
-					log.Info().Str("spec_task_id", t.ID).Str("branch", pushedBranch).Msg("Pushing branch to external repository")
-					if err := s.gitRepoService.PushBranchToRemote(context.Background(), repo.ID, t.BranchName, false); err != nil {
-						log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to push branch")
-					}
-				}(task)
-			}
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
+			// Note: Push to upstream is now done synchronously in handleReceivePack
+			// before this hook runs, so we don't need to push again here.
 
 		case types.TaskStatusPullRequest:
+			log.Info().Str("spec_task_id", task.ID).Str("branch", pushedBranch).Str("commit", commitHash).Msg("Processing pull request")
+
 			s.wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
 			}(task)
-			s.wg.Add(1)
-			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
-				defer s.wg.Done()
-				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
-					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
-					return
-				}
-				if s.triggerManager != nil {
-					s.wg.Add(1)
-					go func() {
-						defer s.wg.Done()
-						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
-							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
-						}
-					}()
-				}
-			}(task, repo, commitHash)
 		}
 	}
 }
@@ -801,31 +932,49 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 	}
 
 	for _, task := range allTasks {
+		if task.BranchName != branchName {
+			continue
+		}
+
+		switch task.Status {
+		case types.TaskStatusImplementation:
+			log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Recording push to implementation branch")
+
+			// Record the push but don't transition status or send prompt automatically
+			// The agent pushed this code themselves - they don't need to be notified about their own push
+			// Status transition to ImplementationReview should be triggered explicitly when ready
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
+			}
+		case types.TaskStatusPullRequest:
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
+					return
+				}
+				if s.triggerManager != nil {
+					s.wg.Add(1)
+					go func() {
+						defer s.wg.Done()
+						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
+							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
+						}
+					}()
+				}
+			}(task, repo, commitHash)
+		default:
+			// Continue
+			continue
+		}
 		if task == nil || task.BranchName != branchName || task.Status != types.TaskStatusImplementation {
 			continue
-		}
-
-		log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Transitioning to implementation review")
-
-		now := time.Now()
-		task.Status = types.TaskStatusImplementationReview
-		task.LastPushCommitHash = commitHash
-		task.LastPushAt = &now
-		task.UpdatedAt = now
-		if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
-			continue
-		}
-
-		if s.sendMessageToAgentFunc != nil {
-			s.wg.Add(1)
-			go func(t *types.SpecTask, branch string) {
-				defer s.wg.Done()
-				message := BuildImplementationReviewPrompt(t, branch)
-				if _, err := s.sendMessageToAgentFunc(context.Background(), t, message, ""); err != nil {
-					log.Error().Err(err).Str("task_id", t.ID).Msg("Failed to send implementation review request")
-				}
-			}(task, branchName)
 		}
 	}
 }
@@ -943,13 +1092,13 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 
 // checkCommentResolution checks if design review comments should be auto-resolved
 // because the quoted text was removed/updated in the design documents
-func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath string, gitRepo *GitRepo) {
+func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath, branch string, gitRepo *GitRepo) {
 	comments, err := s.store.GetUnresolvedCommentsForTask(ctx, specTaskID)
 	if err != nil || len(comments) == 0 {
 		return
 	}
 
-	log.Info().Str("spec_task_id", specTaskID).Int("count", len(comments)).Msg("Checking comments for auto-resolution")
+	log.Info().Str("spec_task_id", specTaskID).Str("branch", branch).Int("count", len(comments)).Msg("Checking comments for auto-resolution")
 
 	// Get task to find the design doc path
 	task, err := s.store.GetSpecTask(ctx, specTaskID)
@@ -958,10 +1107,10 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		return
 	}
 
-	// Find task directory in helix-specs branch
-	taskDir, err := gitRepo.FindTaskDirInBranch("helix-specs", task.DesignDocPath, specTaskID)
+	// Find task directory in the pushed branch
+	taskDir, err := gitRepo.FindTaskDirInBranch(branch, task.DesignDocPath, specTaskID)
 	if err != nil {
-		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("Task directory not found in helix-specs")
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("branch", branch).Msg("Task directory not found in branch")
 		return
 	}
 
@@ -975,7 +1124,7 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 
 	for docType, filename := range docTypes {
 		filePath := taskDir + "/" + filename
-		content, err := gitRepo.ReadFileFromBranch("helix-specs", filePath)
+		content, err := gitRepo.ReadFileFromBranch(branch, filePath)
 		if err == nil {
 			docContents[docType] = string(content)
 		}
@@ -993,11 +1142,12 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		}
 		if !strings.Contains(content, comment.QuotedText) {
 			log.Info().Str("comment_id", comment.ID).Str("document_type", comment.DocumentType).Msg("Auto-resolving comment - quoted text removed")
-			comment.Resolved = true
-			comment.ResolvedAt = &now
-			comment.ResolvedBy = "system"
-			comment.ResolutionReason = "auto_text_removed"
-			s.store.UpdateSpecTaskDesignReviewComment(ctx, &comment)
+			// Use targeted update that only modifies resolution fields
+			// This prevents race conditions where auto-resolve overwrites streaming agent response
+			if err := s.store.UpdateCommentResolved(ctx, comment.ID, true, &now, "system", "auto_text_removed"); err != nil {
+				log.Error().Err(err).Str("comment_id", comment.ID).Msg("Failed to auto-resolve comment")
+				continue
+			}
 			resolvedCount++
 		}
 	}
@@ -1026,7 +1176,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
-		if pr.SourceBranch == sourceBranchRef && (pr.State == "active" || pr.State == "open") {
+		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
 			if task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
@@ -1187,11 +1337,11 @@ func (s *GitHTTPServer) getRepositoryStats(repoPath string, gitRepo *GitRepo) ma
 
 				// Get last commit info
 				stats["last_commit"] = map[string]interface{}{
-					"hash":          commit.Hash.String(),
-					"author_name":   commit.Author.Name,
-					"author_email":  commit.Author.Email,
-					"timestamp":     commit.Author.When.Unix(),
-					"message":       strings.Split(commit.Message, "\n")[0], // First line only
+					"hash":         commit.Hash.String(),
+					"author_name":  commit.Author.Name,
+					"author_email": commit.Author.Email,
+					"timestamp":    commit.Author.When.Unix(),
+					"message":      strings.Split(commit.Message, "\n")[0], // First line only
 				}
 			}
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -88,9 +89,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		sandboxAPIURL = helixAPIURL
 	}
 
-	helixToken := apiServer.Cfg.WebServer.RunnerToken
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not configured")
+	// Get API key for MCP and LLM authentication
+	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
+		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
 	// Determine if Kodit should be enabled for this session
@@ -135,11 +138,14 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Build language models config
-	// Note: api_key is injected by settings-sync-daemon from HELIX_API_TOKEN env var
+	// Include api_key so Zed authenticates LLM calls with session-scoped token (not runner token)
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
 		modelConfig := map[string]interface{}{
-			"api_url": config.APIURL, // Empty string = use default provider URL
+			"api_url": config.APIURL,
+		}
+		if config.APIKey != "" {
+			modelConfig["api_key"] = config.APIKey
 		}
 		languageModels[provider] = modelConfig
 	}
@@ -339,9 +345,11 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	helixToken := apiServer.Cfg.WebServer.RunnerToken
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not configured")
+	// Get API key for MCP and LLM authentication
+	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
+		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
@@ -529,4 +537,27 @@ func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context,
 	}
 
 	return false
+}
+
+// getAPIKeyForSession returns a session-scoped ephemeral API key.
+// Keys are minted when the desktop starts and revoked when it shuts down.
+//
+// SECURITY: This is the single source of truth for API key selection.
+// All code that needs to authenticate on behalf of a user/session should use this function.
+// The key capabilities vary based on session type:
+// - SpecTask sessions: git push rights to specific branch, LLM calls
+// - Non-SpecTask sessions: LLM calls only
+func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, session *types.Session) (string, error) {
+	if session == nil || session.ID == "" {
+		return "", fmt.Errorf("session is required for session-scoped API key")
+	}
+
+	apiKey, err := apiServer.specDrivenTaskService.GetOrCreateSessionAPIKey(ctx, &services.SessionAPIKeyRequest{
+		UserID:    session.Owner,
+		SessionID: session.ID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)
+	}
+	return apiKey, nil
 }

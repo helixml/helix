@@ -21,6 +21,7 @@ type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)
 	PTS        uint64    // Presentation timestamp in microseconds
 	IsKeyframe bool      // True if this is an IDR frame
+	IsReplay   bool      // True if this is a GOP replay frame (decoder warmup, don't display)
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 
@@ -61,6 +62,11 @@ func (g *GstPipeline) Stop() {}
 // IsRunning always returns false when CGO is disabled.
 func (g *GstPipeline) IsRunning() bool {
 	return false
+}
+
+// GetFrameStats returns zero counts when CGO is disabled.
+func (g *GstPipeline) GetFrameStats() (received, dropped uint64) {
+	return 0, 0
 }
 
 // CheckGstElement always returns false when CGO is disabled.

@@ -9,8 +9,8 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
 import EditIcon from '@mui/icons-material/Edit'
+import { Bot } from 'lucide-react'
 import { IApp } from '../../types'
 import useAccount from '../../hooks/useAccount'
 
@@ -62,7 +62,7 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
         {agents.map((app) => (
           <MenuItem key={app.id} value={app.id}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-              <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <Bot size={18} color="#9e9e9e" />
               <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
               <Tooltip title="Edit agent">
                 <IconButton

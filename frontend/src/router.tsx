@@ -23,11 +23,13 @@ import Secrets from './pages/Secrets'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
+import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
+import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
+import TeamDesktopPage from './pages/TeamDesktopPage'
 import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import Fleet from './pages/Fleet'
 import QuestionSets from './pages/QuestionSets'
 import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepos from './pages/GitRepos'
@@ -55,16 +57,44 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 // so rather than duplicate these routes let's return them from this utility function
 const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] => {
   return [{
-    name: namePrefix + 'home',
+    // Projects is now the landing page
+    name: namePrefix + 'projects',
     path: routePrefix + (routePrefix ? '' : '/'),
     meta: {
-      title: 'Home',
+      title: 'Projects',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <Projects />
+    ),
+  }, {
+    // Chat (formerly Home) - the AI chat interface
+    name: namePrefix + 'chat',
+    path: routePrefix + '/chat',
+    meta: {
+      title: 'Chat',
       drawer: true,
       orgRouteAware: true,
     },
     render: () => (
         <Home />
     ),
+  }, {
+    // Legacy home route - redirect to projects for backward compatibility
+    name: namePrefix + 'home',
+    path: routePrefix + '/home',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+    },
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'new',
     path: routePrefix + '/new',
@@ -156,16 +186,20 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <SpecTasksPage />
     ),
   }, {
-    name: namePrefix + 'projects',
+    // Legacy /projects route - redirect to root for backward compatibility
+    name: namePrefix + 'projects-legacy',
     path: routePrefix + '/projects',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
-      title: 'Projects',
     },
-    render: () => (
-      <Projects />
-    ),
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'project-specs',
     path: routePrefix + '/projects/:id/specs',
@@ -176,6 +210,39 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-detail',
+    path: routePrefix + '/projects/:id/tasks/:taskId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Task Details',
+    },
+    render: () => (
+      <SpecTaskDetailPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-review',
+    path: routePrefix + '/projects/:id/tasks/:taskId/review/:reviewId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Spec Review',
+    },
+    render: () => (
+      <SpecTaskReviewPage />
+    ),
+  }, {
+    name: namePrefix + 'project-team-desktop',
+    path: routePrefix + '/projects/:id/desktop/:sessionId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Team Desktop',
+    },
+    render: () => (
+      <TeamDesktopPage />
     ),
   }, {
     name: namePrefix + 'project-settings',

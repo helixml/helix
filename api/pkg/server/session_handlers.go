@@ -357,9 +357,35 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// CRITICAL: For external agent sessions, publish session update to frontend immediately
+	// This ensures the frontend receives the new interaction (with user's prompt_message)
+	// without waiting for the 2-second refetch interval
+	if agentType == "zed_external" && len(session.Interactions) > 0 {
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		if err := s.publishSessionUpdateToFrontend(session, lastInteraction); err != nil {
+			log.Error().Err(err).
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Msg("Failed to publish initial session update to frontend for external agent")
+		} else {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Int("prompt_message_len", len(lastInteraction.PromptMessage)).
+				Msg("📤 [HELIX] Published initial session update to frontend for external agent")
+		}
+	}
+
 	// Notify external agents ONLY of NEW interactions (not replaying history)
 	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
 		interaction := session.Interactions[i]
+		// DIAGNOSTIC: Log when we're about to call NotifyExternalAgentOfNewInteraction
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("interaction_id", interaction.ID).
+			Str("agent_type", agentType).
+			Int("interaction_index", i).
+			Msg("🟠 [DIAG] About to call NotifyExternalAgentOfNewInteraction")
 		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
 			log.Warn().Err(err).
 				Str("session_id", session.ID).
@@ -422,10 +448,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for git operations (merges with any custom env vars)
+			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
 			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Warn().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token (continuing without git)")
-				// Don't fail - external agents can work without git
+				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
+				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
+				return
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -685,9 +713,14 @@ func getAgentTypeFromApp(app *types.App, startReq types.SessionChatRequest) stri
 		assistant = &app.Config.Helix.Assistants[0]
 	}
 
-	// Use assistant agent type if available, otherwise fall back to request agent type
-	if assistant != nil {
+	// Use assistant agent type if available and non-empty
+	if assistant != nil && assistant.AgentType != "" {
 		return string(assistant.AgentType)
+	}
+
+	// Fall back to app's default agent type
+	if app.Config.Helix.DefaultAgentType != "" {
+		return string(app.Config.Helix.DefaultAgentType)
 	}
 
 	return startReq.AgentType
@@ -1205,6 +1238,14 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	// Determine which agent to use based on the spec task's code agent config
 	agentName := s.getAgentNameForSession(ctx, session)
 
+	// DIAGNOSTIC: Log this code path with distinctive marker
+	log.Warn().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Str("request_id", requestID).
+		Str("zed_thread_id", session.Metadata.ZedThreadID).
+		Msg("🔵 [DIAG] streamFromExternalAgent CALLED - PATH B (NO role field)")
+
 	// Send chat message to external agent
 	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
 	command := types.ExternalAgentCommand{
@@ -1231,7 +1272,18 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	if s.sessionToWaitingInteraction == nil {
 		s.sessionToWaitingInteraction = make(map[string]string)
 	}
+	// DIAGNOSTIC: Check if we're overwriting an existing mapping (potential bug!)
+	s.contextMappingsMutex.Lock()
+	oldInteractionID, wasOverwritten := s.sessionToWaitingInteraction[session.ID]
 	s.sessionToWaitingInteraction[session.ID] = interaction.ID
+	s.contextMappingsMutex.Unlock()
+	if wasOverwritten && oldInteractionID != interaction.ID {
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("old_interaction_id", oldInteractionID).
+			Str("new_interaction_id", interaction.ID).
+			Msg("⚠️ [DIAG] sessionToWaitingInteraction OVERWRITTEN - responses to old interaction may go to wrong place!")
+	}
 	log.Info().
 		Str("session_id", session.ID).
 		Str("interaction_id", interaction.ID).
@@ -1737,12 +1789,11 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	// Build the ZedAgent config for resume
 	agent := &types.DesktopAgent{
-		SessionID:      id,
-		UserID:         user.ID,
-		HelixSessionID: id, // This session already exists
-		Input:          "Resume session",
-		ProjectPath:    "workspace",
-		SpecTaskID:     specTaskID,
+		SessionID:   id,
+		UserID:      user.ID,
+		Input:       "Resume session",
+		ProjectPath: "workspace",
+		SpecTaskID:  specTaskID,
 		// WorkDir left empty - sandbox uses its own storage
 	}
 

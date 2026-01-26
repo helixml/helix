@@ -37,8 +37,8 @@ import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import CodeIcon from '@mui/icons-material/Code'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import SourceIcon from '@mui/icons-material/Source'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
 import CloseIcon from '@mui/icons-material/Close'
+import { Bot } from 'lucide-react'
 import KeyboardIcon from '@mui/icons-material/Keyboard'
 import { useUnifiedSearch, groupResultsByType, getSearchResultTypeLabel } from '../../services/searchService'
 import { TypesUnifiedSearchResult } from '../../api/api'
@@ -180,7 +180,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
       case 'repository':
         return <SourceIcon sx={{ color: '#00bcd4' }} />
       case 'agent':
-        return <SmartToyIcon sx={{ color: '#ff5722' }} />
+        return <Bot size={24} color="#ff5722" />
       default:
         return <SearchIcon />
     }
@@ -248,47 +248,56 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
             ),
             endAdornment: (
               <InputAdornment position="end">
-                {query ? (
-                  <CloseIcon
-                    sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
-                    onClick={() => {
-                      setQuery('')
-                      setOpen(false)
-                    }}
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                      color: 'text.disabled',
-                      fontSize: '0.75rem',
-                    }}
-                  >
-                    <KeyboardIcon sx={{ fontSize: 14 }} />
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+K
+                <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  {query ? (
+                    <CloseIcon
+                      sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 18 }}
+                      onClick={() => {
+                        setQuery('')
+                        setOpen(false)
+                      }}
+                    />
+                  ) : (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontFamily: 'monospace',
+                        color: 'text.disabled',
+                        fontSize: '0.7rem',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {navigator.platform.includes('Mac') ? '⌘K' : '^K'}
                     </Typography>
-                  </Box>
-                )}
+                  )}
+                </Box>
               </InputAdornment>
             ),
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
-              borderRadius: compact ? 1 : 2,
+              borderRadius: compact ? 0 : 2,
               bgcolor: 'background.paper',
               fontSize: compact ? '0.875rem' : '1rem',
+              transition: 'background-color 0.2s ease',
               '& fieldset': {
-                borderColor: 'divider',
+                borderColor: compact ? 'transparent' : 'divider',
+                borderWidth: compact ? 0 : 1,
+              },
+              '&:hover': {
+                bgcolor: compact ? 'rgba(255, 255, 255, 0.05)' : undefined,
               },
               '&:hover fieldset': {
-                borderColor: 'primary.main',
+                borderColor: compact ? 'transparent' : 'primary.main',
+                borderWidth: compact ? 0 : 1,
+              },
+              '&.Mui-focused': {
+                bgcolor: compact ? 'rgba(255, 255, 255, 0.08)' : undefined,
               },
               '&.Mui-focused fieldset': {
-                borderColor: 'primary.main',
-                borderWidth: 2,
+                borderColor: compact ? 'transparent' : 'primary.main',
+                borderWidth: compact ? 0 : 1,
+                boxShadow: compact ? 'none' : '0 0 0 1px rgba(25, 118, 210, 0.5)',
               },
             },
           }}
@@ -299,7 +308,11 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
           anchorEl={anchorRef.current}
           placement="bottom-start"
           transition
-          style={{ width: anchorRef.current?.offsetWidth, zIndex: 1300 }}
+          style={{
+            width: compact ? 'min(400px, 90vw)' : anchorRef.current?.offsetWidth,
+            minWidth: compact ? 300 : undefined,
+            zIndex: 1300
+          }}
         >
           {({ TransitionProps }) => (
             <Fade {...TransitionProps} timeout={200}>

@@ -32,6 +32,8 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
         prevProps.interaction?.id !== nextProps.interaction?.id ||
         prevProps.interaction?.prompt_message !==
             nextProps.interaction?.prompt_message ||
+        prevProps.interaction?.prompt_message_content !==
+            nextProps.interaction?.prompt_message_content ||
         prevProps.interaction?.display_message !==
             nextProps.interaction?.display_message ||
         prevProps.interaction?.response_message !==
@@ -100,9 +102,7 @@ export const Interaction: FC<InteractionProps> = ({
     isLastInteraction,
     onRegenerate,
     sessionSteps = [],
-}) => {
-    const account = useAccount();
-
+}) => {    
     // Memoize computed values
     const displayData = useMemo(() => {
         let userMessage: string = "";
@@ -113,10 +113,20 @@ export const Interaction: FC<InteractionProps> = ({
 
         // Removed excessive debug logging
 
-        // Extract user message from prompt_message or display_message
+        // Extract user message from prompt_message, display_message, or prompt_message_content.parts
         if (interaction?.prompt_message) {
-            userMessage =
-                interaction.display_message || interaction.prompt_message;
+            userMessage = interaction.prompt_message
+        } else if (interaction?.prompt_message_content?.parts?.length) {
+            const textPart = interaction.prompt_message_content.parts.find(
+                (part): part is { text: string } =>
+                    typeof part === "object" &&
+                    part !== null &&
+                    "text" in part &&
+                    typeof part.text === "string"
+            );
+            if (textPart) {
+                userMessage = interaction.display_message || textPart.text;
+            }
         }
 
         // Extract assistant response from response_message
@@ -182,7 +192,7 @@ export const Interaction: FC<InteractionProps> = ({
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
         >
-            {/* User Message Container */}
+            {/* User Message Container */}            
             {userMessage && (
                 <Box
                     sx={{

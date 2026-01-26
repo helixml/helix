@@ -34,7 +34,7 @@ console.log('[VideoCodecs] CAPABILITIES_CODECS loaded with H.264 Main profile:',
 
 const VIDEO_DECODER_CODECS: Array<{ key: string } & VideoDecoderConfig> = [
     { key: "H264_HIGH8_444", codec: "avc1.4d400c", colorSpace: { primaries: "bt709", matrix: "bt709", transfer: "bt709", fullRange: true } },
-    // TODO? No major browser currently supports WebRTC h265, but it might support h265 video without webrtc so we don't check that
+    // H.265/HEVC support is limited in browsers - commented out for now
     // { key: "H265", codec: "hvc1.1.6.L93.B0" },
     // { key: "H265_MAIN10", codec: "hvc1.2.4.L120.90" },
     // { key: "H265_REXT8_444", codec: "hvc1.6.6.L93.90", colorSpace: { primaries: "bt709", matrix: "bt709", transfer: "bt709", fullRange: true } },
@@ -153,58 +153,6 @@ export async function getWebCodecsSupportedVideoFormats(): Promise<VideoCodecSup
     }
 
     console.log('[VideoCodecs] WebCodecs detection complete:', support)
-    return support
-}
-
-export async function getSupportedVideoFormats(): Promise<VideoCodecSupport> {
-    let support: VideoCodecSupport = getStandardVideoFormats()
-
-    let capabilities = RTCRtpReceiver.getCapabilities("video")
-    if ("getCapabilities" in RTCRtpReceiver && typeof RTCRtpReceiver.getCapabilities == "function" && (capabilities = RTCRtpReceiver.getCapabilities("video"))) {
-        for (const capCodec of capabilities.codecs) {
-            for (const codec of CAPABILITIES_CODECS) {
-                let compatible = true
-
-                if (capCodec.mimeType.toLowerCase() != codec.mimeType.toLowerCase()) {
-                    compatible = false
-                }
-                for (const fmtpLineAttrib of codec.fmtpLine) {
-                    if (!capCodec.sdpFmtpLine?.includes(fmtpLineAttrib)) {
-                        compatible = false
-                    }
-                }
-
-                if (compatible) {
-                    support[codec.key] = true
-                }
-            }
-        }
-    } else if ("VideoDecoder" in window && window.isSecureContext) {
-        for (const codec of VIDEO_DECODER_CODECS) {
-            try {
-                const result = await VideoDecoder.isConfigSupported(codec)
-
-                support[codec.key] = result.supported || support[codec.key]
-            } catch (e) {
-                support[codec.key] = false
-            }
-        }
-    } else if ("MediaSource" in window) {
-        for (const codec of VIDEO_DECODER_CODECS) {
-            const supported = MediaSource.isTypeSupported(`video/mp4; codecs="${codec.codec}"`)
-
-            support[codec.key] = supported || support[codec.key]
-        }
-    } else {
-        const mediaElement = document.createElement("video")
-
-        for (const codec of VIDEO_DECODER_CODECS) {
-            const supported = mediaElement.canPlayType(`video/mp4; codecs="${codec.codec}"`)
-
-            support[codec.key] = supported == "probably" || support[codec.key]
-        }
-    }
-
     return support
 }
 

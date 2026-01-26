@@ -9,7 +9,6 @@ import DialogContent from '@mui/material/DialogContent'
 import Button from '@mui/material/Button'
 
 import {
-  Home,
   Bot,
   Clock,
   Server,
@@ -23,12 +22,13 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  Kanban,
   Activity,
   GitBranch,
   FileQuestionMark,
+  MessageCircle,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
+import { Hive } from '@mui/icons-material'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -299,9 +299,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     setDialogOpen(true)
   }
 
-  const handleHomeClick = () => {
+  const handleProjectsClick = () => {
     const isDefault = currentOrgSlug === 'default'
-    const routeName = isDefault ? 'home' : 'org_home'
+    const routeName = isDefault ? 'projects' : 'org_projects'
     const useParams = isDefault ? {} : { org_id: currentOrgSlug }
     router.navigate(routeName, useParams)
   }
@@ -359,11 +359,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Home size={NAV_BUTTON_SIZE} />,
-        tooltip: "Go to home",
-        isActive: isActive('home'),
-        onClick: handleHomeClick,
-        label: "Home",
+        icon: <Hive sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        tooltip: "View swarm",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: handleProjectsClick,
+        label: "Swarm",
+      },
+      {
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive('chat'),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
       },
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
@@ -371,13 +378,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive(['apps', 'app']),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
-      },
-      {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
-        onClick: () => orgNavigateTo('projects'),
-        label: "Projects",
       },
       {
         icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
@@ -434,6 +434,35 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
     const tiles = []
+
+    // Wait for auth context to initialize before showing user-specific content
+    // This prevents "?" flash during hot reload while auth state is loading
+    if (!account.initialized) {
+      return (
+        <Box
+          sx={{
+            position: 'relative',
+            width: AVATAR_SIZE,
+            height: AVATAR_SIZE,
+            cursor: 'pointer',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              bgcolor: 'grey.800',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+              border: '2px solid #4A5568',
+            }}
+          />
+        </Box>
+      )
+    }
 
     // Determine which organization/context is currently active
     const isPersonalActive = currentOrgSlug === 'default'

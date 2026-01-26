@@ -259,6 +259,12 @@ type controlMsg struct {
 	Err      string `json:"err,omitempty"`
 }
 
+// controlReadTimeout is the maximum time to wait for a control message.
+// The server sends keep-alive messages periodically, so if we don't receive
+// anything within this timeout, the connection is likely dead.
+// This prevents blocking forever when the server dies without sending a close frame.
+const controlReadTimeout = 60 * time.Second
+
 // run reads control messages from the public server forever until the connection dies, which
 // then closes the listener.
 func (ln *Listener) run() {
@@ -282,11 +288,21 @@ func (ln *Listener) run() {
 		}
 	}()
 
-	// Read loop
+	// Read loop with timeout to detect dead connections
 	br := bufio.NewReader(ln.sc)
 	for {
+		// Set read deadline to detect dead connections
+		// If the server is alive, it will send keep-alive messages or conn-ready commands
+		if err := ln.sc.SetReadDeadline(time.Now().Add(controlReadTimeout)); err != nil {
+			log.Printf("revdial.Listener: failed to set read deadline: %v", err)
+			return
+		}
+
 		line, err := br.ReadSlice('\n')
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Printf("revdial.Listener: read timeout after %v, closing connection", controlReadTimeout)
+			}
 			return
 		}
 		var msg controlMsg

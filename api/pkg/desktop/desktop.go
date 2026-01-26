@@ -5,6 +5,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -38,9 +39,16 @@ type Server struct {
 
 	// Screenshot-dedicated ScreenCast session (separate from video streaming)
 	// This avoids buffer renegotiation conflicts when capturing screenshots
+	// This session has cursor-mode=1 (Embedded) for MCP/agent screenshots
 	ssScSessionPath dbus.ObjectPath
 	ssScStreamPath  dbus.ObjectPath
 	ssNodeID        uint32
+
+	// No-cursor screenshot session for video polling mode
+	// This session has cursor-mode=0 (Hidden) so cursors don't appear in video polling screenshots
+	ssNoCursorScSessionPath dbus.ObjectPath
+	ssNoCursorScStreamPath  dbus.ObjectPath
+	ssNoCursorNodeID        uint32
 
 	// Standalone video streaming ScreenCast session (NOT linked to RemoteDesktop)
 	// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
@@ -49,6 +57,16 @@ type Server struct {
 	videoScSessionPath dbus.ObjectPath
 	videoScStreamPath  dbus.ObjectPath
 	videoNodeID        uint32
+
+	// Cursor-only ScreenCast session for cursor monitoring
+	// This is a dedicated session that only the cursor client consumes.
+	// GNOME doesn't allow multiple PipeWire consumers on the same node, so we need
+	// a separate session to monitor cursor without conflicting with the video stream.
+	// This session has cursor-mode=2 (Metadata) for client-side cursor rendering.
+	cursorScSessionPath dbus.ObjectPath
+	cursorScStreamPath  dbus.ObjectPath
+	cursorNodeID        uint32
+	cursorPipeWireFd    int // Separate PipeWire FD for cursor client (each PW connection needs its own FD)
 
 	// Portal session state (for Sway/wlroots via xdg-desktop-portal-wlr)
 	portalSessionHandle   string // ScreenCast session handle
@@ -89,6 +107,14 @@ type Server struct {
 	// one operation at a time per sender. Concurrent calls return
 	// "There is an ongoing operation for this sender" error.
 	screenshotMu sync.Mutex
+
+	// Cursor state for screenshot compositing
+	// In GNOME with Helix-Invisible cursor theme, we need to composite
+	// the cursor onto screenshots since the actual cursor is transparent.
+	cursorMu   sync.RWMutex
+	cursorX    int32  // Last known cursor X position
+	cursorY    int32  // Last known cursor Y position
+	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -136,7 +162,35 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		screenWidth:     screenWidth,
 		screenHeight:    screenHeight,
 		displayScale:    displayScale,
+		cursorName:      "default", // Start with default arrow cursor
 	}
+}
+
+// UpdateCursorState updates the cursor position and shape for screenshot compositing.
+// Called by the cursor socket listener when cursor state changes.
+func (s *Server) UpdateCursorState(x, y int32, cursorName string) {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
+	s.cursorX = x
+	s.cursorY = y
+	if cursorName != "" {
+		s.cursorName = cursorName
+	}
+}
+
+// UpdateCursorPosition updates just the cursor position (called from input events).
+func (s *Server) UpdateCursorPosition(x, y int32) {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
+	s.cursorX = x
+	s.cursorY = y
+}
+
+// GetCursorState returns the current cursor position and shape.
+func (s *Server) GetCursorState() (x, y int32, cursorName string) {
+	s.cursorMu.RLock()
+	defer s.cursorMu.RUnlock()
+	return s.cursorX, s.cursorY, s.cursorName
 }
 
 // Run starts the server and blocks until context is cancelled.
@@ -211,6 +265,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// 8. Create dedicated screenshot ScreenCast session (separate from video streaming)
 		// This is a THIRD standalone session to avoid buffer renegotiation conflicts
 		// when capturing screenshots while video is streaming.
+		// This session has cursor-mode=1 (Embedded) for MCP/agent screenshots.
 		if err := s.createScreenshotSession(ctx); err != nil {
 			// Non-fatal - fall back to D-Bus Screenshot API
 			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
@@ -221,19 +276,42 @@ func (s *Server) Run(ctx context.Context) error {
 				"video_node_id", s.videoNodeID)
 		}
 
+		// 9. Create no-cursor screenshot session for video polling mode
+		// This is a FOURTH standalone session with cursor-mode=0 (Hidden).
+		// Video polling screenshots use this so the frontend can render its own cursor overlay.
+		if err := s.createNoCursorScreenshotSession(ctx); err != nil {
+			// Non-fatal - fall back to cursor screenshots
+			s.logger.Warn("failed to create no-cursor screenshot session, will use cursor session",
+				"err", err)
+		} else {
+			s.logger.Info("no-cursor screenshot session ready",
+				"no_cursor_node_id", s.ssNoCursorNodeID,
+				"cursor_node_id", s.ssNodeID)
+		}
+
+		// 10. Cursor session is already created as part of createSession/startSession
+		// It's a second linked ScreenCast session that gives us our own PipeWire node for cursor
+		if s.cursorNodeID != 0 {
+			s.logger.Info("cursor session ready (linked)",
+				"cursor_node_id", s.cursorNodeID,
+				"video_node_id", s.nodeID)
+		} else {
+			s.logger.Warn("cursor session not available, cursor monitoring disabled")
+		}
+
 		// Mark as running BEFORE starting goroutines that check isRunning()
 		// CRITICAL: This fixes a race condition where input bridge would exit
 		// immediately because s.running was false when the goroutine started.
 		s.running.Store(true)
 
-		// 9. Start input bridge
+		// 11. Start input bridge
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
 
-		// 10. Start session monitor (detects session closure and recreates)
+		// 12. Start session monitor (detects session closure and recreates)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -349,11 +427,15 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/input", s.handleInput)
 	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
 	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec)          // Execute command in container (for benchmarking)
+	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
+	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+	mux.HandleFunc("/clients", s.handleClients)
+	mux.HandleFunc("/video/stats", s.handleVideoStats)
 
 	return mux
 }
@@ -401,4 +483,78 @@ func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
 	// Call handleStreamWebSocketInternal directly with our selected nodeID
 	// (handleStreamWebSocketWithServer has its own logic that would override our choice)
 	handleStreamWebSocketInternal(w, r, nodeID, s.logger, s)
+}
+
+// ClientInfo is the JSON response for a connected client (no WebSocket conn exposed)
+type ClientInfo struct {
+	ID        uint32 `json:"id"`
+	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	Color     string `json:"color"`
+	LastX     int32  `json:"last_x"`
+	LastY     int32  `json:"last_y"`
+	LastSeen  string `json:"last_seen"`
+}
+
+// ClientsResponse is the JSON response for the /clients endpoint
+type ClientsResponse struct {
+	SessionID string       `json:"session_id"`
+	Clients   []ClientInfo `json:"clients"`
+}
+
+// handleClients returns the list of connected WebSocket clients for this session.
+// Used by the admin dashboard to show multi-player info.
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := s.config.SessionID
+	clients := GetSessionRegistry().GetConnectedUsers(sessionID)
+
+	response := ClientsResponse{
+		SessionID: sessionID,
+		Clients:   make([]ClientInfo, 0, len(clients)),
+	}
+
+	for _, c := range clients {
+		response.Clients = append(response.Clients, ClientInfo{
+			ID:        c.ID,
+			UserID:    c.UserID,
+			UserName:  c.UserName,
+			AvatarURL: c.AvatarURL,
+			Color:     c.Color,
+			LastX:     c.LastX,
+			LastY:     c.LastY,
+			LastSeen:  c.LastSeen.Format(time.RFC3339),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// VideoStatsResponse is the JSON response for the /video/stats endpoint
+type VideoStatsResponse struct {
+	SessionID string        `json:"session_id"`
+	Sources   []SourceStats `json:"sources"`
+}
+
+// handleVideoStats returns video streaming statistics including per-client buffer usage.
+// Used by the admin dashboard to monitor streaming performance.
+func (s *Server) handleVideoStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := VideoStatsResponse{
+		SessionID: s.config.SessionID,
+		Sources:   GetSharedVideoRegistry().GetAllStats(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardActions,
   Grid,
   Typography,
   IconButton,
@@ -21,7 +20,6 @@ import SearchIcon from '@mui/icons-material/Search'
 import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
-import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { TypesProject } from '../../services'
 import type { ServerSampleProject } from '../../api/api'
 
@@ -77,18 +75,11 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
       {/* Header with description */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
-          Project Workspaces
+          Projects
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Each project has a workspace where multiple AI agents can work in parallel to complete tasks.
+          Each Project has a Swarm of Agents working in parallel and a Team Desktop for manual testing.
         </Typography>
-      </Box>
-
-      {/* Unified search bar - searches across all entities */}
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
-        <UnifiedSearchBar
-          placeholder="Search everything... (Cmd/Ctrl+K)"
-        />
       </Box>
 
       {/* Local project filter */}
@@ -156,33 +147,36 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Box>
       ) : (
         <>
-        <Grid container spacing={3}>
+        <Grid container spacing={2}>
           {paginatedProjects.map((project) => (
-            <Grid item xs={12} sm={6} md={4} key={project.id}>
+            <Grid item xs={6} sm={4} md={3} key={project.id}>
               <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <CardContent sx={{ flexGrow: 1, cursor: 'pointer' }} onClick={() => onViewProject(project)}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Kanban size={40} style={{ color: theme.palette.secondary.main }} />
+                <CardContent sx={{ flexGrow: 1, cursor: 'pointer', p: 2, '&:last-child': { pb: 2 } }} onClick={() => onViewProject(project)}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Kanban size={24} style={{ color: theme.palette.secondary.main }} />
                     <IconButton
                       size="small"
                       onClick={(e) => {
                         e.stopPropagation()
                         onMenuOpen(e, project)
                       }}
+                      sx={{ p: 0.5, mt: -0.5, mr: -0.5 }}
                     >
-                      <MoreVertIcon />
+                      <MoreVertIcon sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Box>
-                  <Typography variant="h6" gutterBottom>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.4 }}>
                     {project.name}
                   </Typography>
                   {project.description && (
                     <Typography variant="body2" color="text.secondary" sx={{
+                      mt: 0.5,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       display: '-webkit-box',
                       WebkitLineClamp: 2,
                       WebkitBoxOrient: 'vertical',
+                      lineHeight: 1.4,
                     }}>
                       {project.description}
                     </Typography>
@@ -194,21 +188,20 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                         label={appNamesMap[project.default_helix_app_id]}
                         size="small"
                         sx={{
-                          mt: 1.5,
+                          mt: 1,
+                          height: 20,
+                          fontSize: '0.7rem',
                           background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
                           color: 'rgba(255, 255, 255, 0.9)',
                           fontWeight: 500,
-                          fontSize: '0.75rem',
                           border: '1px solid rgba(255,255,255,0.12)',
                           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                          '& .MuiChip-label': { px: 1 },
                         }}
                       />
                     </Tooltip>
                   )}
                 </CardContent>
-                <CardActions>
-                  
-                </CardActions>
               </Card>
             </Grid>
           ))}
@@ -216,7 +209,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4, mb: 4 }}>
             <Pagination
               count={totalPages}
               page={page + 1}

@@ -199,30 +199,25 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 		Bool("is_retry", isRetry).
 		Msg("📤 [INTERRUPT] Processing interrupt prompt")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
+	// Once we start processing, mark it done so no other process picks it up.
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+		// Continue anyway - better to risk duplicate than lose the message
 	}
 
-	// Send the prompt to the session
-	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
-	if err != nil {
+	// Send the prompt to the session (creates interaction and sends to agent)
+	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
+		// Interaction creation failed - revert to 'failed' so it can be retried
 		log.Error().
 			Err(err).
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
-			Msg("Failed to send interrupt prompt to session")
-
-		// Mark as failed
+			Msg("Failed to create interaction for interrupt prompt - reverting to failed")
 		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
-			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
-	}
-
-	// Mark as sent
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
 	}
 
 	log.Info().

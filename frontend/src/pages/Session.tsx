@@ -10,7 +10,6 @@ import AlertTitle from '@mui/material/AlertTitle'
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import Computer from '@mui/icons-material/Computer'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -1343,7 +1342,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id || ''}
-                      onRegenerate={onRegenerate}
+                      onRegenerate={isExternalAgent ? undefined : onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
                     />
                   )
@@ -1376,6 +1375,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     appID,
     memoizedInteractions,
     sessionSteps?.data,
+    isExternalAgent,
   ])
 
   useEffect(() => {

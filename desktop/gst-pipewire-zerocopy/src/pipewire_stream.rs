@@ -1,4 +1,13 @@
 //! PipeWire stream handling - outputs smithay Dmabuf directly
+//!
+//! For CUDA path: EGL import + CUDA copy happens HERE in the PipeWire thread
+//! BEFORE returning the buffer to the compositor. This prevents race conditions
+//! where the compositor reuses the GPU buffer while we're still reading from it.
+
+// GStreamer imports (crate names from Cargo.toml: gst, gst-video)
+use gst::prelude::*;
+use gst::Buffer as GstBuffer;
+use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
 
 use parking_lot::Mutex;
 use pipewire::spa::param::format::{FormatProperties, MediaSubtype, MediaType};
@@ -6,7 +15,7 @@ use pipewire::spa::param::ParamType;
 use pipewire::spa::pod::serialize::PodSerializer;
 use pipewire::spa::pod::Pod;
 use pipewire::spa::pod::{ChoiceValue, Object, Property, PropertyFlags, Value};
-use pipewire::spa::sys::{spa_buffer, spa_meta_header, SPA_META_Header};
+use pipewire::spa::sys::{spa_buffer, spa_meta, spa_meta_header, SPA_META_Header};
 use pipewire::spa::utils::{Choice, ChoiceEnum, ChoiceFlags, Fraction, Id, SpaTypes};
 use pipewire::{
     context::Context,
@@ -20,18 +29,65 @@ use smithay::backend::allocator::{Fourcc, Modifier};
 use std::io::Cursor;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::sync::Arc;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+// Use crossbeam-channel instead of std::sync::mpsc to avoid race conditions
+// where recv_timeout can miss messages sent during timeout processing.
+// See: https://github.com/rust-lang/rust/issues/94518
+use crossbeam_channel::{self as channel, Receiver, Sender};
+
+// CUDA imports for zero-copy path
+use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
+use smithay::backend::egl::EGLDisplay;
+use waylanddisplaycore::utils::allocator::cuda::{
+    CUDABufferPool, CUDAContext, CUDAImage, EGLImage, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
+};
+
+/// Cursor bitmap image data
+#[derive(Debug, Clone)]
+pub struct CursorBitmap {
+    /// DRM fourcc format (e.g., ARGB8888)
+    pub format: u32,
+    /// Bitmap width in pixels
+    pub width: u32,
+    /// Bitmap height in pixels
+    pub height: u32,
+    /// Stride in bytes
+    pub stride: i32,
+    /// Raw pixel data
+    pub data: Vec<u8>,
+}
+
+/// Cursor data extracted from PipeWire SPA_META_Cursor metadata
+#[derive(Debug, Clone)]
+pub struct CursorData {
+    pub id: u32,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub hotspot_x: i32,
+    pub hotspot_y: i32,
+    pub bitmap: Option<CursorBitmap>,
+}
 
 /// Frame received from PipeWire
 pub enum FrameData {
     /// DMA-BUF frame (zero-copy) - directly usable with waylanddisplaycore
     /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
-    DmaBuf { dmabuf: Dmabuf, pts_ns: i64 },
+    DmaBuf {
+        dmabuf: Dmabuf,
+        pts_ns: i64,
+    },
+    /// CUDA buffer - EGL import + CUDA copy already completed in PipeWire thread
+    /// This is the preferred path for NVIDIA: no race condition with buffer reuse
+    CudaBuffer {
+        buffer: GstBuffer,
+        width: u32,
+        height: u32,
+        format: VideoFormat,
+        pts_ns: i64,
+    },
     /// SHM fallback
     /// pts_ns is the compositor timestamp in nanoseconds (from spa_meta_header)
     Shm {
@@ -84,10 +140,37 @@ pub struct DmaBufCapabilities {
     pub dmabuf_available: bool,
 }
 
+/// CUDA resources for zero-copy GPU path.
+/// These are passed to the PipeWire thread to do EGL import + CUDA copy
+/// BEFORE returning the buffer to the compositor (preventing race conditions).
+///
+/// The key insight: We must complete the CUDA copy BEFORE calling `queue_raw_buffer`
+/// because returning the buffer allows Mutter to reuse the underlying GPU memory.
+/// The DmaBuf file descriptor we dup'd still points to the same GPU buffer!
+pub struct CudaResources {
+    /// Smithay EGLDisplay - used to import DmaBuf as EGLImage
+    pub egl_display: Arc<EGLDisplay>,
+    /// CUDA context for GPU operations
+    pub cuda_context: Arc<std::sync::Mutex<CUDAContext>>,
+    /// Buffer pool state - wrapped in Mutex for interior mutability
+    pub buffer_pool_state: Arc<Mutex<BufferPoolState>>,
+}
+
+/// Buffer pool state for CUDA buffer allocation
+pub struct BufferPoolState {
+    pub pool: Option<CUDABufferPool>,
+    pub configured: bool,
+}
+
+// CudaResources needs to be Send to pass to the PipeWire thread
+// Safety: EGL display and CUDA context are thread-safe when properly synchronized
+unsafe impl Send for CudaResources {}
+
 /// PipeWire stream wrapper
+
 pub struct PipeWireStream {
     thread: Option<JoinHandle<()>>,
-    frame_rx: mpsc::Receiver<FrameData>,
+    frame_rx: Receiver<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
     error: Arc<Mutex<Option<String>>>,
@@ -107,15 +190,21 @@ impl PipeWireStream {
     ///                   If None, we only offer SHM formats (MemFd).
     /// * `target_fps` - Target frames per second. The max_framerate sent to Mutter will be
     ///                  target_fps * 2 to avoid the 16ms/17ms timing boundary issue.
+    /// * `cuda_resources` - Optional CUDA resources for GPU zero-copy path.
+    ///                      If provided, EGL import + CUDA copy happens in the PipeWire thread
+    ///                      BEFORE returning the buffer to the compositor, preventing race conditions.
     pub fn connect(
         node_id: u32,
         pipewire_fd: Option<i32>,
         dmabuf_caps: Option<DmaBufCapabilities>,
         target_fps: u32,
+        cuda_resources: Option<CudaResources>,
     ) -> Result<Self, String> {
         // Use larger buffer to reduce backpressure from GStreamer consumer
         // This helps prevent frame drops when GNOME delivers frames faster than we consume them
-        let (frame_tx, frame_rx) = mpsc::sync_channel(8);
+        // crossbeam::bounded is used instead of std::mpsc::sync_channel to avoid race conditions
+        // where recv_timeout can miss messages sent during timeout processing
+        let (frame_tx, frame_rx) = channel::bounded(8);
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
         let video_info = Arc::new(Mutex::new(VideoParams::default()));
@@ -124,17 +213,16 @@ impl PipeWireStream {
         let error_clone = error.clone();
 
         // Request max_framerate=0 to DISABLE Mutter's frame rate limiter entirely.
-        // Mutter's frame pacing logic in meta-screen-cast-stream-src.c:1322-1345 checks:
-        //   if (priv->video_format.max_framerate.num > 0 && priv->last_frame_timestamp_us != 0)
-        // When max_framerate.num == 0, the limiter is bypassed completely.
+        // When max_framerate>0, Mutter skips frames causing judder and caps FPS at ~30-40.
+        // With max_framerate=0/1, Mutter sends all damage events without frame limiting.
         //
-        // Previous approach (target_fps * 2 = 120) didn't work because Mutter ignores our
-        // offer and negotiates its own value (60/1), causing ~50% of frames to be skipped
-        // as "too early" due to 16ms/17ms timing boundary issues.
+        // Trade-off: Static screens produce zero frames from Mutter. The pipewirezerocopysrc
+        // keepalive mechanism (keepalive-time=500) resends the last buffer every 500ms,
+        // ensuring 2 FPS minimum on static screens to keep the stream alive.
         let negotiated_max_fps = 0;
         eprintln!(
-            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled)",
-            target_fps, negotiated_max_fps
+            "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter), cuda={}",
+            target_fps, negotiated_max_fps, cuda_resources.is_some()
         );
 
         let thread = thread::Builder::new()
@@ -148,6 +236,7 @@ impl PipeWireStream {
                     frame_tx,
                     shutdown_clone,
                     video_info_clone,
+                    cuda_resources,
                 ) {
                     tracing::error!("PipeWire loop error: {}", e);
                     *error_clone.lock() = Some(e);
@@ -190,8 +279,8 @@ impl PipeWireStream {
             return Err(RecvError::Error(err));
         }
         self.frame_rx.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => RecvError::Timeout,
-            mpsc::RecvTimeoutError::Disconnected => RecvError::Disconnected,
+            channel::RecvTimeoutError::Timeout => RecvError::Timeout,
+            channel::RecvTimeoutError::Disconnected => RecvError::Disconnected,
         })
     }
 
@@ -280,14 +369,170 @@ unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
     0
 }
 
+/// SPA_META_Cursor type constant (from spa/buffer/meta.h)
+const SPA_META_CURSOR: u32 = 5;
+
+/// Extract cursor metadata from PipeWire buffer's spa_meta_cursor.
+/// This is sent when cursor-mode=2 (Metadata) is set in ScreenCast.
+/// NOTE: No longer used in Rust - Go PipeWire client handles cursor via its own session.
+///
+/// # Safety
+/// The buffer pointer must be valid and point to a spa_buffer.
+#[allow(dead_code)]
+unsafe fn extract_cursor_from_buffer(buffer: *mut spa_buffer) -> Option<CursorData> {
+    if buffer.is_null() {
+        return None;
+    }
+    let n_metas = (*buffer).n_metas;
+    if n_metas == 0 {
+        return None;
+    }
+
+    let mut meta_ptr: *mut spa_meta = (*buffer).metas;
+    let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
+
+    while meta_ptr != metas_end {
+        if (*meta_ptr).type_ == SPA_META_CURSOR {
+            let data_ptr = (*meta_ptr).data as *const u8;
+            let meta_size = (*meta_ptr).size;
+
+            // spa_meta_cursor is 28 bytes minimum
+            if meta_size < 28 {
+                meta_ptr = meta_ptr.wrapping_add(1);
+                continue;
+            }
+
+            // Parse spa_meta_cursor fields
+            // Offsets: id(0), flags(4), position.x(8), position.y(12),
+            //          hotspot.x(16), hotspot.y(20), bitmap_offset(24)
+            let id = *(data_ptr as *const u32);
+            let position_x = *(data_ptr.add(8) as *const i32);
+            let position_y = *(data_ptr.add(12) as *const i32);
+            let hotspot_x = *(data_ptr.add(16) as *const i32);
+            let hotspot_y = *(data_ptr.add(20) as *const i32);
+            let bitmap_offset = *(data_ptr.add(24) as *const u32);
+
+            // Check if there's a valid bitmap
+            let bitmap = if bitmap_offset >= 28 && (bitmap_offset as usize) + 20 <= meta_size as usize {
+                let bitmap_ptr = data_ptr.add(bitmap_offset as usize);
+                let format = *(bitmap_ptr as *const u32);
+                let width = *(bitmap_ptr.add(4) as *const u32);
+                let height = *(bitmap_ptr.add(8) as *const u32);
+                let stride = *(bitmap_ptr.add(12) as *const i32);
+                let pixel_offset = *(bitmap_ptr.add(16) as *const u32);
+
+                if format == 0 || width == 0 || height == 0 {
+                    None
+                } else {
+                    let pixel_data_start = bitmap_ptr.add(pixel_offset as usize);
+                    let pixel_data_size = (stride.abs() as u32 * height) as usize;
+                    let total_offset = bitmap_offset as usize + pixel_offset as usize + pixel_data_size;
+
+                    if total_offset <= meta_size as usize {
+                        let data = std::slice::from_raw_parts(pixel_data_start, pixel_data_size).to_vec();
+                        Some(CursorBitmap {
+                            format,
+                            width,
+                            height,
+                            stride,
+                            data,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            return Some(CursorData {
+                id,
+                position_x,
+                position_y,
+                hotspot_x,
+                hotspot_y,
+                bitmap,
+            });
+        }
+        meta_ptr = meta_ptr.wrapping_add(1);
+    }
+    None
+}
+
+/// Write cursor data to a file for IPC with Go WebSocket handler.
+/// NOTE: No longer used - Go PipeWire client reads cursor directly from its own session.
+#[allow(dead_code)]
+fn write_cursor_to_file(cursor: &CursorData) {
+    use std::io::Write;
+
+    // Track last cursor state to avoid redundant writes
+    static LAST_CURSOR_HASH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    // Hash cursor state (hotspot + bitmap, NOT position - position changes every frame)
+    let cursor_hash = {
+        let mut h: u64 = cursor.id as u64;
+        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_x as u64);
+        h = h.wrapping_mul(31).wrapping_add(cursor.hotspot_y as u64);
+        if let Some(ref bmp) = cursor.bitmap {
+            h = h.wrapping_mul(31).wrapping_add(bmp.width as u64);
+            h = h.wrapping_mul(31).wrapping_add(bmp.height as u64);
+            if bmp.data.len() >= 8 {
+                h = h.wrapping_mul(31).wrapping_add(u64::from_le_bytes([
+                    bmp.data[0], bmp.data[1], bmp.data[2], bmp.data[3],
+                    bmp.data[4], bmp.data[5], bmp.data[6], bmp.data[7],
+                ]));
+            }
+        }
+        h
+    };
+
+    // Only write if cursor state changed
+    let last_hash = LAST_CURSOR_HASH.swap(cursor_hash, std::sync::atomic::Ordering::Relaxed);
+    if cursor_hash == last_hash {
+        return;
+    }
+
+    // Binary format: header (28 bytes) + optional bitmap
+    let bitmap_header_size = if cursor.bitmap.is_some() { 16 } else { 0 };
+    let bitmap_data_size = cursor.bitmap.as_ref().map(|b| b.data.len()).unwrap_or(0);
+    let total_size = 28 + bitmap_header_size + bitmap_data_size;
+
+    let mut buf = Vec::with_capacity(total_size);
+    buf.extend_from_slice(&0x43555253u32.to_le_bytes()); // "CURS" magic
+    buf.extend_from_slice(&1u32.to_le_bytes()); // version
+    buf.extend_from_slice(&cursor.position_x.to_le_bytes());
+    buf.extend_from_slice(&cursor.position_y.to_le_bytes());
+    buf.extend_from_slice(&cursor.hotspot_x.to_le_bytes());
+    buf.extend_from_slice(&cursor.hotspot_y.to_le_bytes());
+    buf.extend_from_slice(&((bitmap_header_size + bitmap_data_size) as u32).to_le_bytes());
+
+    if let Some(ref bmp) = cursor.bitmap {
+        buf.extend_from_slice(&bmp.format.to_le_bytes());
+        buf.extend_from_slice(&bmp.width.to_le_bytes());
+        buf.extend_from_slice(&bmp.height.to_le_bytes());
+        buf.extend_from_slice(&bmp.stride.to_le_bytes());
+        buf.extend_from_slice(&bmp.data);
+    }
+
+    // Atomic write via temp file
+    let cursor_path = "/tmp/helix-cursor.bin";
+    let temp_path = "/tmp/helix-cursor.bin.tmp";
+    if let Ok(mut file) = std::fs::File::create(temp_path) {
+        if file.write_all(&buf).is_ok() {
+            let _ = std::fs::rename(temp_path, cursor_path);
+        }
+    }
+}
+
 fn run_pipewire_loop(
     node_id: u32,
     pipewire_fd: Option<i32>,
     dmabuf_caps: Option<DmaBufCapabilities>,
     negotiated_max_fps: u32,
-    frame_tx: mpsc::SyncSender<FrameData>,
+    frame_tx: Sender<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
+    cuda_resources: Option<CudaResources>,
 ) -> Result<(), String> {
     pipewire::init();
 
@@ -327,6 +572,11 @@ fn run_pipewire_loop(
     // Note: SyncSender is thread-safe, no Mutex needed
     let video_info_param = video_info.clone();
     let frame_tx_process = frame_tx.clone();
+
+    // Wrap cuda_resources in Arc for sharing with process callback
+    // The process callback will do EGL import + CUDA copy BEFORE returning buffer to PipeWire
+    let cuda_resources = cuda_resources.map(Arc::new);
+    let cuda_resources_process = cuda_resources.clone();
 
     // Per-stream tracking for format negotiation.
     // CRITICAL: This must be per-stream (Arc), not static, because Wolf runs
@@ -619,10 +869,23 @@ fn run_pipewire_loop(
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
 
+            // Detect out-of-order frames from compositor (PTS should be monotonically increasing)
+            static LAST_PTS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+            static OOO_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let prev_pts = LAST_PTS.swap(pts_ns, Ordering::SeqCst);
+            if pts_ns > 0 && prev_pts > 0 && pts_ns < prev_pts {
+                let ooo = OOO_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                eprintln!("[PIPEWIRE_OOO] OUT OF ORDER FRAME! #{} prev_pts={} curr_pts={} delta={}ns",
+                    ooo, prev_pts, pts_ns, prev_pts - pts_ns);
+            }
+
+            // Note: Cursor metadata is handled by Go PipeWire client via separate session
+            // The Rust plugin only handles video frames
+
             // Get datas from spa_buffer
             let n_datas = unsafe { (*spa_buffer).n_datas };
             if n_datas == 0 {
-                eprintln!("[PIPEWIRE_DEBUG] process #{}: n_datas is 0!", pcount);
+                // No video data in this buffer (empty buffer)
                 unsafe { stream.queue_raw_buffer(pw_buffer) };
                 return;
             }
@@ -655,7 +918,32 @@ fn run_pipewire_loop(
                     tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
                 }
 
-                let _ = frame_tx_process.try_send(frame);
+                // CRITICAL FIX: Process DmaBuf through CUDA BEFORE returning buffer to PipeWire.
+                // This prevents the race condition where Mutter reuses the GPU buffer
+                // while we're still reading from it in a different thread.
+                let frame_to_send = match (&frame, cuda_resources_process.as_ref()) {
+                    (FrameData::DmaBuf { dmabuf, pts_ns }, Some(cuda_res)) => {
+                        // Do CUDA processing in PipeWire thread, synchronously
+                        match process_dmabuf_to_cuda(dmabuf, cuda_res, *pts_ns, &params) {
+                            Ok(cuda_frame) => Some(cuda_frame),
+                            Err(e) => {
+                                // Log error and drop frame - no fallback, corruption is worse
+                                static CUDA_ERROR_COUNT: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                let err_count = CUDA_ERROR_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                                if err_count <= 10 || err_count % 100 == 0 {
+                                    eprintln!("[PIPEWIRE_CUDA] ERROR: CUDA processing failed ({}): {}", err_count, e);
+                                }
+                                None  // Drop frame
+                            }
+                        }
+                    }
+                    _ => Some(frame),
+                };
+
+                if let Some(f) = frame_to_send {
+                    let _ = frame_tx_process.try_send(f);
+                }
             } else {
                 // extract_frame returned None - log why (first 5 times only to avoid spam)
                 static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -669,7 +957,8 @@ fn run_pipewire_loop(
                 }
             }
 
-            // Re-queue the buffer
+            // Re-queue the buffer AFTER CUDA copy is complete.
+            // This is safe now because the GPU data has been copied to a CUDA buffer.
             unsafe { stream.queue_raw_buffer(pw_buffer) };
         })
         .register()
@@ -755,11 +1044,125 @@ fn run_pipewire_loop(
     // Main loop: iterate PipeWire events
     // set_active(true) is called in the state_changed callback when entering Paused state
     // (gnome-remote-desktop pattern: call set_active BEFORE format negotiation)
+    //
+    // CRITICAL: Use 1ms poll interval for low-latency frame delivery.
+    // With 50ms, typing latency on static screens was 1-2 seconds because:
+    // - Mutter's pending_process flag blocks subsequent damage until on_stream_process fires
+    // - on_stream_process only fires when WE dequeue and return buffers
+    // - Slow polling delays buffer return, blocking Mutter's frame clock
     while !shutdown.load(Ordering::SeqCst) {
-        mainloop.loop_().iterate(Duration::from_millis(50));
+        mainloop.loop_().iterate(Duration::from_millis(1));
     }
 
     Ok(())
+}
+
+/// Convert DRM fourcc (smithay Fourcc enum) to GStreamer VideoFormat.
+/// This is needed for CUDA buffer creation in the PipeWire thread.
+fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
+    // Use the smithay Fourcc enum variants directly
+    match fourcc {
+        Fourcc::Argb8888 => VideoFormat::Bgra,
+        Fourcc::Abgr8888 => VideoFormat::Rgba,
+        Fourcc::Rgba8888 => VideoFormat::Abgr,
+        Fourcc::Bgra8888 => VideoFormat::Argb,
+        Fourcc::Xrgb8888 => VideoFormat::Bgrx,
+        Fourcc::Xbgr8888 => VideoFormat::Rgbx,
+        Fourcc::Rgbx8888 => VideoFormat::Xbgr,
+        Fourcc::Bgrx8888 => VideoFormat::Xrgb,
+        Fourcc::Bgr888 => VideoFormat::Rgb,
+        Fourcc::Rgb888 => VideoFormat::Bgr,
+        _ => {
+            eprintln!("[PIPEWIRE_CUDA] Unknown DRM fourcc {:?}, defaulting to Bgra", fourcc);
+            VideoFormat::Bgra
+        }
+    }
+}
+
+/// Process DmaBuf through CUDA in the PipeWire thread.
+/// This does EGL import + CUDA copy synchronously BEFORE returning the buffer to PipeWire,
+/// preventing the race condition where Mutter reuses the GPU buffer while we're reading.
+fn process_dmabuf_to_cuda(
+    dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
+    cuda_res: &CudaResources,
+    pts_ns: i64,
+    params: &VideoParams,
+) -> Result<FrameData, String> {
+    use smithay::backend::allocator::Buffer;
+
+    let w = dmabuf.width() as u32;
+    let h = dmabuf.height() as u32;
+
+    // Get raw EGL display handle
+    let raw_display: RawEGLDisplay = cuda_res.egl_display.get_display_handle().handle;
+
+    // Step 1: Import DmaBuf as EGLImage
+    let egl_image = EGLImage::from(dmabuf, &raw_display)
+        .map_err(|e| format!("EGLImage::from failed: {}", e))?;
+
+    // Step 2: Lock CUDA context and create CUDAImage
+    let cuda_ctx = cuda_res.cuda_context.lock()
+        .map_err(|e| format!("Failed to lock CUDA context: {}", e))?;
+
+    let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
+        .map_err(|e| format!("CUDAImage::from failed: {}", e))?;
+
+    // Step 3: Build video info for buffer allocation
+    let drm_format = dmabuf.format();
+    let video_format = drm_fourcc_to_video_format(drm_format.code);
+    let base_info = VideoInfo::builder(video_format, w, h)
+        .build()
+        .map_err(|e| format!("VideoInfo build failed: {:?}", e))?;
+    // VideoInfoDmaDrm expects u32 fourcc code
+    let dma_video_info = VideoInfoDmaDrm::new(
+        base_info,
+        drm_format.code as u32,
+        drm_format.modifier.into(),
+    );
+
+    // Step 4: Configure buffer pool on first use
+    {
+        let mut pool_state = cuda_res.buffer_pool_state.lock();
+        if !pool_state.configured {
+            if let Some(ref pool) = pool_state.pool {
+                let pool_caps = VideoCapsBuilder::new()
+                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                    .format(video_format)
+                    .width(w as i32)
+                    .height(h as i32)
+                    .framerate(gst::Fraction::new(60, 1))
+                    .build();
+                let buffer_size = w * h * 4;
+                if pool.configure_basic(&pool_caps, buffer_size, 8, 16).is_ok() {
+                    if pool.activate().is_ok() {
+                        pool_state.configured = true;
+                        eprintln!("[PIPEWIRE_CUDA] Buffer pool configured: {}x{} {:?}", w, h, video_format);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 5: Do the actual CUDA copy (this is synchronous - waits for GPU)
+    let pool_state = cuda_res.buffer_pool_state.lock();
+    let buffer = cuda_image
+        .to_gst_buffer(dma_video_info, &cuda_ctx, pool_state.pool.as_ref())
+        .map_err(|e| format!("to_gst_buffer failed: {}", e))?;
+    drop(pool_state);
+
+    // Step 6: CUDAImage drops here, which calls cuGraphicsUnregisterResource
+    // This is safe because the CUDA copy is complete (synchronous)
+    drop(cuda_image);
+    drop(cuda_ctx);
+
+    // Return the CUDA buffer
+    Ok(FrameData::CudaBuffer {
+        buffer,
+        width: w,
+        height: h,
+        format: video_format,
+        pts_ns,
+    })
 }
 
 /// Extract DRM fourcc code from SPA video format - exposed for testing
@@ -768,7 +1171,8 @@ pub fn spa_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32 {
 }
 
 /// Build negotiation params like pipewiresrc does in on_stream_param_changed().
-/// Returns a list of param byte buffers: [VideoCrop, Cursor, Buffers, Header]
+/// Returns a list of param byte buffers: [VideoCrop, Buffers, Header]
+/// Note: Cursor metadata is handled by Go-side clients, not by this plugin.
 ///
 /// NOTE: We do NOT include a Format param here. pipewiresrc doesn't send Format
 /// in update_params - it only sends Buffers + Meta params. Including Format
@@ -805,22 +1209,19 @@ fn build_negotiation_params(
     // Meta types from spa/buffer/meta.h
     const SPA_META_HEADER: u32 = 1; // struct spa_meta_header (24 bytes)
     const SPA_META_VIDEOCROP: u32 = 2; // struct spa_meta_region (16 bytes)
-    const SPA_META_CURSOR: u32 = 5; // struct spa_meta_cursor + bitmap
+    const SPA_META_CURSOR: u32 = 5; // struct spa_meta_cursor + optional bitmap
 
     // Sizes
     const SPA_META_HEADER_SIZE: i32 = 24; // sizeof(struct spa_meta_header)
     const SPA_META_REGION_SIZE: i32 = 16; // sizeof(struct spa_meta_region) = 4 ints
+    // Cursor meta size: spa_meta_cursor (28) + spa_meta_bitmap header (20) + 256x256 ARGB (262144)
+    // Use generous size to accommodate large cursors
+    const SPA_META_CURSOR_SIZE: i32 = 28 + 20 + 256 * 256 * 4;
 
     eprintln!(
         "[PIPEWIRE_DEBUG] build_negotiation_params: {}x{} use_dmabuf={}",
         width, height, use_dmabuf
     );
-
-    // Cursor meta size: sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + pixels
-    // OBS uses CURSOR_META_SIZE(64, 64) as default = 24 + 20 + 64*64*4 = 16428
-    const CURSOR_META_SIZE_64: i32 = 16428;
-    const CURSOR_META_SIZE_1: i32 = 48; // minimum
-    const CURSOR_META_SIZE_1024: i32 = 4194348; // maximum
 
     // 1. VideoCrop meta (like OBS)
     let videocrop_obj = Object {
@@ -845,38 +1246,7 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
     }
 
-    // 2. Cursor meta with size range (like OBS)
-    let cursor_size_choice = Choice(
-        ChoiceFlags::empty(),
-        ChoiceEnum::Range {
-            default: CURSOR_META_SIZE_64,
-            min: CURSOR_META_SIZE_1,
-            max: CURSOR_META_SIZE_1024,
-        },
-    );
-    let cursor_obj = Object {
-        type_: SpaTypes::ObjectParamMeta.as_raw(),
-        id: ParamType::Meta.as_raw(),
-        properties: vec![
-            Property {
-                key: SPA_PARAM_META_TYPE,
-                flags: PropertyFlags::empty(),
-                value: Value::Id(Id(SPA_META_CURSOR)),
-            },
-            Property {
-                key: SPA_PARAM_META_SIZE,
-                flags: PropertyFlags::empty(),
-                value: Value::Choice(ChoiceValue::Int(cursor_size_choice)),
-            },
-        ],
-    };
-    if let Ok((cursor, _)) =
-        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_obj))
-    {
-        params.push(cursor.into_inner());
-    }
-
-    // 3. Buffers param - ONLY dataType (like gnome-remote-desktop)
+    // 2. Buffers param - ONLY dataType (like gnome-remote-desktop)
     //
     // CRITICAL: gnome-remote-desktop's add_param_buffers_param() ONLY includes dataType:
     //   params[(*n_params)++] = spa_pod_builder_add_object(pod_builder,
@@ -954,7 +1324,51 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
     }
 
-    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Cursor + Buffers[dataType=0x{:x}] + Header) - NO Format",
+    // 5. Cursor meta - request cursor metadata from GNOME ScreenCast
+    // When cursor-mode=2 (Metadata) is set, GNOME will include cursor position
+    // and bitmap in each frame buffer's metadata.
+    //
+    // OBS uses SPA_POD_CHOICE_RANGE_Int for cursor size:
+    // CURSOR_META_SIZE(w,h) = sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap) + w*h*4
+    // = 28 + 20 + w*h*4
+    const CURSOR_META_SIZE_64: i32 = 28 + 20 + 64 * 64 * 4; // 16432
+    const CURSOR_META_SIZE_1: i32 = 28 + 20 + 1 * 1 * 4; // 52
+    const CURSOR_META_SIZE_256: i32 = 28 + 20 + 256 * 256 * 4; // 262192
+
+    // Use CHOICE_RANGE like OBS: default=64x64, min=1x1, max=256x256
+    let cursor_size_choice = Choice(
+        ChoiceFlags::empty(),
+        ChoiceEnum::Range {
+            default: CURSOR_META_SIZE_64,
+            min: CURSOR_META_SIZE_1,
+            max: CURSOR_META_SIZE_256,
+        },
+    );
+    let cursor_meta_obj = Object {
+        type_: SpaTypes::ObjectParamMeta.as_raw(),
+        id: ParamType::Meta.as_raw(),
+        properties: vec![
+            Property {
+                key: SPA_PARAM_META_TYPE,
+                flags: PropertyFlags::empty(),
+                value: Value::Id(Id(SPA_META_CURSOR)),
+            },
+            Property {
+                key: SPA_PARAM_META_SIZE,
+                flags: PropertyFlags::empty(),
+                value: Value::Choice(ChoiceValue::Int(cursor_size_choice)),
+            },
+        ],
+    };
+    if let Ok((cursor, _)) =
+        PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(cursor_meta_obj))
+    {
+        params.push(cursor.into_inner());
+        eprintln!("[PIPEWIRE_DEBUG] Added cursor meta param (RANGE size: default={}, min={}, max={})",
+            CURSOR_META_SIZE_64, CURSOR_META_SIZE_1, CURSOR_META_SIZE_256);
+    }
+
+    eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Buffers[dataType=0x{:x}] + Header + Cursor) - NO Format",
         params.len(), buffer_types);
     params
 }

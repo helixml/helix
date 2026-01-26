@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   CardContent,
@@ -20,21 +20,22 @@ import {
   ListItemText,
 } from '@mui/material'
 import {
-  PlayArrow as PlayIcon,
   Description as SpecIcon,
   Visibility as ViewIcon,
   CheckCircle as ApproveIcon,
   Stop as StopIcon,
   RocketLaunch as LaunchIcon,
-  Close as CloseIcon,  
+  Close as CloseIcon,
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as UncheckedIcon,  
+  RadioButtonUnchecked as UncheckedIcon,
   AccountTree as BatchIcon,
-  OpenInNew as OpenInNewIcon,
   Delete as DeleteIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
+  RemoveCircleOutline as RemoveFromQueueIcon,
 } from '@mui/icons-material'
-import { EllipsisVertical } from 'lucide-react'
+import { EllipsisVertical, Wand2 } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress, useUpdateSpecTask, useDeleteSpecTask } from '../../services/specTaskService'
 import { TypesSpecTaskStatus } from '../../api/api'
@@ -42,6 +43,7 @@ import UsagePulseChart from './UsagePulseChart'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
+import SpecTaskActionButtons from './SpecTaskActionButtons'
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -159,7 +161,7 @@ interface TaskCardProps {
   index: number
   columns: KanbanColumn[]
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>
-  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean, shiftKey?: boolean) => Promise<void>
   onTaskClick?: (task: SpecTaskWithExtras) => void
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
@@ -167,6 +169,8 @@ interface TaskCardProps {
   isArchiving?: boolean
   hasExternalRepo?: boolean
   showMetrics?: boolean
+  /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
+  hideCloneOption?: boolean
 }
 
 // Interface for checklist items from API
@@ -472,6 +476,7 @@ export default function TaskCard({
   isArchiving = false,
   hasExternalRepo = false,
   showMetrics = true,
+  hideCloneOption = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -482,20 +487,6 @@ export default function TaskCard({
   const stopAgentMutation = useStopAgent(task.id!)
   const updateSpecTask = useUpdateSpecTask()
   const deleteSpecTask = useDeleteSpecTask()
-
-  // Ref for Start Planning button to enable keyboard focus
-  const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
-
-  // Focus the Start Planning button when requested
-  useEffect(() => {
-    if (focusStartPlanning && task.phase === 'backlog' && startPlanningButtonRef.current) {
-      // Small delay to ensure DOM is ready after render
-      const timer = setTimeout(() => {
-        startPlanningButtonRef.current?.focus()
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [focusStartPlanning, task.phase])
 
   // Fetch checklist progress for active tasks (planning/implementation)
   const showProgress = task.phase === 'planning' || task.phase === 'implementation'
@@ -519,18 +510,6 @@ export default function TaskCard({
   const planningColumn = columns.find((col) => col.id === 'planning')
   const isPlanningFull =
     planningColumn && planningColumn.limit ? planningColumn.tasks.length >= planningColumn.limit : false
-
-  const handleStartPlanning = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (onStartPlanning) {
-      setIsStartingPlanning(true)
-      try {
-        await onStartPlanning(task)
-      } finally {
-        setIsStartingPlanning(false)
-      }
-    }
-  }
 
   const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation' || task.status === 'spec_approved'
 
@@ -634,8 +613,18 @@ export default function TaskCard({
             slotProps={{
               paper: {
                 sx: {
-                  minWidth: 180,
+                  minWidth: 160,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  '& .MuiMenuItem-root': {
+                    py: 0.75,
+                    minHeight: 'unset',
+                  },
+                  '& .MuiListItemIcon-root': {
+                    minWidth: 28,
+                  },
+                  '& .MuiListItemText-primary': {
+                    fontSize: '0.8rem',
+                  },
                 },
               },
             }}
@@ -646,7 +635,10 @@ export default function TaskCard({
                   setMenuAnchorEl(null)
                   onReviewDocs(task)
                 }}
-              >    
+              >
+                <ListItemIcon>
+                  <SpecIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
                 <ListItemText>Review Spec</ListItemText>
               </MenuItem>
             )}
@@ -658,9 +650,9 @@ export default function TaskCard({
                 }}
               >
                 <ListItemIcon>
-                  <BatchIcon fontSize="small" />
+                  <BatchIcon sx={{ fontSize: 16 }} />
                 </ListItemIcon>
-                <ListItemText>Clone Batch Progress</ListItemText>
+                <ListItemText>Batch Progress</ListItemText>
               </MenuItem>
             )}
             {isQueued && (
@@ -671,45 +663,63 @@ export default function TaskCard({
                   handleRemoveFromQueue()
                 }}
               >
+                <ListItemIcon>
+                  <RemoveFromQueueIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
                 <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
               </MenuItem>
             )}
-            <MenuItem
-              onClick={() => {
-                setMenuAnchorEl(null)
-                setShowCloneDialog(true)
-              }}
-            >              
-              <ListItemText>Clone to other projects</ListItemText>
-            </MenuItem>            
+            {!hideCloneOption && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  setShowCloneDialog(true)
+                }}
+              >
+                <ListItemIcon>
+                  <Wand2 size={16} />
+                </ListItemIcon>
+                <ListItemText>Clone to projects</ListItemText>
+              </MenuItem>
+            )}
             <MenuItem
               disabled={isArchiving}
-              onClick={() => {
+              onClick={(e) => {
                 setMenuAnchorEl(null)
                 if (onArchiveTask) {
-                  onArchiveTask(task, !task.archived)
+                  onArchiveTask(task, !task.archived, e.shiftKey)
                 }
               }}
             >
+              <ListItemIcon>
+                {isArchiving ? (
+                  <CircularProgress size={16} />
+                ) : task.archived ? (
+                  <UnarchiveIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <ArchiveIcon sx={{ fontSize: 16 }} />
+                )}
+              </ListItemIcon>
               <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
-            <Tooltip title={task.archived ? '' : 'Task must be archived first'} placement="left">
-              <span>
-                <MenuItem
-                  disabled={!task.archived || deleteSpecTask.isPending}
-                  onClick={() => {
-                    setMenuAnchorEl(null)
-                    if (task.id) {
-                      deleteSpecTask.mutate(task.id)
-                    }
-                  }}
-                >
-                  <ListItemText sx={{ color: task.archived ? 'error.main' : 'text.disabled' }}>
-                    {deleteSpecTask.isPending ? 'Deleting...' : 'Delete'}
-                  </ListItemText>
-                </MenuItem>
-              </span>
-            </Tooltip>
+            {task.archived && (
+              <MenuItem
+                disabled={deleteSpecTask.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  if (task.id) {
+                    deleteSpecTask.mutate(task.id)
+                  }
+                }}
+              >
+                <ListItemIcon>
+                  <DeleteIcon sx={{ fontSize: 16, color: 'error.main' }} />
+                </ListItemIcon>
+                <ListItemText sx={{ color: 'error.main' }}>
+                  {deleteSpecTask.isPending ? 'Deleting...' : 'Delete'}
+                </ListItemText>
+              </MenuItem>
+            )}
           </Menu>
         </Box>
 
@@ -780,7 +790,7 @@ export default function TaskCard({
         </Box>
 
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
-        {showMetrics && (task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation') && (
+        {showMetrics && (task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation' || task.phase === 'pull_request') && (
           <UsagePulseChart taskId={task.id} accentColor={accentColor} />
         )}
 
@@ -793,7 +803,8 @@ export default function TaskCard({
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {task.planning_session_id && (
+        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {task.planning_session_id && task.phase !== 'completed' && !task.merged_to_main && (
           <LiveAgentScreenshot
             sessionId={task.planning_session_id}
             projectId={projectId}
@@ -820,32 +831,30 @@ export default function TaskCard({
                 </Typography>
               </Box>
             )}
-            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-              <span style={{ width: '100%' }}>
-                <Button
-                  ref={startPlanningButtonRef}
-                  size="small"
-                  variant="contained"
-                  color="warning"
-                  startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
-                  onClick={handleStartPlanning}
-                  disabled={isArchived || isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
-                  fullWidth
-                >
-                  {task.planningStatus === 'queued'
-                    ? 'Queued'
-                    : isStartingPlanning
-                    ? 'Starting...'
-                    : task.metadata?.error
-                    ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
-                    : isPlanningFull
-                    ? 'Planning Full'
-                    : task.just_do_it_mode
-                    ? 'Just Do It'
-                    : 'Start Planning'}
-                </Button>
-              </span>
-            </Tooltip>
+            <SpecTaskActionButtons
+              task={{
+                id: task.id,
+                status: 'backlog',
+                just_do_it_mode: task.just_do_it_mode,
+                archived: task.archived,
+                metadata: task.metadata,
+              }}
+              variant="stacked"
+              onStartPlanning={async () => {
+                if (onStartPlanning) {
+                  setIsStartingPlanning(true)
+                  try {
+                    await onStartPlanning(task)
+                  } finally {
+                    setIsStartingPlanning(false)
+                  }
+                }
+              }}
+              isStartingPlanning={isStartingPlanning}
+              isQueued={task.planningStatus === 'queued'}
+              isPlanningFull={isPlanningFull}
+              planningLimit={planningColumn?.limit}
+            />
             {isPlanningFull && (
               <Typography
                 variant="caption"
@@ -859,75 +868,38 @@ export default function TaskCard({
 
         {/* Review phase - only show button if design docs have been pushed */}
         {task.phase === 'review' && task.design_docs_pushed_at && onReviewDocs && (
-          <Box sx={{ mt: 1.5 }}>
-            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-              <span style={{ width: '100%', display: 'block' }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="info"
-                  startIcon={task.status === 'spec_approved' ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onReviewDocs(task)
-                  }}
-                  disabled={isArchived || task.status === 'spec_approved'}
-                  fullWidth
-                >
-                  {task.status === 'spec_approved' ? 'Queued' : 'Review Spec'}
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
+          <SpecTaskActionButtons
+            task={{
+              id: task.id,
+              status: 'spec_review',
+              design_docs_pushed_at: task.design_docs_pushed_at,
+              archived: task.archived,
+            }}
+            variant="stacked"
+            onReviewSpec={() => onReviewDocs(task)}
+            isQueued={task.status === 'spec_approved'}
+          />
         )}
 
         {/* Implementation phase */}
         {task.status === 'implementation' && (
-          <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 1 }}>              
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ flex: 1 }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={isArchived || isArchiving}
-                    startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (onArchiveTask) {
-                        onArchiveTask(task, true)
-                      }
-                    }}
-                    fullWidth
-                  >
-                    {isArchiving ? 'Rejecting...' : 'Reject'}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ flex: 1 }}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="success"
-                    startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      approveImplementationMutation.mutate()
-                    }}
-                    disabled={isArchived || approveImplementationMutation.isPending}
-                    fullWidth
-                  >
-                    {approveImplementationMutation.isPending
-                      ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
-                      : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
-          </Box>
+          <SpecTaskActionButtons
+            task={{
+              id: task.id,
+              status: 'implementation',
+              base_branch: task.base_branch,
+              branch_name: task.branch_name,
+              archived: task.archived,
+            }}
+            variant="stacked"
+            onReject={(shiftKey) => {
+              if (onArchiveTask) {
+                onArchiveTask(task, true, shiftKey)
+              }
+            }}
+            hasExternalRepo={hasExternalRepo}
+            isArchiving={isArchiving}
+          />
         )}
 
         {/* Implementation review phase */}
@@ -996,25 +968,17 @@ export default function TaskCard({
           <Box sx={{ mt: 1.5 }}>
             {task.pull_request_url ? (
               <>
-                <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                  <span style={{ width: '100%', display: 'block' }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="secondary"
-                      startIcon={<LaunchIcon />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        window.open(task.pull_request_url, '_blank')
-                      }}
-                      disabled={isArchived}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                    >
-                      View Pull Request
-                    </Button>
-                  </span>
-                </Tooltip>
+                <Box sx={{ mb: 1 }}>
+                  <SpecTaskActionButtons
+                    task={{
+                      id: task.id,
+                      status: 'pull_request',
+                      pull_request_url: task.pull_request_url,
+                      archived: task.archived,
+                    }}
+                    variant="stacked"
+                  />
+                </Box>
                 <Typography
                   variant="caption"
                   sx={{
@@ -1063,30 +1027,15 @@ export default function TaskCard({
         )}
 
         {/* Completed tasks */}
-        {task.status === 'done' && task.merged_to_main && (
+        {(task.status === 'done' || task.phase === 'completed') && task.merged_to_main && (
           <Box sx={{ mt: 1.5 }}>
-            <Alert severity="success" sx={{ py: 0.5 }}>
-              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                Merged to main! Test the feature:
+            <Alert severity="success" sx={{ py: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                Task finished
               </Typography>
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ width: '100%', display: 'block' }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="success"
-                    startIcon={<LaunchIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      console.log('Start exploratory session for', task.id)
-                    }}
-                    disabled={isArchived}
-                    fullWidth
-                  >
-                    Start Exploratory Session
-                  </Button>
-                </span>
-              </Tooltip>
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', color: 'text.secondary' }}>
+                Merged to default branch
+              </Typography>
             </Alert>
           </Box>
         )}

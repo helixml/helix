@@ -5,8 +5,10 @@ import {
   Select,
   MenuItem,
   Button,
+  Tooltip,
+  Typography,
 } from '@mui/material'
-import { GitBranch, Plus } from 'lucide-react'
+import { GitBranch, Plus, ArrowDown, ArrowUp } from 'lucide-react'
 
 interface BranchSelectProps {
   repository: any
@@ -66,19 +68,54 @@ const BranchSelect: FC<BranchSelectProps> = ({
             handleChange(e.target.value)
           }}
           displayEmpty
-          renderValue={(value) => (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <GitBranch size={14} />
-              <span>{value || fallbackBranch}</span>
-            </Box>
-          )}
+          renderValue={(value) => {
+            const branchName = value || fallbackBranch
+            const isDefaultBranch = branchName === repository?.default_branch || branchName === fallbackBranch
+            return (
+              <Tooltip title={isDefaultBranch ? "Default branch - pulls from upstream" : "Feature branch - pushes to upstream"}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <GitBranch size={14} />
+                  <span>{branchName}</span>
+                  {isDefaultBranch ? (
+                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: 'info.main', fontSize: '0.75rem' }}>
+                      <ArrowDown size={12} />
+                    </Box>
+                  ) : (
+                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: 'success.main', fontSize: '0.75rem' }}>
+                      <ArrowUp size={12} />
+                    </Box>
+                  )}
+                </Box>
+              </Tooltip>
+            )
+          }}
           sx={{ fontWeight: 500 }}
         >
-          {branches?.map((branch) => (
-            <MenuItem key={branch} value={branch}>
-              {branch}
-            </MenuItem>
-          ))}
+          {branches?.map((branch) => {
+            const isDefault = branch === repository?.default_branch || branch === fallbackBranch
+            return (
+              <MenuItem key={branch} value={branch}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                  <span>{branch}</span>
+                  {isDefault ? (
+                    <Tooltip title="Pulls from upstream">
+                      <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: 'info.main', ml: 'auto' }}>
+                        <ArrowDown size={14} />
+                        <Typography variant="caption" sx={{ ml: 0.5 }}>PULL</Typography>
+                      </Box>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Pushes to upstream">
+                      <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: 'success.main', ml: 'auto' }}>
+                        <ArrowUp size={14} />
+                        <Typography variant="caption" sx={{ ml: 0.5 }}>PUSH</Typography>
+                      </Box>
+                    </Tooltip>
+                  )}
+                </Box>
+              </MenuItem>
+            )
+          })}
         </Select>
       </FormControl>
       {showNewBranchButton && onNewBranchClick && (

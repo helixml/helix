@@ -126,7 +126,8 @@ type HelixAPIServer struct {
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
-	wg                         sync.WaitGroup // Control for goroutines to enable tests
+	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
+	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 }
 
@@ -326,6 +327,9 @@ func NewServer(
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
 
+	// Initialize exposed port manager for dev container service exposure
+	apiServer.initExposedPortManager()
+
 	// Register Kodit MCP backend (code intelligence)
 	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
 
@@ -370,6 +374,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
+	// Set the project secrets callback for injecting secrets as env vars into desktop containers
+	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
@@ -446,6 +452,21 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		}()
 	}
 
+	// Set up the HTTP handler, optionally wrapping with subdomain proxy
+	var handler http.Handler = apiServer.router
+
+	// Configure subdomain-based virtual hosting for dev container ports
+	subdomainConfig := parseDevSubdomainConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
+	if subdomainConfig.Enabled {
+		log.Info().
+			Str("dev_subdomain", subdomainConfig.DevSubdomain).
+			Str("base_domain", subdomainConfig.BaseDomain).
+			Msg("Subdomain proxy enabled for dev container ports")
+
+		subdomainMiddleware := NewSubdomainProxyMiddleware(subdomainConfig, apiServer.router, apiServer.router)
+		handler = subdomainMiddleware
+	}
+
 	srv := &http.Server{
 		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		// WriteTimeout and ReadTimeout set to 0 (no timeout) to support:
@@ -457,7 +478,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		ReadTimeout:       0,
 		ReadHeaderTimeout: time.Second * 60,
 		IdleTimeout:       time.Minute * 60,
-		Handler:           apiServer.router,
+		Handler:           handler,
 	}
 	return srv.ListenAndServe()
 }
@@ -601,6 +622,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 
+	// Port exposure for dev containers - expose services running inside dev containers
+	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.exposeSessionPort)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.listExposedPorts)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/expose/{port}", system.Wrapper(apiServer.unexposeSessionPort)).Methods(http.MethodDelete)
+	// Proxy to exposed port (no auth for now - TODO: add optional auth)
+	subRouter.PathPrefix("/sessions/{id}/proxy/{port}").HandlerFunc(apiServer.proxyToSessionPort)
+
 	// Session TOC and turn-based navigation for agent context retrieval
 	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/turns/{turn}", system.Wrapper(apiServer.getInteractionByTurn)).Methods(http.MethodGet)
@@ -693,28 +721,22 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 
-	// External agent routes
-	authRouter.HandleFunc("/external-agents", apiServer.createExternalAgent).Methods("POST")
-	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
-	// Specific routes must come before parametric routes
-	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
-	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
-	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
-	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")
-	authRouter.HandleFunc("/bandwidth-probe", apiServer.getInitialBandwidthProbe).Methods("GET") // Initial probe (no session required)
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")            // Execute safe commands in sandbox (vkcube, glxgears)
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // Direct WebSocket input
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // Direct WebSocket video streaming
-	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")
+	// External agent routes - desktop streaming and Zed agent communication
+	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
+	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                // WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET") // Desktop screenshots for previews and fallback display
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                           // Network throughput measurement for adaptive video bitrate
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")  // Read remote desktop clipboard to sync locally
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST") // Write local clipboard to remote desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET") // Video streaming stats (buffer usage, client count)
+	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
+	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
@@ -967,6 +989,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
 
+	// Project secrets routes (encrypted at rest, injected as env vars in sessions)
+	authRouter.HandleFunc("/projects/{id}/secrets", system.Wrapper(apiServer.listProjectSecrets)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/secrets", system.Wrapper(apiServer.createProjectSecret)).Methods(http.MethodPost)
+
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
 
@@ -1036,6 +1062,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/push-pull", apiServer.pushPullGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/pull", apiServer.pullFromRemote).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/push", apiServer.pushToRemote).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/sync-all", apiServer.syncAllBranches).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
@@ -1067,10 +1094,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Route: /api/v1/mcp/{server}/{path...} where server is "kodit", "helix", etc.
 	authRouter.HandleFunc("/mcp/{server}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/mcp/{server}/{path:.*}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
-
-	// Legacy Kodit MCP routes (redirect to gateway) - keep for backwards compatibility
-	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
-	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)

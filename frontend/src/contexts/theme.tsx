@@ -22,7 +22,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         mode: mode,
         background: {
-          default: '#23272f',
+          default: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
         },
       },
       typography: {
@@ -34,6 +34,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         MuiCssBaseline: {
           styleOverrides: {
             body: {
+              backgroundColor: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
               '&::-webkit-scrollbar': {
                 width: '4px',
                 borderRadius: '8px',
@@ -116,12 +117,16 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           },
         },
         MuiDialog: {
+          defaultProps: {
+            // Enable 1Password and password manager autofill compatibility
+            disableEnforceFocus: true,
+          },
           styleOverrides: {
             paper: {
               background: '#181A20',
               color: '#F1F1F1',
               borderRadius: 16,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
               transition: 'all 0.2s ease-in-out',
             },
             root: {

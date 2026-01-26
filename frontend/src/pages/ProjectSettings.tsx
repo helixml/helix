@@ -35,10 +35,13 @@ import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
 import EditIcon from '@mui/icons-material/Edit'
+import { Bot } from 'lucide-react'
 import HistoryIcon from '@mui/icons-material/History'
 import DescriptionIcon from '@mui/icons-material/Description'
+import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 
 import Page from '../components/system/Page'
 import SavingToast from '../components/widgets/SavingToast'
@@ -74,8 +77,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
-import { useFloatingModal } from '../contexts/floatingModal'
-import { useQueryClient, useMutation } from '@tanstack/react-query'
+import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
 import {
   useGetProject,
   useUpdateProject,
@@ -103,7 +105,6 @@ const ProjectSettings: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
   const projectId = params.id as string
-  const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
 
@@ -176,6 +177,55 @@ const ProjectSettings: FC = () => {
 
   // Guidelines history
   const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(projectId, guidelinesHistoryDialogOpen)
+
+  // Project secrets
+  const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false)
+  const [newSecretName, setNewSecretName] = useState('')
+  const [newSecretValue, setNewSecretValue] = useState('')
+  const [showSecretValue, setShowSecretValue] = useState(false)
+
+  // Project secrets query
+  const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
+    queryKey: ['project-secrets', projectId],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1ProjectsSecretsDetail(projectId)
+      return response.data || []
+    },
+    enabled: !!projectId,
+  })
+
+  // Create secret mutation
+  const createSecretMutation = useMutation({
+    mutationFn: async ({ name, value }: { name: string; value: string }) => {
+      const response = await api.getApiClient().v1ProjectsSecretsCreate(projectId, { name, value })
+      return response.data
+    },
+    onSuccess: () => {
+      snackbar.success('Secret created successfully')
+      setAddSecretDialogOpen(false)
+      setNewSecretName('')
+      setNewSecretValue('')
+      refetchSecrets()
+    },
+    onError: (err: any) => {
+      const message = err?.response?.data?.error || 'Failed to create secret'
+      snackbar.error(message)
+    },
+  })
+
+  // Delete secret mutation
+  const deleteSecretMutation = useMutation({
+    mutationFn: async (secretId: string) => {
+      await api.getApiClient().v1SecretsDelete(secretId)
+    },
+    onSuccess: () => {
+      snackbar.success('Secret deleted')
+      refetchSecrets()
+    },
+    onError: () => {
+      snackbar.error('Failed to delete secret')
+    },
+  })
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
@@ -667,7 +717,7 @@ const ProjectSettings: FC = () => {
           {/* Default Agent */}
           <Paper sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <SmartToyIcon sx={{ mr: 1 }} />
+              <Bot size={24} style={{ marginRight: 8 }} />
               <Typography variant="h6">
                 Agent configuration
               </Typography>
@@ -904,6 +954,63 @@ const ProjectSettings: FC = () => {
                 </Typography>
               )}
             </Box>
+          </Paper>
+
+          {/* Project Secrets */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <VpnKeyIcon sx={{ mr: 1 }} />
+                <Typography variant="h6">
+                  Secrets
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => setAddSecretDialogOpen(true)}
+              >
+                Add Secret
+              </Button>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Secrets are encrypted and injected as environment variables when agents work on this project.
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {projectSecrets.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                No secrets configured. Add secrets like API keys that agents need access to.
+              </Typography>
+            ) : (
+              <List dense>
+                {projectSecrets.map((secret) => (
+                  <ListItem
+                    key={secret.id}
+                    sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                    secondaryAction={
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => secret.id && deleteSecretMutation.mutate(secret.id)}
+                        disabled={deleteSecretMutation.isPending}
+                        startIcon={<DeleteIcon />}
+                      >
+                        Delete
+                      </Button>
+                    }
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <VpnKeyIcon fontSize="small" color="action" />
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                        {secret.name}
+                      </Typography>
+                      <Chip label="encrypted" size="small" sx={{ ml: 1, fontSize: '0.7rem' }} />
+                    </Box>
+                  </ListItem>
+                ))}
+              </List>
+            )}
           </Paper>
 
           {/* Project Guidelines */}
@@ -1192,6 +1299,78 @@ const ProjectSettings: FC = () => {
             startIcon={deleteProjectMutation.isPending ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
           >
             {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Secret Dialog */}
+      <Dialog
+        open={addSecretDialogOpen}
+        onClose={() => {
+          setAddSecretDialogOpen(false)
+          setNewSecretName('')
+          setNewSecretValue('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <VpnKeyIcon />
+            Add Project Secret
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Secrets are encrypted at rest and injected as environment variables when agents work on this project.
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Secret Name"
+              fullWidth
+              value={newSecretName}
+              onChange={(e) => setNewSecretName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+              placeholder="ANTHROPIC_API_KEY"
+              helperText="Will be available as an environment variable with this name"
+            />
+            <TextField
+              label="Secret Value"
+              fullWidth
+              value={newSecretValue}
+              onChange={(e) => setNewSecretValue(e.target.value)}
+              type={showSecretValue ? 'text' : 'password'}
+              placeholder="sk-ant-api03-..."
+              InputProps={{
+                endAdornment: (
+                  <Button
+                    size="small"
+                    onClick={() => setShowSecretValue(!showSecretValue)}
+                    sx={{ minWidth: 'auto' }}
+                  >
+                    {showSecretValue ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </Button>
+                ),
+              }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setAddSecretDialogOpen(false)
+              setNewSecretName('')
+              setNewSecretValue('')
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => createSecretMutation.mutate({ name: newSecretName, value: newSecretValue })}
+            variant="contained"
+            disabled={!newSecretName.trim() || !newSecretValue.trim() || createSecretMutation.isPending}
+            startIcon={createSecretMutation.isPending ? <CircularProgress size={16} /> : <AddIcon />}
+          >
+            {createSecretMutation.isPending ? 'Adding...' : 'Add Secret'}
           </Button>
         </DialogActions>
       </Dialog>

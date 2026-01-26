@@ -1065,6 +1065,8 @@ export interface IPageBreadcrumb {
   title: string,
   routeName?: string,
   params?: Record<string, any>,
+  // Override the page's orgBreadcrumbs setting for this specific breadcrumb
+  useOrgRouter?: boolean,
 }
 
 // Add this interface near the top of the file, with other interfaces

@@ -85,7 +85,7 @@ rm -rf /var/lib/apt/lists/*
 _INSTALL_BASE_PACKAGES
 
 # ====================================================================
-# Install debug tools
+# Install debug tools and networking utilities
 # ====================================================================
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
@@ -96,6 +96,7 @@ RUN apt-get update -y && \
     procps \
     htop \
     binutils \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================

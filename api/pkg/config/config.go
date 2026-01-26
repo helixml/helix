@@ -33,7 +33,6 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
-	TURN               TURN
 	ExternalAgents     ExternalAgents
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
@@ -122,6 +121,11 @@ type Anthropic struct {
 	APIKeyFromFile        string        `envconfig:"ANTHROPIC_API_KEY_FILE"` // i.e. /run/secrets/anthropic-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
 	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
+
+	// OAuth configuration for Claude subscription login flow
+	// Users can connect their Claude Pro/Max subscription via OAuth
+	OAuthClientID     string `envconfig:"ANTHROPIC_OAUTH_CLIENT_ID"`
+	OAuthClientSecret string `envconfig:"ANTHROPIC_OAUTH_CLIENT_SECRET"`
 }
 
 type Helix struct {
@@ -439,6 +443,12 @@ type WebServer struct {
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
+	// DevSubdomain enables subdomain-based virtual hosting for dev container ports.
+	// Format: "dev.helix.example.com" (full domain) or "dev" (uses SERVER_URL domain).
+	// When enabled, requests to p{port}-{session_id}.dev.domain.com are proxied to the session's port.
+	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
+	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
+
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
@@ -544,15 +554,6 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
-}
-
-type TURN struct {
-	Enabled  bool   `envconfig:"TURN_ENABLED" default:"true" description:"Enable TURN server for WebRTC NAT traversal."`
-	PublicIP string `envconfig:"TURN_PUBLIC_IP" default:"127.0.0.1" description:"Public IP address for TURN server."`
-	Port     int    `envconfig:"TURN_PORT" default:"3478" description:"UDP port for TURN server."`
-	Realm    string `envconfig:"TURN_REALM" default:"helix.ai" description:"Authentication realm for TURN server."`
-	Username string `envconfig:"TURN_USERNAME" default:"helix" description:"Username for TURN authentication."`
-	Password string `envconfig:"TURN_PASSWORD" default:"helix-turn-secret" description:"Password for TURN authentication."`
 }
 
 type ExternalAgents struct {

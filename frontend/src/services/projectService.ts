@@ -248,7 +248,7 @@ export const useGetProjectExploratorySession = (projectId: string, enabled = tru
       }
     },
     enabled: enabled && !!projectId,
-    refetchInterval: 5000, // Poll every 5 seconds for real-time session status updates
+    refetchInterval: 5300, // 5.3s - prime to avoid sync with other polling
   });
 };
 

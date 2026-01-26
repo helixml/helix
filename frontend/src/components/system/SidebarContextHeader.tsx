@@ -20,9 +20,9 @@ const SidebarContextHeader: React.FC = () => {
 
   const handleNameClick = () => {
     if (isOrgContext && org) {
-      router.navigate('org_home', { org_id: org.name })
+      router.navigate('org_projects', { org_id: org.name })
     } else {
-      router.navigate('home')
+      router.navigate('projects')
     }
   }
 

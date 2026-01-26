@@ -18,7 +18,7 @@ const ProjectsSidebar: FC = () => {
       items: [
         {
           id: 'projects',
-          label: 'Workspaces',
+          label: 'Projects',
           icon: <Kanban size={18} />,
           isActive: currentView === 'projects',
           onClick: () => handleNavigationClick('projects')

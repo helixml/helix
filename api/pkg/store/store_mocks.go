@@ -3551,6 +3551,21 @@ func (mr *MockStoreMockRecorder) ListProjectRepositories(ctx, q any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectRepositories", reflect.TypeOf((*MockStore)(nil).ListProjectRepositories), ctx, q)
 }
 
+// ListProjectSecrets mocks base method.
+func (m *MockStore) ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjectSecrets", ctx, projectID)
+	ret0, _ := ret[0].([]*types.Secret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjectSecrets indicates an expected call of ListProjectSecrets.
+func (mr *MockStoreMockRecorder) ListProjectSecrets(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectSecrets", reflect.TypeOf((*MockStore)(nil).ListProjectSecrets), ctx, projectID)
+}
+
 // ListProjects mocks base method.
 func (m *MockStore) ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error) {
 	m.ctrl.T.Helper()
@@ -4425,6 +4440,34 @@ func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App,
 func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
+}
+
+// UpdateCommentAgentResponse mocks base method.
+func (m *MockStore) UpdateCommentAgentResponse(ctx context.Context, commentID, agentResponse string, agentResponseAt *time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCommentAgentResponse", ctx, commentID, agentResponse, agentResponseAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCommentAgentResponse indicates an expected call of UpdateCommentAgentResponse.
+func (mr *MockStoreMockRecorder) UpdateCommentAgentResponse(ctx, commentID, agentResponse, agentResponseAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCommentAgentResponse", reflect.TypeOf((*MockStore)(nil).UpdateCommentAgentResponse), ctx, commentID, agentResponse, agentResponseAt)
+}
+
+// UpdateCommentResolved mocks base method.
+func (m *MockStore) UpdateCommentResolved(ctx context.Context, commentID string, resolved bool, resolvedAt *time.Time, resolvedBy, resolutionReason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCommentResolved", ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCommentResolved indicates an expected call of UpdateCommentResolved.
+func (mr *MockStoreMockRecorder) UpdateCommentResolved(ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCommentResolved", reflect.TypeOf((*MockStore)(nil).UpdateCommentResolved), ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason)
 }
 
 // UpdateDataEntity mocks base method.

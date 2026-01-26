@@ -120,6 +120,11 @@ export GTK_IM_MODULE=gtk-im-context-simple
 export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
+# Cursor size must match the Helix-Invisible cursor theme (48x48 cursors)
+# and dconf cursor-size=48. Using 48x48 allows hotspots to be spaced at
+# multiples of 6, which survive Mutter's rounding at 200% and 300% scaling.
+export XCURSOR_SIZE=48
+
 # Display scaling
 # HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by hydra_executor
 # Convert to scale factor: 100→1, 150→1.5, 200→2
@@ -173,12 +178,22 @@ if [ -f /opt/gow/dconf-settings.ini ]; then
     dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
 fi
 
-# Enable Just Perfection extension and hide screen recording indicator
-# This MUST be done before gnome-shell starts so the extension is loaded
-# The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
-# Also keep Ubuntu Dock enabled for the Ubuntu experience
-gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
-gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection']"
+# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
+# This is needed because GNOME requires explicit default handler configuration.
+# Without this, clicking URLs in Zed/agent output or calling xdg-open silently fails.
+# See: design/2025-12-08-ubuntu-launch-firefox.md
+gow_log "[start] Setting Firefox as default browser..."
+xdg-mime default firefox.desktop x-scheme-handler/http
+xdg-mime default firefox.desktop x-scheme-handler/https
+xdg-mime default firefox.desktop text/html
+gow_log "[start] Firefox set as default browser for HTTP/HTTPS URLs"
+
+# Enable extensions before gnome-shell starts so they are loaded:
+# - Just Perfection: Hides the ScreenCast "stop" button that would crash Wolf if clicked
+# - Helix Cursor: Sends cursor shape data to desktop-bridge via Unix socket
+# - Ubuntu Dock: Keep the Ubuntu dock experience
+gow_log "[start] Enabling GNOME Shell extensions..."
+gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection', 'helix-cursor@helix.ml']"
 gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"

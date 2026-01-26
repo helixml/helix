@@ -260,9 +260,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.OverallComment = req.OverallComment
 
 	case "request_changes":
-		// TODO
-		// review.Status = types.SpecTaskDesignReviewStatusChangesRequested
-		// now := time.Now()
+		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
 		review.RejectedAt = ptr.To(time.Now())
 		review.OverallComment = req.OverallComment
 
@@ -274,13 +272,24 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// TODO: Notify agent of requested changes via WebSocket
-		// For now, just log the event - agent will see it when they next interact
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Str("review_id", review.ID).
-			Int("revision_count", specTask.SpecRevisionCount).
-			Msg("[DesignReview] Changes requested, agent should be notified")
+		// Notify agent of requested changes via WebSocket
+		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
+		_, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", specTask.ID).
+				Str("review_id", review.ID).
+				Msg("[DesignReview] Failed to notify agent of requested changes")
+			// Don't fail the request - the review state is already updated
+			// Agent can see the feedback when they check the review
+		} else {
+			log.Info().
+				Str("spec_task_id", specTask.ID).
+				Str("review_id", review.ID).
+				Int("revision_count", specTask.SpecRevisionCount).
+				Msg("[DesignReview] Changes requested, agent notified via WebSocket")
+		}
 	default:
 		http.Error(w, "Invalid decision", http.StatusBadRequest)
 		return
@@ -908,13 +917,10 @@ func (s *HelixAPIServer) updateCommentWithStreamingResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
-	// Update comment with agent response (streaming update)
-	comment.AgentResponse = responseContent
+	// Use targeted update that only modifies agent_response fields
+	// This prevents race conditions where streaming updates overwrite resolution status set by git hooks
 	now := time.Now()
-	comment.AgentResponseAt = &now
-	// NOTE: Do NOT clear request_id here - streaming is still in progress
-
-	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+	if err := s.Store.UpdateCommentAgentResponse(ctx, comment.ID, responseContent, &now); err != nil {
 		return fmt.Errorf("failed to update comment with streaming response: %w", err)
 	}
 
@@ -1173,8 +1179,45 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		return "", fmt.Errorf("no connected session found: %w", err)
 	}
 
+	// Get the session to access owner and generation ID
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session: %w", err)
+	}
+
 	// Generate request ID for tracking
 	requestID := "req_" + system.GenerateUUID()
+
+	// Create an interaction so handleMessageAdded can find it and update with the response
+	// This unifies the code path with other message types
+	interaction := &types.Interaction{
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		SessionID:     sessionID,
+		UserID:        session.Owner,
+		GenerationID:  session.GenerationID,
+		Mode:          types.SessionModeInference,
+		PromptMessage: message,
+		State:         types.InteractionStateWaiting,
+	}
+
+	createdInteraction, err := s.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		return "", fmt.Errorf("failed to create interaction: %w", err)
+	}
+
+	// Store session->interaction mapping so handleMessageAdded finds the right interaction
+	s.contextMappingsMutex.Lock()
+	if s.sessionToWaitingInteraction == nil {
+		s.sessionToWaitingInteraction = make(map[string]string)
+	}
+	s.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	s.contextMappingsMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
+		Msg("🔗 [HELIX] Created interaction for spec task message")
 
 	// Store the requestID -> sessionID mapping for response routing
 	if s.requestToSessionMapping == nil {
@@ -1204,6 +1247,7 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
 		Str("request_id", requestID).
 		Msg("✅ Sent message to spec task agent via WebSocket")
 

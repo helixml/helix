@@ -65,6 +65,7 @@ import {
   usePushPullGitRepository,
   useCreateBranch,
   useCreateGitRepository,
+  QUERY_KEYS,
 } from '../services/gitRepositoryService'
 import { useListProjects } from '../services/projectService'
 import {
@@ -360,9 +361,9 @@ const GitRepoDetail: FC = () => {
 
       await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
 
-      // Invalidate queries
-      await queryClient.invalidateQueries({ queryKey: ['git-repository', repoId] })
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate queries - use QUERY_KEYS to ensure keys match
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepository(repoId) })
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories })
 
       setEditDialogOpen(false)
       setEditPassword('')
@@ -672,8 +673,8 @@ const GitRepoDetail: FC = () => {
       ]}
       orgBreadcrumbs={true}
     >
-      <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-        {/* GitHub-style header */}
+        <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+          {/* GitHub-style header */}
         <Box sx={{ mb: 3 }}>
 
           {/* Repo name and actions */}
@@ -698,8 +699,8 @@ const GitRepoDetail: FC = () => {
                 </Typography>
               )}
 
-              {/* Chips */}
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {/* Chips and Sync Button */}
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 {isExternal && (
                   <Chip
                     icon={<Link size={12} />}
@@ -1412,7 +1413,7 @@ const GitRepoDetail: FC = () => {
           onLinkRepo={handleLinkRepoForProject}
           preselectedRepoId={repoId}
         />
-      </Container>
+        </Container>
     </Page>
   )
 }

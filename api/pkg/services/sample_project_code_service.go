@@ -3147,862 +3147,880 @@ Outputs should be identical.
 		},
 	}
 
-	// Clone Demo - Pipeline Stocks (Start Here)
-	s.sampleProjects["clone-demo-pipeline-stocks"] = &SampleProjectCode{
-		ID:           "clone-demo-pipeline-stocks",
-		Name:         "Stocks Pipeline (Start Here)",
-		Description:  "Stock price data ingestion pipeline - START HERE for clone demo",
-		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
-		Language:     "python",
+	// Clone Demo - Shape Circle (Start Here)
+	s.sampleProjects["clone-demo-shape-circle"] = &SampleProjectCode{
+		ID:           "clone-demo-shape-circle",
+		Name:         "Circle Shape (Start Here)",
+		Description:  "Circle shape - START HERE for clone demo",
+		Technologies: []string{"SVG", "HTML", "CSS"},
+		Language:     "html",
 		StartupScript: `#!/bin/bash
 set -euo pipefail
-
+echo "🔵 Circle Shape Project"
 echo "📂 Working in: $(pwd)"
 
-export PATH="$HOME/.local/bin:$PATH"
+# Start a simple HTTP server and open the viewer
+echo "🌐 Starting shape viewer..."
+python3 -m http.server 8080 &
+sleep 1
 
-if ! command -v python3 &> /dev/null; then
-    sudo apt-get update
-    sudo apt-get install -y python3 python3-pip
+# Open in browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:8080/viewer.html
+elif command -v open &> /dev/null; then
+    open http://localhost:8080/viewer.html
 fi
 
-if [ -f "requirements.txt" ]; then
-    pip3 install --break-system-packages -r requirements.txt
-fi
-
-echo "✅ Stocks Pipeline ready"
+echo "✅ Shape viewer running at http://localhost:8080/viewer.html"
 echo ""
 echo "📋 This is the START HERE project for the clone demo"
-echo "1. Complete the logging task on this pipeline first"
-echo "2. Then use Clone to apply it to the other 4 pipelines"
+echo "1. The agent will ask you for your brand color"
+echo "2. Once the circle is filled, clone the task to the other 4 shapes"
 `,
-		GitIgnore: `__pycache__/
-*.pyc
-.venv/
-*.log
+		GitIgnore: `.DS_Store
 `,
 		Files: map[string]string{
-			"README.md": `# Stocks Pipeline (Start Here)
+			"README.md": `# Circle Shape (Start Here)
 
-Stock price data ingestion pipeline for financial data platform.
+This project contains a circle shape that needs to be filled with your brand color.
 
 ## Clone Demo Instructions
 
 **This is the starting point for the clone feature demo.**
 
-1. Complete the "Add structured logging" task on this project
-2. Once done, click "Clone" on the task card
-3. Select the other 4 pipeline projects (Bonds, Forex, Options, Indicators)
-4. Watch the cloned tasks run with the learned implementation pattern
+1. Start the task - the agent MUST ask you for your brand color
+2. Once the circle is filled with your color, click "Clone" on the task card
+3. Select the other 4 shape projects (Square, Triangle, Hexagon, Star)
+4. Watch the cloned tasks apply the same color to all shapes
 
-## Pipeline Structure
+## Files
 
-` + "```" + `
-src/
-├── client.py      # API client for stock data source
-├── transform.py   # Data transformation (has async operations!)
-├── loader.py      # Database loader
-└── config.py      # Configuration
-` + "```" + `
+- ` + "`shape.svg`" + ` - The circle shape (currently white with black outline)
+- ` + "`viewer.html`" + ` - Auto-refreshing viewer to see changes live
 
-## The Task
+## IMPORTANT: The Task
 
-Add structured logging with correlation IDs that propagate through async operations.
+Fill the circle with the company's brand color.
 
-## Running the Pipeline
+**The brand color is NOT specified anywhere in this codebase.**
 
-` + "```bash" + `
-python3 -m src.client  # Fetch stock data
-` + "```" + `
+You MUST ask the user: "What is your brand color?"
+
+Do NOT guess. Do NOT use a placeholder. Do NOT pick a color yourself.
+Wait for the user to provide the exact color before making changes.
 `,
-			"requirements.txt": `structlog>=24.4.0
-aiohttp>=3.10.0
-asyncio-throttle>=1.0.0
+			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <circle cx="100" cy="100" r="80" fill="white" stroke="black" stroke-width="3"/>
+</svg>
 `,
-			"src/__init__.py": `"""Stocks data ingestion pipeline."""
-`,
-			"src/config.py": `"""Pipeline configuration."""
-
-# Data source configuration
-API_BASE_URL = "https://api.marketdata.example.com"
-API_KEY = "demo-key"
-
-# Database configuration
-DB_CONNECTION_STRING = "postgresql://localhost/stocks"
-
-# Pipeline settings
-BATCH_SIZE = 100
-REQUEST_TIMEOUT = 30
-`,
-			"src/client.py": `"""Stock data API client."""
-
-import asyncio
-from typing import List, Dict, Any
-
-from .config import API_BASE_URL, API_KEY, REQUEST_TIMEOUT
-
-
-async def fetch_stock_prices(symbols: List[str]) -> List[Dict[str, Any]]:
-    """Fetch current stock prices for given symbols.
-
-    Args:
-        symbols: List of stock ticker symbols (e.g., ['AAPL', 'MSFT'])
-
-    Returns:
-        List of price data dictionaries
-    """
-    # Simulate API call - in production this would use aiohttp
-    await asyncio.sleep(0.1)  # Simulated network latency
-
-    # Return sample data
-    return [
-        {
-            "symbol": symbol,
-            "price": 150.00 + hash(symbol) % 100,
-            "volume": 1000000 + hash(symbol) % 500000,
-            "timestamp": "2024-01-15T14:30:00Z"
+			"viewer.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Shape Viewer</title>
+    <meta http-equiv="refresh" content="1">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
         }
-        for symbol in symbols
-    ]
-
-
-async def fetch_historical_data(symbol: str, days: int = 30) -> List[Dict[str, Any]]:
-    """Fetch historical price data for a symbol."""
-    await asyncio.sleep(0.05)  # Simulated latency
-
-    return [
-        {"date": f"2024-01-{i:02d}", "close": 150.0 + i, "volume": 1000000}
-        for i in range(1, min(days + 1, 31))
-    ]
-
-
-if __name__ == "__main__":
-    async def main():
-        prices = await fetch_stock_prices(["AAPL", "MSFT", "GOOGL"])
-        for p in prices:
-            print(f"{p['symbol']}: ${p['price']:.2f}")
-
-    asyncio.run(main())
-`,
-			"src/transform.py": `"""Stock data transformation logic."""
-
-import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Any
-
-
-@dataclass
-class StockPrice:
-    """Normalized stock price record."""
-    symbol: str
-    price: float
-    volume: int
-    timestamp: str
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "symbol": self.symbol,
-            "price": self.price,
-            "volume": self.volume,
-            "timestamp": self.timestamp
+        h1 { margin-bottom: 2rem; color: #eee; }
+        .shape-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
         }
-
-
-async def validate_price(data: Dict[str, Any]) -> bool:
-    """Validate a price record asynchronously."""
-    await asyncio.sleep(0.01)  # Simulated validation check
-
-    # Validation rules
-    if data.get("price", 0) <= 0:
-        return False
-    if data.get("volume", 0) < 0:
-        return False
-    if not data.get("symbol"):
-        return False
-
-    return True
-
-
-async def transform_prices(raw_data: List[Dict[str, Any]]) -> List[StockPrice]:
-    """Transform raw API data to normalized StockPrice objects."""
-    results = []
-
-    for item in raw_data:
-        is_valid = await validate_price(item)
-
-        if not is_valid:
-            continue
-
-        results.append(StockPrice(
-            symbol=item["symbol"],
-            price=float(item["price"]),
-            volume=int(item["volume"]),
-            timestamp=item["timestamp"]
-        ))
-
-    return results
-
-
-async def enrich_with_historical(
-    prices: List[StockPrice],
-    fetch_history_fn
-) -> List[Dict[str, Any]]:
-    """Enrich current prices with historical data."""
-    enriched = []
-
-    for price in prices:
-        history = await fetch_history_fn(price.symbol, days=5)
-
-        enriched.append({
-            **price.to_dict(),
-            "history": history,
-            "avg_5d": sum(h["close"] for h in history) / len(history) if history else None
-        })
-
-    return enriched
-`,
-			"src/loader.py": `"""Database loader for stock data."""
-
-import asyncio
-from typing import List, Dict, Any
-
-from .config import DB_CONNECTION_STRING
-
-
-async def save_prices(prices: List[Dict[str, Any]]) -> int:
-    """Save price records to database.
-
-    Args:
-        prices: List of price dictionaries to save
-
-    Returns:
-        Number of records saved
-    """
-    # Simulated database operation
-    await asyncio.sleep(0.05)
-
-    # In production: INSERT INTO stock_prices ...
-    saved_count = len(prices)
-
-    return saved_count
-
-
-async def save_batch(prices: List[Dict[str, Any]], batch_size: int = 100) -> int:
-    """Save prices in batches for better performance."""
-    total_saved = 0
-
-    for i in range(0, len(prices), batch_size):
-        batch = prices[i:i + batch_size]
-        saved = await save_prices(batch)
-        total_saved += saved
-
-    return total_saved
-`,
-			"tests/__init__.py": `"""Tests for stocks pipeline."""
-`,
-			"tests/test_transform.py": `"""Tests for transform module."""
-
-import asyncio
-import pytest
-from src.transform import transform_prices, validate_price, StockPrice
-
-
-def test_transform_valid_data():
-    """Test transformation of valid stock data."""
-    raw_data = [
-        {"symbol": "AAPL", "price": 150.0, "volume": 1000000, "timestamp": "2024-01-15T14:30:00Z"},
-        {"symbol": "MSFT", "price": 350.0, "volume": 500000, "timestamp": "2024-01-15T14:30:00Z"},
-    ]
-
-    result = asyncio.run(transform_prices(raw_data))
-
-    assert len(result) == 2
-    assert result[0].symbol == "AAPL"
-    assert result[0].price == 150.0
-
-
-def test_validate_rejects_negative_price():
-    """Test that negative prices are rejected."""
-    data = {"symbol": "TEST", "price": -10.0, "volume": 100, "timestamp": "2024-01-15"}
-
-    is_valid = asyncio.run(validate_price(data))
-
-    assert is_valid is False
+        img { display: block; width: 200px; height: 200px; }
+        .hint { margin-top: 2rem; color: #888; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>Circle</h1>
+    <div class="shape-container">
+        <img src="shape.svg" alt="Circle shape">
+    </div>
+    <p class="hint">This page refreshes every second to show changes</p>
+</body>
+</html>
 `,
 		},
 	}
 
-	// Clone Demo - Pipeline Bonds
-	s.sampleProjects["clone-demo-pipeline-bonds"] = &SampleProjectCode{
-		ID:           "clone-demo-pipeline-bonds",
-		Name:         "Bonds Pipeline",
-		Description:  "Bond yields data ingestion pipeline",
-		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
-		Language:     "python",
+	// Clone Demo - Shape Square
+	s.sampleProjects["clone-demo-shape-square"] = &SampleProjectCode{
+		ID:           "clone-demo-shape-square",
+		Name:         "Square Shape",
+		Description:  "Square shape - clone target",
+		Technologies: []string{"SVG", "HTML", "CSS"},
+		Language:     "html",
 		StartupScript: `#!/bin/bash
 set -euo pipefail
-echo "📂 Working in: $(pwd)"
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v python3 &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y python3 python3-pip
-fi
-if [ -f "requirements.txt" ]; then
-    pip3 install --break-system-packages -r requirements.txt
-fi
-echo "✅ Bonds Pipeline ready"
+echo "🟦 Square Shape Project"
+python3 -m http.server 8080 &
+sleep 1
+if command -v xdg-open &> /dev/null; then xdg-open http://localhost:8080/viewer.html; fi
+echo "✅ Shape viewer running at http://localhost:8080/viewer.html"
 `,
-		GitIgnore: `__pycache__/
-*.pyc
-.venv/
-*.log
+		GitIgnore: `.DS_Store
 `,
 		Files: map[string]string{
-			"README.md": `# Bonds Pipeline
+			"README.md": `# Square Shape
 
-Bond yields data ingestion pipeline for fixed income data.
+This project contains a square shape that needs to be filled with the brand color.
 
-## Pipeline Structure
-
-Same structure as Stocks Pipeline - the logging pattern should transfer directly.
-
-## Data Model
-
-- CUSIP (bond identifier)
-- Issuer name
-- Yield percentage
-- Maturity date
-- Credit rating
+The brand color should already be specified in the task spec from the cloned task.
 `,
-			"requirements.txt": `structlog>=24.4.0
-aiohttp>=3.10.0
+			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect x="20" y="20" width="160" height="160" fill="white" stroke="black" stroke-width="3"/>
+</svg>
 `,
-			"src/__init__.py": `"""Bonds data ingestion pipeline."""
-`,
-			"src/config.py": `"""Pipeline configuration."""
-API_BASE_URL = "https://api.bonddata.example.com"
-API_KEY = "demo-key"
-DB_CONNECTION_STRING = "postgresql://localhost/bonds"
-BATCH_SIZE = 50
-`,
-			"src/client.py": `"""Bond data API client."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def fetch_bond_yields(cusips: List[str]) -> List[Dict[str, Any]]:
-    """Fetch current bond yields."""
-    await asyncio.sleep(0.1)
-    return [
-        {
-            "cusip": cusip,
-            "issuer": f"Issuer {cusip[:3]}",
-            "yield_pct": 4.5 + hash(cusip) % 200 / 100,
-            "maturity_date": "2030-01-15",
-            "rating": "AA"
+			"viewer.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Square Shape Viewer</title>
+    <meta http-equiv="refresh" content="1">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
         }
-        for cusip in cusips
-    ]
-
-
-async def fetch_yield_curve(currency: str = "USD") -> List[Dict[str, Any]]:
-    """Fetch treasury yield curve data."""
-    await asyncio.sleep(0.05)
-    return [
-        {"tenor": "3M", "yield": 4.2},
-        {"tenor": "2Y", "yield": 4.5},
-        {"tenor": "10Y", "yield": 4.8},
-        {"tenor": "30Y", "yield": 5.0},
-    ]
-`,
-			"src/transform.py": `"""Bond data transformation logic."""
-
-import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Any
-
-
-@dataclass
-class BondYield:
-    cusip: str
-    issuer: str
-    yield_pct: float
-    maturity_date: str
-    rating: str
-
-
-async def validate_bond(data: Dict[str, Any]) -> bool:
-    """Validate bond record."""
-    await asyncio.sleep(0.01)
-    if not data.get("cusip"):
-        return False
-    if data.get("yield_pct", 0) < 0:
-        return False
-    return True
-
-
-async def transform_bonds(raw_data: List[Dict[str, Any]]) -> List[BondYield]:
-    """Transform raw bond data."""
-    results = []
-    for item in raw_data:
-        is_valid = await validate_bond(item)
-        if not is_valid:
-            continue
-        results.append(BondYield(
-            cusip=item["cusip"],
-            issuer=item["issuer"],
-            yield_pct=float(item["yield_pct"]),
-            maturity_date=item["maturity_date"],
-            rating=item.get("rating", "NR")
-        ))
-    return results
-`,
-			"src/loader.py": `"""Database loader for bond data."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def save_yields(yields: List[Dict[str, Any]]) -> int:
-    """Save yield records to database."""
-    await asyncio.sleep(0.05)
-    return len(yields)
+        h1 { margin-bottom: 2rem; color: #eee; }
+        .shape-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        img { display: block; width: 200px; height: 200px; }
+        .hint { margin-top: 2rem; color: #888; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>Square</h1>
+    <div class="shape-container">
+        <img src="shape.svg" alt="Square shape">
+    </div>
+    <p class="hint">This page refreshes every second to show changes</p>
+</body>
+</html>
 `,
 		},
 	}
 
-	// Clone Demo - Pipeline Forex
-	s.sampleProjects["clone-demo-pipeline-forex"] = &SampleProjectCode{
-		ID:           "clone-demo-pipeline-forex",
-		Name:         "Forex Pipeline",
-		Description:  "Foreign exchange rates data ingestion pipeline",
-		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
-		Language:     "python",
+	// Clone Demo - Shape Triangle
+	s.sampleProjects["clone-demo-shape-triangle"] = &SampleProjectCode{
+		ID:           "clone-demo-shape-triangle",
+		Name:         "Triangle Shape",
+		Description:  "Triangle shape - clone target",
+		Technologies: []string{"SVG", "HTML", "CSS"},
+		Language:     "html",
 		StartupScript: `#!/bin/bash
 set -euo pipefail
-echo "📂 Working in: $(pwd)"
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v python3 &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y python3 python3-pip
-fi
-if [ -f "requirements.txt" ]; then
-    pip3 install --break-system-packages -r requirements.txt
-fi
-echo "✅ Forex Pipeline ready"
+echo "🔺 Triangle Shape Project"
+python3 -m http.server 8080 &
+sleep 1
+if command -v xdg-open &> /dev/null; then xdg-open http://localhost:8080/viewer.html; fi
+echo "✅ Shape viewer running at http://localhost:8080/viewer.html"
 `,
-		GitIgnore: `__pycache__/
-*.pyc
-.venv/
-*.log
+		GitIgnore: `.DS_Store
 `,
 		Files: map[string]string{
-			"README.md": `# Forex Pipeline
+			"README.md": `# Triangle Shape
 
-Foreign exchange rates data ingestion pipeline.
+This project contains a triangle shape that needs to be filled with the brand color.
 
-## Data Model
-
-- Currency pair (e.g., EUR/USD)
-- Bid price
-- Ask price
-- Spread
-- Timestamp
+The brand color should already be specified in the task spec from the cloned task.
 `,
-			"requirements.txt": `structlog>=24.4.0
-aiohttp>=3.10.0
+			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <polygon points="100,20 180,180 20,180" fill="white" stroke="black" stroke-width="3"/>
+</svg>
 `,
-			"src/__init__.py": `"""Forex data ingestion pipeline."""
-`,
-			"src/config.py": `"""Pipeline configuration."""
-API_BASE_URL = "https://api.fxdata.example.com"
-API_KEY = "demo-key"
-DB_CONNECTION_STRING = "postgresql://localhost/forex"
-`,
-			"src/client.py": `"""Forex data API client."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def fetch_fx_rates(pairs: List[str]) -> List[Dict[str, Any]]:
-    """Fetch current FX rates."""
-    await asyncio.sleep(0.1)
-    return [
-        {
-            "pair": pair,
-            "bid": 1.0850 + hash(pair) % 100 / 10000,
-            "ask": 1.0852 + hash(pair) % 100 / 10000,
-            "timestamp": "2024-01-15T14:30:00Z"
+			"viewer.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Triangle Shape Viewer</title>
+    <meta http-equiv="refresh" content="1">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
         }
-        for pair in pairs
-    ]
-
-
-async def fetch_historical_rates(pair: str, days: int = 30) -> List[Dict[str, Any]]:
-    """Fetch historical FX rates."""
-    await asyncio.sleep(0.05)
-    return [
-        {"date": f"2024-01-{i:02d}", "close": 1.0850 + i * 0.001}
-        for i in range(1, min(days + 1, 31))
-    ]
-`,
-			"src/transform.py": `"""Forex data transformation logic."""
-
-import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Any
-
-
-@dataclass
-class FxRate:
-    pair: str
-    bid: float
-    ask: float
-    spread: float
-    timestamp: str
-
-
-async def validate_rate(data: Dict[str, Any]) -> bool:
-    """Validate FX rate."""
-    await asyncio.sleep(0.01)
-    if not data.get("pair"):
-        return False
-    bid = data.get("bid", 0)
-    ask = data.get("ask", 0)
-    if bid <= 0 or ask <= 0:
-        return False
-    if bid > ask:  # Bid must be less than ask
-        return False
-    return True
-
-
-async def transform_rates(raw_data: List[Dict[str, Any]]) -> List[FxRate]:
-    """Transform raw FX data."""
-    results = []
-    for item in raw_data:
-        is_valid = await validate_rate(item)
-        if not is_valid:
-            continue
-        bid = float(item["bid"])
-        ask = float(item["ask"])
-        results.append(FxRate(
-            pair=item["pair"],
-            bid=bid,
-            ask=ask,
-            spread=ask - bid,
-            timestamp=item["timestamp"]
-        ))
-    return results
-`,
-			"src/loader.py": `"""Database loader for FX data."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def save_rates(rates: List[Dict[str, Any]]) -> int:
-    """Save FX rates to database."""
-    await asyncio.sleep(0.05)
-    return len(rates)
+        h1 { margin-bottom: 2rem; color: #eee; }
+        .shape-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        img { display: block; width: 200px; height: 200px; }
+        .hint { margin-top: 2rem; color: #888; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>Triangle</h1>
+    <div class="shape-container">
+        <img src="shape.svg" alt="Triangle shape">
+    </div>
+    <p class="hint">This page refreshes every second to show changes</p>
+</body>
+</html>
 `,
 		},
 	}
 
-	// Clone Demo - Pipeline Options
-	s.sampleProjects["clone-demo-pipeline-options"] = &SampleProjectCode{
-		ID:           "clone-demo-pipeline-options",
-		Name:         "Options Pipeline",
-		Description:  "Options chains data ingestion pipeline",
-		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
-		Language:     "python",
+	// Clone Demo - Shape Hexagon
+	s.sampleProjects["clone-demo-shape-hexagon"] = &SampleProjectCode{
+		ID:           "clone-demo-shape-hexagon",
+		Name:         "Hexagon Shape",
+		Description:  "Hexagon shape - clone target",
+		Technologies: []string{"SVG", "HTML", "CSS"},
+		Language:     "html",
 		StartupScript: `#!/bin/bash
 set -euo pipefail
-echo "📂 Working in: $(pwd)"
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v python3 &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y python3 python3-pip
-fi
-if [ -f "requirements.txt" ]; then
-    pip3 install --break-system-packages -r requirements.txt
-fi
-echo "✅ Options Pipeline ready"
+echo "⬡ Hexagon Shape Project"
+python3 -m http.server 8080 &
+sleep 1
+if command -v xdg-open &> /dev/null; then xdg-open http://localhost:8080/viewer.html; fi
+echo "✅ Shape viewer running at http://localhost:8080/viewer.html"
 `,
-		GitIgnore: `__pycache__/
-*.pyc
-.venv/
-*.log
+		GitIgnore: `.DS_Store
 `,
 		Files: map[string]string{
-			"README.md": `# Options Pipeline
+			"README.md": `# Hexagon Shape
 
-Options chains data ingestion pipeline for derivatives data.
+This project contains a hexagon shape that needs to be filled with the brand color.
 
-## Data Model
-
-- Underlying symbol
-- Strike price
-- Expiration date
-- Option type (call/put)
-- Bid/Ask prices
-- Greeks (delta, gamma, theta, vega)
+The brand color should already be specified in the task spec from the cloned task.
 `,
-			"requirements.txt": `structlog>=24.4.0
-aiohttp>=3.10.0
+			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <polygon points="100,10 178,55 178,145 100,190 22,145 22,55" fill="white" stroke="black" stroke-width="3"/>
+</svg>
 `,
-			"src/__init__.py": `"""Options data ingestion pipeline."""
-`,
-			"src/config.py": `"""Pipeline configuration."""
-API_BASE_URL = "https://api.optionsdata.example.com"
-API_KEY = "demo-key"
-DB_CONNECTION_STRING = "postgresql://localhost/options"
-`,
-			"src/client.py": `"""Options data API client."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def fetch_options_chain(underlying: str, expiry: str) -> List[Dict[str, Any]]:
-    """Fetch options chain for an underlying."""
-    await asyncio.sleep(0.1)
-    strikes = [140, 145, 150, 155, 160]
-    return [
-        {
-            "underlying": underlying,
-            "strike": strike,
-            "expiry": expiry,
-            "type": opt_type,
-            "bid": 2.50 + (strike - 150) * 0.1,
-            "ask": 2.55 + (strike - 150) * 0.1,
-            "delta": 0.5 if opt_type == "call" else -0.5,
-            "gamma": 0.02,
-            "theta": -0.05,
-            "vega": 0.15
+			"viewer.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hexagon Shape Viewer</title>
+    <meta http-equiv="refresh" content="1">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
         }
-        for strike in strikes
-        for opt_type in ["call", "put"]
-    ]
-
-
-async def fetch_greeks(option_id: str) -> Dict[str, float]:
-    """Fetch Greeks for a specific option."""
-    await asyncio.sleep(0.02)
-    return {"delta": 0.5, "gamma": 0.02, "theta": -0.05, "vega": 0.15}
-`,
-			"src/transform.py": `"""Options data transformation logic."""
-
-import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Any
-
-
-@dataclass
-class OptionContract:
-    underlying: str
-    strike: float
-    expiry: str
-    option_type: str
-    bid: float
-    ask: float
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-
-
-async def validate_option(data: Dict[str, Any]) -> bool:
-    """Validate option contract."""
-    await asyncio.sleep(0.01)
-    if not data.get("underlying"):
-        return False
-    if data.get("strike", 0) <= 0:
-        return False
-    if data.get("type") not in ["call", "put"]:
-        return False
-    return True
-
-
-async def transform_options(raw_data: List[Dict[str, Any]]) -> List[OptionContract]:
-    """Transform raw options data."""
-    results = []
-    for item in raw_data:
-        is_valid = await validate_option(item)
-        if not is_valid:
-            continue
-        results.append(OptionContract(
-            underlying=item["underlying"],
-            strike=float(item["strike"]),
-            expiry=item["expiry"],
-            option_type=item["type"],
-            bid=float(item["bid"]),
-            ask=float(item["ask"]),
-            delta=float(item.get("delta", 0)),
-            gamma=float(item.get("gamma", 0)),
-            theta=float(item.get("theta", 0)),
-            vega=float(item.get("vega", 0))
-        ))
-    return results
-`,
-			"src/loader.py": `"""Database loader for options data."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def save_options(options: List[Dict[str, Any]]) -> int:
-    """Save options to database."""
-    await asyncio.sleep(0.05)
-    return len(options)
+        h1 { margin-bottom: 2rem; color: #eee; }
+        .shape-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        img { display: block; width: 200px; height: 200px; }
+        .hint { margin-top: 2rem; color: #888; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>Hexagon</h1>
+    <div class="shape-container">
+        <img src="shape.svg" alt="Hexagon shape">
+    </div>
+    <p class="hint">This page refreshes every second to show changes</p>
+</body>
+</html>
 `,
 		},
 	}
 
-	// Clone Demo - Pipeline Indicators
-	s.sampleProjects["clone-demo-pipeline-indicators"] = &SampleProjectCode{
-		ID:           "clone-demo-pipeline-indicators",
-		Name:         "Indicators Pipeline",
-		Description:  "Economic indicators data ingestion pipeline",
-		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
-		Language:     "python",
+	// Clone Demo - Shape Star
+	s.sampleProjects["clone-demo-shape-star"] = &SampleProjectCode{
+		ID:           "clone-demo-shape-star",
+		Name:         "Star Shape",
+		Description:  "Star shape - clone target",
+		Technologies: []string{"SVG", "HTML", "CSS"},
+		Language:     "html",
 		StartupScript: `#!/bin/bash
 set -euo pipefail
-echo "📂 Working in: $(pwd)"
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v python3 &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y python3 python3-pip
-fi
-if [ -f "requirements.txt" ]; then
-    pip3 install --break-system-packages -r requirements.txt
-fi
-echo "✅ Indicators Pipeline ready"
+echo "⭐ Star Shape Project"
+python3 -m http.server 8080 &
+sleep 1
+if command -v xdg-open &> /dev/null; then xdg-open http://localhost:8080/viewer.html; fi
+echo "✅ Shape viewer running at http://localhost:8080/viewer.html"
 `,
-		GitIgnore: `__pycache__/
-*.pyc
-.venv/
-*.log
+		GitIgnore: `.DS_Store
 `,
 		Files: map[string]string{
-			"README.md": `# Economic Indicators Pipeline
+			"README.md": `# Star Shape
 
-Economic indicators data ingestion pipeline for macro data.
+This project contains a star shape that needs to be filled with the brand color.
 
-## Data Model
-
-- Indicator code (e.g., GDP, CPI, UNEMPLOYMENT)
-- Country/Region
-- Value
-- Period (monthly, quarterly, annual)
-- Release date
-- Previous value
-- Revision flag
+The brand color should already be specified in the task spec from the cloned task.
 `,
-			"requirements.txt": `structlog>=24.4.0
-aiohttp>=3.10.0
+			"shape.svg": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <polygon points="100,10 120,75 190,75 135,115 155,180 100,145 45,180 65,115 10,75 80,75" fill="white" stroke="black" stroke-width="3"/>
+</svg>
 `,
-			"src/__init__.py": `"""Economic indicators data ingestion pipeline."""
-`,
-			"src/config.py": `"""Pipeline configuration."""
-API_BASE_URL = "https://api.econdata.example.com"
-API_KEY = "demo-key"
-DB_CONNECTION_STRING = "postgresql://localhost/indicators"
-`,
-			"src/client.py": `"""Economic indicators API client."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def fetch_indicators(codes: List[str], country: str = "US") -> List[Dict[str, Any]]:
-    """Fetch economic indicators."""
-    await asyncio.sleep(0.1)
-    return [
-        {
-            "code": code,
-            "country": country,
-            "value": 2.5 + hash(code) % 100 / 10,
-            "period": "2024-Q1",
-            "release_date": "2024-01-15",
-            "previous": 2.4 + hash(code) % 100 / 10,
-            "is_revised": False
+			"viewer.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Shape Viewer</title>
+    <meta http-equiv="refresh" content="1">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
         }
-        for code in codes
-    ]
-
-
-async def fetch_historical_indicator(code: str, periods: int = 8) -> List[Dict[str, Any]]:
-    """Fetch historical values for an indicator."""
-    await asyncio.sleep(0.05)
-    return [
-        {"period": f"2023-Q{4-i}" if i < 4 else f"2022-Q{8-i}", "value": 2.5 + i * 0.1}
-        for i in range(periods)
-    ]
-`,
-			"src/transform.py": `"""Economic indicators transformation logic."""
-
-import asyncio
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
-
-
-@dataclass
-class EconomicIndicator:
-    code: str
-    country: str
-    value: float
-    period: str
-    release_date: str
-    previous: Optional[float]
-    is_revised: bool
-    change: Optional[float]
-
-
-async def validate_indicator(data: Dict[str, Any]) -> bool:
-    """Validate indicator."""
-    await asyncio.sleep(0.01)
-    if not data.get("code"):
-        return False
-    if not data.get("period"):
-        return False
-    # Value can be negative (e.g., GDP contraction)
-    return True
-
-
-async def transform_indicators(raw_data: List[Dict[str, Any]]) -> List[EconomicIndicator]:
-    """Transform raw indicator data."""
-    results = []
-    for item in raw_data:
-        is_valid = await validate_indicator(item)
-        if not is_valid:
-            continue
-
-        value = float(item["value"])
-        previous = float(item["previous"]) if item.get("previous") else None
-        change = value - previous if previous is not None else None
-
-        results.append(EconomicIndicator(
-            code=item["code"],
-            country=item["country"],
-            value=value,
-            period=item["period"],
-            release_date=item["release_date"],
-            previous=previous,
-            is_revised=item.get("is_revised", False),
-            change=change
-        ))
-    return results
-`,
-			"src/loader.py": `"""Database loader for indicators data."""
-
-import asyncio
-from typing import List, Dict, Any
-
-
-async def save_indicators(indicators: List[Dict[str, Any]]) -> int:
-    """Save indicators to database."""
-    await asyncio.sleep(0.05)
-    return len(indicators)
+        h1 { margin-bottom: 2rem; color: #eee; }
+        .shape-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        img { display: block; width: 200px; height: 200px; }
+        .hint { margin-top: 2rem; color: #888; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>Star</h1>
+    <div class="shape-container">
+        <img src="shape.svg" alt="Star shape">
+    </div>
+    <p class="hint">This page refreshes every second to show changes</p>
+</body>
+</html>
 `,
 		},
+	}
+
+	// Helix-in-Helix Development - startup script for developing Helix inside Helix
+	s.sampleProjects["helix-in-helix"] = &SampleProjectCode{
+		ID:           "helix-in-helix",
+		Name:         "Helix-in-Helix Development",
+		Description:  "Develop Helix itself inside a Helix cloud desktop",
+		GitHubRepo:   "helixml/helix",
+		Technologies: []string{"Go", "TypeScript", "React", "Docker", "Rust", "PipeWire"},
+		Language:     "go",
+		StartupScript: `#!/bin/bash
+# Helix-in-Helix Development Setup Script
+# This script configures a Helix desktop for developing Helix itself
+#
+# Architecture:
+# - Inner Docker (default): Hydra's DinD at /var/run/docker.sock
+#   → Run the Helix control plane here
+# - Outer Docker (host): Available via /var/run/host-docker.sock when privileged mode is enabled
+#   → Run test sandboxes here
+# - Service Exposure: The inner control plane is exposed via the API's proxy endpoint
+#   → Sandboxes on host Docker connect to the exposed URL
+#
+# Usage: This script runs automatically on session start
+
+set -e
+
+WORKSPACE="${HOME}/helix-workspace"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}======================================${NC}"
+echo -e "${BLUE}  Helix-in-Helix Development Setup   ${NC}"
+echo -e "${BLUE}======================================${NC}"
+echo ""
+
+# Check if we're running inside a Helix desktop
+if [ ! -S /var/run/docker.sock ]; then
+    echo -e "${RED}Error: Docker socket not found. Are you running inside a Helix desktop?${NC}"
+    exit 1
+fi
+
+# Check for privileged mode (host docker socket)
+if [ -S /var/run/host-docker.sock ]; then
+    echo -e "${GREEN}✓ Privileged mode enabled - host Docker available${NC}"
+    HAS_HOST_DOCKER=true
+else
+    echo -e "${YELLOW}⚠ Privileged mode not enabled - host Docker not available${NC}"
+    echo -e "${YELLOW}  To enable: Set HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox${NC}"
+    HAS_HOST_DOCKER=false
+fi
+
+echo ""
+echo -e "${GREEN}1. Setting up workspace...${NC}"
+mkdir -p "$WORKSPACE"
+cd "$WORKSPACE"
+
+# Clone repositories
+echo -e "${GREEN}2. Cloning repositories...${NC}"
+
+if [ ! -d "helix" ]; then
+    echo "   Cloning helix..."
+    git clone https://github.com/helixml/helix.git
+else
+    echo "   helix already exists, pulling latest..."
+    (cd helix && git pull --ff-only 2>/dev/null || true)
+fi
+
+if [ ! -d "zed" ]; then
+    echo "   Cloning zed fork..."
+    git clone https://github.com/helixml/zed.git
+else
+    echo "   zed already exists, pulling latest..."
+    (cd zed && git pull --ff-only 2>/dev/null || true)
+fi
+
+if [ ! -d "qwen-code" ]; then
+    echo "   Cloning qwen-code..."
+    git clone https://github.com/helixml/qwen-code.git
+else
+    echo "   qwen-code already exists, pulling latest..."
+    (cd qwen-code && git pull --ff-only 2>/dev/null || true)
+fi
+
+echo -e "${GREEN}3. Configuring Docker endpoints...${NC}"
+
+# Set up environment variables for two Docker endpoints
+cat > "$WORKSPACE/.helix-dev-env" << 'ENVEOF'
+# Helix-in-Helix Development Environment
+# Source this file: source ~/.helix-dev-env
+
+# Inner Docker (Hydra's DinD) - for running the control plane
+export DOCKER_HOST_INNER="unix:///var/run/docker.sock"
+
+# Outer Docker (Host Docker via privileged mode) - for running sandboxes
+# Only available when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
+export DOCKER_HOST_OUTER="unix:///var/run/host-docker.sock"
+
+# Helper functions
+helix-inner() {
+    DOCKER_HOST="$DOCKER_HOST_INNER" "$@"
+}
+
+helix-outer() {
+    DOCKER_HOST="$DOCKER_HOST_OUTER" "$@"
+}
+
+# Aliases for convenience
+alias docker-inner='DOCKER_HOST=$DOCKER_HOST_INNER docker'
+alias docker-outer='DOCKER_HOST=$DOCKER_HOST_OUTER docker'
+alias compose-inner='DOCKER_HOST=$DOCKER_HOST_INNER docker compose'
+alias compose-outer='DOCKER_HOST=$DOCKER_HOST_OUTER docker compose'
+
+echo "Helix-in-Helix environment loaded:"
+echo "  docker-inner: Control plane Docker (default)"
+echo "  docker-outer: Host Docker for sandboxes"
+ENVEOF
+
+# Add to shell rc if not already there
+for rc_file in ~/.bashrc ~/.zshrc; do
+    if [ -f "$rc_file" ] && ! grep -q "source.*helix-dev-env" "$rc_file" 2>/dev/null; then
+        echo "" >> "$rc_file"
+        echo "# Helix-in-Helix development environment" >> "$rc_file"
+        echo "[ -f \"$WORKSPACE/.helix-dev-env\" ] && source \"$WORKSPACE/.helix-dev-env\"" >> "$rc_file"
+    fi
+done
+
+echo -e "${GREEN}4. Creating helper scripts...${NC}"
+
+# Create helper script to start the inner control plane
+cat > "$WORKSPACE/start-inner-stack.sh" << 'SCRIPTEOF'
+#!/bin/bash
+# Start the Helix control plane on inner Docker (Hydra's DinD)
+set -e
+cd ~/helix-workspace/helix
+
+# Use inner Docker (default)
+export DOCKER_HOST=unix:///var/run/docker.sock
+
+echo "Starting Helix control plane on inner Docker..."
+./stack start
+
+echo ""
+echo "Control plane started!"
+echo ""
+echo "Next steps:"
+echo "1. Wait for the API to be ready: curl http://localhost:8080/health"
+echo "2. Expose the API port: ./expose-inner-api.sh"
+echo "3. Start a test sandbox: ./start-outer-sandbox.sh <exposed-url>"
+SCRIPTEOF
+chmod +x "$WORKSPACE/start-inner-stack.sh"
+
+# Create helper script to expose the inner API
+cat > "$WORKSPACE/expose-inner-api.sh" << 'SCRIPTEOF'
+#!/bin/bash
+# Expose the inner control plane's API port to the outside world
+# This allows sandboxes running on host Docker to connect to the inner API
+set -e
+
+PORT="${1:-8080}"
+
+# Get session ID from environment or prompt
+SESSION_ID="${SESSION_ID:-${HELIX_SESSION_ID:-}}"
+if [ -z "$SESSION_ID" ]; then
+    echo "Error: SESSION_ID not set"
+    echo ""
+    echo "Set it with: export SESSION_ID=ses_xxx"
+    echo "You can find your session ID in the Helix UI URL"
+    exit 1
+fi
+
+# Get API credentials
+HELIX_API_URL="${HELIX_API_URL:-}"
+HELIX_API_KEY="${HELIX_API_KEY:-}"
+
+if [ -z "$HELIX_API_URL" ] || [ -z "$HELIX_API_KEY" ]; then
+    echo "Error: HELIX_API_URL and HELIX_API_KEY must be set"
+    echo ""
+    echo "These should be set automatically in your desktop environment."
+    echo "If not, get them from your Helix account settings."
+    exit 1
+fi
+
+echo "Exposing port $PORT for session $SESSION_ID..."
+echo ""
+
+RESPONSE=$(curl -s -X POST "$HELIX_API_URL/api/v1/sessions/$SESSION_ID/expose" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $HELIX_API_KEY" \
+    -d "{\"port\": $PORT, \"protocol\": \"http\", \"name\": \"dev-api\"}")
+
+echo "$RESPONSE" | jq .
+
+# Extract the URL
+EXPOSED_URL=$(echo "$RESPONSE" | jq -r '.urls[0]')
+
+if [ "$EXPOSED_URL" != "null" ] && [ -n "$EXPOSED_URL" ]; then
+    echo ""
+    echo "Inner API exposed at: $EXPOSED_URL"
+    echo ""
+    echo "Use this URL when starting sandboxes on host Docker:"
+    echo "  ./start-outer-sandbox.sh $EXPOSED_URL"
+
+    # Save for convenience
+    echo "$EXPOSED_URL" > "$HOME/helix-workspace/.inner-api-url"
+    echo "(Saved to ~/.helix-workspace/.inner-api-url)"
+fi
+SCRIPTEOF
+chmod +x "$WORKSPACE/expose-inner-api.sh"
+
+# Create helper script to start a sandbox on outer Docker
+cat > "$WORKSPACE/start-outer-sandbox.sh" << 'SCRIPTEOF'
+#!/bin/bash
+# Start a sandbox on outer/host Docker for testing
+# The sandbox will connect to the inner control plane via the exposed URL
+set -e
+
+# Get inner API URL from argument or saved file
+INNER_API_URL="${1:-}"
+if [ -z "$INNER_API_URL" ] && [ -f "$HOME/helix-workspace/.inner-api-url" ]; then
+    INNER_API_URL=$(cat "$HOME/helix-workspace/.inner-api-url")
+fi
+
+if [ -z "$INNER_API_URL" ]; then
+    echo "Usage: ./start-outer-sandbox.sh <inner-api-url>"
+    echo ""
+    echo "First expose the inner API: ./expose-inner-api.sh"
+    exit 1
+fi
+
+# Check for host docker socket
+if [ ! -S /var/run/host-docker.sock ]; then
+    echo "Error: Host Docker socket not available"
+    echo "Make sure HYDRA_PRIVILEGED_MODE_ENABLED=true is set on the sandbox"
+    exit 1
+fi
+
+# Generate unique sandbox name
+SANDBOX_NAME="helix-sandbox-dev-$(whoami)-$(date +%s)"
+
+echo "Starting sandbox '$SANDBOX_NAME' on host Docker"
+echo "Connecting to inner API at: $INNER_API_URL"
+echo ""
+
+# Use outer Docker (host)
+export DOCKER_HOST=unix:///var/run/host-docker.sock
+
+# Start sandbox
+docker run -d \
+    --name "$SANDBOX_NAME" \
+    --privileged \
+    -e HELIX_API_URL="$INNER_API_URL" \
+    -e RUNNER_TOKEN="${RUNNER_TOKEN:-oh-hallo-insecure-token}" \
+    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
+    -e HYDRA_ENABLED=true \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    helix-sandbox:latest
+
+echo ""
+echo "Sandbox started: $SANDBOX_NAME"
+echo ""
+echo "To view logs:"
+echo "  docker-outer logs -f $SANDBOX_NAME"
+echo ""
+echo "To stop:"
+echo "  docker-outer stop $SANDBOX_NAME && docker-outer rm $SANDBOX_NAME"
+SCRIPTEOF
+chmod +x "$WORKSPACE/start-outer-sandbox.sh"
+
+echo -e "${GREEN}5. Verifying Docker access...${NC}"
+
+echo "   Inner Docker (control plane):"
+if docker info > /dev/null 2>&1; then
+    echo -e "   ${GREEN}✓ Connected${NC}"
+else
+    echo -e "   ${RED}✗ Cannot connect${NC}"
+fi
+
+if [ "$HAS_HOST_DOCKER" = true ]; then
+    echo "   Outer Docker (host via privileged mode):"
+    if DOCKER_HOST=unix:///var/run/host-docker.sock docker info > /dev/null 2>&1; then
+        echo -e "   ${GREEN}✓ Connected${NC}"
+    else
+        echo -e "   ${RED}✗ Cannot connect${NC}"
+    fi
+fi
+
+echo ""
+echo -e "${BLUE}======================================${NC}"
+echo -e "${BLUE}  Setup Complete!                     ${NC}"
+echo -e "${BLUE}======================================${NC}"
+echo ""
+echo "Workspace: $WORKSPACE"
+echo ""
+echo "Docker commands:"
+echo "  docker-inner ps           - List containers on inner Docker"
+echo "  docker-outer ps           - List containers on host Docker"
+echo ""
+
+# Source the environment for this session
+source "$WORKSPACE/.helix-dev-env"
+
+echo -e "${GREEN}6. Starting inner control plane...${NC}"
+echo ""
+cd "$WORKSPACE/helix"
+
+# Create .env file for the inner stack
+cat > .env << 'INNER_ENV'
+# Inner Helix Control Plane Configuration
+RUNNER_TOKEN=inner-runner-token
+AUTH_PROVIDER=regular
+SERVER_URL=http://localhost:8080
+
+# Disable features that require external dependencies
+RAG_CRAWLER_LAUNCHER_ENABLED=true
+
+# Use the chrome container for browser-based operations
+INNER_ENV
+
+echo "   Created .env file for inner stack"
+
+# Start the full control plane stack using docker compose
+# This includes: postgres, api, chrome (for RAG crawler)
+echo "   Starting control plane services..."
+docker compose up -d postgres chrome
+
+# Wait for postgres to be ready
+echo "   Waiting for postgres to be ready..."
+for i in {1..30}; do
+    if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        echo "   Postgres is ready"
+        break
+    fi
+    sleep 1
+done
+
+# Start the API
+docker compose up -d api
+
+# Wait for API to be ready
+echo "   Waiting for API to be ready..."
+for i in {1..60}; do
+    if docker compose exec -T api curl -s http://localhost:8080/api/v1/config >/dev/null 2>&1; then
+        echo "   API is ready"
+        break
+    fi
+    sleep 2
+done
+
+# Show running containers
+echo ""
+echo "   Running containers:"
+docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# Connect this container to the inner stack's network so we can reach the API
+# The inner stack creates a "helix_default" network
+CONTAINER_ID=$(cat /etc/hostname)
+if docker network inspect helix_default >/dev/null 2>&1; then
+    echo -e "${GREEN}7. Connecting to inner stack network...${NC}"
+    docker network connect helix_default "$CONTAINER_ID" 2>/dev/null || true
+
+    # Find the inner API container name
+    INNER_API=$(docker ps --filter "name=api" --format "{{.Names}}" | head -1)
+    if [ -n "$INNER_API" ]; then
+        echo "   Inner API container: $INNER_API"
+
+        # Create convenience alias
+        echo "export INNER_API_HOST=$INNER_API" >> "$WORKSPACE/.helix-dev-env"
+
+        # Set up port forwarding from localhost:8080 to inner API
+        # This allows the expose endpoint to work (it proxies to localhost:8080)
+        echo -e "${GREEN}8. Setting up port forwarding to inner API...${NC}"
+
+        # Use socat to forward localhost:8080 to inner API container
+        if command -v socat &> /dev/null; then
+            # Kill any existing socat on port 8080
+            pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
+
+            # Start socat in background to forward localhost:8080 -> inner API
+            nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:$INNER_API:8080 > /tmp/socat-8080.log 2>&1 &
+            echo "   Port forwarding: localhost:8080 -> $INNER_API:8080"
+            echo "   Test with: curl http://localhost:8080/api/v1/config"
+        else
+            echo "   Warning: socat not installed, port forwarding not available"
+            echo "   Access inner API directly at: http://$INNER_API:8080"
+        fi
+    fi
+fi
+
+echo ""
+echo -e "${GREEN}Inner control plane started!${NC}"
+echo ""
+echo "The inner API is accessible at: http://$INNER_API:8080"
+echo ""
+
+# Auto-start a sandbox on host Docker if available
+if [ -S /var/run/host-docker.sock ]; then
+    echo -e "${GREEN}9. Starting sandbox on host Docker...${NC}"
+
+    # Use host Docker
+    export DOCKER_HOST=unix:///var/run/host-docker.sock
+
+    # Check if sandbox image is available
+    if docker images | grep -q helix-sandbox; then
+        # Use session ID for unique sandbox name
+        SESSION_ID="${HELIX_SESSION_ID:-}"
+        if [ -z "$SESSION_ID" ]; then
+            echo -e "   ${RED}✗ HELIX_SESSION_ID not set${NC}"
+            echo "   Cannot expose port without session ID"
+        else
+            SANDBOX_NAME="helix-inner-sandbox-${SESSION_ID}"
+
+            # Expose port 8080 via the outer API's port-based proxy
+            # This allocates a unique port that proxies to our inner API
+            echo "   Exposing port 8080 via outer API..."
+
+            EXPOSE_RESPONSE=$(curl -s -X POST "${HELIX_API_URL}/api/v1/sessions/${SESSION_ID}/expose" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer ${HELIX_API_KEY}" \
+                -d '{"port": 8080, "protocol": "http", "name": "inner-api"}')
+
+            # Extract the port-based URL (second URL in the list, after subdomain URL)
+            # Format: {"urls": ["https://subdomain...", "http://host:30001", "http://path-based..."]}
+            ALLOCATED_PORT=$(echo "$EXPOSE_RESPONSE" | jq -r '.allocated_port // empty')
+
+            if [ -n "$ALLOCATED_PORT" ] && [ "$ALLOCATED_PORT" != "0" ]; then
+                # Get the outer API host from HELIX_API_URL
+                OUTER_API_HOST=$(echo "$HELIX_API_URL" | sed -E 's|https?://||' | cut -d: -f1 | cut -d/ -f1)
+                INNER_API_URL="http://${OUTER_API_HOST}:${ALLOCATED_PORT}"
+
+                echo -e "   ${GREEN}✓ Port exposed: ${ALLOCATED_PORT}${NC}"
+                echo "   Inner API URL: $INNER_API_URL"
+            else
+                # Fallback: try to get any URL from the response
+                INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | jq -r '.urls[0] // empty')
+                if [ -z "$INNER_API_URL" ]; then
+                    echo -e "   ${RED}✗ Failed to expose port${NC}"
+                    echo "   Response: $EXPOSE_RESPONSE"
+                    INNER_API_URL=""
+                else
+                    echo -e "   ${GREEN}✓ Port exposed${NC}"
+                    echo "   Inner API URL: $INNER_API_URL"
+                fi
+            fi
+
+            if [ -n "$INNER_API_URL" ]; then
+                echo "   Starting sandbox connecting to: $INNER_API_URL"
+
+                docker run -d \
+                    --name "$SANDBOX_NAME" \
+                    --privileged \
+                    -e HELIX_API_URL="$INNER_API_URL" \
+                    -e HELIX_API_BASE_URL="$INNER_API_URL" \
+                    -e RUNNER_TOKEN="demo-token" \
+                    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
+                    -e HYDRA_ENABLED=true \
+                    -e GPU_VENDOR=nvidia \
+                    helix-sandbox:latest
+
+                echo -e "   ${GREEN}✓ Sandbox started: $SANDBOX_NAME${NC}"
+                echo ""
+                echo "   View logs: DOCKER_HOST=unix:///var/run/host-docker.sock docker logs -f $SANDBOX_NAME"
+            fi
+        fi
+    else
+        echo -e "   ${YELLOW}⚠ helix-sandbox image not found on host Docker${NC}"
+        echo "   Build with: ./stack build-sandbox"
+    fi
+
+    # Reset DOCKER_HOST
+    unset DOCKER_HOST
+else
+    echo -e "${YELLOW}⚠ Host Docker not available - privileged mode not enabled${NC}"
+    echo "  To enable: Set HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox"
+fi
+
+echo ""
+echo -e "${GREEN}Helix-in-Helix development environment ready!${NC}"
+echo ""
+`,
+		GitIgnore: `.DS_Store
+*.log
+`,
+		Files: map[string]string{}, // No files - clones from GitHub
 	}
 }
 
