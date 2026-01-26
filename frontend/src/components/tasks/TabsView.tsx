@@ -580,7 +580,7 @@ interface TaskPanelProps {
   onAddDesktop: (panelId: string, sessionId: string, title?: string) => void
   onAddCreateTab: (panelId: string) => void
   onTaskCreated: (panelId: string, task: TypesSpecTask) => void
-  onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
+  onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string, fromPanelId?: string) => void
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
   onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string, sourcePanelId?: string) => void
@@ -811,9 +811,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
     const fromPanelId = e.dataTransfer.getData('fromPanelId')
 
     if (dragOverEdge) {
-      // Split the panel
+      // Split the panel - pass fromPanelId so the tab can be found in the source panel
       const direction = (dragOverEdge === 'left' || dragOverEdge === 'right') ? 'horizontal' : 'vertical'
-      onSplitPanel(panel.id, direction, tabId)
+      onSplitPanel(panel.id, direction, tabId, fromPanelId)
     } else if (fromPanelId !== panel.id) {
       // Move tab to this panel
       onDropTab(panel.id, tabId, fromPanelId)
@@ -1108,9 +1108,8 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       <Box sx={{ flex: 1, overflow: 'hidden' }}>
         {activeTab ? (
           activeTab.type === 'desktop' && activeTab.sessionId ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <Box key={`${panel.id}-${activeTab.id}`} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               <ExternalAgentDesktopViewer
-                key={activeTab.id}
                 sessionId={activeTab.sessionId}
                 sandboxId={activeTab.sessionId}
                 mode="stream"
@@ -1134,7 +1133,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </Box>
           ) : activeTab.type === 'review' && activeTab.taskId && activeTab.reviewId ? (
             <DesignReviewContent
-              key={activeTab.id}
+              key={`${panel.id}-${activeTab.id}`}
               specTaskId={activeTab.taskId}
               reviewId={activeTab.reviewId}
               onClose={() => onTabClose(panel.id, activeTab.id)}
@@ -1142,7 +1141,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             />
           ) : activeTab.type === 'create' ? (
             <NewSpecTaskForm
-              key={activeTab.id}
+              key={`${panel.id}-${activeTab.id}`}
               projectId={projectId}
               onTaskCreated={(task) => {
                 // Replace create tab with the new task tab
@@ -1156,7 +1155,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             />
           ) : (
             <SpecTaskDetailContent
-              key={activeTab.id}
+              key={`${panel.id}-${activeTab.id}`}
               taskId={activeTab.id}
               onOpenReview={(taskId, reviewId, reviewTitle) => onOpenReview(taskId, reviewId, reviewTitle, panel.id)}
             />
@@ -1663,46 +1662,78 @@ const TabsView: React.FC<TabsViewProps> = ({
 
   // Split a panel into two - this creates proper nested layouts
   // The panel is replaced with a split node containing the original + new panel
-  const handleSplitPanel = useCallback((panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => {
+  // If fromPanelId is provided (drag from different panel), the tab is taken from that panel
+  const handleSplitPanel = useCallback((panelId: string, direction: 'horizontal' | 'vertical', taskId?: string, fromPanelId?: string) => {
     setRootNode(prev => {
       if (!prev) return prev
 
       const panel = findNode(prev, panelId)
       if (!panel || panel.type !== 'leaf') return prev
 
-      const tabs = panel.tabs || []
       let tabToMove: TabData | undefined
-      let newSourceTabs = tabs
+      let updatedRoot = prev
 
-      if (taskId) {
-        tabToMove = tabs.find(t => t.id === taskId)
-        if (tabToMove) {
-          newSourceTabs = tabs.filter(t => t.id !== taskId)
+      // If the tab is coming from a different panel, find it there
+      if (taskId && fromPanelId && fromPanelId !== panelId) {
+        const sourcePanel = findNode(prev, fromPanelId)
+        if (sourcePanel && sourcePanel.type === 'leaf') {
+          const sourceTabs = sourcePanel.tabs || []
+          tabToMove = sourceTabs.find(t => t.id === taskId)
+          if (tabToMove) {
+            // Remove tab from source panel
+            const newSourceTabs = sourceTabs.filter(t => t.id !== taskId)
+            updatedRoot = updateNodeInTree(prev, fromPanelId, node => ({
+              ...node,
+              tabs: newSourceTabs,
+              activeTabId: newSourceTabs.length > 0
+                ? (newSourceTabs.some(t => t.id === node.activeTabId) ? node.activeTabId : newSourceTabs[0].id)
+                : null,
+            }))
+
+            // If source panel is now empty, remove it
+            if (newSourceTabs.length === 0 && countLeafNodes(updatedRoot) > 1) {
+              updatedRoot = removeNodeFromTree(updatedRoot, fromPanelId) || updatedRoot
+            }
+          }
         }
+      } else if (taskId) {
+        // Tab is in the same panel being split
+        const tabs = panel.tabs || []
+        tabToMove = tabs.find(t => t.id === taskId)
       }
 
-      // Create the new leaf panel
+      // Get the current state of the target panel (may have changed if we modified the tree)
+      const currentPanel = findNode(updatedRoot, panelId)
+      if (!currentPanel || currentPanel.type !== 'leaf') return updatedRoot
+
+      const currentTabs = currentPanel.tabs || []
+      // Remove the tab from current panel if it was there (same-panel split)
+      const newTargetTabs = taskId && !fromPanelId
+        ? currentTabs.filter(t => t.id !== taskId)
+        : currentTabs
+
+      // Create the new leaf panel with the moved tab
       const newLeaf = createLeafNode(
         tabToMove ? [tabToMove] : [],
         tabToMove?.id || null
       )
 
-      // Update the source panel's tabs
-      const updatedSourceLeaf: PanelNode = {
-        ...panel,
-        tabs: newSourceTabs,
-        activeTabId: newSourceTabs.length > 0
-          ? (newSourceTabs.some(t => t.id === panel.activeTabId)
-              ? panel.activeTabId
-              : newSourceTabs[0].id)
+      // Update the target panel's tabs (only if same-panel split removed a tab)
+      const updatedTargetLeaf: PanelNode = {
+        ...currentPanel,
+        tabs: newTargetTabs,
+        activeTabId: newTargetTabs.length > 0
+          ? (newTargetTabs.some(t => t.id === currentPanel.activeTabId)
+              ? currentPanel.activeTabId
+              : newTargetTabs[0].id)
           : null,
       }
 
       // Create a new split node containing both panels
-      const newSplit = createSplitNode(direction, [updatedSourceLeaf, newLeaf])
+      const newSplit = createSplitNode(direction, [updatedTargetLeaf, newLeaf])
 
-      // Replace the original panel with the new split
-      return replaceNodeInTree(prev, panelId, newSplit)
+      // Replace the target panel with the new split
+      return replaceNodeInTree(updatedRoot, panelId, newSplit)
     })
   }, [])
 
