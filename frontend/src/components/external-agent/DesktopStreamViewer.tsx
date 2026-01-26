@@ -3013,6 +3013,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
+        console.log('[Keyboard] Filtering repeat event:', event.key, event.code);
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3057,6 +3058,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         if (input) {
           const isMacCmd = isCmdC || isCmdShiftC;
           console.log(`[Clipboard] Copy keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${event.shiftKey ? 'Shift+' : ''}C), forwarding Ctrl+C to remote`);
+
+          // Mark that Cmd was used for a shortcut (so we don't send Super tap on release)
+          if (isMacCmd) {
+            metaKeyUsedForShortcut = true;
+          }
 
           // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+C directly
           // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
@@ -3155,6 +3161,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const userPressedShift = event.shiftKey;
         const isMacCmd = isCmdV || isCmdShiftV;
         console.log(`[Clipboard] Paste keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${userPressedShift ? 'Shift+' : ''}V), syncing local → remote`);
+
+        // Mark that Cmd was used for a shortcut (so we don't send Super tap on release)
+        if (isMacCmd) {
+          metaKeyUsedForShortcut = true;
+        }
 
         // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+V directly
 
