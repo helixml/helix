@@ -3,7 +3,12 @@ import { Paper, Box, Chip, IconButton, Typography, CircularProgress, Button } fr
 import CloseIcon from '@mui/icons-material/Close'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import InteractionMarkdown from '../session/Markdown'
 import { DesignReviewComment } from '../../services/designReviewService'
+import { TypesSession } from '../../api/api'
+
+// Empty session object for markdown rendering (no RAG/citation features needed)
+const EMPTY_SESSION: TypesSession = {}
 
 interface InlineCommentBubbleProps {
   comment: DesignReviewComment
@@ -150,18 +155,24 @@ export default function InlineCommentBubble({
               ...showing last {COLLAPSED_LINES} lines
             </Typography>
           )}
-          <Typography
-            variant="body2"
+          <Box
             sx={{
-              whiteSpace: 'pre-wrap',
-              fontSize: '0.75rem',
-              color: 'text.primary',
               maxHeight: isExpanded ? 'none' : '120px',
               overflow: isExpanded ? 'visible' : 'hidden',
+              // Scale down the InteractionMarkdown styles for compact display
+              '& > div': { fontSize: '0.75rem' },
+              '& pre': { p: 0.5, fontSize: '0.7rem' },
+              '& code': { fontSize: '0.7rem' },
             }}
           >
-            {isExpanded ? displayResponse : truncatedResponse}
-          </Typography>
+            <InteractionMarkdown
+              text={isExpanded ? displayResponse : truncatedResponse}
+              session={EMPTY_SESSION}
+              getFileURL={() => '#'}
+              isStreaming={isStreaming}
+              showBlinker={isStreaming}
+            />
+          </Box>
           {comment.agent_response_at && !isStreaming && (
             <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
               {new Date(comment.agent_response_at).toLocaleString()}
