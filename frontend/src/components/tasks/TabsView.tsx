@@ -865,6 +865,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        minHeight: 0,
         position: 'relative',
         backgroundColor: 'background.default',
       }}
@@ -1105,7 +1106,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       </Box>
 
       {/* Content area */}
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {activeTab ? (
           activeTab.type === 'desktop' && activeTab.sessionId ? (
             <Box key={`${panel.id}-${activeTab.id}`} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1998,7 +1999,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   // When no rootNode exists, show an empty panel with just a + button
   if (!rootNode) {
     return (
-      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Tab bar with just the + button */}
         <Box
           sx={{
@@ -2046,7 +2047,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   }
 
   return (
-    <Box sx={{ height: '100%', overflow: 'hidden' }}>
+    <Box sx={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {renderPanelNode(rootNode)}
     </Box>
   )
