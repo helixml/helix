@@ -260,9 +260,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.OverallComment = req.OverallComment
 
 	case "request_changes":
-		// TODO
-		// review.Status = types.SpecTaskDesignReviewStatusChangesRequested
-		// now := time.Now()
+		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
 		review.RejectedAt = ptr.To(time.Now())
 		review.OverallComment = req.OverallComment
 
@@ -274,13 +272,24 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// TODO: Notify agent of requested changes via WebSocket
-		// For now, just log the event - agent will see it when they next interact
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Str("review_id", review.ID).
-			Int("revision_count", specTask.SpecRevisionCount).
-			Msg("[DesignReview] Changes requested, agent should be notified")
+		// Notify agent of requested changes via WebSocket
+		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
+		_, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", specTask.ID).
+				Str("review_id", review.ID).
+				Msg("[DesignReview] Failed to notify agent of requested changes")
+			// Don't fail the request - the review state is already updated
+			// Agent can see the feedback when they check the review
+		} else {
+			log.Info().
+				Str("spec_task_id", specTask.ID).
+				Str("review_id", review.ID).
+				Int("revision_count", specTask.SpecRevisionCount).
+				Msg("[DesignReview] Changes requested, agent notified via WebSocket")
+		}
 	default:
 		http.Error(w, "Invalid decision", http.StatusBadRequest)
 		return
