@@ -1235,8 +1235,9 @@ interface TabsViewProps {
   exploratorySessionId?: string // Team Desktop session ID (one per project)
 }
 
-// localStorage key for workspace state
-const WORKSPACE_STATE_KEY = 'helix_workspace_state'
+// localStorage key prefix for workspace state (per-project)
+const WORKSPACE_STATE_KEY_PREFIX = 'helix_workspace_state_'
+const getWorkspaceStateKey = (projectId: string) => `${WORKSPACE_STATE_KEY_PREFIX}${projectId}`
 
 // Serialized node for persistence (stores tab IDs instead of full objects)
 interface SerializedNode {
@@ -1254,17 +1255,6 @@ interface SavedWorkspaceState {
   version: 2 // Bump version for tree structure
   projectId: string
   rootNode: SerializedNode | null
-}
-
-// Legacy v1 format for migration
-interface SavedWorkspaceStateV1 {
-  projectId: string
-  panels: {
-    id: string
-    tabIds: string[]
-    activeTabId: string | null
-  }[]
-  layoutDirection: 'horizontal' | 'vertical'
 }
 
 // Serialize a PanelNode tree to SerializedNode (for localStorage)
@@ -1369,38 +1359,6 @@ const deserializeNode = (
   }
 }
 
-// Migrate v1 state to v2 tree structure
-const migrateV1ToV2 = (v1: SavedWorkspaceStateV1, tasks: TypesSpecTask[]): PanelNode | null => {
-  if (v1.panels.length === 0) return null
-
-  // Convert flat panels to leaf nodes
-  const leafNodes: PanelNode[] = v1.panels
-    .map(p => {
-      const tabs: TabData[] = p.tabIds
-        .map(id => {
-          const task = tasks.find(t => t.id === id)
-          if (task) return { id, type: 'task' as const, task }
-          return null
-        })
-        .filter((t): t is TabData => t !== null)
-
-      if (tabs.length === 0) return null
-      return {
-        id: p.id,
-        type: 'leaf' as const,
-        tabs,
-        activeTabId: tabs.some(t => t.id === p.activeTabId) ? p.activeTabId : tabs[0]?.id,
-      }
-    })
-    .filter((n): n is PanelNode => n !== null)
-
-  if (leafNodes.length === 0) return null
-  if (leafNodes.length === 1) return leafNodes[0]
-
-  // Wrap in a split node using the saved layout direction
-  return createSplitNode(v1.layoutDirection, leafNodes)
-}
-
 const TabsView: React.FC<TabsViewProps> = ({
   projectId,
   tasks,
@@ -1424,7 +1382,7 @@ const TabsView: React.FC<TabsViewProps> = ({
   const panelRefsMap = React.useRef<Map<string, HTMLDivElement>>(new Map())
   const [touchDragInfo, setTouchDragInfo] = useState<{ panelId: string; tabId: string } | null>(null)
 
-  // Save workspace state to localStorage whenever rootNode changes
+  // Save workspace state to localStorage whenever rootNode changes (per-project)
   useEffect(() => {
     if (!projectId || !rootNode) return
 
@@ -1433,30 +1391,22 @@ const TabsView: React.FC<TabsViewProps> = ({
       projectId,
       rootNode: serializeNode(rootNode),
     }
-    localStorage.setItem(WORKSPACE_STATE_KEY, JSON.stringify(savedState))
+    localStorage.setItem(getWorkspaceStateKey(projectId), JSON.stringify(savedState))
   }, [rootNode, projectId])
 
   // Initialize workspace: restore from localStorage or start fresh
   useEffect(() => {
-    if (initialized || tasks.length === 0) return
+    if (initialized || tasks.length === 0 || !projectId) return
 
-    // Try to restore from localStorage
-    const savedJson = localStorage.getItem(WORKSPACE_STATE_KEY)
+    // Try to restore from localStorage (per-project key)
+    const savedJson = localStorage.getItem(getWorkspaceStateKey(projectId))
     let restoredRoot: PanelNode | null = null
 
-    if (savedJson && projectId) {
+    if (savedJson) {
       try {
         const saved = JSON.parse(savedJson)
-
-        // Only restore if it's for the same project
-        if (saved.projectId === projectId) {
-          // Check version - migrate v1 or deserialize v2
-          if (saved.version === 2 && saved.rootNode) {
-            restoredRoot = deserializeNode(saved.rootNode, tasks)
-          } else if (saved.panels && saved.panels.length > 0) {
-            // Migrate v1 format
-            restoredRoot = migrateV1ToV2(saved as SavedWorkspaceStateV1, tasks)
-          }
+        if (saved.rootNode) {
+          restoredRoot = deserializeNode(saved.rootNode, tasks)
         }
       } catch (e) {
         console.warn('Failed to restore workspace state:', e)
