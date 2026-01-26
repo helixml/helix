@@ -6,7 +6,7 @@
 // contention when multiple pipewirezerocopysrc instances try to connect to the
 // same PipeWire ScreenCast node.
 //
-// Build: 2026-01-23-grace-period-vhs-fix
+// Build: 2026-01-26-remove-vhs-effect
 package desktop
 
 import (
@@ -622,7 +622,7 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 			return
 		}
 
-		// Mark as replay frame so frontend can show VHS/fast-forward effect
+		// Mark as replay frame for decoder warmup on mid-stream join
 		replayFrame := frame
 		replayFrame.IsReplay = true
 

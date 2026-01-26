@@ -1054,7 +1054,7 @@ func patchSPSConstraintSet3(data []byte) []byte {
 
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
-// isReplay is true for GOP replay frames (decoder warmup, frontend can show VHS effect)
+// isReplay is true for GOP replay frames (decoder warmup on mid-stream join)
 // pts is the presentation timestamp in microseconds from GStreamer
 // Returns the wall clock time when the frame was actually written to the socket (after mutex).
 func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, isReplay bool, pts uint64) (time.Time, error) {
