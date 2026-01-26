@@ -44,9 +44,14 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	pathSuffix := vars["path"]
 
 	// Build the target path: /mcp or /mcp/{path}
+	// Preserve trailing slash from original request to avoid redirect loops
+	// (Kodit/uvicorn redirects /mcp to /mcp/)
 	targetPath := "/mcp"
 	if pathSuffix != "" {
 		targetPath = "/mcp/" + pathSuffix
+	} else if strings.HasSuffix(r.URL.Path, "/") {
+		// Original request had trailing slash, preserve it
+		targetPath = "/mcp/"
 	}
 
 	log.Debug().
@@ -89,6 +94,54 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 
 	// Handle SSE responses properly - don't buffer
 	proxy.FlushInterval = -1 // Flush immediately for streaming
+
+	// Capture original request host for rewriting redirect Location headers
+	originalScheme := "http"
+	if r.TLS != nil {
+		originalScheme = "https"
+	}
+	// Check X-Forwarded-Proto header (set by reverse proxies like nginx)
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		originalScheme = proto
+	}
+	originalHost := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		originalHost = fwdHost
+	}
+
+	// Rewrite redirect Location headers to use the original client-facing URL
+	// instead of the internal Kodit URL
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			if location := resp.Header.Get("Location"); location != "" {
+				// Parse the Location URL
+				locURL, err := url.Parse(location)
+				if err != nil {
+					return nil // Leave malformed URLs unchanged
+				}
+
+				// Check if this is pointing to the internal Kodit host
+				if locURL.Host == koditURL.Host || locURL.Host == "" {
+					// Rewrite to external URL
+					// /mcp/... -> /api/v1/mcp/kodit/...
+					newPath := strings.TrimPrefix(locURL.Path, "/mcp")
+					if newPath == "" {
+						newPath = "/"
+					}
+					locURL.Scheme = originalScheme
+					locURL.Host = originalHost
+					locURL.Path = "/api/v1/mcp/kodit" + newPath
+
+					resp.Header.Set("Location", locURL.String())
+					log.Debug().
+						Str("original_location", location).
+						Str("rewritten_location", locURL.String()).
+						Msg("rewrote redirect Location header")
+				}
+			}
+		}
+		return nil
+	}
 
 	// Error handler
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
