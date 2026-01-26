@@ -1611,12 +1611,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => clearInterval(intervalId);
   }, [isConnected, qualityMode, isConnecting, reconnect]);
 
-  // Auto-focus container when stream connects for keyboard input
-  useEffect(() => {
-    if (isConnected && containerRef.current) {
-      containerRef.current.focus();
-    }
-  }, [isConnected]);
+  // NOTE: We intentionally do NOT auto-focus the container when stream connects.
+  // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
+  // and causes keyboard shortcuts like Cmd+C to be intercepted by the viewer.
+  // The user must explicitly click on the viewer to focus it for keyboard input.
 
   // Reset reconnectClicked when isConnecting becomes true (connection attempt has started)
   // This provides immediate button feedback: click → disable → wait for isConnecting
