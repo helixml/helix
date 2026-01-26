@@ -938,27 +938,18 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 
 		switch task.Status {
 		case types.TaskStatusImplementation:
-			log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Transitioning to implementation review")
+			log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Recording push to implementation branch")
 
+			// Record the push but don't transition status or send prompt automatically
+			// The agent pushed this code themselves - they don't need to be notified about their own push
+			// Status transition to ImplementationReview should be triggered explicitly when ready
 			now := time.Now()
-			task.Status = types.TaskStatusImplementationReview
 			task.LastPushCommitHash = commitHash
 			task.LastPushAt = &now
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
-			}
-
-			if s.sendMessageToAgentFunc != nil {
-				s.wg.Add(1)
-				go func(t *types.SpecTask, branch string) {
-					defer s.wg.Done()
-					message := BuildImplementationReviewPrompt(t, branch)
-					if _, err := s.sendMessageToAgentFunc(context.Background(), t, message, ""); err != nil {
-						log.Error().Err(err).Str("task_id", t.ID).Msg("Failed to send implementation review request")
-					}
-				}(task, branchName)
 			}
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)

@@ -1,11 +1,13 @@
 # Fix: Firefox Auto-Open in Ubuntu Desktop
 
 **Date:** 2025-12-08
-**Status:** Planned (not yet implemented)
+**Status:** Implemented (2026-01-26)
 
 ## Problem
 
 When launching the Ubuntu desktop environment, Firefox doesn't open automatically, even though the project's `.helix/startup.sh` script calls `xdg-open http://localhost:3000`.
+
+Additionally, clicking URLs in Zed IDE or agent output fails silently because Zed uses `xdg-open` to open URLs, which requires a default browser to be configured.
 
 **Expected behavior (works in Sway):**
 - Terminal window opens (with startup script)
