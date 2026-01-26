@@ -52,6 +52,7 @@ import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/specTaskService'
 import { useGetProject, useGetProjectRepositories } from '../../services/projectService'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
+import AgentDropdown from '../agent/AgentDropdown'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
 import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 import RobustPromptInput from '../common/RobustPromptInput'
@@ -622,22 +623,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
-        <FormControl fullWidth size="small">
-          <InputLabel>Agent</InputLabel>
-          <Select
-            value={selectedAgent}
-            onChange={(e) => handleAgentChange(e.target.value)}
-            label="Agent"
-            disabled={updatingAgent}
-            endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
-          >
-            {sortedApps.map((app) => (
-              <MenuItem key={app.id} value={app.id}>
-                {app.config?.helix?.name || 'Unnamed Agent'}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <AgentDropdown
+          value={selectedAgent}
+          onChange={handleAgentChange}
+          agents={sortedApps}
+          label="Agent"
+          disabled={updatingAgent}
+          size="small"
+        />
       </Box>
 
       {/* Timestamps */}
