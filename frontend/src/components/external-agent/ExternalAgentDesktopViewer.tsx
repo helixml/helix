@@ -125,13 +125,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
   const uploadCountRef = useRef(0);
 
-  // Set current session ID in streaming context when session panel is open
-  // This enables WebSocket updates and proper query invalidation
+  // Set current session ID in streaming context for external agent sessions
+  // This enables WebSocket updates for real-time streaming
+  // CRITICAL: Always subscribe when viewing an external agent session
+  // Otherwise updates won't be received and the UI appears "stuck"
   useEffect(() => {
-    if (showSessionPanel && sessionPanelOpen && sessionId) {
+    if (sessionId) {
       setCurrentSessionId(sessionId);
     }
-  }, [showSessionPanel, sessionPanelOpen, sessionId]);
+  }, [sessionId, setCurrentSessionId]);
 
   // Handle file upload from drag/drop - append path to prompt input with a unique key
   const handleFileUploaded = useCallback((filePath: string) => {
