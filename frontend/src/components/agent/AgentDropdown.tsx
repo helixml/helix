@@ -9,8 +9,8 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material'
-import { Bot } from 'lucide-react'
 import EditIcon from '@mui/icons-material/Edit'
+import { Bot } from 'lucide-react'
 import { IApp } from '../../types'
 import useAccount from '../../hooks/useAccount'
 
