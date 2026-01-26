@@ -176,13 +176,15 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       disablePortal
       keepMounted
       disableEnforceFocus
+      disableAutoFocus
+      disableRestoreFocus
       TransitionProps={{ tabIndex: 'none' } as any}
     >
       <DialogTitle sx={{ m: 0, p: 2 }}>
         {mode === 'login' ? 'Login' : 'Register'}
       </DialogTitle>
 
-      <form ref={formRef} onSubmit={handleSubmit}>
+      <form ref={formRef} onSubmit={handleSubmit} action="#" method="post">
         <DialogContent sx={{ p: 3 }}>
           {isRegistrationDisabled && (
             <Alert severity="info" sx={{ mb: 2 }}>
@@ -200,6 +202,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             onChange={(e) => setEmail(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
+              id: 'login-email',
               name: 'username',
               autoComplete: 'username',
               inputMode: 'email',
@@ -278,6 +281,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             onChange={(e) => setPassword(e.target.value)}
             disabled={isRegistrationDisabled}
             inputProps={{
+              id: 'login-password',
               name: 'password',
               autoComplete: mode === 'login' ? 'current-password' : 'new-password',
               'data-1p-ignore': 'false',

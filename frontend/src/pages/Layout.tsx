@@ -252,8 +252,10 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          height: showVersionBanner && hasNewVersion ? 'calc(100% - 48px)' : '100%',
+          minHeight: showVersionBanner && hasNewVersion ? 'calc(100dvh - 48px)' : '100dvh',
+          height: '100%',
           display: 'flex',
+          backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
         }}
         component="div"
       >
@@ -262,9 +264,9 @@ const Layout: FC<{
               variant={ isBigScreen ? "permanent" : "temporary" }
               open={ isBigScreen || account.mobileMenuOpen }
               onClose={ () => account.setMobileMenuOpen(false) }
-              sx={{
-                height: '100%',
-                '& .MuiDrawer-paper': {
+              PaperProps={{
+                sx: {
+                  background: lightTheme.backgroundColor,
                   backgroundColor: lightTheme.backgroundColor,
                   // For mobile (temporary), let MUI handle positioning (fixed)
                   // For desktop (permanent), use relative positioning
@@ -274,14 +276,18 @@ const Layout: FC<{
                   boxSizing: 'border-box',
                   overflowX: 'hidden', // Prevent horizontal scrolling
                   // Mobile gets full height, desktop respects user menu
+                  // Use dvh (dynamic viewport height) for iOS Safari compatibility
                   height: isBigScreen
-                    ? (userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%')
-                    : '100vh',
+                    ? (userMenuHeight > 0 ? `calc(100dvh - ${userMenuHeight}px)` : '100%')
+                    : '100dvh',
                   overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
                   padding: 0,
                 },
+              }}
+              sx={{
+                height: '100%',
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
