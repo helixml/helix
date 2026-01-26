@@ -7,7 +7,7 @@ import {
   CircularProgress,
   Grid,
 } from '@mui/material';
-import { Copy, Check, AlertCircle, Play } from 'lucide-react';
+import { Wand2, Check, AlertCircle, Play } from 'lucide-react';
 import { useCloneGroupProgress } from '../../services/specTaskService';
 import TaskCard from '../tasks/TaskCard';
 import useRouter from '../../hooks/useRouter';
@@ -246,7 +246,7 @@ export const CloneGroupProgressCompact: React.FC<CloneGroupProgressProps> = ({
       {/* Mini header */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Copy size={12} />
+          <Wand2 size={12} />
           <Typography variant="caption" color="text.secondary" fontWeight={500}>
             Clone batch: {completedCount}/{totalCount}
           </Typography>

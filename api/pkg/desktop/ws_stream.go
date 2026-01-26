@@ -1190,10 +1190,12 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 
 	switch compositor {
 	case "gnome":
-		// GNOME uses PipeWire ScreenCast with cursor metadata
-		v.monitorCursorPipeWire(ctx, cursorCallback)
+		// GNOME: Always use CSS fallback rendering (no cursor bitmaps from mutter).
+		// Mutter's cursor bitmaps are often corrupted, so we use our pre-rendered sprites.
+		v.monitorCursorPipeWire(ctx)
 	case "sway":
-		// Sway uses Wayland ext-image-copy-capture-cursor-session-v1
+		// Sway: Use Wayland ext-image-copy-capture-cursor-session-v1 to get cursor bitmaps.
+		// Sway's cursor bitmaps are reliable, so we use them directly.
 		v.monitorCursorWayland(ctx, cursorCallback)
 	default:
 		v.logger.Warn("unknown compositor, cursor monitoring disabled", "compositor", compositor)
@@ -1268,7 +1270,7 @@ func (v *VideoStreamer) sendCursorName(cursorName string, hotspotX, hotspotY int
 // The Unix socket can only have one listener, so we share it via SharedCursorBroadcaster.
 //
 // Fallback: If no cursor data after 5 seconds, sends default cursor.
-func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback cursorCallbackFunc) {
+func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context) {
 	v.logger.Info("registering with shared cursor broadcaster for GNOME Shell extension")
 
 	// Get the shared cursor broadcaster (creates socket listener if first use)
@@ -1287,23 +1289,15 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 			"pixels_len", len(pixels),
 			"cursor_name", cursorName)
 
-		// If we have pixel data, send cursor image
-		if len(pixels) > 0 {
-			// Convert to callback format
-			// Position is not tracked by GNOME extension (frontend tracks position client-side)
-			// GNOME Shell extension uses Cogl.PixelFormat.RGBA_8888 which is R,G,B,A byte order
-			// Use DRM_FORMAT_RGBA8888 (0x34324152) which the frontend handles with direct copy
-			callback(
-				0, 0, // Position not available from extension
-				int32(hotspotX), int32(hotspotY),
-				uint32(width), uint32(height),
-				int32(width*4), // stride = width * 4 bytes per pixel
-				0x34324152,     // DRM_FORMAT_RGBA8888 - matches Cogl RGBA_8888 byte order
-				pixels,
-			)
-		} else if cursorName != "" {
-			// No pixels available - send cursor name for CSS fallback rendering
+		// GNOME/Mutter: Always use cursor name for CSS fallback rendering.
+		// Mutter's cursor bitmaps from the Shell extension are often corrupted,
+		// so we ignore them and use our pre-rendered cursor sprites instead.
+		// This is different from Sway, where we DO use the Wayland protocol cursor bitmaps.
+		if cursorName != "" {
 			v.sendCursorName(cursorName, int32(hotspotX), int32(hotspotY))
+		} else {
+			// No cursor name available - use default cursor
+			v.sendCursorName("default", int32(hotspotX), int32(hotspotY))
 		}
 	})
 
@@ -1324,8 +1318,8 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 			case <-ticker.C:
 				if !receivedCursor.Load() && time.Since(startTime) > 5*time.Second {
 					v.logger.Warn("no cursor data from GNOME extension after 5s, sending default cursor")
-					defaultCursor := generateDefaultArrowCursor()
-					callback(0, 0, 0, 0, 24, 24, 24*4, 0x34325241, defaultCursor)
+					// Use CSS fallback rendering for default cursor (no bitmaps from mutter)
+					v.sendCursorName("default", 0, 0)
 					return
 				}
 			}
@@ -1335,43 +1329,6 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 	// Wait for context cancellation
 	<-ctx.Done()
 	v.logger.Info("cursor monitoring stopped")
-}
-
-// generateDefaultArrowCursor creates a simple 24x24 white arrow cursor bitmap.
-// Format: ARGB8888 (4 bytes per pixel)
-func generateDefaultArrowCursor() []byte {
-	const size = 24
-	const stride = size * 4
-	pixels := make([]byte, size*stride)
-
-	// Arrow shape: simple pointer cursor
-	// Each row is defined by start column, end column
-	arrowRows := []struct{ start, end int }{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}, {0, 8},
-		{0, 9}, {0, 10}, {0, 11}, {0, 12}, {0, 7}, {0, 4}, {3, 5}, {4, 6},
-		{5, 7}, {6, 8}, {7, 9}, {8, 10}, {9, 11}, {10, 12}, {0, 0}, {0, 0},
-	}
-
-	for y := 0; y < size && y < len(arrowRows); y++ {
-		row := arrowRows[y]
-		for x := row.start; x < row.end && x < size; x++ {
-			offset := y*stride + x*4
-			// ARGB8888: Blue, Green, Red, Alpha
-			pixels[offset+0] = 255 // B
-			pixels[offset+1] = 255 // G
-			pixels[offset+2] = 255 // R
-			pixels[offset+3] = 255 // A
-
-			// Add black outline (if at edge of filled area)
-			if x == row.start || x == row.end-1 {
-				pixels[offset+0] = 0
-				pixels[offset+1] = 0
-				pixels[offset+2] = 0
-			}
-		}
-	}
-
-	return pixels
 }
 
 // monitorCursorWayland uses Go Wayland client to read cursor from ext-image-copy-capture

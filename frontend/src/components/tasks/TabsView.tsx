@@ -33,6 +33,7 @@ import {
   CheckCircle as ApproveIcon,
   Launch as LaunchIcon,
   Computer as DesktopIcon,
+  RateReview as ReviewIcon,
 } from '@mui/icons-material'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
@@ -123,6 +124,142 @@ interface PanelData {
   activeTabId: string | null
 }
 
+// Tree-based panel node for nested layouts
+// A node is either a "leaf" (a panel with tabs) or a "split" (a container with children)
+interface PanelNode {
+  id: string
+  type: 'leaf' | 'split'
+  // For leaf nodes (panels with tabs):
+  tabs?: TabData[]
+  activeTabId?: string | null
+  // For split nodes (containers):
+  direction?: 'horizontal' | 'vertical'
+  children?: PanelNode[]
+}
+
+// Helper to create a leaf node
+const createLeafNode = (tabs: TabData[] = [], activeTabId: string | null = null): PanelNode => ({
+  id: generatePanelId(),
+  type: 'leaf',
+  tabs,
+  activeTabId,
+})
+
+// Helper to create a split node
+const createSplitNode = (direction: 'horizontal' | 'vertical', children: PanelNode[]): PanelNode => ({
+  id: generatePanelId(),
+  type: 'split',
+  direction,
+  children,
+})
+
+// Find a node by ID in the tree
+const findNode = (root: PanelNode | null, nodeId: string): PanelNode | null => {
+  if (!root) return null
+  if (root.id === nodeId) return root
+  if (root.type === 'split' && root.children) {
+    for (const child of root.children) {
+      const found = findNode(child, nodeId)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+// Update a node in the tree immutably
+const updateNodeInTree = (
+  root: PanelNode,
+  nodeId: string,
+  updater: (node: PanelNode) => PanelNode
+): PanelNode => {
+  if (root.id === nodeId) {
+    return updater(root)
+  }
+  if (root.type === 'split' && root.children) {
+    return {
+      ...root,
+      children: root.children.map(child => updateNodeInTree(child, nodeId, updater)),
+    }
+  }
+  return root
+}
+
+// Replace a node in the tree immutably
+const replaceNodeInTree = (root: PanelNode, nodeId: string, newNode: PanelNode): PanelNode => {
+  if (root.id === nodeId) {
+    return newNode
+  }
+  if (root.type === 'split' && root.children) {
+    return {
+      ...root,
+      children: root.children.map(child => replaceNodeInTree(child, nodeId, newNode)),
+    }
+  }
+  return root
+}
+
+// Remove a node from the tree and collapse parent if needed
+const removeNodeFromTree = (root: PanelNode, nodeId: string): PanelNode | null => {
+  if (root.id === nodeId) {
+    return null // Root itself is being removed
+  }
+  if (root.type === 'split' && root.children) {
+    const newChildren = root.children
+      .map(child => {
+        if (child.id === nodeId) return null
+        if (child.type === 'split') {
+          return removeNodeFromTree(child, nodeId)
+        }
+        return child
+      })
+      .filter((c): c is PanelNode => c !== null)
+
+    // If only one child left, collapse the split and return that child
+    if (newChildren.length === 1) {
+      return newChildren[0]
+    }
+    // If no children left, this split should be removed
+    if (newChildren.length === 0) {
+      return null
+    }
+    return { ...root, children: newChildren }
+  }
+  return root
+}
+
+// Count leaf nodes in tree
+const countLeafNodes = (root: PanelNode | null): number => {
+  if (!root) return 0
+  if (root.type === 'leaf') return 1
+  return root.children?.reduce((sum, child) => sum + countLeafNodes(child), 0) || 0
+}
+
+// Get all leaf nodes as flat array (for iteration)
+const getAllLeafNodes = (root: PanelNode | null): PanelNode[] => {
+  if (!root) return []
+  if (root.type === 'leaf') return [root]
+  return root.children?.flatMap(getAllLeafNodes) || []
+}
+
+// Helper to check if a task has a spec review available
+const taskHasSpecReview = (task: TypesSpecTask): boolean => {
+  const status = task.status || ''
+  const statusesWithSpec = [
+    'spec_review',
+    'spec_revision',
+    'spec_approved',
+    'implementation_queued',
+    'implementation',
+    'implementation_review',
+    'pull_request',
+    'done',
+    'spec_failed',
+  ]
+  return statusesWithSpec.includes(status) ||
+    !!(task.requirements_spec) ||
+    !!(task.design_doc_path)
+}
+
 interface PanelTabProps {
   tab: TabData
   isActive: boolean
@@ -179,20 +316,27 @@ const PanelTab: React.FC<PanelTabProps> = ({
   const titleHistory = sessionData?.config?.title_history || []
 
   // Display title depends on tab type
+  // Review tabs always get a "Review:" prefix for distinguishability
+  // Don't truncate here - let CSS handle ellipsis so full text is available for editing
   const displayTitle = tab.type === 'review'
-    ? (tab.reviewTitle || 'Spec Review')
+    ? (tab.reviewTitle?.startsWith('Review:')
+        ? tab.reviewTitle
+        : `Review: ${tab.reviewTitle || 'Spec'}`)
     : tab.type === 'desktop'
     ? (tab.desktopTitle || 'Team Desktop')
     : (displayTask?.user_short_title
       || displayTask?.short_title
-      || displayTask?.name?.substring(0, 20)
+      || displayTask?.name
       || 'Task')
 
   // Format title history for tooltip
   const tooltipContent = useMemo(() => {
-    // Review tabs have a simple tooltip
+    // Review tabs have a simple tooltip with full title
     if (tab.type === 'review') {
-      return tab.reviewTitle || 'Spec Review'
+      const title = tab.reviewTitle?.startsWith('Review:')
+        ? tab.reviewTitle
+        : `Review: ${tab.reviewTitle || 'Spec'}`
+      return title
     }
     // Desktop tabs
     if (tab.type === 'desktop') {
@@ -326,8 +470,9 @@ const PanelTab: React.FC<PanelTabProps> = ({
           gap: 0.5,
           px: 1.5,
           py: 0.5,
-          minWidth: 100,
-          maxWidth: 180,
+          minWidth: 80,
+          maxWidth: 280,
+          flexShrink: 1,
           cursor: 'grab',
           backgroundColor: isTouchDragging ? 'primary.main' : (isActive ? 'background.paper' : 'transparent'),
           borderBottom: isActive ? '2px solid' : '2px solid transparent',
@@ -602,6 +747,26 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
     }
   }
 
+  // Handle opening the latest spec review for any task (used by dropdown menu)
+  const handleOpenTaskReview = async (task: TypesSpecTask) => {
+    if (!task.id) return
+
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id)
+      const reviews = response.data?.reviews || []
+      if (reviews.length > 0) {
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+        const taskTitle = task.user_short_title || task.short_title || task.name || 'Task'
+        onOpenReview(task.id, latestReview.id, `Review: ${taskTitle}`)
+      } else {
+        snackbar.error('No design review found for this task')
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error)
+      snackbar.error('Failed to load design review')
+    }
+  }
+
   // Handle approving implementation
   const handleApproveImplementation = async () => {
     if (!activeTask?.id) return
@@ -868,31 +1033,66 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </MenuItem>
           ) : (
             unopenedTasks.slice(0, 15).map(task => (
-              <MenuItem
-                key={task.id}
-                onClick={() => {
-                  onAddTab(panel.id, task)
-                  setMenuAnchor(null)
-                }}
-              >
-                <ListItemIcon>
-                  <CircleIcon
-                    sx={{
-                      fontSize: 8,
-                      color:
-                        task.status === 'implementation' || task.status === 'spec_generation'
-                          ? '#22c55e'
-                          : task.status === 'spec_review'
-                          ? '#3b82f6'
-                          : '#9ca3af',
+              <React.Fragment key={task.id}>
+                <MenuItem
+                  onClick={() => {
+                    onAddTab(panel.id, task)
+                    setMenuAnchor(null)
+                  }}
+                >
+                  <ListItemIcon>
+                    <CircleIcon
+                      sx={{
+                        fontSize: 8,
+                        color:
+                          task.status === 'implementation' || task.status === 'spec_generation'
+                            ? '#22c55e'
+                            : task.status === 'spec_review'
+                            ? '#3b82f6'
+                            : '#9ca3af',
+                      }}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={task.user_short_title || task.short_title || task.name || 'Task'}
+                    primaryTypographyProps={{
+                      noWrap: true,
+                      fontSize: '0.875rem',
+                      sx: {
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: 200,
+                      },
                     }}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  primary={task.user_short_title || task.short_title || task.name?.substring(0, 30) || 'Task'}
-                  primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
-                />
-              </MenuItem>
+                </MenuItem>
+                {/* Spec review sub-item for tasks that have specs */}
+                {taskHasSpecReview(task) && (
+                  <MenuItem
+                    onClick={() => {
+                      handleOpenTaskReview(task)
+                      setMenuAnchor(null)
+                    }}
+                    sx={{ pl: 4 }}
+                  >
+                    <ListItemIcon>
+                      <ReviewIcon sx={{ fontSize: 14, color: 'info.main' }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={`Review: ${task.user_short_title || task.short_title || task.name || 'Spec'}`}
+                      primaryTypographyProps={{
+                        noWrap: true,
+                        fontSize: '0.75rem',
+                        sx: {
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: 180,
+                        },
+                      }}
+                    />
+                  </MenuItem>
+                )}
+              </React.Fragment>
             ))
           )}
         </Menu>
@@ -1063,14 +1263,165 @@ interface TabsViewProps {
 // localStorage key for workspace state
 const WORKSPACE_STATE_KEY = 'helix_workspace_state'
 
+// Serialized node for persistence (stores tab IDs instead of full objects)
+interface SerializedNode {
+  id: string
+  type: 'leaf' | 'split'
+  // For leaf nodes:
+  tabIds?: string[] // Tab IDs - will be rehydrated with full data
+  activeTabId?: string | null
+  // For split nodes:
+  direction?: 'horizontal' | 'vertical'
+  children?: SerializedNode[]
+}
+
 interface SavedWorkspaceState {
+  version: 2 // Bump version for tree structure
+  projectId: string
+  rootNode: SerializedNode | null
+}
+
+// Legacy v1 format for migration
+interface SavedWorkspaceStateV1 {
   projectId: string
   panels: {
     id: string
-    tabIds: string[] // Just task IDs, not full task objects
+    tabIds: string[]
     activeTabId: string | null
   }[]
   layoutDirection: 'horizontal' | 'vertical'
+}
+
+// Serialize a PanelNode tree to SerializedNode (for localStorage)
+// Uses :: delimiter for review tabs: review::taskId::reviewId
+const serializeNode = (node: PanelNode): SerializedNode => {
+  if (node.type === 'leaf') {
+    return {
+      id: node.id,
+      type: 'leaf',
+      tabIds: node.tabs?.map(t => {
+        // Encode review tabs with all needed info
+        if (t.type === 'review' && t.taskId && t.reviewId) {
+          return `review::${t.taskId}::${t.reviewId}::${t.reviewTitle || 'Spec'}`
+        }
+        // Encode desktop tabs
+        if (t.type === 'desktop' && t.sessionId) {
+          return `desktop::${t.sessionId}::${t.desktopTitle || 'Desktop'}`
+        }
+        // Task tabs just use task ID
+        return t.id
+      }) || [],
+      activeTabId: node.activeTabId,
+    }
+  }
+  return {
+    id: node.id,
+    type: 'split',
+    direction: node.direction,
+    children: node.children?.map(serializeNode) || [],
+  }
+}
+
+// Deserialize SerializedNode to PanelNode (from localStorage)
+// Rehydrates tabs with task data from the tasks array
+const deserializeNode = (
+  serialized: SerializedNode,
+  tasks: TypesSpecTask[],
+): PanelNode | null => {
+  if (serialized.type === 'leaf') {
+    const tabs: TabData[] = []
+    for (const tabId of serialized.tabIds || []) {
+      // Parse review tabs (format: review::taskId::reviewId::title)
+      if (tabId.startsWith('review::')) {
+        const parts = tabId.split('::')
+        if (parts.length >= 3) {
+          tabs.push({
+            id: tabId,
+            type: 'review',
+            taskId: parts[1],
+            reviewId: parts[2],
+            reviewTitle: parts[3] || 'Spec',
+          })
+        }
+        continue
+      }
+      // Parse desktop tabs (format: desktop::sessionId::title)
+      if (tabId.startsWith('desktop::')) {
+        const parts = tabId.split('::')
+        if (parts.length >= 2) {
+          tabs.push({
+            id: tabId.replace('desktop::', 'desktop-'), // Keep desktop- prefix for display
+            type: 'desktop',
+            sessionId: parts[1],
+            desktopTitle: parts[2] || 'Desktop',
+          })
+        }
+        continue
+      }
+      // Regular task tabs
+      const task = tasks.find(t => t.id === tabId)
+      if (task) {
+        tabs.push({ id: tabId, type: 'task', task })
+      }
+    }
+    // Skip empty leaf nodes
+    if (tabs.length === 0) return null
+    return {
+      id: serialized.id,
+      type: 'leaf',
+      tabs,
+      activeTabId: tabs.some(t => t.id === serialized.activeTabId)
+        ? serialized.activeTabId
+        : tabs[0]?.id || null,
+    }
+  }
+
+  // Split node
+  const children = (serialized.children || [])
+    .map(c => deserializeNode(c, tasks))
+    .filter((c): c is PanelNode => c !== null)
+
+  if (children.length === 0) return null
+  if (children.length === 1) return children[0] // Collapse single-child splits
+
+  return {
+    id: serialized.id,
+    type: 'split',
+    direction: serialized.direction,
+    children,
+  }
+}
+
+// Migrate v1 state to v2 tree structure
+const migrateV1ToV2 = (v1: SavedWorkspaceStateV1, tasks: TypesSpecTask[]): PanelNode | null => {
+  if (v1.panels.length === 0) return null
+
+  // Convert flat panels to leaf nodes
+  const leafNodes: PanelNode[] = v1.panels
+    .map(p => {
+      const tabs: TabData[] = p.tabIds
+        .map(id => {
+          const task = tasks.find(t => t.id === id)
+          if (task) return { id, type: 'task' as const, task }
+          return null
+        })
+        .filter((t): t is TabData => t !== null)
+
+      if (tabs.length === 0) return null
+      return {
+        id: p.id,
+        type: 'leaf' as const,
+        tabs,
+        activeTabId: tabs.some(t => t.id === p.activeTabId) ? p.activeTabId : tabs[0]?.id,
+      }
+    })
+    .filter((n): n is PanelNode => n !== null)
+
+  if (leafNodes.length === 0) return null
+  if (leafNodes.length === 1) return leafNodes[0]
+
+  // Wrap in a split node using the saved layout direction
+  return createSplitNode(v1.layoutDirection, leafNodes)
 }
 
 const TabsView: React.FC<TabsViewProps> = ({
@@ -1088,29 +1439,24 @@ const TabsView: React.FC<TabsViewProps> = ({
   // Track if we've initialized from saved state
   const [initialized, setInitialized] = useState(false)
 
-  // Layout state: array of panel rows, each row has panels
-  const [panels, setPanels] = useState<PanelData[]>([])
-  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+  // Tree-based layout state - rootNode can be a leaf (single panel) or split (nested panels)
+  const [rootNode, setRootNode] = useState<PanelNode | null>(null)
 
   // Touch drag state - store refs to panel elements
   const panelRefsMap = React.useRef<Map<string, HTMLDivElement>>(new Map())
   const [touchDragInfo, setTouchDragInfo] = useState<{ panelId: string; tabId: string } | null>(null)
 
-  // Save workspace state to localStorage whenever panels change
+  // Save workspace state to localStorage whenever rootNode changes
   useEffect(() => {
-    if (!projectId || panels.length === 0) return
+    if (!projectId || !rootNode) return
 
     const savedState: SavedWorkspaceState = {
+      version: 2,
       projectId,
-      panels: panels.map(p => ({
-        id: p.id,
-        tabIds: p.tabs.map(t => t.id),
-        activeTabId: p.activeTabId,
-      })),
-      layoutDirection,
+      rootNode: serializeNode(rootNode),
     }
     localStorage.setItem(WORKSPACE_STATE_KEY, JSON.stringify(savedState))
-  }, [panels, layoutDirection, projectId])
+  }, [rootNode, projectId])
 
   // Initialize workspace: restore from localStorage or start fresh
   useEffect(() => {
@@ -1118,44 +1464,20 @@ const TabsView: React.FC<TabsViewProps> = ({
 
     // Try to restore from localStorage
     const savedJson = localStorage.getItem(WORKSPACE_STATE_KEY)
-    let restored = false
+    let restoredRoot: PanelNode | null = null
 
     if (savedJson && projectId) {
       try {
-        const saved: SavedWorkspaceState = JSON.parse(savedJson)
+        const saved = JSON.parse(savedJson)
 
         // Only restore if it's for the same project
-        if (saved.projectId === projectId && saved.panels.length > 0) {
-          // Rebuild panels with current task data (filter out tasks that no longer exist)
-          const restoredPanels: PanelData[] = []
-
-          for (const savedPanel of saved.panels) {
-            const tabs: TabData[] = []
-            for (const taskId of savedPanel.tabIds) {
-              const task = tasks.find(t => t.id === taskId)
-              if (task) {
-                tabs.push({ id: taskId, type: 'task', task })
-              }
-            }
-
-            if (tabs.length > 0) {
-              // Ensure activeTabId is valid
-              const activeTabId = tabs.some(t => t.id === savedPanel.activeTabId)
-                ? savedPanel.activeTabId
-                : tabs[0].id
-
-              restoredPanels.push({
-                id: savedPanel.id,
-                tabs,
-                activeTabId,
-              })
-            }
-          }
-
-          if (restoredPanels.length > 0) {
-            setPanels(restoredPanels)
-            setLayoutDirection(saved.layoutDirection)
-            restored = true
+        if (saved.projectId === projectId) {
+          // Check version - migrate v1 or deserialize v2
+          if (saved.version === 2 && saved.rootNode) {
+            restoredRoot = deserializeNode(saved.rootNode, tasks)
+          } else if (saved.panels && saved.panels.length > 0) {
+            // Migrate v1 format
+            restoredRoot = migrateV1ToV2(saved as SavedWorkspaceStateV1, tasks)
           }
         }
       } catch (e) {
@@ -1163,60 +1485,72 @@ const TabsView: React.FC<TabsViewProps> = ({
       }
     }
 
-    // If initialTaskId is provided, ensure it's open (even if we restored state)
+    // Helper to add a tab to the first leaf node
+    const addTabToFirstLeaf = (root: PanelNode, tab: TabData): PanelNode => {
+      if (root.type === 'leaf') {
+        // Check if already open
+        if (root.tabs?.some(t => t.id === tab.id)) {
+          return { ...root, activeTabId: tab.id }
+        }
+        return {
+          ...root,
+          tabs: [...(root.tabs || []), tab],
+          activeTabId: tab.id,
+        }
+      }
+      // For split nodes, recurse into first child
+      if (root.children && root.children.length > 0) {
+        return {
+          ...root,
+          children: [
+            addTabToFirstLeaf(root.children[0], tab),
+            ...root.children.slice(1),
+          ],
+        }
+      }
+      return root
+    }
+
+    // If initialTaskId is provided, ensure it's open
     if (initialTaskId) {
       const taskToOpen = tasks.find(t => t.id === initialTaskId)
       if (taskToOpen) {
-        if (restored) {
-          // Add to first panel if not already open
-          setPanels(prev => {
-            const alreadyOpen = prev.some(p => p.tabs.some(t => t.id === initialTaskId))
-            if (alreadyOpen) {
-              // Just activate it
-              return prev.map(p => {
-                if (p.tabs.some(t => t.id === initialTaskId)) {
-                  return { ...p, activeTabId: initialTaskId }
-                }
-                return p
-              })
-            }
-            // Add to first panel
-            if (prev.length > 0) {
-              return prev.map((p, i) => i === 0 ? {
-                ...p,
-                tabs: [...p.tabs, { id: initialTaskId, type: 'task', task: taskToOpen }],
-                activeTabId: initialTaskId,
-              } : p)
-            }
-            return prev
-          })
+        if (restoredRoot) {
+          // Add to first leaf if not already open
+          const allLeaves = getAllLeafNodes(restoredRoot)
+          const alreadyOpen = allLeaves.some(leaf => leaf.tabs?.some(t => t.id === initialTaskId))
+          if (!alreadyOpen) {
+            restoredRoot = addTabToFirstLeaf(restoredRoot, {
+              id: initialTaskId,
+              type: 'task',
+              task: taskToOpen,
+            })
+          } else {
+            // Just activate it in the panel that has it
+            restoredRoot = updateNodeInTree(restoredRoot,
+              allLeaves.find(l => l.tabs?.some(t => t.id === initialTaskId))?.id || '',
+              node => ({ ...node, activeTabId: initialTaskId })
+            )
+          }
         } else {
           // Start fresh with this task - create two panels for obvious split-screen
-          // Second panel shows another task or stays empty for user to add
           const otherTasks = tasks.filter(t => t.id !== initialTaskId)
           const secondTask = otherTasks.length > 0 ? otherTasks[0] : null
 
-          const firstPanel: PanelData = {
-            id: generatePanelId(),
-            tabs: [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
-            activeTabId: taskToOpen.id,
-          }
+          const firstLeaf = createLeafNode(
+            [{ id: taskToOpen.id!, type: 'task', task: taskToOpen }],
+            taskToOpen.id!
+          )
 
           if (secondTask) {
-            // Create split with two tasks
-            setPanels([
-              firstPanel,
-              {
-                id: generatePanelId(),
-                tabs: [{ id: secondTask.id, type: 'task', task: secondTask }],
-                activeTabId: secondTask.id,
-              }
-            ])
+            const secondLeaf = createLeafNode(
+              [{ id: secondTask.id!, type: 'task', task: secondTask }],
+              secondTask.id!
+            )
+            restoredRoot = createSplitNode('horizontal', [firstLeaf, secondLeaf])
           } else {
-            // Only one task exists, just show single panel
-            setPanels([firstPanel])
+            restoredRoot = firstLeaf
           }
-          restored = true
         }
       }
     }
@@ -1224,60 +1558,39 @@ const TabsView: React.FC<TabsViewProps> = ({
     // If initialDesktopId is provided, ensure the desktop tab is open
     if (initialDesktopId) {
       const desktopTabId = `desktop-${initialDesktopId}`
-      // Determine if this is the Team Desktop (exploratory session) or a task desktop
       const isTeamDesktop = initialDesktopId === exploratorySessionId
       const ownerTask = !isTeamDesktop ? tasks.find(t => t.planning_session_id === initialDesktopId) : null
       const desktopTitle = isTeamDesktop
         ? 'Team Desktop'
         : ownerTask
-          ? (ownerTask.user_short_title || ownerTask.short_title || ownerTask.name?.substring(0, 25) || 'Task')
+          ? (ownerTask.user_short_title || ownerTask.short_title || ownerTask.name || 'Task')
           : 'Desktop'
-      if (restored) {
-        // Add to first panel if not already open
-        setPanels(prev => {
-          const alreadyOpen = prev.some(p => p.tabs.some(t => t.id === desktopTabId))
-          if (alreadyOpen) {
-            // Just activate it
-            return prev.map(p => {
-              if (p.tabs.some(t => t.id === desktopTabId)) {
-                return { ...p, activeTabId: desktopTabId }
-              }
-              return p
-            })
-          }
-          // Add to first panel
-          if (prev.length > 0) {
-            return prev.map((p, i) => i === 0 ? {
-              ...p,
-              tabs: [...p.tabs, {
-                id: desktopTabId,
-                type: 'desktop',
-                sessionId: initialDesktopId,
-                desktopTitle,
-              }],
-              activeTabId: desktopTabId,
-            } : p)
-          }
-          return prev
-        })
+
+      const desktopTab: TabData = {
+        id: desktopTabId,
+        type: 'desktop',
+        sessionId: initialDesktopId,
+        desktopTitle,
+      }
+
+      if (restoredRoot) {
+        const allLeaves = getAllLeafNodes(restoredRoot)
+        const alreadyOpen = allLeaves.some(leaf => leaf.tabs?.some(t => t.id === desktopTabId))
+        if (!alreadyOpen) {
+          restoredRoot = addTabToFirstLeaf(restoredRoot, desktopTab)
+        } else {
+          restoredRoot = updateNodeInTree(restoredRoot,
+            allLeaves.find(l => l.tabs?.some(t => t.id === desktopTabId))?.id || '',
+            node => ({ ...node, activeTabId: desktopTabId })
+          )
+        }
       } else {
-        // Start fresh with this desktop
-        setPanels([{
-          id: generatePanelId(),
-          tabs: [{
-            id: desktopTabId,
-            type: 'desktop',
-            sessionId: initialDesktopId,
-            desktopTitle,
-          }],
-          activeTabId: desktopTabId,
-        }])
-        restored = true
+        restoredRoot = createLeafNode([desktopTab], desktopTabId)
       }
     }
 
     // If nothing restored and no initialTaskId/initialDesktopId, open most recently updated task
-    if (!restored) {
+    if (!restoredRoot) {
       const sortedTasks = [...tasks].sort((a, b) => {
         const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
         const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
@@ -1286,47 +1599,56 @@ const TabsView: React.FC<TabsViewProps> = ({
       const taskToOpen = sortedTasks[0]
 
       if (taskToOpen?.id) {
-        setPanels([{
-          id: generatePanelId(),
-          tabs: [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
-          activeTabId: taskToOpen.id,
-        }])
+        restoredRoot = createLeafNode(
+          [{ id: taskToOpen.id, type: 'task', task: taskToOpen }],
+          taskToOpen.id
+        )
       }
     }
 
+    if (restoredRoot) {
+      setRootNode(restoredRoot)
+    }
     setInitialized(true)
   }, [tasks, initialized, initialTaskId, initialDesktopId, exploratorySessionId, projectId])
 
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
-    setPanels(prev => prev.map(p =>
-      p.id === panelId ? { ...p, activeTabId: tabId } : p
-    ))
+    setRootNode(prev => {
+      if (!prev) return prev
+      return updateNodeInTree(prev, panelId, node => ({ ...node, activeTabId: tabId }))
+    })
   }, [])
 
   const handleTabClose = useCallback((panelId: string, tabId: string) => {
-    setPanels(prev => {
-      const panel = prev.find(p => p.id === panelId)
-      if (!panel) return prev
+    setRootNode(prev => {
+      if (!prev) return prev
 
-      const newTabs = panel.tabs.filter(t => t.id !== tabId)
+      const panel = findNode(prev, panelId)
+      if (!panel || panel.type !== 'leaf') return prev
 
-      // If panel has no tabs left, remove it (unless it's the only panel)
-      if (newTabs.length === 0 && prev.length > 1) {
-        return prev.filter(p => p.id !== panelId)
+      const tabs = panel.tabs || []
+      const newTabs = tabs.filter(t => t.id !== tabId)
+
+      // If panel has no tabs left and there are other panels, remove this panel
+      if (newTabs.length === 0 && countLeafNodes(prev) > 1) {
+        return removeNodeFromTree(prev, panelId)
       }
 
+      // Calculate new active tab
       let newActiveTabId = panel.activeTabId
       if (panel.activeTabId === tabId && newTabs.length > 0) {
-        const closedIndex = panel.tabs.findIndex(t => t.id === tabId)
+        const closedIndex = tabs.findIndex(t => t.id === tabId)
         const newActiveIndex = Math.min(closedIndex, newTabs.length - 1)
         newActiveTabId = newTabs[newActiveIndex]?.id || null
       } else if (newTabs.length === 0) {
         newActiveTabId = null
       }
 
-      return prev.map(p =>
-        p.id === panelId ? { ...p, tabs: newTabs, activeTabId: newActiveTabId } : p
-      )
+      return updateNodeInTree(prev, panelId, node => ({
+        ...node,
+        tabs: newTabs,
+        activeTabId: newActiveTabId,
+      }))
     })
   }, [])
 
@@ -1345,163 +1667,182 @@ const TabsView: React.FC<TabsViewProps> = ({
 
   const handleAddTab = useCallback((panelId: string, task: TypesSpecTask) => {
     if (!task.id) return
-    setPanels(prev => prev.map(p => {
-      if (p.id !== panelId) return p
-      // Check if tab already exists
-      if (p.tabs.some(t => t.id === task.id)) {
-        return { ...p, activeTabId: task.id }
-      }
-      return {
-        ...p,
-        tabs: [...p.tabs, { id: task.id, type: 'task', task }],
-        activeTabId: task.id,
-      }
-    }))
+    setRootNode(prev => {
+      if (!prev) return prev
+      return updateNodeInTree(prev, panelId, node => {
+        const tabs = node.tabs || []
+        // Check if tab already exists
+        if (tabs.some(t => t.id === task.id)) {
+          return { ...node, activeTabId: task.id }
+        }
+        return {
+          ...node,
+          tabs: [...tabs, { id: task.id!, type: 'task', task }],
+          activeTabId: task.id,
+        }
+      })
+    })
   }, [])
 
+  // Split a panel into two - this creates proper nested layouts
+  // The panel is replaced with a split node containing the original + new panel
   const handleSplitPanel = useCallback((panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => {
-    setPanels(prev => {
-      const panelIndex = prev.findIndex(p => p.id === panelId)
-      if (panelIndex === -1) return prev
+    setRootNode(prev => {
+      if (!prev) return prev
 
-      const sourcePanel = prev[panelIndex]
+      const panel = findNode(prev, panelId)
+      if (!panel || panel.type !== 'leaf') return prev
+
+      const tabs = panel.tabs || []
       let tabToMove: TabData | undefined
-      let newSourceTabs = sourcePanel.tabs
+      let newSourceTabs = tabs
 
       if (taskId) {
-        tabToMove = sourcePanel.tabs.find(t => t.id === taskId)
+        tabToMove = tabs.find(t => t.id === taskId)
         if (tabToMove) {
-          newSourceTabs = sourcePanel.tabs.filter(t => t.id !== taskId)
+          newSourceTabs = tabs.filter(t => t.id !== taskId)
         }
       }
 
-      const newPanel: PanelData = {
-        id: generatePanelId(),
-        tabs: tabToMove ? [tabToMove] : [],
-        activeTabId: tabToMove?.id || null,
-      }
+      // Create the new leaf panel
+      const newLeaf = createLeafNode(
+        tabToMove ? [tabToMove] : [],
+        tabToMove?.id || null
+      )
 
-      // Update layout direction if needed
-      setLayoutDirection(direction)
-
-      // Update source panel and add new panel
-      const updatedPanels = [...prev]
-      updatedPanels[panelIndex] = {
-        ...sourcePanel,
+      // Update the source panel's tabs
+      const updatedSourceLeaf: PanelNode = {
+        ...panel,
         tabs: newSourceTabs,
         activeTabId: newSourceTabs.length > 0
-          ? (newSourceTabs.some(t => t.id === sourcePanel.activeTabId)
-              ? sourcePanel.activeTabId
+          ? (newSourceTabs.some(t => t.id === panel.activeTabId)
+              ? panel.activeTabId
               : newSourceTabs[0].id)
           : null,
       }
-      updatedPanels.splice(panelIndex + 1, 0, newPanel)
 
-      return updatedPanels
+      // Create a new split node containing both panels
+      const newSplit = createSplitNode(direction, [updatedSourceLeaf, newLeaf])
+
+      // Replace the original panel with the new split
+      return replaceNodeInTree(prev, panelId, newSplit)
     })
   }, [])
 
   const handleDropTab = useCallback((targetPanelId: string, tabId: string, fromPanelId: string) => {
-    setPanels(prev => {
-      const sourcePanel = prev.find(p => p.id === fromPanelId)
-      const targetPanel = prev.find(p => p.id === targetPanelId)
-      if (!sourcePanel || !targetPanel) return prev
+    setRootNode(prev => {
+      if (!prev) return prev
 
-      const tabToMove = sourcePanel.tabs.find(t => t.id === tabId)
+      const sourcePanel = findNode(prev, fromPanelId)
+      const targetPanel = findNode(prev, targetPanelId)
+      if (!sourcePanel || !targetPanel) return prev
+      if (sourcePanel.type !== 'leaf' || targetPanel.type !== 'leaf') return prev
+
+      const sourceTabs = sourcePanel.tabs || []
+      const targetTabs = targetPanel.tabs || []
+
+      const tabToMove = sourceTabs.find(t => t.id === tabId)
       if (!tabToMove) return prev
 
       // Check if already in target
-      if (targetPanel.tabs.some(t => t.id === tabId)) return prev
+      if (targetTabs.some(t => t.id === tabId)) return prev
 
-      return prev.map(p => {
-        if (p.id === fromPanelId) {
-          const newTabs = p.tabs.filter(t => t.id !== tabId)
-          return {
-            ...p,
-            tabs: newTabs,
-            activeTabId: newTabs.length > 0
-              ? (newTabs.some(t => t.id === p.activeTabId) ? p.activeTabId : newTabs[0].id)
-              : null,
-          }
-        }
-        if (p.id === targetPanelId) {
-          return {
-            ...p,
-            tabs: [...p.tabs, tabToMove],
-            activeTabId: tabId,
-          }
-        }
-        return p
-      }).filter(p => p.tabs.length > 0 || prev.length <= 1)
+      // First, update source panel (remove tab)
+      const newSourceTabs = sourceTabs.filter(t => t.id !== tabId)
+      let updated = updateNodeInTree(prev, fromPanelId, node => ({
+        ...node,
+        tabs: newSourceTabs,
+        activeTabId: newSourceTabs.length > 0
+          ? (newSourceTabs.some(t => t.id === node.activeTabId) ? node.activeTabId : newSourceTabs[0].id)
+          : null,
+      }))
+
+      // Then, update target panel (add tab)
+      updated = updateNodeInTree(updated, targetPanelId, node => ({
+        ...node,
+        tabs: [...(node.tabs || []), tabToMove],
+        activeTabId: tabId,
+      }))
+
+      // If source panel is now empty and there are other panels, remove it
+      if (newSourceTabs.length === 0 && countLeafNodes(updated) > 1) {
+        updated = removeNodeFromTree(updated, fromPanelId) || updated
+      }
+
+      return updated
     })
   }, [])
 
   const handleClosePanel = useCallback((panelId: string) => {
-    setPanels(prev => {
-      if (prev.length <= 1) return prev
-      return prev.filter(p => p.id !== panelId)
+    setRootNode(prev => {
+      if (!prev) return prev
+      // Don't remove the last panel
+      if (countLeafNodes(prev) <= 1) return prev
+      return removeNodeFromTree(prev, panelId)
     })
   }, [])
 
   // Handle task created - add it to the specified panel
   const handleTaskCreated = useCallback((panelId: string, task: TypesSpecTask) => {
     if (!task.id) return
-    setPanels(prev => prev.map(p => {
-      if (p.id !== panelId) return p
-      // Add new task as a tab and make it active
-      return {
-        ...p,
-        tabs: [...p.tabs, { id: task.id!, type: 'task', task }],
+    setRootNode(prev => {
+      if (!prev) return prev
+      return updateNodeInTree(prev, panelId, node => ({
+        ...node,
+        tabs: [...(node.tabs || []), { id: task.id!, type: 'task', task }],
         activeTabId: task.id!,
-      }
-    }))
+      }))
+    })
   }, [])
 
   // Handle adding a Team Desktop tab to a panel
   const handleAddDesktop = useCallback((panelId: string, sessionId: string, title?: string) => {
     const desktopTabId = `desktop-${sessionId}`
-    setPanels(prev => prev.map(p => {
-      if (p.id !== panelId) return p
-      // Check if already open
-      if (p.tabs.some(t => t.id === desktopTabId)) {
-        return { ...p, activeTabId: desktopTabId }
-      }
-      // Add new desktop tab
-      return {
-        ...p,
-        tabs: [...p.tabs, {
-          id: desktopTabId,
-          type: 'desktop' as const,
-          sessionId,
-          desktopTitle: title || 'Team Desktop',
-        }],
-        activeTabId: desktopTabId,
-      }
-    }))
+    setRootNode(prev => {
+      if (!prev) return prev
+      return updateNodeInTree(prev, panelId, node => {
+        const tabs = node.tabs || []
+        // Check if already open
+        if (tabs.some(t => t.id === desktopTabId)) {
+          return { ...node, activeTabId: desktopTabId }
+        }
+        // Add new desktop tab
+        return {
+          ...node,
+          tabs: [...tabs, {
+            id: desktopTabId,
+            type: 'desktop' as const,
+            sessionId,
+            desktopTitle: title || 'Team Desktop',
+          }],
+          activeTabId: desktopTabId,
+        }
+      })
+    })
   }, [])
 
   // Handle opening a review in a new tab (called from SpecTaskDetailContent)
+  // IMPORTANT: Use :: as delimiter since task/review IDs are UUIDs containing hyphens
   const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string) => {
-    const tabId = `review-${taskId}-${reviewId}`
+    const tabId = `review::${taskId}::${reviewId}`
 
-    setPanels(prev => {
-      // Check if this review is already open in any panel
-      for (const panel of prev) {
-        if (panel.tabs.some(t => t.id === tabId)) {
+    setRootNode(prev => {
+      if (!prev) return prev
+
+      // Check if this review is already open in any leaf
+      const allLeaves = getAllLeafNodes(prev)
+      for (const leaf of allLeaves) {
+        if (leaf.tabs?.some(t => t.id === tabId)) {
           // Activate it
-          return prev.map(p =>
-            p.tabs.some(t => t.id === tabId)
-              ? { ...p, activeTabId: tabId }
-              : p
-          )
+          return updateNodeInTree(prev, leaf.id, node => ({ ...node, activeTabId: tabId }))
         }
       }
 
-      // Add to the first panel (or create a new panel if we want split behavior)
-      if (prev.length > 0) {
-        return prev.map((p, i) => i === 0 ? {
-          ...p,
-          tabs: [...p.tabs, {
+      // Add to the first leaf
+      if (allLeaves.length > 0) {
+        return updateNodeInTree(prev, allLeaves[0].id, node => ({
+          ...node,
+          tabs: [...(node.tabs || []), {
             id: tabId,
             type: 'review' as const,
             taskId,
@@ -1509,7 +1850,7 @@ const TabsView: React.FC<TabsViewProps> = ({
             reviewTitle: reviewTitle || 'Spec Review',
           }],
           activeTabId: tabId,
-        } : p)
+        }))
       }
 
       return prev
@@ -1552,8 +1893,60 @@ const TabsView: React.FC<TabsViewProps> = ({
     }
   }, [])
 
-  // When no panels exist, show an empty panel with just a + button
-  if (panels.length === 0) {
+  // Calculate total leaf count for panelCount prop
+  const totalPanelCount = countLeafNodes(rootNode)
+
+  // Recursive renderer for the tree structure
+  const renderPanelNode = (node: PanelNode): React.ReactNode => {
+    if (node.type === 'leaf') {
+      // Convert PanelNode to PanelData for TaskPanel component
+      const panelData: PanelData = {
+        id: node.id,
+        tabs: node.tabs || [],
+        activeTabId: node.activeTabId || null,
+      }
+      return (
+        <TaskPanel
+          panel={panelData}
+          tasks={tasks}
+          projectId={projectId}
+          exploratorySessionId={exploratorySessionId}
+          onTabSelect={handleTabSelect}
+          onTabClose={handleTabClose}
+          onTabRename={handleTabRename}
+          onAddTab={handleAddTab}
+          onAddDesktop={handleAddDesktop}
+          onTaskCreated={handleTaskCreated}
+          onSplitPanel={handleSplitPanel}
+          onDropTab={handleDropTab}
+          onClosePanel={handleClosePanel}
+          onOpenReview={handleOpenReview}
+          onTouchDragStart={handleTouchDragStart}
+          onTouchDragEnd={handleTouchDragEnd}
+          panelCount={totalPanelCount}
+          panelRef={getPanelRef(node.id)}
+        />
+      )
+    }
+
+    // Split node - render nested PanelGroup
+    const children = node.children || []
+    return (
+      <PanelGroup orientation={node.direction || 'horizontal'} style={{ height: '100%' }}>
+        {children.map((child, index) => (
+          <React.Fragment key={child.id}>
+            {index > 0 && <ResizeHandle direction={node.direction || 'horizontal'} />}
+            <Panel defaultSize={100 / children.length} minSize={15}>
+              {renderPanelNode(child)}
+            </Panel>
+          </React.Fragment>
+        ))}
+      </PanelGroup>
+    )
+  }
+
+  // When no rootNode exists, show an empty panel with just a + button
+  if (!rootNode) {
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Tab bar with just the + button */}
@@ -1604,35 +1997,7 @@ const TabsView: React.FC<TabsViewProps> = ({
 
   return (
     <Box sx={{ height: '100%', overflow: 'hidden' }}>
-      <PanelGroup orientation={layoutDirection} style={{ height: '100%' }}>
-        {panels.map((panel, index) => (
-          <React.Fragment key={panel.id}>
-            {index > 0 && <ResizeHandle direction={layoutDirection} />}
-            <Panel defaultSize={100 / panels.length} minSize={15}>
-              <TaskPanel
-                panel={panel}
-                tasks={tasks}
-                projectId={projectId}
-                exploratorySessionId={exploratorySessionId}
-                onTabSelect={handleTabSelect}
-                onTabClose={handleTabClose}
-                onTabRename={handleTabRename}
-                onAddTab={handleAddTab}
-                onAddDesktop={handleAddDesktop}
-                onTaskCreated={handleTaskCreated}
-                onSplitPanel={handleSplitPanel}
-                onDropTab={handleDropTab}
-                onClosePanel={handleClosePanel}
-                onOpenReview={handleOpenReview}
-                onTouchDragStart={handleTouchDragStart}
-                onTouchDragEnd={handleTouchDragEnd}
-                panelCount={panels.length}
-                panelRef={getPanelRef(panel.id)}
-              />
-            </Panel>
-          </React.Fragment>
-        ))}
-      </PanelGroup>
+      {renderPanelNode(rootNode)}
     </Box>
   )
 }

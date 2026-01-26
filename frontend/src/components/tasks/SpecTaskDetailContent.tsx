@@ -33,7 +33,6 @@ import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import LinkIcon from '@mui/icons-material/Link'
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
@@ -57,7 +56,7 @@ import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
-import { SlidersHorizontal, GitCompare, MonitorPlay } from 'lucide-react'
+import { SlidersHorizontal, GitCompare, MonitorPlay, Wand2 } from 'lucide-react'
 
 interface SpecTaskDetailContentProps {
   taskId: string
@@ -664,7 +663,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   }}
                   onClick={() => setSelectedCloneGroupId(group.id || null)}
                 >
-                  <ContentCopyIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  <Wand2 size={16} style={{ color: 'inherit', opacity: 0.7 }} />
                   <Typography variant="caption">
                     {group.total_targets} project{group.total_targets !== 1 ? 's' : ''} • {new Date(group.created_at || '').toLocaleDateString()}
                   </Typography>
@@ -967,7 +966,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         {task.design_docs_pushed_at && (
                           <Tooltip title="Clone task to other projects">
                             <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
-                              <ContentCopyIcon sx={{ fontSize: 18 }} />
+                              <Wand2 size={18} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1189,7 +1188,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
-                          <ContentCopyIcon sx={{ fontSize: 18 }} />
+                          <Wand2 size={18} />
                         </IconButton>
                       </Tooltip>
                     )}

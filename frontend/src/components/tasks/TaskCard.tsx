@@ -35,10 +35,9 @@ import {
   Delete as DeleteIcon,
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
-  ContentCopy as CopyIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
 } from '@mui/icons-material'
-import { EllipsisVertical } from 'lucide-react'
+import { EllipsisVertical, Wand2 } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress, useUpdateSpecTask, useDeleteSpecTask } from '../../services/specTaskService'
 import { TypesSpecTaskStatus } from '../../api/api'
@@ -705,7 +704,7 @@ export default function TaskCard({
                 }}
               >
                 <ListItemIcon>
-                  <CopyIcon sx={{ fontSize: 16 }} />
+                  <Wand2 size={16} />
                 </ListItemIcon>
                 <ListItemText>Clone to projects</ListItemText>
               </MenuItem>
