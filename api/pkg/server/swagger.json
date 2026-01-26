@@ -8242,6 +8242,63 @@
                 }
             }
         },
+        "/api/v1/sample-projects/simple/check-access": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Check if the authenticated user has write access to the required repositories for a sample project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Check repository access for a sample project",
+                "parameters": [
+                    {
+                        "description": "Access check request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CheckSampleProjectAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CheckSampleProjectAccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sample-projects/simple/fork": {
             "post": {
                 "security": [
@@ -8270,6 +8327,63 @@
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.ForkSimpleProjectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/simple/fork-repos": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fork the specified repositories to the user's GitHub account",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Fork repositories for a sample project",
+                "parameters": [
+                    {
+                        "description": "Fork request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ForkRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ForkRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -14952,6 +15066,31 @@
                 }
             }
         },
+        "server.RequiredRepository": {
+            "type": "object",
+            "properties": {
+                "allow_fork": {
+                    "description": "AllowFork allows users without write access to fork the repo to their account",
+                    "type": "boolean"
+                },
+                "default_branch": {
+                    "description": "DefaultBranch overrides the default branch for this repo",
+                    "type": "string"
+                },
+                "github_url": {
+                    "description": "GitHubURL is the GitHub repository URL (e.g., \"github.com/helixml/helix\")",
+                    "type": "string"
+                },
+                "is_primary": {
+                    "description": "IsPrimary marks this as the primary/default repository for the project",
+                    "type": "boolean"
+                },
+                "sub_path": {
+                    "description": "SubPath is the directory name to clone into (e.g., \"helix\", \"zed\")\nIf empty, uses the repo name",
+                    "type": "string"
+                }
+            }
+        },
         "server.SampleProject": {
             "type": "object",
             "properties": {
@@ -15231,6 +15370,10 @@
                 "difficulty": {
                     "type": "string"
                 },
+                "enabled": {
+                    "description": "Whether this sample project is shown to users",
+                    "type": "boolean"
+                },
                 "github_repo": {
                     "type": "string"
                 },
@@ -15242,6 +15385,17 @@
                 },
                 "readme_url": {
                     "type": "string"
+                },
+                "required_repositories": {
+                    "description": "RequiredRepositories specifies GitHub repos that must be cloned for this sample project.\nWhen set, the project creation flow will:\n1. Check if user has GitHub OAuth connected\n2. Verify write access to each repo (or offer to fork)\n3. Clone repos with authentication\n4. Wait for cloning to complete before starting session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.RequiredRepository"
+                    }
+                },
+                "requires_github_auth": {
+                    "description": "RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access",
+                    "type": "boolean"
                 },
                 "task_prompts": {
                     "type": "array",
@@ -16762,6 +16916,40 @@
                 "ChatMessagePartTypeImageURL"
             ]
         },
+        "types.CheckSampleProjectAccessRequest": {
+            "type": "object",
+            "properties": {
+                "github_connection_id": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CheckSampleProjectAccessResponse": {
+            "type": "object",
+            "properties": {
+                "all_have_write_access": {
+                    "type": "boolean"
+                },
+                "github_username": {
+                    "type": "string"
+                },
+                "has_github_connected": {
+                    "type": "boolean"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepositoryAccessCheck"
+                    }
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ChecklistItem": {
             "type": "object",
             "properties": {
@@ -17370,6 +17558,30 @@
                 }
             }
         },
+        "types.CreatedRepository": {
+            "type": "object",
+            "properties": {
+                "clone_status": {
+                    "description": "\"pending\", \"cloning\", \"ready\", \"error\"",
+                    "type": "string"
+                },
+                "github_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_forked": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CrispTrigger": {
             "type": "object",
             "properties": {
@@ -17781,10 +17993,50 @@
                 }
             }
         },
+        "types.ForkRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "fork_to_organization": {
+                    "type": "string"
+                },
+                "github_connection_id": {
+                    "type": "string"
+                },
+                "repositories_to_fork": {
+                    "description": "List of GitHub URLs to fork",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ForkRepositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "forked_repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ForkedRepository"
+                    }
+                }
+            }
+        },
         "types.ForkSimpleProjectRequest": {
             "type": "object",
             "properties": {
                 "description": {
+                    "type": "string"
+                },
+                "fork_to_organization": {
+                    "description": "For repos the user doesn't have write access to, fork them to this target\nIf empty, forks to user's personal GitHub account",
+                    "type": "string"
+                },
+                "github_connection_id": {
+                    "description": "GitHub OAuth connection ID for authenticated cloning\nRequired for sample projects with RequiresGitHubAuth=true",
                     "type": "string"
                 },
                 "helix_app_id": {
@@ -17798,6 +18050,13 @@
                 "project_name": {
                     "type": "string"
                 },
+                "repository_decisions": {
+                    "description": "RepositoryDecisions maps repo URLs to the user's decision about access\nKey: GitHub URL (e.g., \"github.com/helixml/helix\")\nValue: \"use_original\" (has write access) or \"fork\" (will fork)",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "sample_project_id": {
                     "type": "string"
                 }
@@ -17806,6 +18065,10 @@
         "types.ForkSimpleProjectResponse": {
             "type": "object",
             "properties": {
+                "cloning_in_progress": {
+                    "description": "CloningInProgress indicates repos are still being cloned",
+                    "type": "boolean"
+                },
                 "github_repo_url": {
                     "type": "string"
                 },
@@ -17815,8 +18078,32 @@
                 "project_id": {
                     "type": "string"
                 },
+                "repositories_created": {
+                    "description": "RepositoriesCreated lists the repositories attached to the project",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CreatedRepository"
+                    }
+                },
                 "tasks_created": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ForkedRepository": {
+            "type": "object",
+            "properties": {
+                "forked_url": {
+                    "type": "string"
+                },
+                "original_url": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
+                    "type": "string"
                 }
             }
         },
@@ -21012,6 +21299,36 @@
                     "type": "string"
                 },
                 "password_confirm": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RepositoryAccessCheck": {
+            "type": "object",
+            "properties": {
+                "can_fork": {
+                    "type": "boolean"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "existing_fork": {
+                    "description": "URL of existing fork if any",
+                    "type": "string"
+                },
+                "github_url": {
+                    "type": "string"
+                },
+                "has_write_access": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
                     "type": "string"
                 }
             }

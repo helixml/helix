@@ -19,6 +19,7 @@ import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog
 import LinkExternalRepositoryDialog from '../components/project/LinkExternalRepositoryDialog'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import AgentSelectionModal from '../components/project/AgentSelectionModal'
+import SampleProjectWizard from '../components/project/SampleProjectWizard'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
 import GuidelinesView from '../components/project/GuidelinesView'
@@ -116,6 +117,11 @@ const Projects: FC = () => {
   // Agent selection modal state for sample project fork
   const [agentModalOpen, setAgentModalOpen] = useState(false)
   const [pendingSampleFork, setPendingSampleFork] = useState<{ sampleId: string; sampleName: string } | null>(null)
+
+  // GitHub auth wizard for sample projects that require it (e.g., helix-in-helix)
+  const [sampleWizardOpen, setSampleWizardOpen] = useState(false)
+  const [sampleWizardProject, setSampleWizardProject] = useState<any>(null)
+  const [selectedAgentForWizard, setSelectedAgentForWizard] = useState<string | undefined>(undefined)
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string>('')
@@ -251,9 +257,18 @@ const Projects: FC = () => {
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
     if (!requireLogin()) return
 
-    // Store the pending fork request and show agent selection modal
-    setPendingSampleFork({ sampleId, sampleName })
-    setAgentModalOpen(true)
+    // Find the sample project to check if it requires GitHub auth
+    const sampleProject = sampleProjects.find((p: any) => p.id === sampleId)
+
+    if (sampleProject?.requires_github_auth || (sampleProject?.required_repositories?.length || 0) > 0) {
+      // This sample project requires GitHub OAuth - show the wizard
+      setSampleWizardProject(sampleProject)
+      setSampleWizardOpen(true)
+    } else {
+      // Standard flow - show agent selection modal
+      setPendingSampleFork({ sampleId, sampleName })
+      setAgentModalOpen(true)
+    }
   }
 
   // Step 2: User selects an agent - proceed with fork
@@ -706,6 +721,24 @@ const Projects: FC = () => {
           onSelect={handleAgentSelected}
           title="Select Agent for Project"
           description="Choose a default agent for this project. You can override this when creating individual tasks."
+        />
+
+        {/* GitHub Auth Wizard for Sample Projects */}
+        <SampleProjectWizard
+          open={sampleWizardOpen}
+          onClose={() => {
+            setSampleWizardOpen(false)
+            setSampleWizardProject(null)
+          }}
+          onComplete={(projectId) => {
+            setSampleWizardOpen(false)
+            setSampleWizardProject(null)
+            snackbar.success('Project created successfully!')
+            account.orgNavigate('project-specs', { id: projectId })
+          }}
+          sampleProject={sampleWizardProject}
+          organizationId={account.organizationTools.organization?.id}
+          selectedAgentId={selectedAgentForWizard}
         />
 
         {/* Browse Connected Providers Dialog */}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -28,6 +29,37 @@ type SimpleSampleProject struct {
 	Difficulty    string             `json:"difficulty"`
 	Category      string             `json:"category"`
 	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
+	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
+
+	// RequiredRepositories specifies GitHub repos that must be cloned for this sample project.
+	// When set, the project creation flow will:
+	// 1. Check if user has GitHub OAuth connected
+	// 2. Verify write access to each repo (or offer to fork)
+	// 3. Clone repos with authentication
+	// 4. Wait for cloning to complete before starting session
+	RequiredRepositories []RequiredRepository `json:"required_repositories,omitempty"`
+
+	// RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access
+	RequiresGitHubAuth bool `json:"requires_github_auth,omitempty"`
+}
+
+// RequiredRepository specifies a GitHub repository required for a sample project
+type RequiredRepository struct {
+	// GitHubURL is the GitHub repository URL (e.g., "github.com/helixml/helix")
+	GitHubURL string `json:"github_url"`
+
+	// IsPrimary marks this as the primary/default repository for the project
+	IsPrimary bool `json:"is_primary,omitempty"`
+
+	// AllowFork allows users without write access to fork the repo to their account
+	AllowFork bool `json:"allow_fork,omitempty"`
+
+	// SubPath is the directory name to clone into (e.g., "helix", "zed")
+	// If empty, uses the repo name
+	SubPath string `json:"sub_path,omitempty"`
+
+	// DefaultBranch overrides the default branch for this repo
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 // SampleTaskPrompt follows Kiro's approach - just natural language prompts
@@ -45,6 +77,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Description:   "Full-stack todo application with React and Node.js - perfect for learning modern web patterns",
 		GitHubRepo:    "helixml/sample-todo-app",
 		DefaultBranch: "main",
+		Enabled:       true,
 		Technologies:  []string{"React", "TypeScript", "Node.js", "Express", "PostgreSQL", "Tailwind CSS"},
 		ReadmeURL:     "https://github.com/helixml/sample-todo-app/blob/main/README.md",
 		DemoURL:       "https://sample-todo-app.vercel.app",
@@ -578,6 +611,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		Description:   "Demonstrates the clone feature: fill a shape with your brand color, then clone to apply the same color to 4 other shapes. Shows how learnings (the color choice) transfer across repositories.",
 		GitHubRepo:    "",
 		DefaultBranch: "main",
+		Enabled:       true,
 		Technologies:  []string{"SVG", "HTML", "CSS", "Design"},
 		ReadmeURL:     "",
 		Difficulty:    "beginner",
@@ -605,12 +639,39 @@ The color discovery happens during implementation, and that learning gets captur
 		Description:   "Develop Helix itself inside a Helix cloud desktop - includes Helix API, Zed IDE fork, and Qwen Code agent",
 		GitHubRepo:    "helixml/helix",
 		DefaultBranch: "main",
+		Enabled:       true,
 		Technologies:  []string{"Go", "TypeScript", "React", "Docker", "Rust", "PipeWire"},
 		ReadmeURL:     "https://github.com/helixml/helix/blob/main/README.md",
 		DemoURL:       "",
 		Difficulty:    "advanced",
 		Category:      "infrastructure",
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
+
+		// Require GitHub authentication for push access to make PRs
+		RequiresGitHubAuth: true,
+		RequiredRepositories: []RequiredRepository{
+			{
+				GitHubURL:     "github.com/helixml/helix",
+				IsPrimary:     true,
+				AllowFork:     true,
+				SubPath:       "helix",
+				DefaultBranch: "main",
+			},
+			{
+				GitHubURL:     "github.com/helixml/zed",
+				IsPrimary:     false,
+				AllowFork:     true,
+				SubPath:       "zed",
+				DefaultBranch: "helix",
+			},
+			{
+				GitHubURL:     "github.com/helixml/qwen-code",
+				IsPrimary:     false,
+				AllowFork:     true,
+				SubPath:       "qwen-code",
+				DefaultBranch: "main",
+			},
+		},
 		TaskPrompts: []SampleTaskPrompt{
 			{
 				Prompt: `Set up the Helix development environment:
@@ -677,8 +738,15 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 	category := r.URL.Query().Get("category")
 	difficulty := r.URL.Query().Get("difficulty")
 
+	// Check if we should include disabled projects (for testing)
+	includeDisabled := r.URL.Query().Get("include_disabled") == "true"
+
 	var filteredProjects []SimpleSampleProject
 	for _, project := range SIMPLE_SAMPLE_PROJECTS {
+		// Filter by enabled status (unless include_disabled is set)
+		if !includeDisabled && !project.Enabled {
+			continue
+		}
 		if category != "" && project.Category != category {
 			continue
 		}
@@ -1172,6 +1240,159 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				"Start with the 'Circle (Start Here)' project - the agent will ask you for your brand color. "+
 				"Then clone the task to fill the other 4 shapes (Square, Triangle, Hexagon, Star) with the same color. "+
 				"%d task(s) ready to work on.", totalTasksCreated),
+		}, nil
+	} else if len(sampleProject.RequiredRepositories) > 0 {
+		// Handle sample projects with RequiredRepositories (e.g., helix-in-helix)
+		// These require GitHub OAuth for authenticated cloning and push access
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Int("required_repos", len(sampleProject.RequiredRepositories)).
+			Msg("Creating project with required GitHub repositories")
+
+		// Get GitHub access token for authenticated cloning
+		var accessToken string
+		if req.GitHubConnectionID != "" {
+			accessToken, err = s.getGitHubAccessToken(ctx, user.ID, req.GitHubConnectionID)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to get GitHub access token from specified connection")
+				return nil, system.NewHTTPError400("GitHub connection required: " + err.Error())
+			}
+		}
+
+		// Create GitRepository entries for each required repository
+		var createdRepos []types.CreatedRepository
+		var primaryRepoID string
+
+		for _, reqRepo := range sampleProject.RequiredRepositories {
+			owner, repo, parseErr := parseGitHubURLSimple(reqRepo.GitHubURL)
+			if parseErr != nil {
+				log.Warn().Err(parseErr).Str("url", reqRepo.GitHubURL).Msg("Failed to parse GitHub URL")
+				continue
+			}
+
+			// Determine the final repo URL - may be forked or original
+			finalOwner := owner
+			finalRepo := repo
+			isForked := false
+
+			// Check if user decided to fork this repo
+			if decision, ok := req.RepositoryDecisions[reqRepo.GitHubURL]; ok && decision == "fork" {
+				// User wants to use a fork - check if one was created
+				for _, forkedRepo := range req.RepositoryDecisions {
+					if forkedRepo == "fork" {
+						// The fork should already exist (created by fork-repos endpoint)
+						// We need to find the fork owner (user's GitHub username or fork org)
+						if req.ForkToOrganization != "" {
+							finalOwner = req.ForkToOrganization
+						} else {
+							// Get user's GitHub username from the OAuth connection
+							if accessToken != "" {
+								ghClient := github.NewClientWithOAuth(accessToken)
+								ghUser, ghErr := ghClient.GetAuthenticatedUser(ctx)
+								if ghErr == nil {
+									finalOwner = ghUser.GetLogin()
+								}
+							}
+						}
+						isForked = true
+						break
+					}
+				}
+			}
+
+			// Create GitRepository entry as external GitHub repo
+			repoID := fmt.Sprintf("%s-%s", createdProject.ID, data.SlugifyName(repo))
+			externalURL := fmt.Sprintf("https://github.com/%s/%s", finalOwner, finalRepo)
+			cloneURL := externalURL + ".git"
+
+			defaultBranch := reqRepo.DefaultBranch
+			if defaultBranch == "" {
+				defaultBranch = "main"
+			}
+
+			gitRepo := &types.GitRepository{
+				ID:                repoID,
+				Name:              repo,
+				Description:       fmt.Sprintf("GitHub repository %s/%s", finalOwner, finalRepo),
+				OwnerID:           user.ID,
+				OrganizationID:    createdProject.OrganizationID,
+				ProjectID:         createdProject.ID,
+				RepoType:          types.GitRepositoryTypeCode,
+				Status:            types.GitRepositoryStatusActive,
+				IsExternal:        true,
+				ExternalURL:       externalURL,
+				ExternalType:      types.ExternalRepositoryTypeGitHub,
+				CloneURL:          cloneURL,
+				DefaultBranch:     defaultBranch,
+				Metadata:          map[string]interface{}{"sample_project": sampleProject.ID, "is_forked": isForked},
+				OAuthConnectionID: req.GitHubConnectionID,
+				KoditIndexing:     true,
+			}
+
+			log.Info().
+				Str("project_id", createdProject.ID).
+				Str("repo_id", repoID).
+				Str("external_url", externalURL).
+				Bool("is_primary", reqRepo.IsPrimary).
+				Bool("is_forked", isForked).
+				Msg("Creating external GitHub repository entry")
+
+			if createErr := s.Store.CreateGitRepository(ctx, gitRepo); createErr != nil {
+				log.Error().Err(createErr).Str("repo_id", repoID).Msg("Failed to create external git repository entry")
+				continue
+			}
+
+			// Attach to project
+			if attachErr := s.Store.AttachRepositoryToProject(ctx, createdProject.ID, repoID); attachErr != nil {
+				log.Warn().Err(attachErr).Str("repo_id", repoID).Msg("Failed to attach repository to project")
+			}
+
+			// Track primary repo
+			if reqRepo.IsPrimary {
+				primaryRepoID = repoID
+			}
+
+			createdRepos = append(createdRepos, types.CreatedRepository{
+				ID:          repoID,
+				Name:        repo,
+				GitHubURL:   externalURL,
+				IsForked:    isForked,
+				IsPrimary:   reqRepo.IsPrimary,
+				CloneStatus: "pending", // Will be cloned on first access
+			})
+
+			// Trigger async clone (the git repository service will handle this on first access)
+			// For now, we mark status as pending and let the clone happen when repo is accessed
+		}
+
+		// Set primary repo
+		if primaryRepoID != "" {
+			createdProject.DefaultRepoID = primaryRepoID
+		}
+
+		// Set UseHostDocker if needed for this sample project
+		if sampleProject.UseHostDocker {
+			if createdProject.Metadata.BoardSettings == nil {
+				createdProject.Metadata.BoardSettings = &types.BoardSettings{}
+			}
+			// Store UseHostDocker flag in project metadata
+			// This will be used when starting sessions for this project
+		}
+
+		if updateErr := s.Store.UpdateProject(ctx, createdProject); updateErr != nil {
+			log.Warn().Err(updateErr).Msg("Failed to update project with default repo")
+		}
+
+		// Skip tasks for helix-in-helix (developer-focused, tasks are examples)
+		// Return success with repository info
+		return &types.ForkSimpleProjectResponse{
+			ProjectID:           createdProject.ID,
+			GitHubRepoURL:       fmt.Sprintf("https://github.com/%s", sampleProject.GitHubRepo),
+			TasksCreated:        len(sampleProject.TaskPrompts), // Tasks will be created below
+			Message:             fmt.Sprintf("Project '%s' created with %d GitHub repositories attached", projectName, len(createdRepos)),
+			RepositoriesCreated: createdRepos,
+			CloningInProgress:   true,
 		}, nil
 	} else {
 		// Use hardcoded sample code for all other samples
