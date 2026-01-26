@@ -254,6 +254,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Check if task is completed/merged - container is shut down so desktop view won't work
   const isTaskCompleted = task?.status === 'done' || task?.merged_to_main
 
+  // Check if task is archived/rejected - container is shut down so desktop view won't work
+  const isTaskArchived = task?.archived
+
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = task?.planning_session_id
 
@@ -585,6 +588,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
             Merged to default branch
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Archived/rejected task message */}
+      {isTaskArchived && !isTaskCompleted && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Task rejected
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+            This task has been archived
           </Typography>
         </Alert>
       )}
@@ -1058,6 +1073,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </Typography>
                       </Alert>
                     </Box>
+                  ) : isTaskArchived ? (
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                      <Alert severity="warning" sx={{ maxWidth: 400 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                          Task rejected
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This task has been archived. The agent session has ended.
+                        </Typography>
+                      </Alert>
+                    </Box>
                   ) : (
                     <ExternalAgentDesktopViewer
                       sessionId={activeSessionId}
@@ -1310,6 +1336,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         This task has been merged to the default branch. The agent session has ended.
+                      </Typography>
+                    </Alert>
+                  </Box>
+                ) : isTaskArchived ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                    <Alert severity="warning" sx={{ maxWidth: 400 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                        Task rejected
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This task has been archived. The agent session has ended.
                       </Typography>
                     </Alert>
                   </Box>
