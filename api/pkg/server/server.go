@@ -736,6 +736,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET") // Video streaming stats (buffer usage, client count)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")

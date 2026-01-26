@@ -1799,6 +1799,18 @@ const docTemplate = `{
                         "description": "Filter to specific file path",
                         "name": "path",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the workspace/repo to diff (optional, defaults to first found)",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "If true, diff the helix-specs branch uncommitted changes instead",
+                        "name": "helix_specs",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2014,6 +2026,64 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspaces": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a list of git workspaces (repositories) in the container.\nEach workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get workspaces from container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Workspaces response with list of repos",
+                        "schema": {
+                            "type": "object"
                         }
                     },
                     "401": {

@@ -9369,6 +9369,15 @@ paths:
         in: query
         name: path
         type: string
+      - description: Name of the workspace/repo to diff (optional, defaults to first
+          found)
+        in: query
+        name: workspace
+        type: string
+      - description: If true, diff the helix-specs branch uncommitted changes instead
+        in: query
+        name: helix_specs
+        type: boolean
       produces:
       - application/json
       responses:
@@ -9534,6 +9543,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload file to sandbox
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspaces:
+    get:
+      description: |-
+        Returns a list of git workspaces (repositories) in the container.
+        Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Workspaces response with list of repos
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get workspaces from container
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/ws/input:

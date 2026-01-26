@@ -6078,6 +6078,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         include_content?: boolean;
         /** Filter to specific file path */
         path?: string;
+        /** Name of the workspace/repo to diff (optional, defaults to first found) */
+        workspace?: string;
+        /** If true, diff the helix-specs branch uncommitted changes instead */
+        helix_specs?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -6158,6 +6162,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: data,
         secure: true,
         type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspacesDetail
+     * @summary Get workspaces from container
+     * @request GET:/api/v1/external-agents/{sessionID}/workspaces
+     * @secure
+     */
+    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspaces`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
