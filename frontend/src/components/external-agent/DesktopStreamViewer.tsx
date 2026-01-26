@@ -35,6 +35,7 @@ import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
 import CursorRenderer from './CursorRenderer';
+import InsecureContextWarning from './InsecureContextWarning';
 
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
@@ -193,6 +194,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isIOS, setIsIOS] = useState(false);
   // iOS custom fullscreen mode (not native video fullscreen - our custom overlay with full interaction)
   const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
+
+  // Insecure context detection - WebCodecs requires HTTPS or localhost
+  // Check if we're on HTTP (not HTTPS) and not on localhost
+  const isInsecureContext = React.useMemo(() => {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const isHttps = protocol === 'https:';
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    // Also check window.isSecureContext for browsers that support it
+    const browserSaysInsecure = typeof window.isSecureContext !== 'undefined' && !window.isSecureContext;
+    return (!isHttps && !isLocalhost) || browserSaysInsecure;
+  }, []);
 
   // Toolbar icon sizes - larger on touch devices for easier tapping
   const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
@@ -3899,8 +3912,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Insecure Context Warning - WebCodecs requires HTTPS or localhost */}
+      {isInsecureContext && !suppressOverlay && (
+        <InsecureContextWarning />
+      )}
+
       {/* Connection Status Overlay */}
-      {!suppressOverlay && (
+      {!suppressOverlay && !isInsecureContext && (
         <ConnectionOverlay
           isConnected={isConnected}
           isConnecting={isConnecting}
