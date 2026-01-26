@@ -1092,11 +1092,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// IMPORTANT: Get the pending comment ID synchronously to avoid race conditions
 			// If we spawn a goroutine and it runs after message_completed, the next comment
 			// might already have RequestID set, causing us to update the wrong comment.
+			var requestIDForPublish string // Captured for passing to publishSessionUpdateToFrontend
 			pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
 			if err == nil && pendingComment != nil {
 				// Found a pending comment - capture its ID and RequestID synchronously
 				commentID := pendingComment.ID
 				requestID := pendingComment.RequestID
+				requestIDForPublish = requestID // Capture for use outside this block
 
 				// Update the comment with streaming response content
 				go func(sessionID, commentID, requestID, responseContent string) {
@@ -1158,11 +1160,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						Msg("🔍 [DEBUG] About to publish session update")
 
 					// Publish session update to frontend so UI updates in real-time
-					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+					// Pass requestIDForPublish so commenter also receives the update (for design review streaming)
+					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, requestIDForPublish)
 					if err != nil {
 						log.Error().Err(err).
 							Str("session_id", helixSessionID).
 							Str("interaction_id", targetInteraction.ID).
+							Str("request_id", requestIDForPublish).
 							Msg("Failed to publish session update to frontend")
 					}
 				}
@@ -1777,6 +1781,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// Extract request_id from message data for commenter notification
+	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+
 	// CRITICAL: Publish final session update to frontend so it gets the complete state
 	// Without this, the frontend never receives the final update with state=complete
 	// Must reload session and list ALL interactions to avoid sending stale/partial data
@@ -1798,11 +1806,13 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
 				Msg("🔍 [DEBUG] Publishing final session update after message_completed")
 
-			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+			// Pass messageRequestID so commenter also receives the final update
+			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, messageRequestID)
 			if err != nil {
 				log.Error().Err(err).
 					Str("session_id", helixSessionID).
 					Str("interaction_id", targetInteraction.ID).
+					Str("request_id", messageRequestID).
 					Msg("Failed to publish final session update to frontend")
 			}
 		}
@@ -1812,9 +1822,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
 	// FALLBACK: Session-based lookup (for backwards compatibility with agents that don't echo request_id)
+	// NOTE: messageRequestID was already extracted above for publishSessionUpdateToFrontend
 
-	messageRequestID, hasRequestID := syncMsg.Data["request_id"].(string)
-	if hasRequestID && messageRequestID != "" {
+	if messageRequestID != "" {
 		// PRIMARY: Use request_id from message data directly
 		log.Info().
 			Str("request_id", messageRequestID).
