@@ -30,6 +30,8 @@ const Page: React.FC<{
   showDrawerButton?: boolean,
   px?: number,
   sx?: SxProps,
+  // if true, disables the default overflowY: auto on content area (for pages that manage their own scroll)
+  disableContentScroll?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -44,6 +46,7 @@ const Page: React.FC<{
   showDrawerButton = true,
   px = 3,
   sx = {},
+  disableContentScroll = false,
   children,
 }) => {
   const router = useRouter()
@@ -176,7 +179,7 @@ const Page: React.FC<{
   return (
     <Box
       sx={{
-        height: '100vh',
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
         ...sx
@@ -213,13 +216,13 @@ const Page: React.FC<{
       <Box
         sx={{
           flexGrow: 1,
-          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          overflowY: 'auto',
+          overflowY: disableContentScroll ? 'hidden' : 'auto',
           overflowX: 'hidden',
           width: '100%',
           maxWidth: '100vw',
+          minHeight: 0,
         }}
       >
         { children }
