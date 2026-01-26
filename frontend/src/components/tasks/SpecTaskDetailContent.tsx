@@ -251,10 +251,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task, isEditMode])
 
-  // Get the active session ID - but treat merged/done tasks as having no active session
-  // because the container is shut down when the task completes
+  // Check if task is completed/merged - container is shut down so desktop view won't work
   const isTaskCompleted = task?.status === 'done' || task?.merged_to_main
-  const activeSessionId = isTaskCompleted ? undefined : task?.planning_session_id
+
+  // Get the active session ID - keep it available for chat history even when task is completed
+  const activeSessionId = task?.planning_session_id
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
@@ -1046,15 +1047,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Box>
 
                 {currentView === 'desktop' && (
-                  <ExternalAgentDesktopViewer
-                    sessionId={activeSessionId}
-                    sandboxId={activeSessionId}
-                    mode="stream"
-                    onClientIdCalculated={setClientUniqueId}
-                    displayWidth={displaySettings.width}
-                    displayHeight={displaySettings.height}
-                    displayFps={displaySettings.fps}
-                  />
+                  isTaskCompleted ? (
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                      <Alert severity="success" sx={{ maxWidth: 400 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                          Task finished
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This task has been merged to the default branch. The agent session has ended.
+                        </Typography>
+                      </Alert>
+                    </Box>
+                  ) : (
+                    <ExternalAgentDesktopViewer
+                      sessionId={activeSessionId}
+                      sandboxId={activeSessionId}
+                      mode="stream"
+                      onClientIdCalculated={setClientUniqueId}
+                      displayWidth={displaySettings.width}
+                      displayHeight={displaySettings.height}
+                      displayFps={displaySettings.fps}
+                    />
+                  )
                 )}
                 {currentView === 'changes' && (
                   <DiffViewer
@@ -1288,15 +1302,28 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Desktop View - mobile */}
             {activeSessionId && currentView === 'desktop' && (
               <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <ExternalAgentDesktopViewer
-                  sessionId={activeSessionId}
-                  sandboxId={activeSessionId}
-                  mode="stream"
-                  onClientIdCalculated={setClientUniqueId}
-                  displayWidth={displaySettings.width}
-                  displayHeight={displaySettings.height}
-                  displayFps={displaySettings.fps}
-                />
+                {isTaskCompleted ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                    <Alert severity="success" sx={{ maxWidth: 400 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                        Task finished
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This task has been merged to the default branch. The agent session has ended.
+                      </Typography>
+                    </Alert>
+                  </Box>
+                ) : (
+                  <ExternalAgentDesktopViewer
+                    sessionId={activeSessionId}
+                    sandboxId={activeSessionId}
+                    mode="stream"
+                    onClientIdCalculated={setClientUniqueId}
+                    displayWidth={displaySettings.width}
+                    displayHeight={displaySettings.height}
+                    displayFps={displaySettings.fps}
+                  />
+                )}
               </Box>
             )}
 
