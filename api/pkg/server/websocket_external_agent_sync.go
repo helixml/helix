@@ -626,12 +626,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 			helixSessionID = mappedSessionID // Use the mapped session
 
-			// Clean up the request mappings now that we have the thread mapping
+			// Clean up only the session mapping - we still need requestToCommenterMapping
+			// for streaming updates (message_added, message_completed come AFTER user_created_thread)
 			delete(apiServer.requestToSessionMapping, requestID)
-			delete(apiServer.requestToCommenterMapping, requestID)
+			// NOTE: Do NOT delete requestToCommenterMapping here - it's needed for message streaming
 			log.Info().
 				Str("request_id", requestID).
-				Msg("🧹 [HELIX] Cleaned up request_id mappings")
+				Msg("🧹 [HELIX] Cleaned up request_id → session mapping")
 		}
 	}
 
@@ -1855,6 +1856,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 					log.Debug().Msg("Done channel full")
 				}
 			}
+
+			// Clean up requestToCommenterMapping now that response is complete
+			if apiServer.requestToCommenterMapping != nil {
+				delete(apiServer.requestToCommenterMapping, requestID)
+				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
+			}
 		}(helixSessionID, messageRequestID)
 	} else {
 		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
@@ -1892,6 +1899,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 					default:
 						log.Debug().Msg("Done channel full")
 					}
+				}
+
+				// Clean up requestToCommenterMapping now that response is complete
+				if apiServer.requestToCommenterMapping != nil {
+					delete(apiServer.requestToCommenterMapping, requestID)
+					log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
 				}
 			}(helixSessionID, commentID, requestID)
 		} else {
