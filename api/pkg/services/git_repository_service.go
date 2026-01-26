@@ -396,10 +396,13 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			Str("repo_path", repoPath).
 			Msg("Starting async clone")
 
+		// Create progress writer that updates the database
+		progressWriter := NewCloneProgressWriter(s.store, gitRepo.ID)
+
 		// Clone with mirror mode to get all branches
 		cloneOptions := &git.CloneOptions{
 			URL:      gitRepo.ExternalURL,
-			Progress: os.Stdout, // TODO: Replace with progress writer for real-time updates
+			Progress: progressWriter,
 			Bare:     true,
 			Mirror:   true, // Clone ALL branches, tags, and refs
 		}
