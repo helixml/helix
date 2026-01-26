@@ -8,14 +8,21 @@ See also: `.cursor/rules/*.mdc`
 
 ### Git
 - **NEVER** `git checkout -- .` or `git reset --hard` — destroys uncommitted work you can't see
+- **NEVER** `git checkout -f` without verifying ALL files match — untracked files are silently overwritten and unrecoverable
 - **NEVER** `git stash drop` or `git stash pop` — use `git stash apply` (keeps backup)
+- **NEVER** assume spot-checking a few files means all files are safe — diff EVERYTHING before destructive operations
 - **NEVER** delete `.git/index.lock` — wait or ask user
 - **NEVER** push to main — use feature branches, ask user to merge
 - **NEVER** amend commits on main — create new commits instead
 - **NEVER** delete source files — fix errors, don't delete
 - **NEVER** `rm -rf *` or `rm -rf .*` in a git repo — destroys .git directory, .env files, worktrees, everything unrecoverable
 - **NEVER** use `git checkout --orphan` and then clear files — orphan branches inherit the working tree; use a separate temp directory instead
-- **Before switching branches**: run `git status`, note changes, use `git stash push -m "description"`, restore with `git stash apply`
+- **Before switching branches**: run `git status`, note changes, use `git stash push -u -m "description"` (the -u includes untracked files!), restore with `git stash apply`
+- **Before switching worktree branches with uncommitted changes**:
+  1. `git diff origin/target-branch` to see ALL differences (not just a few files)
+  2. If there are differences, `git stash push -u -m "description"` BEFORE checkout
+  3. Only then `git checkout target-branch`
+  4. Never use `git checkout -f` unless you've verified the working tree is clean or matches
 - **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
 ### Commit Practices
