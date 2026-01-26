@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import {
   Box,
   Grid,
@@ -17,13 +17,14 @@ import {
   LinearProgress,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import CloseIcon from '@mui/icons-material/Close'
 import MemoryIcon from '@mui/icons-material/Memory'
 import ComputerIcon from '@mui/icons-material/Computer'
 import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 
 // Types matching the backend response
@@ -211,16 +212,22 @@ const GPUStatsCard: FC<{ gpus: GPUInfo[] }> = ({ gpus }) => {
 }
 
 // Dev Container Card Component
-const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ container }) => {
+interface DevContainerCardProps {
+  container: DevContainerWithClients
+  onStop: (sessionId: string) => void
+  isStopping: boolean
+}
+
+const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStopping }) => {
   const clients = container.clients || []
 
   return (
     <Paper
       sx={{
         p: 2,
-        backgroundColor: container.status === 'running' ? 'rgba(76, 175, 80, 0.05)' : 'rgba(255,255,255,0.02)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
         border: '1px solid',
-        borderColor: container.status === 'running' ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255,255,255,0.1)',
+        borderColor: container.status === 'running' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
@@ -247,12 +254,26 @@ const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ containe
             </Typography>
           </Box>
         </Box>
-        <Chip
-          label={container.status}
-          size="small"
-          color={getStatusColor(container.status)}
-          sx={{ flexShrink: 0 }}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+          <Chip
+            label={container.status}
+            size="small"
+            color={getStatusColor(container.status)}
+          />
+          <Tooltip title="Stop container" arrow>
+            <IconButton
+              size="small"
+              onClick={() => onStop(container.session_id)}
+              disabled={isStopping}
+              sx={{
+                color: 'error.main',
+                '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)' },
+              }}
+            >
+              {isStopping ? <CircularProgress size={16} /> : <CloseIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       <Grid container spacing={2}>
@@ -389,6 +410,8 @@ interface AgentSandboxesProps {
 const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -399,6 +422,28 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     refetchInterval: 5000,
   })
 
+  // Stop session mutation
+  const stopMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      setStoppingIds((prev) => new Set(prev).add(sessionId))
+      await apiClient.v1SessionsStopExternalAgentDelete(sessionId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+    },
+    onSettled: (_data, _error, sessionId) => {
+      setStoppingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+    },
+  })
+
+  const handleStopContainer = (sessionId: string) => {
+    stopMutation.mutate(sessionId)
+  }
+
   const gpus = data?.gpus || []
   const devContainers = data?.dev_containers || []
   const sandboxes = data?.sandboxes || []
@@ -408,6 +453,11 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
     : devContainers
 
+  // Sort containers by session_id for stable ordering
+  const sortedContainers = [...filteredContainers].sort((a, b) =>
+    a.session_id.localeCompare(b.session_id)
+  )
+
   // Filter sandboxes too for consistency
   const filteredSandboxes = selectedSandboxId
     ? sandboxes.filter((s) => s.id === selectedSandboxId)
@@ -416,8 +466,8 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   // Summary stats should reflect the current filter
   // Note: sandbox status is "online"/"offline"/"degraded", not "running"
   const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'online').length
-  const runningContainers = filteredContainers.filter((c) => c.status === 'running').length
-  const totalClients = filteredContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
+  const runningContainers = sortedContainers.filter((c) => c.status === 'running').length
+  const totalClients = sortedContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
   return (
     <Box sx={{ p: 3 }}>
@@ -489,14 +539,18 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
             <CardHeader
               avatar={<DesktopWindowsIcon />}
               title="Dev Containers"
-              subheader={`${filteredContainers.length} container${filteredContainers.length !== 1 ? 's' : ''}`}
+              subheader={`${sortedContainers.length} container${sortedContainers.length !== 1 ? 's' : ''}`}
             />
             <CardContent>
-              {filteredContainers.length > 0 ? (
+              {sortedContainers.length > 0 ? (
                 <Grid container spacing={2}>
-                  {filteredContainers.map((container) => (
+                  {sortedContainers.map((container) => (
                     <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
-                      <DevContainerCard container={container} />
+                      <DevContainerCard
+                        container={container}
+                        onStop={handleStopContainer}
+                        isStopping={stoppingIds.has(container.session_id)}
+                      />
                     </Grid>
                   ))}
                 </Grid>
