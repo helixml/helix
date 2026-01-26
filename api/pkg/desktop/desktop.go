@@ -80,6 +80,10 @@ type Server struct {
 	inputListener   net.Listener
 	inputSocketPath string
 
+	// Keyboard modifier state for stream input connections
+	// Used to synthesize modifier key presses for Cmd→Ctrl translation
+	streamKeyboardState wsInputState
+
 	// Configuration
 	config Config
 
@@ -425,10 +429,11 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
-	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
+	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
+	mux.HandleFunc("/diff", s.handleDiff)             // Git diff for live file changes
+	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces/repos
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

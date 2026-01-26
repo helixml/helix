@@ -3026,16 +3026,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
 
       if (isCopyKeystroke && sessionId) {
-        // Send the copy keystroke to remote first
-        console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
+        // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
-          // Forward Ctrl+C to remote
+          console.log('[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote');
+          // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
           const ctrlCDown = new KeyboardEvent('keydown', {
             code: 'KeyC',
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
+            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
@@ -3047,11 +3048,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
+            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
+          console.log('[Clipboard] Ctrl+C sent to remote desktop');
+        } else {
+          console.warn('[Clipboard] Copy keystroke detected but no input handler available');
         }
 
         // Wait briefly for remote clipboard to update, then sync back to local
@@ -3180,9 +3185,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
             showClipboardToast('Pasted', 'success');
 
-            // Forward the SAME keystroke the user pressed:
-            // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
-            // - User pressed Ctrl+Shift+V → send Ctrl+Shift+V (for terminals)
+            // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
+            // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
+            // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
             const input = getInput();
             if (input) {
               const pasteKeyDown = new KeyboardEvent('keydown', {
@@ -3190,6 +3195,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
+                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
@@ -3201,13 +3207,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
+                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
               });
               input.onKeyUp(pasteKeyUp);
 
-              console.log(`[Clipboard] Forwarded Ctrl+${userPressedShift ? 'Shift+' : ''}V to remote`);
+              console.log(`[Clipboard] Ctrl+${userPressedShift ? 'Shift+' : ''}V sent to remote desktop`);
+            } else {
+              console.warn('[Clipboard] Paste keystroke detected but no input handler available');
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
