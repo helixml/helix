@@ -223,13 +223,25 @@ const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ containe
         borderColor: container.status === 'running' ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255,255,255,0.1)',
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <DesktopWindowsIcon color="primary" />
-          <Box>
-            <Typography variant="subtitle1" fontWeight="bold">
-              {container.session_id}
-            </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
+          <DesktopWindowsIcon color="primary" sx={{ flexShrink: 0 }} />
+          <Box sx={{ minWidth: 0 }}>
+            <Tooltip title={container.session_id} arrow>
+              <Typography
+                variant="subtitle1"
+                fontWeight="bold"
+                sx={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {container.session_id}
+              </Typography>
+            </Tooltip>
             <Typography variant="caption" color="text.secondary">
               {getContainerTypeLabel(container.container_type)}
             </Typography>
@@ -239,6 +251,7 @@ const DevContainerCard: FC<{ container: DevContainerWithClients }> = ({ containe
           label={container.status}
           size="small"
           color={getStatusColor(container.status)}
+          sx={{ flexShrink: 0 }}
         />
       </Box>
 
@@ -401,7 +414,8 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     : sandboxes
 
   // Summary stats should reflect the current filter
-  const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'running').length
+  // Note: sandbox status is "online"/"offline"/"degraded", not "running"
+  const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'online').length
   const runningContainers = filteredContainers.filter((c) => c.status === 'running').length
   const totalClients = filteredContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
