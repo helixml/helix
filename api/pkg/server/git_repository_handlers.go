@@ -242,12 +242,13 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 
 // listGitRepositories lists all repositories, optionally filtered by owner
 // @Summary List git repositories
-// @Description List all git repositories, optionally filtered by owner and type
+// @Description List all git repositories, optionally filtered by owner, type, and project
 // @Tags git-repositories
 // @Produce json
 // @Param owner_id query string false "Filter by owner ID"
 // @Param repo_type query string false "Filter by repository type"
 // @Param organization_id query string false "Filter by organization ID"
+// @Param project_id query string false "Filter by project ID"
 // @Success 200 {array} types.GitRepository
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories [get]
@@ -258,6 +259,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	ownerID := r.URL.Query().Get("owner_id")
 	repoType := r.URL.Query().Get("repo_type")
 	orgID := r.URL.Query().Get("organization_id")
+	projectID := r.URL.Query().Get("project_id")
 
 	user := getRequestUser(r)
 
@@ -269,9 +271,30 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// If filtering by project, verify user has access to the project
+	if projectID != "" {
+		project, err := s.Store.GetProject(ctx, projectID)
+		if err != nil {
+			http.Error(w, "Project not found", http.StatusNotFound)
+			return
+		}
+		// Check user has access to this project (owner or org member)
+		if project.UserID != user.ID && project.OrganizationID != "" {
+			_, err := s.authorizeOrgMember(ctx, user, project.OrganizationID)
+			if err != nil {
+				writeErrResponse(w, err, http.StatusForbidden)
+				return
+			}
+		} else if project.UserID != user.ID {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
+
 	repositories, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
 		OwnerID:        ownerID,
 		OrganizationID: orgID,
+		ProjectID:      projectID,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list git repositories")

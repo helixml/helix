@@ -21,6 +21,7 @@ import {
   Radio,
   FormControlLabel,
   Divider,
+  LinearProgress,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -30,12 +31,14 @@ import {
   Lock,
   Unlock,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useOAuthFlow from '../../hooks/useOAuthFlow'
 import {
   TypesCheckSampleProjectAccessResponse,
   TypesRepositoryAccessCheck,
+  TypesGitRepository,
   ServerSampleProject,
 } from '../../api/api'
 
@@ -48,7 +51,7 @@ interface SampleProjectWizardProps {
   selectedAgentId?: string
 }
 
-type Step = 'github-check' | 'access-check' | 'fork-decision' | 'creating'
+type Step = 'github-check' | 'access-check' | 'fork-decision' | 'creating' | 'cloning'
 
 const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   open,
@@ -72,6 +75,8 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   const [repoDecisions, setRepoDecisions] = useState<Record<string, string>>({})
   const [gitHubConnections, setGitHubConnections] = useState<any[]>([])
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('')
+  const [projectId, setProjectId] = useState<string>('')
+  const [cloningRepos, setCloningRepos] = useState<TypesGitRepository[]>([])
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -81,6 +86,8 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
       setError(null)
       setAccessInfo(null)
       setRepoDecisions({})
+      setProjectId('')
+      setCloningRepos([])
       checkGitHubConnection()
     }
   }, [open, sampleProject?.id])
@@ -194,13 +201,60 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         repository_decisions: repoDecisions,
       })
 
-      snackbar.success(`Project "${sampleProject.name}" created successfully!`)
-      onComplete(response.data.project_id || '')
+      // Check if repos are still cloning
+      if (response.data.cloning_in_progress) {
+        setProjectId(response.data.project_id || '')
+        setCurrentStep('cloning')
+        setIsLoading(false)
+        // Repos will be fetched by the polling query
+      } else {
+        snackbar.success(`Project "${sampleProject.name}" created successfully!`)
+        onComplete(response.data.project_id || '')
+      }
     } catch (err: any) {
       console.error('Failed to create project:', err)
       setError('Failed to create project: ' + (err.message || 'Unknown error'))
       setIsLoading(false)
     }
+  }
+
+  // Poll for repository clone status when in cloning step
+  const { data: reposData } = useQuery({
+    queryKey: ['project-repos-clone-status', projectId],
+    queryFn: async () => {
+      const repos = await apiClient.v1GitRepositoriesList({ project_id: projectId })
+      return repos.data || []
+    },
+    enabled: currentStep === 'cloning' && !!projectId,
+    refetchInterval: 1000, // Poll every second for smooth progress updates
+  })
+
+  // Handle repo status updates
+  useEffect(() => {
+    if (reposData && currentStep === 'cloning') {
+      setCloningRepos(reposData)
+
+      // Check if all repos are done cloning
+      const allActive = reposData.length > 0 && reposData.every(r => r.status === 'active')
+      const anyError = reposData.some(r => r.status === 'error')
+
+      if (allActive) {
+        snackbar.success(`All repositories cloned successfully!`)
+        onComplete(projectId)
+      } else if (anyError) {
+        const failedRepos = reposData.filter(r => r.status === 'error')
+        const failedNames = failedRepos.map(r => r.name).join(', ')
+        setError(`Failed to clone repositories: ${failedNames}`)
+      }
+    }
+  }, [reposData, currentStep, projectId])
+
+  // Helper to format bytes
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`
   }
 
   // Render GitHub connection step
@@ -418,6 +472,76 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
     </Box>
   )
 
+  // Render cloning step with progress bars
+  const renderCloningStep = () => (
+    <Box sx={{ py: 2 }}>
+      <Typography variant="h6" sx={{ mb: 2 }}>
+        Cloning repositories...
+      </Typography>
+
+      {cloningRepos.length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 3 }}>
+          <CircularProgress size={32} />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Fetching repository status...
+          </Typography>
+        </Box>
+      ) : (
+        <Box>
+          {cloningRepos.map(repo => (
+            <Box key={repo.id} sx={{ mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                {repo.status === 'cloning' && <CircularProgress size={16} sx={{ mr: 1 }} />}
+                {repo.status === 'active' && <CheckCircle size={16} color="#4caf50" style={{ marginRight: 8 }} />}
+                {repo.status === 'error' && <XCircle size={16} color="#f44336" style={{ marginRight: 8 }} />}
+                <Typography variant="body1" fontWeight="medium">
+                  {repo.name}
+                </Typography>
+              </Box>
+
+              {repo.status === 'cloning' && repo.clone_progress && (
+                <Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={repo.clone_progress.percentage || 0}
+                    sx={{ height: 8, borderRadius: 4, mb: 0.5 }}
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {repo.clone_progress.phase}: {repo.clone_progress.percentage}%
+                      ({repo.clone_progress.current}/{repo.clone_progress.total} objects)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {repo.clone_progress.bytes_received && repo.clone_progress.bytes_received > 0 &&
+                        `${formatBytes(repo.clone_progress.bytes_received)} `}
+                      {repo.clone_progress.speed && `@ ${repo.clone_progress.speed}`}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+
+              {repo.status === 'cloning' && !repo.clone_progress && (
+                <LinearProgress sx={{ height: 8, borderRadius: 4 }} />
+              )}
+
+              {repo.status === 'active' && (
+                <Typography variant="caption" color="success.main">
+                  Clone complete
+                </Typography>
+              )}
+
+              {repo.status === 'error' && repo.clone_error && (
+                <Typography variant="caption" color="error">
+                  {repo.clone_error}
+                </Typography>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  )
+
   // Get step index for stepper
   const getStepIndex = () => {
     switch (currentStep) {
@@ -426,8 +550,9 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
       case 'access-check':
         return 1
       case 'fork-decision':
-        return 2
       case 'creating':
+        return 2
+      case 'cloning':
         return 3
       default:
         return 0
@@ -472,6 +597,9 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
           <Step>
             <StepLabel>Create Project</StepLabel>
           </Step>
+          <Step>
+            <StepLabel>Clone Repos</StepLabel>
+          </Step>
         </Stepper>
 
         {error && (
@@ -483,10 +611,11 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         {currentStep === 'github-check' && renderGitHubCheckStep()}
         {currentStep === 'access-check' && renderAccessCheckStep()}
         {currentStep === 'creating' && renderCreatingStep()}
+        {currentStep === 'cloning' && renderCloningStep()}
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose} disabled={isLoading}>
+        <Button onClick={onClose} disabled={isLoading || currentStep === 'cloning'}>
           Cancel
         </Button>
 
