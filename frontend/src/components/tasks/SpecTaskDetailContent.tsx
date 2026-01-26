@@ -1,12 +1,13 @@
 import React, { FC, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
+  Alert,
   Box,
   Typography,
   Chip,
   Divider,
   IconButton,
   TextField,
-  Button,  
+  Button,
   Tooltip,
   Select,
   FormControl,
@@ -250,8 +251,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task, isEditMode])
 
-  // Get the active session ID
-  const activeSessionId = task?.planning_session_id
+  // Get the active session ID - but treat merged/done tasks as having no active session
+  // because the container is shut down when the task completes
+  const isTaskCompleted = task?.status === 'done' || task?.merged_to_main
+  const activeSessionId = isTaskCompleted ? undefined : task?.planning_session_id
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
@@ -573,6 +576,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
+      {/* Completed task message */}
+      {isTaskCompleted && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Task finished
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+            Merged to default branch
+          </Typography>
+        </Alert>
+      )}
+
       {/* Description */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>

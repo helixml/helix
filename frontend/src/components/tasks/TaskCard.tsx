@@ -803,7 +803,8 @@ export default function TaskCard({
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {task.planning_session_id && (
+        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {task.planning_session_id && task.phase !== 'completed' && !task.merged_to_main && (
           <LiveAgentScreenshot
             sessionId={task.planning_session_id}
             projectId={projectId}
@@ -1026,30 +1027,15 @@ export default function TaskCard({
         )}
 
         {/* Completed tasks */}
-        {task.status === 'done' && task.merged_to_main && (
+        {(task.status === 'done' || task.phase === 'completed') && task.merged_to_main && (
           <Box sx={{ mt: 1.5 }}>
-            <Alert severity="success" sx={{ py: 0.5 }}>
-              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                Merged to main! Test the feature:
+            <Alert severity="success" sx={{ py: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                Task finished
               </Typography>
-              <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-                <span style={{ width: '100%', display: 'block' }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="success"
-                    startIcon={<LaunchIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      console.log('Start exploratory session for', task.id)
-                    }}
-                    disabled={isArchived}
-                    fullWidth
-                  >
-                    Start Exploratory Session
-                  </Button>
-                </span>
-              </Tooltip>
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', color: 'text.secondary' }}>
+                Merged to default branch
+              </Typography>
             </Alert>
           </Box>
         )}
