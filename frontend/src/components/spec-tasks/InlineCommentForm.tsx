@@ -61,7 +61,14 @@ export default function InlineCommentForm({
         rows={3}
         value={commentText}
         onChange={(e) => onCommentChange(e.target.value)}
-        placeholder="Add your comment..."
+        onKeyDown={(e) => {
+          // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && commentText.trim()) {
+            e.preventDefault()
+            onCreate()
+          }
+        }}
+        placeholder="Add your comment... (Cmd+Enter to submit)"
         autoFocus
         sx={{ mb: 1.5 }}
       />
