@@ -666,9 +666,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };  
 
   // Handle archiving/unarchiving a task
-  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
-    // If archiving (not unarchiving), show confirmation dialog
+  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean, shiftKey?: boolean) => {
+    // If archiving (not unarchiving), show confirmation dialog unless shift is held
     if (archived) {
+      if (shiftKey) {
+        // Shift+click bypasses confirmation
+        await performArchive(task, archived);
+        return;
+      }
       setTaskToArchive(task);
       setArchiveConfirmOpen(true);
       return;

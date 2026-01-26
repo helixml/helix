@@ -162,7 +162,7 @@ interface TaskCardProps {
   index: number
   columns: KanbanColumn[]
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>
-  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean, shiftKey?: boolean) => Promise<void>
   onTaskClick?: (task: SpecTaskWithExtras) => void
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
@@ -711,10 +711,10 @@ export default function TaskCard({
             )}
             <MenuItem
               disabled={isArchiving}
-              onClick={() => {
+              onClick={(e) => {
                 setMenuAnchorEl(null)
                 if (onArchiveTask) {
-                  onArchiveTask(task, !task.archived)
+                  onArchiveTask(task, !task.archived, e.shiftKey)
                 }
               }}
             >
@@ -927,7 +927,7 @@ export default function TaskCard({
                     onClick={(e) => {
                       e.stopPropagation()
                       if (onArchiveTask) {
-                        onArchiveTask(task, true)
+                        onArchiveTask(task, true, e.shiftKey)
                       }
                     }}
                     fullWidth

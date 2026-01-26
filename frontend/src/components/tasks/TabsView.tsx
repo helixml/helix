@@ -578,11 +578,12 @@ interface TaskPanelProps {
   onTabRename: (tabId: string, newTitle: string) => void
   onAddTab: (panelId: string, task: TypesSpecTask) => void
   onAddDesktop: (panelId: string, sessionId: string, title?: string) => void
+  onAddCreateTab: (panelId: string) => void
   onTaskCreated: (panelId: string, task: TypesSpecTask) => void
   onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
-  onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string) => void
+  onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string, sourcePanelId?: string) => void
   onTouchDragStart: (panelId: string, tabId: string) => void
   onTouchDragEnd: (panelId: string, tabId: string, clientX: number, clientY: number) => void
   panelCount: number
@@ -599,6 +600,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onTabRename,
   onAddTab,
   onAddDesktop,
+  onAddCreateTab,
   onTaskCreated,
   onSplitPanel,
   onDropTab,
@@ -614,9 +616,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const account = useAccount()
   const streaming = useStreaming()
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [createPrompt, setCreatePrompt] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
   const [isActioning, setIsActioning] = useState(false)
   const [dragOverEdge, setDragOverEdge] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
@@ -624,6 +623,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
   // Archive/reject confirmation dialog state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+
+  // Track when dragging over the tab bar specifically (for move, not split)
+  const [dragOverTabBar, setDragOverTabBar] = useState(false)
 
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
   const unopenedTasks = tasks.filter(t => !panel.tabs.some(tab => tab.id === t.id))
@@ -651,43 +653,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         return { label: 'Complete', color: 'success' as const }
       default:
         return { label: status, color: 'default' as const }
-    }
-  }
-
-  // Handle creating a new task
-  const handleCreateTask = async () => {
-    if (!createPrompt.trim()) {
-      snackbar.error('Please describe what you want to get done')
-      return
-    }
-
-    if (!projectId) {
-      snackbar.error('No project selected')
-      return
-    }
-
-    setIsCreating(true)
-    try {
-      const createTaskRequest: TypesCreateTaskRequest = {
-        prompt: createPrompt.trim(),
-        priority: TypesSpecTaskPriority.SpecTaskPriorityMedium,
-        project_id: projectId,
-      }
-
-      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest)
-
-      if (response.data) {
-        snackbar.success('Task created!')
-        setCreateDialogOpen(false)
-        setCreatePrompt('')
-        // Add the new task to this panel
-        onTaskCreated(panel.id, response.data)
-      }
-    } catch (err: any) {
-      console.error('Failed to create task:', err)
-      snackbar.error(err?.message || 'Failed to create task')
-    } finally {
-      setIsCreating(false)
     }
   }
 
@@ -760,7 +725,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       if (reviews.length > 0) {
         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
         const taskTitle = task.user_short_title || task.short_title || task.name || 'Task'
-        onOpenReview(task.id, latestReview.id, `Review: ${taskTitle}`)
+        onOpenReview(task.id, latestReview.id, `Review: ${taskTitle}`, panel.id)
       } else {
         snackbar.error('No design review found for this task')
       }
@@ -859,6 +824,40 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
     setDraggedFromPanelId(null)
   }
 
+  // Tab bar specific drag handlers - dropping on tab bar should move tab, not split
+  const handleTabBarDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation() // Prevent panel's handleDragOver from detecting "top" edge
+    setDragOverTabBar(true)
+    setDragOverEdge(null) // Clear any edge detection
+  }
+
+  const handleTabBarDragLeave = (e: React.DragEvent) => {
+    // Only clear if we're actually leaving the tab bar, not just moving to a child
+    const relatedTarget = e.relatedTarget as HTMLElement
+    const currentTarget = e.currentTarget as HTMLElement
+    if (!currentTarget.contains(relatedTarget)) {
+      setDragOverTabBar(false)
+    }
+  }
+
+  const handleTabBarDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation() // Prevent panel's handleDrop from triggering a split
+    const tabId = e.dataTransfer.getData('tabId')
+    const fromPanelId = e.dataTransfer.getData('fromPanelId')
+
+    // Move tab to this panel (not split)
+    if (tabId && fromPanelId && fromPanelId !== panel.id) {
+      onDropTab(panel.id, tabId, fromPanelId)
+    }
+
+    setDragOverTabBar(false)
+    setDragOverEdge(null)
+    setDraggedTabId(null)
+    setDraggedFromPanelId(null)
+  }
+
   return (
     <Box
       ref={panelRef}
@@ -892,13 +891,17 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
 
       {/* Tab bar */}
       <Box
+        onDragOver={handleTabBarDragOver}
+        onDragLeave={handleTabBarDragLeave}
+        onDrop={handleTabBarDrop}
         sx={{
           display: 'flex',
           alignItems: 'center',
           borderBottom: '1px solid',
-          borderColor: 'divider',
-          backgroundColor: 'background.paper',
+          borderColor: dragOverTabBar ? 'primary.main' : 'divider',
+          backgroundColor: dragOverTabBar ? 'action.hover' : 'background.paper',
           minHeight: 32,
+          transition: 'background-color 0.15s, border-color 0.15s',
         }}
       >
         <Box sx={{
@@ -980,7 +983,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               <MenuItem
                 onClick={() => {
                   setMenuAnchor(null)
-                  setCreateDialogOpen(true)
+                  onAddCreateTab(panel.id)
                 }}
                 sx={{ color: 'primary.main' }}
               >
@@ -1137,11 +1140,25 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               onClose={() => onTabClose(panel.id, activeTab.id)}
               hideTitle={true}
             />
+          ) : activeTab.type === 'create' ? (
+            <NewSpecTaskForm
+              key={activeTab.id}
+              projectId={projectId}
+              onTaskCreated={(task) => {
+                // Replace create tab with the new task tab
+                onTaskCreated(panel.id, task)
+                // Close the create tab
+                onTabClose(panel.id, activeTab.id)
+              }}
+              onClose={() => onTabClose(panel.id, activeTab.id)}
+              showHeader={false}
+              embedded={true}
+            />
           ) : (
             <SpecTaskDetailContent
               key={activeTab.id}
               taskId={activeTab.id}
-              onOpenReview={onOpenReview}
+              onOpenReview={(taskId, reviewId, reviewTitle) => onOpenReview(taskId, reviewId, reviewTitle, panel.id)}
             />
           )
         ) : (
@@ -1164,51 +1181,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           </Box>
         )}
       </Box>
-
-      {/* Create task dialog */}
-      <Dialog
-        open={createDialogOpen}
-        onClose={() => !isCreating && setCreateDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Create New Task</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            multiline
-            rows={3}
-            placeholder="Describe what you want to get done..."
-            value={createPrompt}
-            onChange={(e) => setCreatePrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.metaKey) {
-                e.preventDefault()
-                handleCreateTask()
-              }
-            }}
-            disabled={isCreating}
-            sx={{ mt: 1 }}
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            Press ⌘+Enter to create
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)} disabled={isCreating}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCreateTask}
-            variant="contained"
-            disabled={isCreating || !createPrompt.trim()}
-            startIcon={isCreating ? <CircularProgress size={16} /> : undefined}
-          >
-            {isCreating ? 'Creating...' : 'Create Task'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Archive Confirmation Dialog */}
       <ArchiveConfirmDialog
@@ -1299,10 +1271,12 @@ interface SavedWorkspaceStateV1 {
 // Uses :: delimiter for review tabs: review::taskId::reviewId
 const serializeNode = (node: PanelNode): SerializedNode => {
   if (node.type === 'leaf') {
+    // Filter out 'create' tabs - they shouldn't be persisted
+    const persistableTabs = node.tabs?.filter(t => t.type !== 'create') || []
     return {
       id: node.id,
       type: 'leaf',
-      tabIds: node.tabs?.map(t => {
+      tabIds: persistableTabs.map(t => {
         // Encode review tabs with all needed info
         if (t.type === 'review' && t.taskId && t.reviewId) {
           return `review::${t.taskId}::${t.reviewId}::${t.reviewTitle || 'Spec'}`
@@ -1313,7 +1287,7 @@ const serializeNode = (node: PanelNode): SerializedNode => {
         }
         // Task tabs just use task ID
         return t.id
-      }) || [],
+      }),
       activeTabId: node.activeTabId,
     }
   }
@@ -1824,9 +1798,34 @@ const TabsView: React.FC<TabsViewProps> = ({
     })
   }, [])
 
-  // Handle opening a review in a new tab (called from SpecTaskDetailContent)
+  // Handle adding a "Create New Task" tab to a panel
+  const handleAddCreateTab = useCallback((panelId: string) => {
+    const createTabId = `create-${Date.now()}`
+    setRootNode(prev => {
+      if (!prev) return prev
+      return updateNodeInTree(prev, panelId, node => {
+        const tabs = node.tabs || []
+        // Check if a create tab already exists in this panel
+        const existingCreate = tabs.find(t => t.type === 'create')
+        if (existingCreate) {
+          return { ...node, activeTabId: existingCreate.id }
+        }
+        // Add new create tab
+        return {
+          ...node,
+          tabs: [...tabs, {
+            id: createTabId,
+            type: 'create' as const,
+          }],
+          activeTabId: createTabId,
+        }
+      })
+    })
+  }, [])
+
+  // Handle opening a review - creates a vertical split with review on the right
   // IMPORTANT: Use :: as delimiter since task/review IDs are UUIDs containing hyphens
-  const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string) => {
+  const handleOpenReview = useCallback((taskId: string, reviewId: string, reviewTitle?: string, sourcePanelId?: string) => {
     const tabId = `review::${taskId}::${reviewId}`
 
     setRootNode(prev => {
@@ -1841,19 +1840,35 @@ const TabsView: React.FC<TabsViewProps> = ({
         }
       }
 
-      // Add to the first leaf
+      // Create a new leaf node with the review tab
+      const newReviewLeaf = createLeafNode(
+        [{
+          id: tabId,
+          type: 'review' as const,
+          taskId,
+          reviewId,
+          reviewTitle: reviewTitle || 'Spec Review',
+        }],
+        tabId
+      )
+
+      // If we have a source panel, create a vertical split with it
+      if (sourcePanelId) {
+        const sourcePanel = findNode(prev, sourcePanelId)
+        if (sourcePanel && sourcePanel.type === 'leaf') {
+          // Create a split node with source panel on left, review on right
+          const newSplit = createSplitNode('vertical', [sourcePanel, newReviewLeaf])
+          // Replace the source panel with the new split
+          return replaceNodeInTree(prev, sourcePanelId, newSplit)
+        }
+      }
+
+      // Fallback: if no source panel or it's not a leaf, add to first leaf
       if (allLeaves.length > 0) {
-        return updateNodeInTree(prev, allLeaves[0].id, node => ({
-          ...node,
-          tabs: [...(node.tabs || []), {
-            id: tabId,
-            type: 'review' as const,
-            taskId,
-            reviewId,
-            reviewTitle: reviewTitle || 'Spec Review',
-          }],
-          activeTabId: tabId,
-        }))
+        // Create a vertical split with the first leaf panel
+        const firstLeaf = allLeaves[0]
+        const newSplit = createSplitNode('vertical', [firstLeaf, newReviewLeaf])
+        return replaceNodeInTree(prev, firstLeaf.id, newSplit)
       }
 
       return prev
@@ -1919,6 +1934,7 @@ const TabsView: React.FC<TabsViewProps> = ({
           onTabRename={handleTabRename}
           onAddTab={handleAddTab}
           onAddDesktop={handleAddDesktop}
+          onAddCreateTab={handleAddCreateTab}
           onTaskCreated={handleTaskCreated}
           onSplitPanel={handleSplitPanel}
           onDropTab={handleDropTab}

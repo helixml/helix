@@ -53,6 +53,9 @@ const ArchiveConfirmDialog: React.FC<ArchiveConfirmDialogProps> = ({
             Task: <strong>{taskName}</strong>
           </Typography>
         )}
+        <Typography variant="caption" color="text.disabled" sx={{ mt: 2, display: 'block' }}>
+          Tip: Hold Shift while clicking Archive to skip this dialog.
+        </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button
