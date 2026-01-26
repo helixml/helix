@@ -3029,7 +3029,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
-          console.log('[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote');
+          const isMacCmd = isCmdC || isCmdShiftC;
+          console.log(`[Clipboard] Copy keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${event.shiftKey ? 'Shift+' : ''}C), forwarding Ctrl+C to remote`);
+
+          // CRITICAL: When user presses Cmd+C on Mac, the Cmd (Meta) key was already sent
+          // to the remote as MetaLeft keydown. We must release it BEFORE sending Ctrl+C,
+          // otherwise the remote sees Meta+Ctrl+C which may trigger different behavior.
+          if (isMacCmd) {
+            const metaUp = new KeyboardEvent('keyup', {
+              code: 'MetaLeft',
+              key: 'Meta',
+              ctrlKey: false,
+              shiftKey: event.shiftKey,
+              altKey: false,
+              metaKey: false, // Already released
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(metaUp);
+            console.log('[Clipboard] Released Meta key before sending Ctrl+C');
+          }
+
           // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
           const ctrlCDown = new KeyboardEvent('keydown', {
             code: 'KeyC',
@@ -3124,7 +3144,29 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
-        console.log(`[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`);
+        const isMacCmd = isCmdV || isCmdShiftV;
+        console.log(`[Clipboard] Paste keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${userPressedShift ? 'Shift+' : ''}V), syncing local → remote`);
+
+        // CRITICAL: When user presses Cmd+V on Mac, the Cmd (Meta) key was already sent
+        // to the remote as MetaLeft keydown. We must release it BEFORE sending Ctrl+V,
+        // otherwise the remote sees Meta+Ctrl+V which may trigger different behavior.
+        if (isMacCmd) {
+          const input = getInput();
+          if (input) {
+            const metaUp = new KeyboardEvent('keyup', {
+              code: 'MetaLeft',
+              key: 'Meta',
+              ctrlKey: false,
+              shiftKey: userPressedShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(metaUp);
+            console.log('[Clipboard] Released Meta key before syncing clipboard for paste');
+          }
+        }
 
         // Skip if clipboard API is not available (e.g., Safari without HTTPS)
         if (!navigator.clipboard) {
