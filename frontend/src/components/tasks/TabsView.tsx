@@ -108,7 +108,7 @@ const generatePanelId = () => `panel-${++panelIdCounter}`
 
 interface TabData {
   id: string
-  type: 'task' | 'review' | 'desktop'
+  type: 'task' | 'review' | 'desktop' | 'create'
   task?: TypesSpecTask
   // For review tabs
   taskId?: string
@@ -319,7 +319,9 @@ const PanelTab: React.FC<PanelTabProps> = ({
   // Display title depends on tab type
   // Review tabs always get a "Review:" prefix for distinguishability
   // Don't truncate here - let CSS handle ellipsis so full text is available for editing
-  const displayTitle = tab.type === 'review'
+  const displayTitle = tab.type === 'create'
+    ? 'New Task'
+    : tab.type === 'review'
     ? (tab.reviewTitle?.startsWith('Review:')
         ? tab.reviewTitle
         : `Review: ${tab.reviewTitle || 'Spec'}`)
