@@ -260,6 +260,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = task?.planning_session_id
 
+  // Subscribe to WebSocket updates for the active session
+  // This must be done here (not in ExternalAgentDesktopViewer) because the viewer
+  // only mounts when currentView === 'desktop', but we need updates on all views
+  useEffect(() => {
+    if (activeSessionId) {
+      streaming.setCurrentSessionId(activeSessionId)
+    }
+  }, [activeSessionId])
+
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === 'details') {
