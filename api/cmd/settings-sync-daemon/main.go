@@ -501,10 +501,11 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 
 	// Inject code agent configuration (if using qwen custom agent)
 	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
+	// Note: We don't set "default_agent" because Zed doesn't have that setting (deprecated).
+	// Thread_service.rs dynamically selects the agent based on agent_name from Helix.
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		merged["agent_servers"] = agentServers
-		merged["default_agent"] = "qwen"
 	}
 
 	return merged
