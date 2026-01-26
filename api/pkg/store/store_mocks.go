@@ -4442,6 +4442,34 @@ func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
 }
 
+// UpdateCommentAgentResponse mocks base method.
+func (m *MockStore) UpdateCommentAgentResponse(ctx context.Context, commentID, agentResponse string, agentResponseAt *time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCommentAgentResponse", ctx, commentID, agentResponse, agentResponseAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCommentAgentResponse indicates an expected call of UpdateCommentAgentResponse.
+func (mr *MockStoreMockRecorder) UpdateCommentAgentResponse(ctx, commentID, agentResponse, agentResponseAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCommentAgentResponse", reflect.TypeOf((*MockStore)(nil).UpdateCommentAgentResponse), ctx, commentID, agentResponse, agentResponseAt)
+}
+
+// UpdateCommentResolved mocks base method.
+func (m *MockStore) UpdateCommentResolved(ctx context.Context, commentID string, resolved bool, resolvedAt *time.Time, resolvedBy, resolutionReason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCommentResolved", ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCommentResolved indicates an expected call of UpdateCommentResolved.
+func (mr *MockStoreMockRecorder) UpdateCommentResolved(ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCommentResolved", reflect.TypeOf((*MockStore)(nil).UpdateCommentResolved), ctx, commentID, resolved, resolvedAt, resolvedBy, resolutionReason)
+}
+
 // UpdateDataEntity mocks base method.
 func (m *MockStore) UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error) {
 	m.ctrl.T.Helper()

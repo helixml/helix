@@ -908,13 +908,10 @@ func (s *HelixAPIServer) updateCommentWithStreamingResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
-	// Update comment with agent response (streaming update)
-	comment.AgentResponse = responseContent
+	// Use targeted update that only modifies agent_response fields
+	// This prevents race conditions where streaming updates overwrite resolution status set by git hooks
 	now := time.Now()
-	comment.AgentResponseAt = &now
-	// NOTE: Do NOT clear request_id here - streaming is still in progress
-
-	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+	if err := s.Store.UpdateCommentAgentResponse(ctx, comment.ID, responseContent, &now); err != nil {
 		return fmt.Errorf("failed to update comment with streaming response: %w", err)
 	}
 

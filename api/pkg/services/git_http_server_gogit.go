@@ -857,34 +857,39 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update spec task status")
 			}
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.checkCommentResolution(context.Background(), t.ID, repoPath, gitRepo)
-			}(task)
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
 
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision:
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.checkCommentResolution(context.Background(), t.ID, repoPath, gitRepo)
-			}(task)
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
 
 		case types.TaskStatusImplementation:
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(t *types.SpecTask, branch string) {
 				defer s.wg.Done()
-				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
-			}(task)
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
 			// Note: Push to upstream is now done synchronously in handleReceivePack
 			// before this hook runs, so we don't need to push again here.
 
@@ -1096,13 +1101,13 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 
 // checkCommentResolution checks if design review comments should be auto-resolved
 // because the quoted text was removed/updated in the design documents
-func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath string, gitRepo *GitRepo) {
+func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath, branch string, gitRepo *GitRepo) {
 	comments, err := s.store.GetUnresolvedCommentsForTask(ctx, specTaskID)
 	if err != nil || len(comments) == 0 {
 		return
 	}
 
-	log.Info().Str("spec_task_id", specTaskID).Int("count", len(comments)).Msg("Checking comments for auto-resolution")
+	log.Info().Str("spec_task_id", specTaskID).Str("branch", branch).Int("count", len(comments)).Msg("Checking comments for auto-resolution")
 
 	// Get task to find the design doc path
 	task, err := s.store.GetSpecTask(ctx, specTaskID)
@@ -1111,10 +1116,10 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		return
 	}
 
-	// Find task directory in helix-specs branch
-	taskDir, err := gitRepo.FindTaskDirInBranch("helix-specs", task.DesignDocPath, specTaskID)
+	// Find task directory in the pushed branch
+	taskDir, err := gitRepo.FindTaskDirInBranch(branch, task.DesignDocPath, specTaskID)
 	if err != nil {
-		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("Task directory not found in helix-specs")
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("branch", branch).Msg("Task directory not found in branch")
 		return
 	}
 
@@ -1128,7 +1133,7 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 
 	for docType, filename := range docTypes {
 		filePath := taskDir + "/" + filename
-		content, err := gitRepo.ReadFileFromBranch("helix-specs", filePath)
+		content, err := gitRepo.ReadFileFromBranch(branch, filePath)
 		if err == nil {
 			docContents[docType] = string(content)
 		}
@@ -1146,11 +1151,12 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		}
 		if !strings.Contains(content, comment.QuotedText) {
 			log.Info().Str("comment_id", comment.ID).Str("document_type", comment.DocumentType).Msg("Auto-resolving comment - quoted text removed")
-			comment.Resolved = true
-			comment.ResolvedAt = &now
-			comment.ResolvedBy = "system"
-			comment.ResolutionReason = "auto_text_removed"
-			s.store.UpdateSpecTaskDesignReviewComment(ctx, &comment)
+			// Use targeted update that only modifies resolution fields
+			// This prevents race conditions where auto-resolve overwrites streaming agent response
+			if err := s.store.UpdateCommentResolved(ctx, comment.ID, true, &now, "system", "auto_text_removed"); err != nil {
+				log.Error().Err(err).Str("comment_id", comment.ID).Msg("Failed to auto-resolve comment")
+				continue
+			}
 			resolvedCount++
 		}
 	}

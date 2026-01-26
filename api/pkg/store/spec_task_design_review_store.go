@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -77,6 +78,34 @@ func (s *PostgresStore) GetSpecTaskDesignReviewComment(ctx context.Context, id s
 
 func (s *PostgresStore) UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error {
 	return s.gdb.WithContext(ctx).Save(comment).Error
+}
+
+// UpdateCommentAgentResponse updates only the agent response fields without touching resolution status.
+// This prevents race conditions where streaming updates overwrite resolution set by git hooks.
+func (s *PostgresStore) UpdateCommentAgentResponse(ctx context.Context, commentID string, agentResponse string, agentResponseAt *time.Time) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SpecTaskDesignReviewComment{}).
+		Where("id = ?", commentID).
+		Updates(map[string]interface{}{
+			"agent_response":    agentResponse,
+			"agent_response_at": agentResponseAt,
+			"updated_at":        time.Now(),
+		}).Error
+}
+
+// UpdateCommentResolved updates only the resolution fields without touching agent response.
+// This prevents race conditions where git hooks overwrite streaming agent response.
+func (s *PostgresStore) UpdateCommentResolved(ctx context.Context, commentID string, resolved bool, resolvedAt *time.Time, resolvedBy string, resolutionReason string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SpecTaskDesignReviewComment{}).
+		Where("id = ?", commentID).
+		Updates(map[string]interface{}{
+			"resolved":          resolved,
+			"resolved_at":       resolvedAt,
+			"resolved_by":       resolvedBy,
+			"resolution_reason": resolutionReason,
+			"updated_at":        time.Now(),
+		}).Error
 }
 
 func (s *PostgresStore) DeleteSpecTaskDesignReviewComment(ctx context.Context, id string) error {

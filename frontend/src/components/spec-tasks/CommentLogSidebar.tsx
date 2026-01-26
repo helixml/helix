@@ -2,7 +2,12 @@ import React from 'react'
 import { Box, Typography, Paper, Chip, IconButton } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import InteractionMarkdown from '../session/Markdown'
 import { DesignReviewComment } from '../../services/designReviewService'
+import { TypesSession } from '../../api/api'
+
+// Empty session object for markdown rendering (no RAG/citation features needed)
+const EMPTY_SESSION: TypesSession = {}
 
 interface CommentLogSidebarProps {
   show: boolean
@@ -81,18 +86,23 @@ export default function CommentLogSidebar({
                   sx={{
                     mt: 2,
                     p: 2,
-                    bgcolor: 'info.light',
+                    bgcolor: 'action.hover',
                     borderLeft: '3px solid',
-                    borderColor: 'info.main',
+                    borderColor: 'success.main',
                     borderRadius: 1,
                   }}
                 >
-                  <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
+                  <Typography variant="caption" color="text.primary" fontWeight="bold" display="block" mb={1}>
                     Agent Response:
                   </Typography>
-                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                    {comment.agent_response}
-                  </Typography>
+                  <Box sx={{ '& > div': { fontSize: '0.875rem' } }}>
+                    <InteractionMarkdown
+                      text={comment.agent_response}
+                      session={EMPTY_SESSION}
+                      getFileURL={() => '#'}
+                      isStreaming={false}
+                    />
+                  </Box>
                   {comment.agent_response_at && (
                     <Typography variant="caption" color="text.secondary" display="block" mt={1}>
                       {new Date(comment.agent_response_at).toLocaleString()}

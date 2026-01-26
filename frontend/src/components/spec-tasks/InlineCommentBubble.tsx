@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { Paper, Box, Chip, IconButton, Typography, CircularProgress, Button } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -29,6 +29,7 @@ export default function InlineCommentBubble({
   streamingResponse,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Use streaming response if available, otherwise fall back to persisted response
   const displayResponse = streamingResponse || comment.agent_response
@@ -46,6 +47,13 @@ export default function InlineCommentBubble({
     const lastLines = lines.slice(-COLLAPSED_LINES).join('\n')
     return { truncatedResponse: lastLines, isTruncated: true, lineCount }
   }, [displayResponse])
+
+  // Auto-scroll to bottom when content is truncated (showing last N lines)
+  useEffect(() => {
+    if (contentRef.current && !isExpanded) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight
+    }
+  }, [truncatedResponse, isExpanded])
   return (
     <Paper
       ref={commentRef}
@@ -156,9 +164,10 @@ export default function InlineCommentBubble({
             </Typography>
           )}
           <Box
+            ref={contentRef}
             sx={{
               maxHeight: isExpanded ? 'none' : '120px',
-              overflow: isExpanded ? 'visible' : 'hidden',
+              overflow: isExpanded ? 'visible' : 'auto',
               // Scale down the InteractionMarkdown styles for compact display
               '& > div': { fontSize: '0.75rem' },
               '& pre': { p: 0.5, fontSize: '0.7rem' },
