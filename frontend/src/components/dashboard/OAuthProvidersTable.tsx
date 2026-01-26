@@ -778,40 +778,6 @@ const OAuthProvidersTable: React.FC = () => {
         <DialogContent>
           {currentProvider && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
-              {/* Setup guide for known provider types */}
-              {currentProvider.type && currentProvider.type !== 'custom' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
-                <Grid item xs={12}>
-                  <Alert
-                    severity="info"
-                    sx={{
-                      '& .MuiAlert-message': { width: '100%' },
-                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
-                      Setup steps:{' '}
-                      <Link
-                        href={PROVIDER_SETUP_GUIDE[currentProvider.type].setupUrl}
-                        target="_blank"
-                        rel="noopener"
-                        sx={{ ml: 0.5 }}
-                      >
-                        Open {PROVIDER_TYPES[currentProvider.type as keyof typeof PROVIDER_TYPES]} Developer Console ↗
-                      </Link>
-                    </Typography>
-                    <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 0.25 } }}>
-                      {PROVIDER_SETUP_GUIDE[currentProvider.type].steps.map((step, i) => (
-                        <li key={i}>
-                          <Typography variant="caption" color="text.secondary">
-                            {step}
-                          </Typography>
-                        </li>
-                      ))}
-                    </Box>
-                  </Alert>
-                </Grid>
-              )}
-
               <Grid item xs={12}>
                 <TextField
                   fullWidth
@@ -833,13 +799,13 @@ const OAuthProvidersTable: React.FC = () => {
                   onChange={handleInputChange}
                 />
               </Grid>
-              
+
               <Grid item xs={12}>
                 <Divider sx={{ my: 1 }}>
                   <Chip label="Authentication Settings" />
                 </Divider>
               </Grid>
-              
+
               <Grid item xs={12}>
                 <FormControlLabel
                   control={
@@ -852,6 +818,40 @@ const OAuthProvidersTable: React.FC = () => {
                   label="Enabled"
                 />
               </Grid>
+
+              {/* Setup guide for known provider types - shown after enable toggle */}
+              {currentProvider.type && currentProvider.type !== 'custom' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
+                <Grid item xs={12}>
+                  <Alert
+                    severity="info"
+                    icon={false}
+                    sx={{
+                      '& .MuiAlert-message': { width: '100%' },
+                      backgroundColor: 'rgba(33, 150, 243, 0.05)',
+                      py: 1,
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      <Link
+                        href={PROVIDER_SETUP_GUIDE[currentProvider.type].setupUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Open {PROVIDER_TYPES[currentProvider.type as keyof typeof PROVIDER_TYPES]} Developer Console ↗
+                      </Link>
+                    </Typography>
+                    <Box component="ol" sx={{ m: 0, pl: 2, '& li': { mb: 0.25 } }}>
+                      {PROVIDER_SETUP_GUIDE[currentProvider.type].steps.map((step, i) => (
+                        <li key={i}>
+                          <Typography variant="caption" color="text.secondary">
+                            {step}
+                          </Typography>
+                        </li>
+                      ))}
+                    </Box>
+                  </Alert>
+                </Grid>
+              )}
               
               <Grid item xs={6}>
                 <TextField
