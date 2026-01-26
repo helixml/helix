@@ -300,7 +300,10 @@ export default function DesignReviewContent({
 
             if (lastInteraction.state === 'complete') {
               console.log('[DRWS-DEBUG] Interaction complete - invalidating queries and clearing state')
+              // Invalidate both comments AND review detail (which contains the design doc content)
+              // The agent may have updated the design doc via git push in response to the comment
               queryClient.invalidateQueries({ queryKey: designReviewKeys.comments(specTaskId, reviewId) })
+              queryClient.invalidateQueries({ queryKey: designReviewKeys.detail(specTaskId, reviewId) })
               setStreamingResponse(null)
             }
           }
