@@ -426,12 +426,19 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
+	// Use messageSender which:
+	// 1. Creates an interaction in the database
+	// 2. Sets up sessionToWaitingInteraction mapping for response routing
+	// 3. Sends the message via WebSocket to the agent
+	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
+	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
+	// to the wrong (empty) interaction.
 	_, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}
 
-	return s.sendMessage(ctx, sessionID, userID, message)
+	return nil
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines
