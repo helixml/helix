@@ -157,6 +157,16 @@ await fetch(`/api/v1/external-agents/${sessionId}/upload`, { ... });
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
 - Invalidate queries after mutations, don't use setQueryData
+- **Routing**: Use `useRouter` hook with `router.navigate('route-name', { params })`, NOT `<Link>` or `<a href>`. This codebase uses react-router5 with named routes.
+  ```typescript
+  // ✅ CORRECT - use useRouter
+  const router = useRouter()
+  <span onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}>Go to dashboard</span>
+
+  // ❌ WRONG - don't use react-router-dom Link or raw href
+  <Link to="/dashboard?tab=oauth_providers">Go to dashboard</Link>
+  <a href="/dashboard?tab=oauth_providers">Go to dashboard</a>
+  ```
 
 ## Architecture
 
