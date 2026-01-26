@@ -950,8 +950,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
-                  {/* View Spec button - show when spec exists but not in spec_review status */}
-                  {task.design_docs_pushed_at && task.status !== 'spec_review' && task.status !== 'implementation' && task.status !== 'pull_request' && (
+                  {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
+                  {task.design_docs_pushed_at && task.status !== 'spec_review' && (
                     <Button
                       variant="outlined"
                       size="small"
@@ -1159,6 +1159,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
+              {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
+              {task.design_docs_pushed_at && task.status !== 'spec_review' && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<Description />}
+                  onClick={handleReviewSpec}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  View Spec
+                </Button>
+              )}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
               <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
