@@ -1589,6 +1589,105 @@ const TabsView: React.FC<TabsViewProps> = ({
     setInitialized(true)
   }, [tasks, initialized, initialTaskId, initialDesktopId, exploratorySessionId, projectId])
 
+  // Track the last opened task/desktop to detect changes after initialization
+  const lastOpenedTaskRef = React.useRef<string | undefined>(undefined)
+  const lastOpenedDesktopRef = React.useRef<string | undefined>(undefined)
+
+  // Handle dynamic opening of tasks when initialTaskId changes after initialization
+  useEffect(() => {
+    if (!initialized || !rootNode) return
+    if (!initialTaskId || initialTaskId === lastOpenedTaskRef.current) return
+
+    const taskToOpen = tasks.find(t => t.id === initialTaskId)
+    if (!taskToOpen) return
+
+    lastOpenedTaskRef.current = initialTaskId
+
+    // Check if already open somewhere
+    const allLeaves = getAllLeafNodes(rootNode)
+    const existingLeaf = allLeaves.find(leaf => leaf.tabs?.some(t => t.id === initialTaskId))
+    if (existingLeaf) {
+      // Just activate it
+      setRootNode(prev => prev ? updateNodeInTree(prev, existingLeaf.id, node => ({ ...node, activeTabId: initialTaskId })) : prev)
+      return
+    }
+
+    // Find an empty pane (leaf with no tabs or no active tab)
+    const emptyLeaf = allLeaves.find(leaf => !leaf.tabs || leaf.tabs.length === 0)
+    if (emptyLeaf) {
+      // Add to empty pane
+      setRootNode(prev => prev ? updateNodeInTree(prev, emptyLeaf.id, node => ({
+        ...node,
+        tabs: [{ id: initialTaskId, type: 'task' as const, task: taskToOpen }],
+        activeTabId: initialTaskId,
+      })) : prev)
+      return
+    }
+
+    // No empty pane - create a vertical split with the first leaf
+    const firstLeaf = allLeaves[0]
+    if (firstLeaf) {
+      const newTaskLeaf = createLeafNode(
+        [{ id: initialTaskId, type: 'task' as const, task: taskToOpen }],
+        initialTaskId
+      )
+      const newSplit = createSplitNode('vertical', [firstLeaf, newTaskLeaf])
+      setRootNode(prev => prev ? replaceNodeInTree(prev, firstLeaf.id, newSplit) : prev)
+    }
+  }, [initialized, initialTaskId, tasks, rootNode])
+
+  // Handle dynamic opening of desktops when initialDesktopId changes after initialization
+  useEffect(() => {
+    if (!initialized || !rootNode) return
+    if (!initialDesktopId || initialDesktopId === lastOpenedDesktopRef.current) return
+
+    lastOpenedDesktopRef.current = initialDesktopId
+
+    const desktopTabId = `desktop-${initialDesktopId}`
+    const isTeamDesktop = initialDesktopId === exploratorySessionId
+    const ownerTask = !isTeamDesktop ? tasks.find(t => t.planning_session_id === initialDesktopId) : null
+    const desktopTitle = isTeamDesktop
+      ? 'Team Desktop'
+      : ownerTask
+        ? (ownerTask.user_short_title || ownerTask.short_title || ownerTask.name || 'Task')
+        : 'Desktop'
+
+    const desktopTab: TabData = {
+      id: desktopTabId,
+      type: 'desktop' as const,
+      sessionId: initialDesktopId,
+      desktopTitle,
+    }
+
+    // Check if already open somewhere
+    const allLeaves = getAllLeafNodes(rootNode)
+    const existingLeaf = allLeaves.find(leaf => leaf.tabs?.some(t => t.id === desktopTabId))
+    if (existingLeaf) {
+      // Just activate it
+      setRootNode(prev => prev ? updateNodeInTree(prev, existingLeaf.id, node => ({ ...node, activeTabId: desktopTabId })) : prev)
+      return
+    }
+
+    // Find an empty pane
+    const emptyLeaf = allLeaves.find(leaf => !leaf.tabs || leaf.tabs.length === 0)
+    if (emptyLeaf) {
+      setRootNode(prev => prev ? updateNodeInTree(prev, emptyLeaf.id, node => ({
+        ...node,
+        tabs: [desktopTab],
+        activeTabId: desktopTabId,
+      })) : prev)
+      return
+    }
+
+    // No empty pane - create a vertical split
+    const firstLeaf = allLeaves[0]
+    if (firstLeaf) {
+      const newDesktopLeaf = createLeafNode([desktopTab], desktopTabId)
+      const newSplit = createSplitNode('vertical', [firstLeaf, newDesktopLeaf])
+      setRootNode(prev => prev ? replaceNodeInTree(prev, firstLeaf.id, newSplit) : prev)
+    }
+  }, [initialized, initialDesktopId, exploratorySessionId, tasks, rootNode])
+
   const handleTabSelect = useCallback((panelId: string, tabId: string) => {
     setRootNode(prev => {
       if (!prev) return prev

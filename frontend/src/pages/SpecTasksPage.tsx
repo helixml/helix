@@ -1096,6 +1096,7 @@ const SpecTasksPage: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
           overflow: 'hidden',
           transition: 'all 0.3s ease-in-out',
           px: 3,

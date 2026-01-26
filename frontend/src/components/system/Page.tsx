@@ -213,12 +213,15 @@ const Page: React.FC<{
       <Box
         sx={{
           flexGrow: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
           overflowY: 'auto',
           overflowX: 'hidden',
           width: '100%',
           maxWidth: '100vw',
         }}
-      >    
+      >
         { children }
       </Box>
       {
