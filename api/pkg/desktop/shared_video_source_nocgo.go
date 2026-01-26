@@ -74,8 +74,8 @@ func (r *SharedVideoSourceRegistry) GetAllStats() []SourceStats {
 }
 
 // Subscribe returns an error for non-CGO builds.
-func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, uint64, error) {
-	return nil, 0, fmt.Errorf("video streaming requires CGO")
+func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64, error) {
+	return nil, nil, 0, fmt.Errorf("video streaming requires CGO")
 }
 
 // Unsubscribe is a no-op for non-CGO builds.

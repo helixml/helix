@@ -1646,7 +1646,7 @@ func (s *Server) handleStreamInputMessageWithClient(data []byte, sessionID strin
 	// Types 0x10-0x14 are reserved for input
 	switch msgType {
 	case StreamMsgKeyboard: // 0x10
-		s.handleWSKeyboard(payload, &s.streamKeyboardState)
+		s.handleWSKeyboard(payload)
 	case StreamMsgMouseClick: // 0x11
 		s.handleWSMouseButton(payload)
 	case StreamMsgMouseAbsolute: // 0x12
