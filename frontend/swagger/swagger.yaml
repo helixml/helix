@@ -1404,6 +1404,13 @@ definitions:
         items:
           $ref: '#/definitions/server.RequiredRepository'
         type: array
+      required_scopes:
+        description: |-
+          RequiredScopes specifies the OAuth scopes needed for this sample project
+          These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
+        items:
+          type: string
+        type: array
       requires_github_auth:
         description: RequiresGitHubAuth indicates this sample project needs GitHub
           OAuth for push access

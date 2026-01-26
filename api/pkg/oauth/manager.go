@@ -359,8 +359,9 @@ func (m *Manager) RegisterProvider(ctx context.Context, providerID string) (Prov
 
 // StartOAuthFlow initiates the OAuth flow for a provider
 // metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
-func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL, metadata string) (string, error) {
-	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Msg("Initiating OAuth flow")
+// scopes is optional - if provided, these scopes are requested instead of the provider's default scopes
+func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL, metadata string, scopes []string) (string, error) {
+	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Strs("scopes", scopes).Msg("Initiating OAuth flow")
 
 	provider, err := m.GetProvider(providerID)
 	if err != nil {
@@ -370,7 +371,7 @@ func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redire
 
 	log.Debug().Str("provider_id", providerID).Str("provider_name", provider.GetName()).Str("user_id", userID).Msg("Found provider, getting authorization URL")
 
-	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL, metadata)
+	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL, metadata, scopes)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", userID).Msg("Failed to generate authorization URL")
 		return "", err

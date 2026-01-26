@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import useOAuthFlow from '../../hooks/useOAuthFlow'
 import {
   TypesCheckSampleProjectAccessResponse,
   TypesRepositoryAccessCheck,
@@ -60,6 +61,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   const api = useApi()
   const apiClient = api.getApiClient()
   const snackbar = useSnackbar()
+  const { startOAuthFlow, isLoading: oauthLoading, error: oauthError } = useOAuthFlow()
 
   // State
   const [currentStep, setCurrentStep] = useState<Step>('github-check')
@@ -250,13 +252,39 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
           <Button
             variant="contained"
             startIcon={<Github size={18} />}
-            onClick={() => {
-              // Navigate to OAuth connections page
-              window.location.href = '/oauth-connections?provider=github'
+            onClick={async () => {
+              // Find GitHub provider and start OAuth flow with required scopes
+              try {
+                const providersResp = await apiClient.v1OauthProvidersList()
+                const githubProvider = providersResp.data?.find(
+                  (p: any) => p.type === 'github' && p.enabled
+                )
+                if (!githubProvider) {
+                  setError('GitHub OAuth provider not configured. Please contact your administrator.')
+                  return
+                }
+
+                const scopes = sampleProject?.required_scopes || ['repo', 'read:user', 'user:email']
+                await startOAuthFlow({
+                  providerId: githubProvider.id,
+                  scopes,
+                  onSuccess: () => checkGitHubConnection(),
+                  onError: (err) => setError(err),
+                })
+              } catch (err: any) {
+                console.error('Failed to start OAuth flow:', err)
+                setError('Failed to start GitHub authentication')
+              }
             }}
+            disabled={oauthLoading}
           >
-            Connect GitHub
+            {oauthLoading ? <CircularProgress size={18} /> : 'Connect GitHub'}
           </Button>
+          {oauthError && (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+              {oauthError}
+            </Typography>
+          )}
         </Box>
       )}
     </Box>

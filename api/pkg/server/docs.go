@@ -15397,6 +15397,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.RequiredRepository"
                     }
                 },
+                "required_scopes": {
+                    "description": "RequiredScopes specifies the OAuth scopes needed for this sample project\nThese are passed when initiating the OAuth flow, so the user authorizes exactly what's needed",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "requires_github_auth": {
                     "description": "RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access",
                     "type": "boolean"

@@ -897,6 +897,11 @@ export interface ServerSimpleSampleProject {
    * 4. Wait for cloning to complete before starting session
    */
   required_repositories?: ServerRequiredRepository[];
+  /**
+   * RequiredScopes specifies the OAuth scopes needed for this sample project
+   * These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
+   */
+  required_scopes?: string[];
   /** RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access */
   requires_github_auth?: boolean;
   task_prompts?: ServerSampleTaskPrompt[];

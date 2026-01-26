@@ -41,6 +41,10 @@ type SimpleSampleProject struct {
 
 	// RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access
 	RequiresGitHubAuth bool `json:"requires_github_auth,omitempty"`
+
+	// RequiredScopes specifies the OAuth scopes needed for this sample project
+	// These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
+	RequiredScopes []string `json:"required_scopes,omitempty"`
 }
 
 // RequiredRepository specifies a GitHub repository required for a sample project
@@ -649,6 +653,8 @@ The color discovery happens during implementation, and that learning gets captur
 
 		// Require GitHub authentication for push access to make PRs
 		RequiresGitHubAuth: true,
+		// Scopes needed: repo (for cloning/pushing/PRs), read:user (for identity)
+		RequiredScopes: []string{"repo", "read:user", "user:email"},
 		RequiredRepositories: []RequiredRepository{
 			{
 				GitHubURL:     "github.com/helixml/helix",
