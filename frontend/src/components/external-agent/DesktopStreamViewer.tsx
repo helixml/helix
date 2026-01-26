@@ -2985,6 +2985,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
+    // Detect Mac platform for Cmd→Ctrl translation
+    // On Mac, Cmd (Meta) should behave like Ctrl for shortcuts, not as Linux Super key
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    // Track if we're suppressing Meta key events (to avoid sending Meta to remote on Mac)
+    let metaKeySuppressed = false;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
       setDebugKeyEvent(`↓ key="${event.key}" code="${event.code}" keyCode=${event.keyCode}`);
@@ -3000,6 +3008,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      // MAC CMD→CTRL TRANSLATION: Suppress Meta key events on Mac
+      // On Mac, Cmd should behave like Ctrl for shortcuts. We don't send Meta keydown to the remote
+      // because that would press the Super/Windows key, which has different behavior (e.g., opens GNOME Activities).
+      // Instead, when any key is pressed with Cmd held, we'll translate it to Ctrl+key.
+      if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
+        console.log('[Keyboard] Mac: Suppressing Meta keydown (will translate Cmd+key to Ctrl+key)');
+        metaKeySuppressed = true;
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3032,24 +3052,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           const isMacCmd = isCmdC || isCmdShiftC;
           console.log(`[Clipboard] Copy keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${event.shiftKey ? 'Shift+' : ''}C), forwarding Ctrl+C to remote`);
 
-          // CRITICAL: When user presses Cmd+C on Mac, the Cmd (Meta) key was already sent
-          // to the remote as MetaLeft keydown. We must release it BEFORE sending Ctrl+C,
-          // otherwise the remote sees Meta+Ctrl+C which may trigger different behavior.
-          if (isMacCmd) {
-            const metaUp = new KeyboardEvent('keyup', {
-              code: 'MetaLeft',
-              key: 'Meta',
-              ctrlKey: false,
-              shiftKey: event.shiftKey,
-              altKey: false,
-              metaKey: false, // Already released
-              bubbles: true,
-              cancelable: true,
-            });
-            input.onKeyUp(metaUp);
-            console.log('[Clipboard] Released Meta key before sending Ctrl+C');
-          }
-
+          // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+C directly
           // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
           const ctrlCDown = new KeyboardEvent('keydown', {
             code: 'KeyC',
@@ -3147,26 +3150,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const isMacCmd = isCmdV || isCmdShiftV;
         console.log(`[Clipboard] Paste keystroke detected (${isMacCmd ? 'Cmd' : 'Ctrl'}+${userPressedShift ? 'Shift+' : ''}V), syncing local → remote`);
 
-        // CRITICAL: When user presses Cmd+V on Mac, the Cmd (Meta) key was already sent
-        // to the remote as MetaLeft keydown. We must release it BEFORE sending Ctrl+V,
-        // otherwise the remote sees Meta+Ctrl+V which may trigger different behavior.
-        if (isMacCmd) {
-          const input = getInput();
-          if (input) {
-            const metaUp = new KeyboardEvent('keyup', {
-              code: 'MetaLeft',
-              key: 'Meta',
-              ctrlKey: false,
-              shiftKey: userPressedShift,
-              altKey: false,
-              metaKey: false,
-              bubbles: true,
-              cancelable: true,
-            });
-            input.onKeyUp(metaUp);
-            console.log('[Clipboard] Released Meta key before syncing clipboard for paste');
-          }
-        }
+        // Note: Meta key was suppressed on Mac (never sent to remote), so we just send Ctrl+V directly
 
         // Skip if clipboard API is not available (e.g., Safari without HTTPS)
         if (!navigator.clipboard) {
@@ -3271,7 +3255,26 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code);
-      getInput()?.onKeyDown(event);
+
+      // MAC CMD→CTRL TRANSLATION: If Cmd is held on Mac, translate to Ctrl for remote
+      // This makes Cmd+A, Cmd+S, Cmd+Z, etc. work as Ctrl+A, Ctrl+S, Ctrl+Z on Linux
+      if (isMac && event.metaKey) {
+        const translatedEvent = new KeyboardEvent('keydown', {
+          code: event.code,
+          key: event.key,
+          ctrlKey: true,  // Translate Cmd to Ctrl
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          metaKey: false, // Don't send Meta
+          bubbles: true,
+          cancelable: true,
+        });
+        console.log(`[Keyboard] Mac: Translating Cmd+${event.key} to Ctrl+${event.key}`);
+        getInput()?.onKeyDown(translatedEvent);
+      } else {
+        getInput()?.onKeyDown(event);
+      }
+
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
       event.preventDefault();
@@ -3282,6 +3285,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[DesktopStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
+
+      // MAC CMD→CTRL TRANSLATION: Suppress Meta keyup on Mac (we never sent keydown)
+      if (isMac && (event.code === 'MetaLeft' || event.code === 'MetaRight')) {
+        console.log('[Keyboard] Mac: Suppressing Meta keyup');
+        metaKeySuppressed = false; // Reset tracking
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
@@ -3314,7 +3326,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       console.log('[DesktopStreamViewer] KeyUp captured:', event.key, event.code);
-      getInput()?.onKeyUp(event);
+
+      // MAC CMD→CTRL TRANSLATION: If Cmd is held on Mac, translate to Ctrl for remote
+      if (isMac && event.metaKey) {
+        const translatedEvent = new KeyboardEvent('keyup', {
+          code: event.code,
+          key: event.key,
+          ctrlKey: true,  // Translate Cmd to Ctrl
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          metaKey: false, // Don't send Meta
+          bubbles: true,
+          cancelable: true,
+        });
+        getInput()?.onKeyUp(translatedEvent);
+      } else {
+        getInput()?.onKeyUp(event);
+      }
+
       // Prevent browser default behavior to ensure all keys are passed through
       event.preventDefault();
       event.stopPropagation();
