@@ -44,12 +44,14 @@ type SettingsDaemon struct {
 
 // CodeAgentConfig mirrors the API response structure for code agent configuration
 type CodeAgentConfig struct {
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
-	AgentName string `json:"agent_name"`
-	BaseURL   string `json:"base_url"`
-	APIType   string `json:"api_type"`
-	Runtime   string `json:"runtime"` // "zed_agent" or "qwen_code"
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	AgentName       string `json:"agent_name"`
+	BaseURL         string `json:"base_url"`
+	APIType         string `json:"api_type"`
+	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code"
+	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
+	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
 }
 
 // AvailableModel represents a model entry for IDE model configuration.
@@ -58,8 +60,8 @@ type CodeAgentConfig struct {
 type AvailableModel struct {
 	Name            string `json:"name"`
 	DisplayName     string `json:"display_name"`
-	MaxTokens       int    `json:"max_tokens,omitempty"`
-	MaxOutputTokens int    `json:"max_output_tokens,omitempty"` // Omit to use model's default
+	MaxTokens       int    `json:"max_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -223,12 +225,17 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	}
 
 	// Create available_models entry with our custom model
-	// Note: We intentionally omit MaxTokens and MaxOutputTokens to let the model's
-	// defaults be used. Different models have different limits (e.g., gpt-4-turbo
-	// supports 4096 output tokens, while gpt-4o supports 16384).
+	// Use token limits from model_info.json if available, otherwise use sensible defaults
+	maxTokens := d.codeAgentConfig.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 128000 // Default context window if not found in model_info
+	}
+
 	modelEntry := AvailableModel{
-		Name:        d.codeAgentConfig.Model,
-		DisplayName: d.codeAgentConfig.Model, // Use model name as display name
+		Name:            d.codeAgentConfig.Model,
+		DisplayName:     d.codeAgentConfig.Model,
+		MaxTokens:       maxTokens,
+		MaxOutputTokens: d.codeAgentConfig.MaxOutputTokens, // 0 = omitted (uses model default)
 	}
 
 	// Get existing available_models or create new slice
