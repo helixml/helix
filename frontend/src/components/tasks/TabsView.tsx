@@ -583,6 +583,7 @@ interface TaskPanelProps {
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
   onOpenReview: (taskId: string, reviewId: string, reviewTitle?: string, sourcePanelId?: string) => void
+  onTaskArchived: (taskId: string) => void
   onTouchDragStart: (panelId: string, tabId: string) => void
   onTouchDragEnd: (panelId: string, tabId: string, clientX: number, clientY: number) => void
   panelCount: number
@@ -605,6 +606,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onDropTab,
   onClosePanel,
   onOpenReview,
+  onTaskArchived,
   onTouchDragStart,
   onTouchDragEnd,
   panelCount,
@@ -1158,6 +1160,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               key={`${panel.id}-${activeTab.id}`}
               taskId={activeTab.id}
               onOpenReview={(taskId, reviewId, reviewTitle) => onOpenReview(taskId, reviewId, reviewTitle, panel.id)}
+              onTaskArchived={onTaskArchived}
             />
           )
         ) : (
@@ -1882,6 +1885,34 @@ const TabsView: React.FC<TabsViewProps> = ({
     })
   }, [])
 
+  // Handle task archived - close all tabs showing this task across all panels
+  const handleTaskArchived = useCallback((taskId: string) => {
+    setRootNode(prev => {
+      if (!prev) return prev
+
+      // Recursively update all leaf nodes to remove tabs with this task ID
+      const removeTaskFromNode = (node: PanelNode): PanelNode => {
+        if (node.type === 'leaf') {
+          const tabs = node.tabs || []
+          const newTabs = tabs.filter(t => t.id !== taskId)
+          // Calculate new active tab if needed
+          let newActiveTabId = node.activeTabId
+          if (node.activeTabId === taskId) {
+            newActiveTabId = newTabs.length > 0 ? newTabs[0].id : null
+          }
+          return { ...node, tabs: newTabs, activeTabId: newActiveTabId }
+        }
+        // For split nodes, recurse into children
+        return {
+          ...node,
+          children: node.children?.map(removeTaskFromNode),
+        }
+      }
+
+      return removeTaskFromNode(prev)
+    })
+  }, [])
+
   // Handle task created - add it to the specified panel
   const handleTaskCreated = useCallback((panelId: string, task: TypesSpecTask) => {
     if (!task.id) return
@@ -2088,6 +2119,7 @@ const TabsView: React.FC<TabsViewProps> = ({
           onDropTab={handleDropTab}
           onClosePanel={handleClosePanel}
           onOpenReview={handleOpenReview}
+          onTaskArchived={handleTaskArchived}
           onTouchDragStart={handleTouchDragStart}
           onTouchDragEnd={handleTouchDragEnd}
           panelCount={totalPanelCount}
