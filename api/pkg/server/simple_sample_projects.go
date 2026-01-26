@@ -1325,15 +1325,19 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				OrganizationID:    createdProject.OrganizationID,
 				ProjectID:         createdProject.ID,
 				RepoType:          types.GitRepositoryTypeCode,
-				Status:            types.GitRepositoryStatusActive,
+				Status:            types.GitRepositoryStatusCloning, // Start in cloning status
 				IsExternal:        true,
 				ExternalURL:       externalURL,
 				ExternalType:      types.ExternalRepositoryTypeGitHub,
 				CloneURL:          cloneURL,
 				DefaultBranch:     defaultBranch,
-				Metadata:          map[string]interface{}{"sample_project": sampleProject.ID, "is_forked": isForked},
+				Metadata:          map[string]interface{}{"sample_project": sampleProject.ID, "is_forked": isForked, "startup_script": startupScript},
 				OAuthConnectionID: req.GitHubConnectionID,
 				KoditIndexing:     true,
+				CloneProgress: &types.CloneProgress{
+					Phase:     "pending",
+					StartedAt: time.Now(),
+				},
 			}
 
 			log.Info().
@@ -1342,7 +1346,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Str("external_url", externalURL).
 				Bool("is_primary", reqRepo.IsPrimary).
 				Bool("is_forked", isForked).
-				Msg("Creating external GitHub repository entry")
+				Msg("Creating external GitHub repository entry with async cloning")
 
 			if createErr := s.Store.CreateGitRepository(ctx, gitRepo); createErr != nil {
 				log.Error().Err(createErr).Str("repo_id", repoID).Msg("Failed to create external git repository entry")
@@ -1365,11 +1369,11 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				GitHubURL:   externalURL,
 				IsForked:    isForked,
 				IsPrimary:   reqRepo.IsPrimary,
-				CloneStatus: "pending", // Will be cloned on first access
+				CloneStatus: "cloning", // Clone in progress
 			})
 
-			// Trigger async clone (the git repository service will handle this on first access)
-			// For now, we mark status as pending and let the clone happen when repo is accessed
+			// Start async clone - this will update status to active when done
+			s.gitRepositoryService.CloneRepositoryAsync(gitRepo)
 		}
 
 		// Set primary repo

@@ -363,6 +363,108 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	return gitRepo, nil
 }
 
+// CloneRepositoryAsync starts an async clone for an external repository that's already in the database.
+// The repository should have Status=cloning when this is called.
+// On success, updates status to active. On failure, updates status to error with CloneError.
+func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository) {
+	if gitRepo.ExternalURL == "" {
+		log.Error().Str("repo_id", gitRepo.ID).Msg("CloneRepositoryAsync called for non-external repo")
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+
+		// Update progress to show we're starting
+		gitRepo.CloneProgress = &types.CloneProgress{
+			Phase:     "starting",
+			StartedAt: time.Now(),
+		}
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update clone progress")
+		}
+
+		// Determine repo path
+		repoPath := gitRepo.LocalPath
+		if repoPath == "" {
+			repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Str("repo_path", repoPath).
+			Msg("Starting async clone")
+
+		// Clone with mirror mode to get all branches
+		cloneOptions := &git.CloneOptions{
+			URL:      gitRepo.ExternalURL,
+			Progress: os.Stdout, // TODO: Replace with progress writer for real-time updates
+			Bare:     true,
+			Mirror:   true, // Clone ALL branches, tags, and refs
+		}
+		cloneOptions.Auth = s.GetAuthConfigWithContext(ctx, gitRepo)
+
+		repo, err := git.PlainClone(repoPath, cloneOptions)
+		if err != nil {
+			// Clone failed - update status to error
+			gitRepo.Status = types.GitRepositoryStatusError
+			gitRepo.CloneError = err.Error()
+			gitRepo.CloneProgress = nil
+			if updateErr := s.store.UpdateGitRepository(ctx, gitRepo); updateErr != nil {
+				log.Error().Err(updateErr).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to error")
+			}
+			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Async clone failed")
+			return
+		}
+
+		// Detect default branch from HEAD
+		headRef, err := repo.Head()
+		if err == nil && headRef.Name().IsBranch() {
+			gitRepo.DefaultBranch = headRef.Name().Short()
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Detected default branch from external repository")
+		}
+
+		// Populate branches list
+		refs, err := repo.References()
+		if err == nil {
+			var branches []string
+			refs.ForEach(func(ref *plumbing.Reference) error {
+				if ref.Name().IsBranch() {
+					branches = append(branches, ref.Name().Short())
+				}
+				return nil
+			})
+			gitRepo.Branches = branches
+		}
+
+		// Update status to active, set local path, clear progress
+		gitRepo.Status = types.GitRepositoryStatusActive
+		gitRepo.LocalPath = repoPath
+		gitRepo.CloneProgress = nil
+		gitRepo.CloneError = ""
+		gitRepo.UpdatedAt = time.Now()
+
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to active after clone")
+			return
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Async clone completed successfully")
+
+		// Register with Kodit if enabled (non-blocking)
+		// Note: This requires an API key which we don't have in the async context
+		// Kodit registration will happen when user accesses the repo
+	}()
+}
+
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)

@@ -13,7 +13,10 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** push to main — use feature branches, ask user to merge
 - **NEVER** amend commits on main — create new commits instead
 - **NEVER** delete source files — fix errors, don't delete
+- **NEVER** `rm -rf *` or `rm -rf .*` in a git repo — destroys .git directory, .env files, worktrees, everything unrecoverable
+- **NEVER** use `git checkout --orphan` and then clear files — orphan branches inherit the working tree; use a separate temp directory instead
 - **Before switching branches**: run `git status`, note changes, use `git stash push -m "description"`, restore with `git stash apply`
+- **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
 ### Commit Practices
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
