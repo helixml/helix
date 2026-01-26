@@ -190,8 +190,19 @@ export function useGetAnthropicCredentials() {
   return useQuery({
     queryKey: anthropicCredentialsQueryKey(),
     queryFn: async () => {
-      const response = await api.get<AnthropicCredentialsResponse>('/api/v1/users/me/anthropic-credentials')
-      return response
+      try {
+        const response = await api.get<AnthropicCredentialsResponse>('/api/v1/users/me/anthropic-credentials')
+        return response
+      } catch (error: unknown) {
+        // Return null if endpoint not implemented (404) - treat as no credentials set
+        if (error && typeof error === 'object' && 'response' in error) {
+          const axiosError = error as { response?: { status?: number } }
+          if (axiosError.response?.status === 404) {
+            return { has_credentials: false, masked_key: '' } as AnthropicCredentialsResponse
+          }
+        }
+        throw error
+      }
     },
   })
 }
