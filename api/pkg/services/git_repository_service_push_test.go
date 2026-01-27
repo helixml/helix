@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -43,10 +42,6 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 	if suite.adoToken == "" || suite.adoRepo == "" {
 		suite.T().Skip("CI_ADO_TOKEN and CI_ADO_REPO environment variables are required")
 	}
-
-	// Log URL format for debugging (base64 encoded to bypass CI masking)
-	suite.T().Logf("CI_ADO_REPO starts with https://: %v", strings.HasPrefix(suite.adoRepo, "https://"))
-	suite.T().Logf("CI_ADO_REPO (base64): %s", base64.StdEncoding.EncodeToString([]byte(suite.adoRepo)))
 
 	ctx := context.Background()
 	repoID := "test-repo-push"
