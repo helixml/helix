@@ -300,6 +300,19 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		s.auditLogService.LogTaskApproved(ctx, existingTask, user.ID, user.Email)
 	}
 
+	// Process approval immediately in goroutine (don't wait for orchestrator polling)
+	// This sends the implementation instruction to the agent right away
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), existingTask); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", taskID).
+				Msg("Failed to process spec approval (orchestrator will retry)")
+		}
+	}()
+
 	log.Info().
 		Str("task_id", taskID).
 		Str("user_id", user.ID).
