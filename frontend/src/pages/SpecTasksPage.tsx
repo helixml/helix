@@ -272,10 +272,10 @@ const SpecTasksPage: FC = () => {
     return defaultRepo?.default_branch || 'main';
   }, [projectRepositories, defaultRepoId]);
 
-  // Check if the default repo is an external repo (e.g., Azure DevOps)
+  // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
   const hasExternalRepo = useMemo(() => {
     const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId);
-    return !!(defaultRepo?.azure_devops || defaultRepo?.external_type);
+    return !!(defaultRepo?.is_external || defaultRepo?.azure_devops || defaultRepo?.external_type);
   }, [projectRepositories, defaultRepoId]);
 
   // Set baseBranch to default when dialog opens

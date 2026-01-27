@@ -1013,7 +1013,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onStartPlanning={handleStartPlanning}
                     onReviewSpec={handleReviewSpec}
                     onReject={handleArchiveClick}
-                    hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                    hasExternalRepo={projectRepositories.some(r => r.is_external || r.external_type || r.external_url)}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -1257,7 +1257,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onStartPlanning={handleStartPlanning}
                 onReviewSpec={handleReviewSpec}
                 onReject={handleArchiveClick}
-                hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                hasExternalRepo={projectRepositories.some(r => r.is_external || r.external_type || r.external_url)}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
