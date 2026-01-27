@@ -191,3 +191,125 @@ Implement boundary-based updates:
 4. Remove sends from pure streaming token updates
 
 This is a minimal change to `thread_view.rs` that should fix the O(n²) problem.
+
+---
+
+## Helix-Side Optimization: Full Session Broadcasts
+
+### The Problem
+
+Even after fixing the Zed side, there's a second O(n²) issue on the Helix side:
+
+**Current flow in `websocket_external_agent_sync.go`:**
+```go
+// handleMessageAdded() - called on every message_added from Zed
+func handleMessageAdded(...) {
+    // ... update interaction in DB ...
+    
+    // Reload ENTIRE session with ALL interactions
+    allInteractions, _ := store.ListInteractions(...)
+    reloadedSession.Interactions = allInteractions
+    
+    // Broadcast ENTIRE session to frontend
+    publishSessionUpdateToFrontend(reloadedSession, ...)
+}
+```
+
+**What gets sent via WebSocket:**
+```go
+type WebsocketEvent struct {
+    Type      string   `json:"type"`       // "session_update"
+    SessionID string   `json:"session_id"`
+    Session   *Session `json:"session"`    // Contains ALL interactions!
+}
+
+type Session struct {
+    // ...
+    Interactions []*Interaction `json:"interactions"`  // O(n) data
+}
+```
+
+**Frontend receives:**
+- Full session JSON with all interactions (could be 100+ for long conversations)
+- React Query cache is updated: `queryClient.setQueryData(GET_SESSION_QUERY_KEY(sessionId), { data: parsedData.session })`
+- This triggers re-render of components watching this query
+
+### Why This Is Expensive
+
+For a session with N interactions:
+1. Backend: Load N interactions from DB on every update
+2. Backend: Serialize N interactions to JSON
+3. Network: Send N interactions over WebSocket
+4. Frontend: Parse N interactions from JSON
+5. Frontend: Update React Query cache with N interactions
+6. Frontend: Re-render any components watching session data
+
+Even if we reduce Zed→Helix updates to boundaries only, each boundary update still sends the full session.
+
+### Proposed Fix: Interaction-Only Updates
+
+Add a new WebSocket event type that sends only the updated interaction:
+
+```go
+// New event type
+type WebsocketEvent struct {
+    Type               string       `json:"type"`
+    SessionID          string       `json:"session_id"`
+    InteractionID      string       `json:"interaction_id"`
+    Session            *Session     `json:"session,omitempty"`      // Full session (for initial load, reconnect)
+    Interaction        *Interaction `json:"interaction,omitempty"` // Single interaction (for updates)
+}
+```
+
+**Backend change:**
+```go
+func handleMessageAdded(...) {
+    // ... update interaction in DB ...
+    
+    // Send ONLY the updated interaction, not full session
+    event := &WebsocketEvent{
+        Type:          "interaction_update",  // New type
+        SessionID:     helixSessionID,
+        InteractionID: targetInteraction.ID,
+        Interaction:   targetInteraction,     // Just this one
+    }
+    publishToFrontend(event)
+}
+```
+
+**Frontend change (streaming.tsx):**
+```typescript
+if (parsedData.type === "interaction_update" && parsedData.interaction) {
+    // Update only the specific interaction in cache
+    queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        (old: { data?: TypesSession }) => {
+            if (!old?.data) return old;
+            const interactions = [...(old.data.interactions || [])];
+            const idx = interactions.findIndex(i => i.id === parsedData.interaction.id);
+            if (idx >= 0) {
+                interactions[idx] = parsedData.interaction;
+            }
+            return { data: { ...old.data, interactions } };
+        }
+    );
+}
+```
+
+### Performance Comparison (Helix Side)
+
+For a session with 50 interactions, updating the last one:
+
+| Metric | Current (full session) | Proposed (interaction only) |
+|--------|------------------------|----------------------------|
+| DB queries | Load 50 interactions | Load 1 interaction |
+| JSON size | ~50KB | ~1KB |
+| React re-renders | Full session tree | Single interaction |
+
+### Implementation Order
+
+1. **Phase 1 (Zed side)**: Boundary-based updates - biggest impact, simplest change
+2. **Phase 2 (Helix backend)**: Add `interaction_update` event type
+3. **Phase 3 (Helix frontend)**: Handle `interaction_update` with surgical cache update
+
+Phase 1 alone should make the UI usable. Phases 2-3 are further optimizations.
