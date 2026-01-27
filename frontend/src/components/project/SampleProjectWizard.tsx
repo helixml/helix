@@ -257,6 +257,26 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`
   }
 
+  // Calculate overall clone progress based on phase
+  // go-git outputs phases: enumerating → counting → compressing → receiving (Total line)
+  const getOverallProgress = (phase: string, phasePercentage: number): number => {
+    const phaseLower = phase.toLowerCase()
+    // Map phases to progress ranges
+    if (phaseLower.includes('enumerating')) {
+      return 10 + (phasePercentage * 0.15) // 10-25%
+    } else if (phaseLower.includes('counting')) {
+      return 25 + (phasePercentage * 0.25) // 25-50%
+    } else if (phaseLower.includes('compressing')) {
+      return 50 + (phasePercentage * 0.25) // 50-75%
+    } else if (phaseLower.includes('receiving')) {
+      return 75 + (phasePercentage * 0.20) // 75-95%
+    } else if (phaseLower.includes('resolving')) {
+      return 95 + (phasePercentage * 0.05) // 95-100%
+    }
+    // Default: use the phase percentage directly
+    return phasePercentage
+  }
+
   // Render GitHub connection step
   const renderGitHubCheckStep = () => (
     <Box sx={{ py: 2 }}>
@@ -503,13 +523,13 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
                 <Box>
                   <LinearProgress
                     variant="determinate"
-                    value={repo.clone_progress.percentage || 0}
+                    value={getOverallProgress(repo.clone_progress.phase || '', repo.clone_progress.percentage || 0)}
                     sx={{ height: 8, borderRadius: 4, mb: 0.5 }}
                   />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="caption" color="text.secondary">
-                      {repo.clone_progress.phase}: {repo.clone_progress.percentage}%
-                      ({repo.clone_progress.current}/{repo.clone_progress.total} objects)
+                      {repo.clone_progress.phase}
+                      {repo.clone_progress.total > 0 && ` (${repo.clone_progress.current}/${repo.clone_progress.total} objects)`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {repo.clone_progress.bytes_received && repo.clone_progress.bytes_received > 0 &&
