@@ -1,4 +1,4 @@
-Your implementation was approved, but your branch cannot be automatically merged because {{ .DefaultBranch }} has diverged.
+Your branch cannot be automatically merged because {{ .DefaultBranch }} has diverged.
 
 Please update your branch to include the latest changes from {{ .DefaultBranch }}:
 
@@ -13,4 +13,4 @@ Please update your branch to include the latest changes from {{ .DefaultBranch }
 3. Push your updated branch:
    git push origin {{ .BranchName }}
 
-Once your branch is up to date with {{ .DefaultBranch }}, the merge will be completed automatically.
+After you complete the rebase and push, please tell the user they need to click "Accept" again to approve the merged code and complete the task.
