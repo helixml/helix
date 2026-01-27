@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,16 +185,30 @@ func (s *Server) handleWSTerminal(w http.ResponseWriter, r *http.Request) {
 
 // PromptRequest represents a request to inject a prompt into Claude Code
 type PromptRequest struct {
-	Prompt string `json:"prompt"`
+	Prompt   string `json:"prompt"`
+	Method   string `json:"method,omitempty"`   // "cli" (default, reliable) or "tmux" (for interactive sessions)
+	WorkDir  string `json:"work_dir,omitempty"` // Override working directory
 }
 
-// handleClaudePrompt injects a prompt into the Claude Code tmux session.
-// This enables programmatic control of Claude Code without requiring
-// a WebSocket terminal connection.
+// PromptResponse represents the response from Claude Code
+type PromptResponse struct {
+	Success  bool   `json:"success"`
+	Message  string `json:"message,omitempty"`
+	Response string `json:"response,omitempty"` // Claude's response (only for cli method)
+	Error    string `json:"error,omitempty"`
+}
+
+// handleClaudePrompt sends a prompt to Claude Code.
+// Supports two methods:
+// - "cli" (default): Uses `claude --print --continue` for reliable prompt injection
+// - "tmux": Uses tmux send-keys for interactive terminal sessions
+//
+// The CLI method is more reliable as it doesn't depend on terminal state,
+// but requires Claude Code to be installed and configured with API access.
 //
 // Protocol:
-// - POST with JSON body: {"prompt": "your prompt text"}
-// - Returns 200 on success, error status on failure
+// - POST with JSON body: {"prompt": "your prompt text", "method": "cli"}
+// - Returns 200 with response on success, error status on failure
 func (s *Server) handleClaudePrompt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -211,30 +226,102 @@ func (s *Server) handleClaudePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get tmux session name
-	tmuxSession := os.Getenv("HELIX_TMUX_SESSION")
-	if tmuxSession == "" {
-		tmuxSession = "claude-helix"
+	// Default to CLI method (more reliable)
+	method := req.Method
+	if method == "" {
+		method = "cli"
 	}
 
-	// Use tmux send-keys to inject the prompt
-	// We send literal text followed by Enter to submit
-	cmd := exec.Command("tmux", "send-keys", "-t", tmuxSession, req.Prompt, "Enter")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		s.logger.Error("failed to send prompt to tmux", "error", err, "output", string(output))
-		http.Error(w, "Failed to send prompt: "+err.Error(), http.StatusInternalServerError)
+	// Get working directory
+	workDir := req.WorkDir
+	if workDir == "" {
+		workDir = os.Getenv("WORKSPACE_DIR")
+		if workDir == "" {
+			workDir = os.Getenv("HOME") + "/work"
+		}
+	}
+
+	var resp PromptResponse
+
+	switch method {
+	case "cli":
+		// Use claude --print --continue for reliable prompt injection
+		// This continues the existing session without terminal interaction
+		cmd := exec.Command("claude", "--print", "--continue", req.Prompt)
+		cmd.Dir = workDir
+
+		// Inherit environment (includes ANTHROPIC_API_KEY, etc.)
+		cmd.Env = os.Environ()
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			s.logger.Error("claude cli failed", "error", err, "output", string(output))
+			resp = PromptResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Claude CLI error: %v", err),
+				Message: string(output),
+			}
+		} else {
+			s.logger.Info("prompt sent via claude cli", "prompt_length", len(req.Prompt), "response_length", len(output))
+			resp = PromptResponse{
+				Success:  true,
+				Message:  "Prompt processed by Claude Code",
+				Response: string(output),
+			}
+		}
+
+	case "tmux":
+		// Fallback: use tmux send-keys for interactive sessions
+		// Less reliable when Claude is busy, but works with the terminal view
+		tmuxSession := os.Getenv("HELIX_TMUX_SESSION")
+		if tmuxSession == "" {
+			tmuxSession = "claude-helix"
+		}
+
+		// Use tmux load-buffer + paste-buffer for more reliable pasting
+		// This is more atomic than send-keys for multi-line input
+		loadCmd := exec.Command("tmux", "load-buffer", "-")
+		loadCmd.Stdin = strings.NewReader(req.Prompt)
+		if err := loadCmd.Run(); err != nil {
+			s.logger.Error("failed to load tmux buffer", "error", err)
+			resp = PromptResponse{Success: false, Error: "Failed to load tmux buffer: " + err.Error()}
+			break
+		}
+
+		// Paste the buffer
+		pasteCmd := exec.Command("tmux", "paste-buffer", "-t", tmuxSession)
+		if err := pasteCmd.Run(); err != nil {
+			s.logger.Error("failed to paste to tmux", "error", err)
+			resp = PromptResponse{Success: false, Error: "Failed to paste to tmux: " + err.Error()}
+			break
+		}
+
+		// Send Enter to submit
+		enterCmd := exec.Command("tmux", "send-keys", "-t", tmuxSession, "Enter")
+		if err := enterCmd.Run(); err != nil {
+			s.logger.Error("failed to send Enter to tmux", "error", err)
+			resp = PromptResponse{Success: false, Error: "Failed to send Enter: " + err.Error()}
+			break
+		}
+
+		s.logger.Info("prompt injected via tmux", "prompt_length", len(req.Prompt))
+		resp = PromptResponse{
+			Success: true,
+			Message: "Prompt sent to Claude Code terminal",
+		}
+
+	default:
+		http.Error(w, "Invalid method: "+method, http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Info("prompt injected into Claude Code", "prompt_length", len(req.Prompt))
-
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Prompt sent to Claude Code",
-	})
+	if resp.Success {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleClaudeInteractions streams Claude Code interactions via Server-Sent Events.
