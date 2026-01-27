@@ -154,25 +154,49 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 - "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
-## Update Design Docs As You Go (IMPORTANT)
+## Update Design Docs As You Go (CRITICAL)
 
-**Your plan is a living document.** When you discover something new or make a decision:
-- **Modify requirements.md** if requirements need clarification or discovered constraints
-- **Modify design.md** with what you learned, decisions made, or approaches that didn't work
-- **Modify tasks.md** to add new tasks, remove unnecessary ones, or adjust the plan
-- Push to helix-specs so the record is saved
+**Your design docs will be used to clone this task to similar projects.** Future agents will
+read your notes to skip the discovery process. Write down everything you learn!
 
-Example modifications:
+**What to capture in design.md:**
+
+1. **User-specified values** - Any explicit choices made
+   - "User specified primary color: #3B82F6"
+   - "User confirmed: use PostgreSQL, not SQLite"
+
+2. **Implementation approach** - How you solved it
+   - Which files you modified and why
+   - The pattern/architecture you used
+   - The order of changes that worked
+
+3. **Discovery learnings** - What you figured out
+   - "Tried X, but Y worked better because..."
+   - "This codebase uses pattern Z, so we adapted by..."
+   - "Watch out for edge case: ..."
+
+4. **Gotchas and blockers** - Problems and solutions
+   - "Blocker: config parser doesn't support X, used workaround Y"
+   - "Note: must restart service after changing Z"
+
+**Also update:**
+- **requirements.md** - Clarifications or discovered constraints
+- **tasks.md** - Add new tasks, remove unnecessary ones, reorder as needed
+
+Push to helix-specs after every update so the record is saved.
+
+Example addition to design.md:
 ` + "```markdown" + `
-## Implementation Notes (add to design.md)
+## Implementation Notes
 
-- Found existing utility X, reusing instead of building new
-- Chose approach A over B because [reason]
-- Blocker: Y didn't work, used Z instead
-- Added new task: need to also update the config parser
+- Found existing utility AuthHelper, reusing instead of building new
+- User specified: JWT expiry = 24 hours
+- Chose middleware approach over decorator because this codebase uses Express patterns
+- Gotcha: the config loader caches values, must call config.reload() after changes
+- Added task: also need to update the logout endpoint to invalidate tokens
 ` + "```" + `
 
-Don't treat the original plan as fixed - update it based on what you learn during implementation.
+Don't treat the original plan as fixed - update it based on what you learn.
 
 ---
 
