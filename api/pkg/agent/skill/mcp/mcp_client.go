@@ -43,10 +43,10 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 	maps.Copy(headers, cfg.Headers)
 
 	if cfg.OAuthProvider != "" && headers["Authorization"] == "" {
-		// Get the token
-		token, err := oauthManager.GetTokenForApp(ctx, meta.UserID, cfg.OAuthProvider)
+		// Get the token with required scopes
+		token, err := oauthManager.GetTokenForTool(ctx, meta.UserID, cfg.OAuthProvider, cfg.OAuthScopes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get token for app: %w", err)
+			return nil, fmt.Errorf("failed to get token for MCP server: %w", err)
 		}
 		// Set bearer token
 		headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
