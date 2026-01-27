@@ -365,6 +365,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.ContainerID = resp.ContainerID
 		dbSession.Metadata.ContainerIP = resp.IPAddress
 		dbSession.Metadata.ExecutorMode = "hydra"
+		// CRITICAL: Set DevContainerID - used by exploratory session to check if container is running
+		dbSession.Metadata.DevContainerID = resp.ContainerID
 
 		// Store debug info in Metadata (serialized as "config" in JSON for frontend)
 		dbSession.Metadata.SwayVersion = resp.DesktopVersion
@@ -380,13 +382,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	return &types.DesktopAgentResponse{
-		SessionID:     agent.SessionID,
-		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
-		Status:        "running",
-		ContainerName: resp.ContainerName,
-		ContainerIP:   resp.IPAddress,
-		SandboxID:     sandboxID,
+		SessionID:      agent.SessionID,
+		ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+		StreamURL:      fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
+		Status:         "running",
+		ContainerName:  resp.ContainerName,
+		ContainerIP:    resp.IPAddress,
+		SandboxID:      sandboxID,
+		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
 }
 

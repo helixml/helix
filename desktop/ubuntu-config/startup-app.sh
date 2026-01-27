@@ -247,7 +247,11 @@ if [ -x /zed-build/zed ]; then
     # Wait for wayland-0 socket instead of pgrep - more reliable
     for i in \$(seq 1 60); do
       if [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-        gow_log "[start] wayland-0 socket ready, launching Zed..."
+        # Socket exists, but gnome-shell needs time to fully initialize
+        # The socket is created early in mutter startup, before it's ready to accept connections
+        gow_log "[start] wayland-0 socket detected, waiting for gnome-shell to initialize..."
+        sleep 2
+        gow_log "[start] Launching Zed and setup terminal..."
         break
       fi
       if [ \$((i % 10)) -eq 0 ]; then

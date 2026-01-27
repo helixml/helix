@@ -563,7 +563,13 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	dm.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
+		// Container not in our map - treat as already deleted (idempotent)
+		// This can happen if Hydra restarted or container was already cleaned up
+		log.Info().Str("session_id", sessionID).Msg("Dev container not found in map, treating as already deleted")
+		return &DevContainerResponse{
+			SessionID: sessionID,
+			Status:    DevContainerStatusStopped,
+		}, nil
 	}
 
 	log.Info().

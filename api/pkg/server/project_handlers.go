@@ -1027,134 +1027,144 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	existingSession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
 	if err == nil && existingSession != nil {
 		// Session exists - check if sandbox container is still running
-		// If container stopped, restart it with fresh startup script
+		// If container stopped or never started, restart it with fresh startup script
 		containerID := existingSession.Metadata.DevContainerID
 		sandboxID := existingSession.SandboxID
+
+		// Determine if container needs restart:
+		// - No container ID means container was never started or was cleared
+		// - If we have container ID, check if it still exists
+		needsRestart := containerID == ""
 		if containerID != "" && sandboxID != "" {
-			// Check if container exists
 			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), containerID, sandboxID)
 			if checkErr != nil {
-				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status")
+				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status, assuming restart needed")
+				needsRestart = true
+			} else if !containerExists {
+				needsRestart = true
+			}
+		} else if containerID == "" && sandboxID != "" {
+			// Container ID is empty but sandbox exists - need restart
+			needsRestart = true
+		}
+
+		if needsRestart {
+			// Container stopped or never started - restart it
+			log.Info().
+				Str("session_id", existingSession.ID).
+				Str("project_id", projectID).
+				Str("container_id", containerID).
+				Msg("Exploratory session exists but container stopped - restarting with fresh startup script")
+
+			// Get project repositories for restarting
+			projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+				ProjectID: projectID,
+			})
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
+				projectRepos = nil
 			}
 
-			if !containerExists {
-				// Container stopped - restart it
-				log.Info().
-					Str("session_id", existingSession.ID).
-					Str("project_id", projectID).
-					Str("container_id", containerID).
-					Msg("Exploratory session exists but container stopped - restarting with fresh startup script")
-
-				// Get project repositories for restarting
-				projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
-					ProjectID: projectID,
-				})
-				if err != nil {
-					log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
-					projectRepos = nil
+			// Build repository IDs
+			repositoryIDs := []string{}
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					repositoryIDs = append(repositoryIDs, repo.ID)
 				}
-
-				// Build repository IDs
-				repositoryIDs := []string{}
-				for _, repo := range projectRepos {
-					if repo.ID != "" {
-						repositoryIDs = append(repositoryIDs, repo.ID)
-					}
-				}
-
-				// Determine primary repository
-				primaryRepoID := project.DefaultRepoID
-				if primaryRepoID == "" && len(projectRepos) > 0 {
-					primaryRepoID = projectRepos[0].ID
-				}
-
-				// Get display settings from project's default agent app
-				displayWidth := 1920
-				displayHeight := 1080
-				displayRefreshRate := 60
-				resolution := ""
-				zoomLevel := 0
-				desktopType := ""
-				if project.DefaultHelixAppID != "" {
-					app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
-					if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
-						w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
-						displayWidth = w
-						displayHeight = h
-						if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
-							displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
-						}
-						// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
-						resolution = app.Config.Helix.ExternalAgentConfig.Resolution
-						zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
-						desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-						log.Debug().
-							Str("project_id", projectID).
-							Str("app_id", project.DefaultHelixAppID).
-							Int("display_width", displayWidth).
-							Int("display_height", displayHeight).
-							Int("display_refresh_rate", displayRefreshRate).
-							Str("resolution", resolution).
-							Int("zoom_level", zoomLevel).
-							Str("desktop_type", desktopType).
-							Msg("Using display settings from project's default agent for exploratory restart")
-					}
-				}
-
-				// Ensure desktopType has a sensible default (ubuntu) when not set by app config
-				// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
-				if desktopType == "" {
-					desktopType = "ubuntu"
-				}
-
-				// Restart Zed agent with existing session
-				zedAgent := &types.DesktopAgent{
-					SessionID: existingSession.ID,
-					UserID:    user.ID,
-					Input:               fmt.Sprintf("Explore the %s project", project.Name),
-					ProjectPath:         "workspace",
-					SpecTaskID:          "",
-					ProjectID:           projectID,
-					PrimaryRepositoryID: primaryRepoID,
-					RepositoryIDs:       repositoryIDs,
-					DisplayWidth:        displayWidth,
-					DisplayHeight:       displayHeight,
-					DisplayRefreshRate:  displayRefreshRate,
-					Resolution:          resolution,
-					ZoomLevel:           zoomLevel,
-					DesktopType:         desktopType,
-				}
-
-				// Add user's API token for git operations
-				if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-					log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
-					return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
-				}
-
-				agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("session_id", existingSession.ID).
-						Msg("Failed to restart exploratory session")
-					return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
-				}
-
-				log.Info().
-					Str("session_id", existingSession.ID).
-					Str("lobby_id", agentResp.DevContainerID).
-					Msg("Exploratory session lobby restarted successfully")
-
-				// Reload session from database to get updated lobby ID/PIN
-				// StartDesktop updates session metadata in DB, so we need fresh data
-				updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
-				if err != nil {
-					log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
-					return existingSession, nil // Return stale session rather than failing
-				}
-
-				return updatedSession, nil
 			}
+
+			// Determine primary repository
+			primaryRepoID := project.DefaultRepoID
+			if primaryRepoID == "" && len(projectRepos) > 0 {
+				primaryRepoID = projectRepos[0].ID
+			}
+
+			// Get display settings from project's default agent app
+			displayWidth := 1920
+			displayHeight := 1080
+			displayRefreshRate := 60
+			resolution := ""
+			zoomLevel := 0
+			desktopType := ""
+			if project.DefaultHelixAppID != "" {
+				app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+				if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+					w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+					displayWidth = w
+					displayHeight = h
+					if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+						displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+					}
+					// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+					resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+					zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+					desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+					log.Debug().
+						Str("project_id", projectID).
+						Str("app_id", project.DefaultHelixAppID).
+						Int("display_width", displayWidth).
+						Int("display_height", displayHeight).
+						Int("display_refresh_rate", displayRefreshRate).
+						Str("resolution", resolution).
+						Int("zoom_level", zoomLevel).
+						Str("desktop_type", desktopType).
+						Msg("Using display settings from project's default agent for exploratory restart")
+				}
+			}
+
+			// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+			// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+			if desktopType == "" {
+				desktopType = "ubuntu"
+			}
+
+			// Restart Zed agent with existing session
+			zedAgent := &types.DesktopAgent{
+				SessionID:           existingSession.ID,
+				UserID:              user.ID,
+				Input:               fmt.Sprintf("Explore the %s project", project.Name),
+				ProjectPath:         "workspace",
+				SpecTaskID:          "",
+				ProjectID:           projectID,
+				PrimaryRepositoryID: primaryRepoID,
+				RepositoryIDs:       repositoryIDs,
+				DisplayWidth:        displayWidth,
+				DisplayHeight:       displayHeight,
+				DisplayRefreshRate:  displayRefreshRate,
+				Resolution:          resolution,
+				ZoomLevel:           zoomLevel,
+				DesktopType:         desktopType,
+			}
+
+			// Add user's API token for git operations
+			if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
+				log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+			}
+
+			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", existingSession.ID).
+					Msg("Failed to restart exploratory session")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
+			}
+
+			log.Info().
+				Str("session_id", existingSession.ID).
+				Str("lobby_id", agentResp.DevContainerID).
+				Msg("Exploratory session lobby restarted successfully")
+
+			// Reload session from database to get updated lobby ID/PIN
+			// StartDesktop updates session metadata in DB, so we need fresh data
+			updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
+			if err != nil {
+				log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
+				return existingSession, nil // Return stale session rather than failing
+			}
+
+			return updatedSession, nil
 		}
 
 		// Session exists and lobby is running - return as-is
