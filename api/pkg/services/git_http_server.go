@@ -324,12 +324,26 @@ func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 	service := r.URL.Query().Get("service")
+	user := s.getUser(r)
 
-	log.Info().Str("repo_id", repoID).Str("service", service).Msg("Handling info/refs request")
+	log.Info().Str("repo_id", repoID).Str("service", service).Str("user_id", user.ID).Msg("Handling info/refs request")
 
 	if service != "git-upload-pack" && service != "git-receive-pack" {
 		http.Error(w, "Invalid service", http.StatusBadRequest)
 		return
+	}
+
+	// Check access based on service type
+	if service == "git-upload-pack" {
+		if !s.enablePull || !s.hasReadAccess(r.Context(), user, repoID) {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	} else if service == "git-receive-pack" {
+		if !s.enablePush || !s.hasWriteAccess(r.Context(), user, repoID) {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
 	}
 
 	repoPath, _, err := s.getRepoPath(r.Context(), repoID)
@@ -744,30 +758,58 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 
 func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, repoID string) bool {
 	if s.authorizeFn == nil {
+		log.Debug().Str("repo_id", repoID).Msg("hasReadAccess: no authorizeFn, allowing access")
 		return true
 	}
 	// Use proper authorization check
 	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
 	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("hasReadAccess: failed to get repository")
 		return false
 	}
-	// Use ActionGet for read access on projects
-	err = s.authorizeFn(ctx, user, "", repo.ProjectID, types.ResourceProject, types.ActionGet)
-	return err == nil
+
+	// Repository owner can always read the repository
+	if user.ID == repo.OwnerID {
+		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
+		return true
+	}
+
+	// Use ActionGet for read access on projects (requires org membership)
+	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionGet)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasReadAccess: authorization failed")
+		return false
+	}
+	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasReadAccess: authorized")
+	return true
 }
 
 func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, repoID string) bool {
 	if s.authorizeFn == nil {
+		log.Debug().Str("repo_id", repoID).Msg("hasWriteAccess: no authorizeFn, allowing access")
 		return true
 	}
 	// Use proper authorization check
 	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
 	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("hasWriteAccess: failed to get repository")
 		return false
 	}
-	// Use ActionUpdate for write access on projects
-	err = s.authorizeFn(ctx, user, "", repo.ProjectID, types.ResourceProject, types.ActionUpdate)
-	return err == nil
+
+	// Repository owner can always write to the repository
+	if user.ID == repo.OwnerID {
+		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
+		return true
+	}
+
+	// Use ActionUpdate for write access on projects (requires org membership)
+	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionUpdate)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasWriteAccess: authorization failed")
+		return false
+	}
+	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasWriteAccess: authorized")
+	return true
 }
 
 func (s *GitHTTPServer) getUser(r *http.Request) *types.User {
