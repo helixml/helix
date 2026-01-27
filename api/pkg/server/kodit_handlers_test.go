@@ -90,6 +90,11 @@ func (f *fakeGitRepositoryStore) GetGitRepository(_ context.Context, _ string) (
 	return f.repository, f.err
 }
 
+func (f *fakeGitRepositoryStore) UpdateGitRepository(_ context.Context, repo *types.GitRepository) error {
+	f.repository = repo
+	return nil
+}
+
 // =============================================================================
 // Fake Kodit Handler
 // =============================================================================
