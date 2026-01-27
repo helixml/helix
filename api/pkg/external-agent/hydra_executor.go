@@ -855,11 +855,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 			// 1. User's own ANTHROPIC_API_KEY (BYOK) - passed via agent.Env
 			// 2. User's Claude subscription OAuth token - passed via agent.Env
 			// 3. Helix proxy mode - use session-scoped token through Helix's Anthropic proxy
-
-			// Pass Claude session ID for resume if available
-			if agent.ClaudeSessionID != "" {
-				env = append(env, fmt.Sprintf("HELIX_CLAUDE_SESSION_ID=%s", agent.ClaudeSessionID))
-			}
+			// Session resume is automatic via --continue flag (checks for existing JSONL files)
 		}
 	}
 

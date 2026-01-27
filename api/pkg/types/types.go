@@ -1921,9 +1921,6 @@ type DesktopAgent struct {
 	AgentHostType   AgentHostType   `json:"agent_host_type,omitempty"`   // "zed" (default), "vscode", "claude_code", or "headless"
 	RooCodeProtocol RooCodeProtocol `json:"roocode_protocol,omitempty"` // "socketio" (default) or "ipc" (only for vscode)
 
-	// Claude Code settings (only for claude_code agent host type)
-	ClaudeSessionID string `json:"claude_session_id,omitempty"` // Claude's internal session ID for resume
-
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
 	UseHostDocker bool `json:"use_host_docker,omitempty"`

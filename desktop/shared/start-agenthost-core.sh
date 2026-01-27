@@ -396,22 +396,11 @@ start_claude_helix() {
     fi
 
     # =========================================
-    # Step 4: Configure Claude Code session
-    # =========================================
-    # Set up Claude Code to persist sessions in a known location
-    export CLAUDE_CODE_SESSION_DIR="$HOME/.claude/projects"
-
-    # Resume session if we have a previous Claude session ID
-    CLAUDE_RESUME_FLAG=""
-    if [ -n "$HELIX_CLAUDE_SESSION_ID" ]; then
-        echo "Resuming Claude session: $HELIX_CLAUDE_SESSION_ID"
-        CLAUDE_RESUME_FLAG="--resume $HELIX_CLAUDE_SESSION_ID"
-    fi
-
-    # =========================================
-    # Step 5: Launch Claude Code in tmux
+    # Step 4: Launch Claude Code in tmux
     # =========================================
     # Use tmux for session persistence and multi-client attach
+    # Claude Code automatically persists sessions in ~/.claude/projects/[encoded-path]/
+    # Using --continue resumes the most recent session in that directory (or starts fresh if none)
     TMUX_SESSION="claude-helix"
 
     # Kill any existing tmux session
@@ -428,9 +417,16 @@ start_claude_helix() {
     tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 40 -c "$CLAUDE_WORK_DIR"
 
     # Send Claude Code command to tmux
-    if [ -n "$CLAUDE_RESUME_FLAG" ]; then
-        tmux send-keys -t "$TMUX_SESSION" "claude $CLAUDE_RESUME_FLAG" C-m
+    # Check if there's a previous session to continue
+    # Claude stores sessions in ~/.claude/projects/[encoded-path]/*.jsonl
+    ENCODED_PATH=$(echo "$CLAUDE_WORK_DIR" | sed 's|^/||' | tr '/' '-')
+    CLAUDE_PROJECT_DIR="$HOME/.claude/projects/$ENCODED_PATH"
+
+    if ls "$CLAUDE_PROJECT_DIR"/*.jsonl 1>/dev/null 2>&1; then
+        echo "Found previous Claude session, using --continue"
+        tmux send-keys -t "$TMUX_SESSION" "claude --continue" C-m
     else
+        echo "No previous Claude session, starting fresh"
         tmux send-keys -t "$TMUX_SESSION" "claude" C-m
     fi
 
@@ -450,7 +446,8 @@ start_claude_helix() {
             echo "Claude Code tmux session ended, restarting..."
             sleep 2
             tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 40 -c "$CLAUDE_WORK_DIR"
-            tmux send-keys -t "$TMUX_SESSION" "claude" C-m
+            # On restart, always use --continue since we definitely have a session now
+            tmux send-keys -t "$TMUX_SESSION" "claude --continue" C-m
         fi
         sleep 10
     done
