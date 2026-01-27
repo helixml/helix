@@ -483,8 +483,10 @@ echo "========================================="
 if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
     PRIMARY_REPO_DIR="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
     if [ -d "$PRIMARY_REPO_DIR" ]; then
-        ZED_FOLDERS+=("$PRIMARY_REPO_DIR")
-        echo "  Primary: $HELIX_PRIMARY_REPO_NAME"
+        # Resolve symlinks so Zed shows canonical names (e.g., "zed" instead of "zed-1")
+        RESOLVED_DIR="$(readlink -f "$PRIMARY_REPO_DIR")"
+        ZED_FOLDERS+=("$RESOLVED_DIR")
+        echo "  Primary: $(basename "$RESOLVED_DIR")"
     fi
 fi
 
@@ -514,8 +516,10 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
         # Add other code repos
         REPO_DIR="$WORK_DIR/$REPO_NAME"
         if [ -d "$REPO_DIR" ]; then
-            ZED_FOLDERS+=("$REPO_DIR")
-            echo "  Other: $REPO_NAME"
+            # Resolve symlinks so Zed shows canonical names
+            RESOLVED_DIR="$(readlink -f "$REPO_DIR")"
+            ZED_FOLDERS+=("$RESOLVED_DIR")
+            echo "  Other: $(basename "$RESOLVED_DIR")"
         fi
     done
 fi
