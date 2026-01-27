@@ -533,7 +533,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Get branches before push to detect what changed
+	// Get branches before push to detect what changed (for post-push processing)
 	branchesBefore := s.getBranchHashes(repoPath)
 
 	// Set response headers
@@ -558,6 +558,8 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	fw := newFlushingWriter(w)
 
 	// Run git receive-pack with stdin/stdout piped to HTTP
+	// Note: Non-fast-forward pushes are rejected by git's receive.denyNonFastForwards config
+	// which is set on all repos at startup (see EnsureNonFastForwardDenied)
 	err = cmd.Run(r.Context(), &gitcmd.RunOpts{
 		Dir:    repoPath,
 		Env:    environ,
@@ -576,6 +578,9 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	pushedBranches := s.detectChangedBranches(branchesBefore, branchesAfter)
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
+
+	// Note: Non-fast-forward pushes are rejected BEFORE receive-pack runs (see pre-validation above)
+	// This ensures the agent sees a clear error message rather than a silent rollback
 
 	// Check branch restrictions for agent API keys
 	if len(pushedBranches) > 0 {
@@ -1041,7 +1046,9 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	repoID := repo.ID
 
 	// Get task IDs from pushed design docs
-	pushedTaskIDs, dirNamesNeedingLookup, err := s.getTaskIDsFromPushedDesignDocs(ctx, gitRepo)
+	// IMPORTANT: Use the specific commitHash, not the current branch tip, because
+	// with multi-writer helix-specs branch, the tip may have moved since we received the push
+	pushedTaskIDs, dirNamesNeedingLookup, err := s.getTaskIDsFromPushedDesignDocs(ctx, gitRepo, commitHash)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
 		return
@@ -1060,11 +1067,11 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	}
 
 	if len(pushedTaskIDs) == 0 {
-		log.Debug().Str("repo_id", repoID).Msg("No design docs found in push")
+		log.Debug().Str("repo_id", repoID).Str("commit", commitHash).Msg("No design docs found in push")
 		return
 	}
 
-	log.Info().Str("repo_id", repoID).Strs("task_ids", pushedTaskIDs).Msg("Design docs detected in push")
+	log.Info().Str("repo_id", repoID).Str("commit", commitHash).Strs("task_ids", pushedTaskIDs).Msg("Design docs detected in push")
 
 	for _, taskID := range pushedTaskIDs {
 		task, err := s.store.GetSpecTask(ctx, taskID)
@@ -1131,11 +1138,16 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	}
 }
 
-// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs
-func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitRepo *GitRepo) ([]string, []string, error) {
-	files, err := gitRepo.GetChangedFilesInBranch("helix-specs")
+// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs in a specific commit.
+// The commitHash parameter specifies which commit to examine. This is critical for multi-writer
+// scenarios where the branch tip may have moved since the push was received.
+func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitRepo *GitRepo, commitHash string) ([]string, []string, error) {
+	// Use the specific commit hash, not the branch tip
+	// This prevents race conditions when multiple agents push to helix-specs concurrently
+	files, err := gitRepo.GetChangedFilesInCommit(commitHash)
 	if err != nil {
-		return nil, nil, nil // Branch doesn't exist
+		log.Warn().Err(err).Str("commit", commitHash).Msg("Failed to get changed files from commit")
+		return nil, nil, nil
 	}
 
 	taskIDs, dirNamesNeedingLookup := ParseDesignDocTaskIDs(files)
