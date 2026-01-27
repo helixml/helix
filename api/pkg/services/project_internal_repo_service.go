@@ -7,11 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/config"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/filemode"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -47,42 +44,33 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 		return "", fmt.Errorf("code repo path not set")
 	}
 
-	// Open bare repository
-	repo, err := git.PlainOpen(codeRepoPath)
+	ctx := context.Background()
+
+	// Open bare repository using gitea's wrapper
+	repo, err := giteagit.OpenRepository(ctx, codeRepoPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer repo.Close()
 
-	// Get HEAD reference
-	ref, err := repo.Head()
+	// Get HEAD branch
+	headBranch, err := GetHEADBranch(ctx, codeRepoPath)
 	if err != nil {
 		// Empty repo or no commits yet - return empty script
 		return "", nil
 	}
 
-	// Get commit from HEAD
-	commit, err := repo.CommitObject(ref.Hash())
+	// Get commit for HEAD branch
+	commit, err := repo.GetBranchCommit(headBranch)
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit: %w", err)
 	}
 
-	// Get tree from commit
-	tree, err := commit.Tree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get tree: %w", err)
-	}
-
-	// Get file from tree
-	file, err := tree.File(".helix/startup.sh")
+	// Get file content directly from commit
+	content, err := commit.GetFileContent(".helix/startup.sh", 0)
 	if err != nil {
 		// File doesn't exist yet - return empty script
 		return "", nil
-	}
-
-	// Get file contents
-	content, err := file.Contents()
-	if err != nil {
-		return "", fmt.Errorf("failed to read file contents: %w", err)
 	}
 
 	return content, nil
@@ -94,54 +82,47 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath st
 		return nil, fmt.Errorf("code repo path not set")
 	}
 
-	repo, err := git.PlainOpen(codeRepoPath)
+	ctx := context.Background()
+
+	// Open repo to use high-level API
+	repo, err := giteagit.OpenRepository(ctx, codeRepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer repo.Close()
 
-	// Get commit history for .helix/startup.sh
-	filePath := ".helix/startup.sh"
-	commitIter, err := repo.Log(&git.LogOptions{
-		FileName: &filePath,
+	// Get HEAD branch
+	headBranch, err := GetHEADBranch(ctx, codeRepoPath)
+	if err != nil {
+		return nil, nil // Empty repo, no commits
+	}
+
+	// Use gitea's high-level CommitsByFileAndRange API
+	// Page 0 with no limit returns all commits for the file
+	commits, err := repo.CommitsByFileAndRange(giteagit.CommitsByFileAndRangeOptions{
+		Revision: headBranch,
+		File:     ".helix/startup.sh",
+		Page:     0, // All commits
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get git log: %w", err)
+		return nil, fmt.Errorf("failed to get commits for startup.sh: %w", err)
 	}
 
 	var versions []StartupScriptVersion
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		// Get file content at this commit
-		tree, err := commit.Tree()
+	for _, commit := range commits {
+		content, err := commit.GetFileContent(".helix/startup.sh", 0)
 		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
-			return nil // Skip this commit
-		}
-
-		file, err := tree.File(".helix/startup.sh")
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
-			return nil // Skip this commit
-		}
-
-		content, err := file.Contents()
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
-			return nil // Skip this commit
+			log.Warn().Err(err).Str("commit", commit.ID.String()).Msg("Failed to get file from commit")
+			continue
 		}
 
 		versions = append(versions, StartupScriptVersion{
-			CommitHash: commit.Hash.String(),
+			CommitHash: commit.ID.String(),
 			Content:    content,
 			Timestamp:  commit.Author.When,
 			Author:     commit.Author.Name,
-			Message:    commit.Message,
+			Message:    commit.Summary(),
 		})
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate commits: %w", err)
 	}
 
 	return versions, nil
@@ -225,8 +206,8 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 		return "", "", fmt.Errorf("failed to create code repo directory: %w", err)
 	}
 
-	// Initialize bare Git repository (empty for now)
-	_, err = git.PlainInit(repoPath, true)
+	// Initialize bare Git repository using gitea's wrapper
+	err = giteagit.InitRepository(ctx, repoPath, true, "sha1")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to initialize bare git repository: %w", err)
 	}
@@ -239,17 +220,14 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 	}
 	defer os.RemoveAll(tempClone)
 
-	// Initialize temp repo as non-bare
-	repo, err := git.PlainInit(tempClone, false)
+	// Initialize temp repo as non-bare using gitea's wrapper
+	err = giteagit.InitRepository(ctx, tempClone, false, "sha1")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to initialize temp repository: %w", err)
 	}
 
 	// Add remote pointing to bare repo
-	_, err = repo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{repoPath}, // Point to bare repo
-	})
+	err = AddRemote(ctx, tempClone, "origin", repoPath)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create remote: %w", err)
 	}
@@ -274,134 +252,56 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 		}
 	}
 
-	// Commit all files
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Add all files
-	if _, err := worktree.Add("."); err != nil {
+	// Add all files using gitea's wrapper
+	if err := giteagit.AddChanges(ctx, tempClone, true); err != nil {
 		return "", "", fmt.Errorf("failed to add files to git: %w", err)
 	}
 
-	// Commit
+	// Commit using gitea's wrapper
 	commitMsg := fmt.Sprintf("Initial commit: %s\n\nSample: %s", project.Name, sampleCode.Name)
-	commitHash, err := worktree.Commit(commitMsg, &git.CommitOptions{
-		Author: &object.Signature{
+	if err := giteagit.CommitChanges(ctx, tempClone, giteagit.CommitChangesOptions{
+		Committer: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  time.Now(),
 		},
-	})
-	if err != nil {
+		Author: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Message: commitMsg,
+	}); err != nil {
 		return "", "", fmt.Errorf("failed to commit initial structure: %w", err)
 	}
 
-	// Rename master to main before pushing
-	headRef, err := repo.Head()
-	if err == nil && headRef.Name().Short() == "master" {
-		// Create main branch pointing to same commit
-		mainRef := plumbing.NewBranchReferenceName("main")
-		if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, commitHash)); err != nil {
-			log.Warn().Err(err).Msg("Failed to create main branch")
+	// Check if default branch is master and rename to main
+	headBranch, err := GetHEADBranch(ctx, tempClone)
+	if err == nil && headBranch == "master" {
+		if err := GitRenameBranch(ctx, tempClone, "master", "main"); err != nil {
+			log.Warn().Err(err).Msg("Failed to rename master to main")
 		} else {
-			// Set HEAD to main
-			newHead := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
-			if err := repo.Storer.SetReference(newHead); err != nil {
-				log.Warn().Err(err).Msg("Failed to set HEAD to main")
-			} else {
-				// Delete master branch
-				if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
-					log.Warn().Err(err).Msg("Failed to remove master branch")
-				}
-				log.Info().Msg("Renamed default branch from master to main")
-			}
+			log.Info().Msg("Renamed default branch from master to main")
 		}
 	}
 
 	// Push main branch to bare repo
-	err = repo.Push(&git.PushOptions{
-		RefSpecs: []config.RefSpec{"refs/heads/main:refs/heads/main"},
-	})
-	if err != nil {
+	if err := giteagit.Push(ctx, tempClone, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/main:refs/heads/main",
+	}); err != nil {
 		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 
-	// Update bare repo: set HEAD to main and delete master branch
-	bareRepo, err := git.PlainOpen(repoPath)
-	if err == nil {
-		// Set HEAD to point to main (not master)
-		mainHeadRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("main"))
-		if err := bareRepo.Storer.SetReference(mainHeadRef); err != nil {
-			log.Warn().Err(err).Msg("Failed to set HEAD to main in bare repo")
-		}
-
-		// Delete master branch
-		masterRef := plumbing.NewBranchReferenceName("master")
-		if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
-			log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")
-		}
-
-		log.Info().Msg("Set bare repo HEAD to main and removed master branch")
+	// Update bare repo: set HEAD to main
+	if err := SetHEAD(ctx, repoPath, "main"); err != nil {
+		log.Warn().Err(err).Msg("Failed to set HEAD to main in bare repo")
 	}
 
 	// Create helix-specs as an ORPHAN branch (empty, no code files)
 	// This branch is exclusively for design documents, separate from the code
-	designDocsBranchRef := plumbing.NewBranchReferenceName("helix-specs")
-
-	// Create an empty tree (no files)
-	emptyTree := object.Tree{}
-	emptyTreeObj := repo.Storer.NewEncodedObject()
-	if err := emptyTree.Encode(emptyTreeObj); err != nil {
-		log.Warn().Err(err).Msg("Failed to create empty tree for helix-specs (continuing)")
-	} else {
-		emptyTreeHash, err := repo.Storer.SetEncodedObject(emptyTreeObj)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to store empty tree (continuing)")
-		} else {
-			// Create initial commit with empty tree (orphan branch start)
-			designDocsCommit := &object.Commit{
-				Author: object.Signature{
-					Name:  userName,
-					Email: userEmail,
-					When:  time.Now(),
-				},
-				Committer: object.Signature{
-					Name:  userName,
-					Email: userEmail,
-					When:  time.Now(),
-				},
-				Message:  "Initialize helix-specs branch\n\nOrphan branch for SpecTask design documents only.",
-				TreeHash: emptyTreeHash,
-			}
-
-			commitObj := repo.Storer.NewEncodedObject()
-			if err := designDocsCommit.Encode(commitObj); err != nil {
-				log.Warn().Err(err).Msg("Failed to encode design docs commit (continuing)")
-			} else {
-				commitHash, err := repo.Storer.SetEncodedObject(commitObj)
-				if err != nil {
-					log.Warn().Err(err).Msg("Failed to store design docs commit (continuing)")
-				} else {
-					// Set branch to point to the orphan commit
-					err = repo.Storer.SetReference(plumbing.NewHashReference(designDocsBranchRef, commitHash))
-					if err != nil {
-						log.Warn().Err(err).Msg("Failed to create helix-specs branch reference (continuing)")
-					} else {
-						// Push helix-specs branch to bare repo
-						err = repo.Push(&git.PushOptions{
-							RefSpecs: []config.RefSpec{"refs/heads/helix-specs:refs/heads/helix-specs"},
-						})
-						if err != nil && err != git.NoErrAlreadyUpToDate {
-							log.Warn().Err(err).Msg("Failed to push helix-specs branch (continuing)")
-						} else {
-							log.Info().Msg("Created orphan helix-specs branch (empty, no code files)")
-						}
-					}
-				}
-			}
-		}
+	if err := s.createOrphanHelixSpecsBranch(ctx, tempClone, repoPath, userName, userEmail); err != nil {
+		log.Warn().Err(err).Msg("Failed to create helix-specs branch (continuing)")
 	}
 
 	log.Info().
@@ -413,6 +313,72 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 		Msg("Successfully created code repository from hardcoded sample with helix-specs branch")
 
 	return repoID, repoPath, nil
+}
+
+// createOrphanHelixSpecsBranch creates an orphan helix-specs branch
+func (s *ProjectRepoService) createOrphanHelixSpecsBranch(ctx context.Context, tempClone, bareRepoPath, userName, userEmail string) error {
+	// Create a new temp directory for the orphan branch
+	orphanTemp, err := os.MkdirTemp("", "helix-orphan-*")
+	if err != nil {
+		return fmt.Errorf("failed to create orphan temp directory: %w", err)
+	}
+	defer os.RemoveAll(orphanTemp)
+
+	// Initialize a fresh repo
+	if err := giteagit.InitRepository(ctx, orphanTemp, false, "sha1"); err != nil {
+		return fmt.Errorf("failed to init orphan repo: %w", err)
+	}
+
+	// Add remote pointing to bare repo
+	if err := AddRemote(ctx, orphanTemp, "origin", bareRepoPath); err != nil {
+		return fmt.Errorf("failed to add remote: %w", err)
+	}
+
+	// Create a placeholder file so we can make a commit
+	placeholderPath := filepath.Join(orphanTemp, ".gitkeep")
+	if err := os.WriteFile(placeholderPath, []byte("# Helix specs branch\n"), 0644); err != nil {
+		return fmt.Errorf("failed to create placeholder: %w", err)
+	}
+
+	// Add and commit
+	if err := giteagit.AddChanges(ctx, orphanTemp, true); err != nil {
+		return fmt.Errorf("failed to add: %w", err)
+	}
+
+	if err := giteagit.CommitChanges(ctx, orphanTemp, giteagit.CommitChangesOptions{
+		Committer: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Author: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Message: "Initialize helix-specs branch\n\nOrphan branch for SpecTask design documents only.",
+	}); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Rename branch to helix-specs
+	headBranch, err := GetHEADBranch(ctx, orphanTemp)
+	if err == nil && headBranch != "helix-specs" {
+		if err := GitRenameBranch(ctx, orphanTemp, headBranch, "helix-specs"); err != nil {
+			return fmt.Errorf("failed to rename to helix-specs: %w", err)
+		}
+	}
+
+	// Push helix-specs branch to bare repo
+	if err := giteagit.Push(ctx, orphanTemp, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/helix-specs:refs/heads/helix-specs",
+	}); err != nil {
+		return fmt.Errorf("failed to push helix-specs: %w", err)
+	}
+
+	log.Info().Msg("Created orphan helix-specs branch (empty, no code files)")
+	return nil
 }
 
 // CloneSampleProject clones a sample project repository (e.g., from GitHub)
@@ -436,9 +402,8 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 		return "", fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Initialize bare repository first
-	_, err := git.PlainInit(repoPath, true)
-	if err != nil {
+	// Initialize bare repository first using gitea's wrapper
+	if err := giteagit.InitRepository(ctx, repoPath, true, "sha1"); err != nil {
 		return "", fmt.Errorf("failed to initialize bare repository: %w", err)
 	}
 
@@ -449,12 +414,10 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 	}
 	defer os.RemoveAll(tempClone)
 
-	repo, err := git.PlainClone(tempClone, &git.CloneOptions{
-		URL:      sampleRepoURL,
-		Progress: os.Stdout,
-		Depth:    1, // Shallow clone for speed
-	})
-	if err != nil {
+	// Clone using gitea's wrapper with shallow clone
+	if err := giteagit.Clone(ctx, sampleRepoURL, tempClone, giteagit.CloneRepoOptions{
+		Depth: 1,
+	}); err != nil {
 		return "", fmt.Errorf("failed to clone sample repository: %w", err)
 	}
 
@@ -464,52 +427,39 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 		return "", fmt.Errorf("failed to create .helix/tasks directory: %w", err)
 	}
 
-	// Change origin remote to point to our bare repo instead of GitHub
-	err = repo.DeleteRemote("origin")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to delete origin remote (continuing)")
-	}
+	// Remove origin remote and add new one pointing to our bare repo
+	_, _, _ = gitcmd.NewCommand("remote", "remove", "origin").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: tempClone})
 
-	_, err = repo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{repoPath}, // Point to our bare repo
-	})
-	if err != nil {
+	if err := AddRemote(ctx, tempClone, "origin", repoPath); err != nil {
 		return "", fmt.Errorf("failed to create origin remote: %w", err)
 	}
 
-	// Commit .helix structure in temp clone
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get worktree: %w", err)
-	}
-
 	// Add .helix directory
-	if _, err := worktree.Add(".helix"); err != nil {
+	if err := giteagit.AddChanges(ctx, tempClone, true); err != nil {
 		return "", fmt.Errorf("failed to add .helix to git: %w", err)
 	}
 
 	// Commit
-	commitMsg := fmt.Sprintf("Add Helix project structure\n\nInitialized from sample project")
-	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
-		Author: &object.Signature{
+	commitMsg := "Add Helix project structure\n\nInitialized from sample project"
+	if err := giteagit.CommitChanges(ctx, tempClone, giteagit.CommitChangesOptions{
+		Author: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  time.Now(),
 		},
-	})
-	if err != nil {
+		Message: commitMsg,
+	}); err != nil {
 		// Ignore error if nothing to commit
 		log.Debug().Err(err).Msg("No changes to commit (may already exist)")
 	}
 
-	// Push everything to bare repo
-	err = repo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		RefSpecs:   []config.RefSpec{"refs/heads/*:refs/heads/*"}, // Push all branches
-	})
-	if err != nil && err != git.NoErrAlreadyUpToDate {
-		return "", fmt.Errorf("failed to push to bare repo: %w", err)
+	// Push all branches to bare repo
+	if err := giteagit.Push(ctx, tempClone, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/*:refs/heads/*",
+	}); err != nil {
+		log.Warn().Err(err).Msg("Failed to push all branches (may be empty or up-to-date)")
 	}
 
 	log.Info().
@@ -525,8 +475,7 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 // Returns (changed bool, err error) where changed indicates if a commit was made
 //
-// This uses direct bare repo manipulation via go-git plumbing APIs - no clone needed.
-// Much faster than cloning, especially for repos with many branches.
+// This uses a temporary working copy to make the commit.
 func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, script string, userName string, userEmail string) (bool, error) {
 	if userName == "" || userEmail == "" {
 		return false, fmt.Errorf("userName and userEmail are required for commits")
@@ -535,201 +484,174 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 		return false, fmt.Errorf("code repo path not set")
 	}
 
-	// Open bare repository
-	bareRepo, err := git.PlainOpen(codeRepoPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to open bare repository: %w", err)
-	}
+	ctx := context.Background()
 
 	// Check if helix-specs branch exists
-	helixSpecsRef := plumbing.NewBranchReferenceName("helix-specs")
-	ref, err := bareRepo.Reference(helixSpecsRef, true)
+	branches, err := ListBranches(ctx, codeRepoPath)
 	if err != nil {
+		return false, fmt.Errorf("failed to list branches: %w", err)
+	}
+
+	helixSpecsExists := false
+	for _, b := range branches {
+		if b == "helix-specs" {
+			helixSpecsExists = true
+			break
+		}
+	}
+
+	if !helixSpecsExists {
 		// Branch doesn't exist - we need to create it as orphan
 		log.Info().Str("repo_path", codeRepoPath).Msg("helix-specs branch doesn't exist, creating orphan branch")
-		if err := s.createHelixSpecsBranch(bareRepo, userName, userEmail); err != nil {
+		if err := s.createHelixSpecsBranch(ctx, codeRepoPath, userName, userEmail); err != nil {
 			return false, fmt.Errorf("failed to create helix-specs branch: %w", err)
 		}
-		// Re-get the reference after creating
-		ref, err = bareRepo.Reference(helixSpecsRef, true)
-		if err != nil {
-			return false, fmt.Errorf("failed to get helix-specs ref after creation: %w", err)
-		}
-	}
-
-	// Get current commit
-	currentCommit, err := bareRepo.CommitObject(ref.Hash())
-	if err != nil {
-		return false, fmt.Errorf("failed to get current commit: %w", err)
-	}
-
-	// Get current tree
-	currentTree, err := currentCommit.Tree()
-	if err != nil {
-		return false, fmt.Errorf("failed to get current tree: %w", err)
 	}
 
 	// Check if script already exists and is unchanged
-	existingFile, err := currentTree.File(".helix/startup.sh")
-	if err == nil {
-		existingContent, err := existingFile.Contents()
-		if err == nil && existingContent == script {
-			log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
-			return false, nil
-		}
+	existingScript, _ := s.LoadStartupScriptFromHelixSpecs(codeRepoPath)
+	if existingScript == script {
+		log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
+		return false, nil
 	}
 
-	// Create blob for the script
-	blob := bareRepo.Storer.NewEncodedObject()
-	blob.SetType(plumbing.BlobObject)
-	writer, err := blob.Writer()
+	// Create temp working copy of helix-specs branch
+	tempDir, err := os.MkdirTemp("", "helix-specs-save-*")
 	if err != nil {
-		return false, fmt.Errorf("failed to create blob writer: %w", err)
+		return false, fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	if _, err := writer.Write([]byte(script)); err != nil {
-		writer.Close()
-		return false, fmt.Errorf("failed to write script to blob: %w", err)
-	}
-	writer.Close()
+	defer os.RemoveAll(tempDir)
 
-	blobHash, err := bareRepo.Storer.SetEncodedObject(blob)
-	if err != nil {
-		return false, fmt.Errorf("failed to store blob: %w", err)
+	// Clone the bare repo
+	if err := giteagit.Clone(ctx, codeRepoPath, tempDir, giteagit.CloneRepoOptions{
+		Branch: "helix-specs",
+	}); err != nil {
+		return false, fmt.Errorf("failed to clone bare repo: %w", err)
 	}
 
-	// Build new tree with .helix/startup.sh
-	// First, collect existing entries (excluding .helix directory)
-	var entries []object.TreeEntry
-	for _, entry := range currentTree.Entries {
-		if entry.Name != ".helix" {
-			entries = append(entries, entry)
-		}
+	// Checkout helix-specs branch
+	if err := GitCheckout(ctx, tempDir, "helix-specs", false); err != nil {
+		return false, fmt.Errorf("failed to checkout helix-specs: %w", err)
 	}
 
-	// Create .helix subtree with startup.sh
-	helixTree := &object.Tree{
-		Entries: []object.TreeEntry{
-			{
-				Name: "startup.sh",
-				Mode: filemode.Executable, // 0755
-				Hash: blobHash,
-			},
-		},
-	}
-	helixTreeObj := bareRepo.Storer.NewEncodedObject()
-	if err := helixTree.Encode(helixTreeObj); err != nil {
-		return false, fmt.Errorf("failed to encode .helix tree: %w", err)
-	}
-	helixTreeHash, err := bareRepo.Storer.SetEncodedObject(helixTreeObj)
-	if err != nil {
-		return false, fmt.Errorf("failed to store .helix tree: %w", err)
+	// Write the script file
+	helixDir := filepath.Join(tempDir, ".helix")
+	if err := os.MkdirAll(helixDir, 0755); err != nil {
+		return false, fmt.Errorf("failed to create .helix directory: %w", err)
 	}
 
-	// Add .helix directory to root tree
-	entries = append(entries, object.TreeEntry{
-		Name: ".helix",
-		Mode: filemode.Dir,
-		Hash: helixTreeHash,
-	})
-
-	// Create new root tree
-	newTree := &object.Tree{Entries: entries}
-	newTreeObj := bareRepo.Storer.NewEncodedObject()
-	if err := newTree.Encode(newTreeObj); err != nil {
-		return false, fmt.Errorf("failed to encode new tree: %w", err)
-	}
-	newTreeHash, err := bareRepo.Storer.SetEncodedObject(newTreeObj)
-	if err != nil {
-		return false, fmt.Errorf("failed to store new tree: %w", err)
+	scriptPath := filepath.Join(helixDir, "startup.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return false, fmt.Errorf("failed to write startup script: %w", err)
 	}
 
-	// Create new commit
+	// Add and commit
+	if err := giteagit.AddChanges(ctx, tempDir, true); err != nil {
+		return false, fmt.Errorf("failed to add changes: %w", err)
+	}
+
 	now := time.Now()
 	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", now.Format(time.RFC3339))
-	newCommit := &object.Commit{
-		Author: object.Signature{
+	if err := giteagit.CommitChanges(ctx, tempDir, giteagit.CommitChangesOptions{
+		Author: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  now,
 		},
-		Committer: object.Signature{
+		Committer: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  now,
 		},
-		Message:      commitMsg,
-		TreeHash:     newTreeHash,
-		ParentHashes: []plumbing.Hash{currentCommit.Hash},
+		Message: commitMsg,
+	}); err != nil {
+		return false, fmt.Errorf("failed to commit: %w", err)
 	}
 
-	commitObj := bareRepo.Storer.NewEncodedObject()
-	if err := newCommit.Encode(commitObj); err != nil {
-		return false, fmt.Errorf("failed to encode commit: %w", err)
-	}
-	commitHash, err := bareRepo.Storer.SetEncodedObject(commitObj)
-	if err != nil {
-		return false, fmt.Errorf("failed to store commit: %w", err)
+	// Push to bare repo
+	if err := giteagit.Push(ctx, tempDir, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/helix-specs:refs/heads/helix-specs",
+	}); err != nil {
+		return false, fmt.Errorf("failed to push: %w", err)
 	}
 
-	// Update branch reference
-	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(helixSpecsRef, commitHash))
-	if err != nil {
-		return false, fmt.Errorf("failed to update helix-specs branch: %w", err)
-	}
+	// Get commit hash
+	commitHash, _ := GetBranchCommitID(ctx, tempDir, "helix-specs")
 
 	log.Info().
 		Str("code_repo_path", codeRepoPath).
-		Str("commit", commitHash.String()[:8]).
-		Msg("Startup script saved to helix-specs branch (direct commit)")
+		Str("commit", commitHash[:8]).
+		Msg("Startup script saved to helix-specs branch")
 
 	return true, nil
 }
 
 // createHelixSpecsBranch creates an orphan helix-specs branch in the bare repo
-func (s *ProjectRepoService) createHelixSpecsBranch(bareRepo *git.Repository, userName string, userEmail string) error {
-	// Create an empty tree (no files)
-	emptyTree := object.Tree{}
-	emptyTreeObj := bareRepo.Storer.NewEncodedObject()
-	if err := emptyTree.Encode(emptyTreeObj); err != nil {
-		return fmt.Errorf("failed to create empty tree: %w", err)
-	}
-
-	emptyTreeHash, err := bareRepo.Storer.SetEncodedObject(emptyTreeObj)
+func (s *ProjectRepoService) createHelixSpecsBranch(ctx context.Context, bareRepoPath, userName, userEmail string) error {
+	// Create a temp working directory
+	tempDir, err := os.MkdirTemp("", "helix-specs-create-*")
 	if err != nil {
-		return fmt.Errorf("failed to store empty tree: %w", err)
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Initialize a fresh repo (creates an orphan branch)
+	if err := giteagit.InitRepository(ctx, tempDir, false, "sha1"); err != nil {
+		return fmt.Errorf("failed to init temp repo: %w", err)
 	}
 
-	// Create initial commit with empty tree (orphan branch start)
-	designDocsCommit := &object.Commit{
-		Author: object.Signature{
+	// Add remote pointing to bare repo
+	if err := AddRemote(ctx, tempDir, "origin", bareRepoPath); err != nil {
+		return fmt.Errorf("failed to add remote: %w", err)
+	}
+
+	// Create a placeholder file
+	helixDir := filepath.Join(tempDir, ".helix")
+	if err := os.MkdirAll(helixDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .helix directory: %w", err)
+	}
+
+	gitkeep := filepath.Join(helixDir, ".gitkeep")
+	if err := os.WriteFile(gitkeep, []byte("# Helix configuration branch\n"), 0644); err != nil {
+		return fmt.Errorf("failed to create .gitkeep: %w", err)
+	}
+
+	// Add and commit
+	if err := giteagit.AddChanges(ctx, tempDir, true); err != nil {
+		return fmt.Errorf("failed to add: %w", err)
+	}
+
+	if err := giteagit.CommitChanges(ctx, tempDir, giteagit.CommitChangesOptions{
+		Author: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  time.Now(),
 		},
-		Committer: object.Signature{
+		Committer: &giteagit.Signature{
 			Name:  userName,
 			Email: userEmail,
 			When:  time.Now(),
 		},
-		Message:  "Initialize helix-specs branch\n\nOrphan branch for Helix configuration and SpecTask design documents.",
-		TreeHash: emptyTreeHash,
+		Message: "Initialize helix-specs branch\n\nOrphan branch for Helix configuration and SpecTask design documents.",
+	}); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 
-	commitObj := bareRepo.Storer.NewEncodedObject()
-	if err := designDocsCommit.Encode(commitObj); err != nil {
-		return fmt.Errorf("failed to encode commit: %w", err)
+	// Rename branch to helix-specs
+	headBranch, err := GetHEADBranch(ctx, tempDir)
+	if err == nil && headBranch != "helix-specs" {
+		if err := GitRenameBranch(ctx, tempDir, headBranch, "helix-specs"); err != nil {
+			return fmt.Errorf("failed to rename to helix-specs: %w", err)
+		}
 	}
 
-	commitHash, err := bareRepo.Storer.SetEncodedObject(commitObj)
-	if err != nil {
-		return fmt.Errorf("failed to store commit: %w", err)
-	}
-
-	// Set branch to point to the orphan commit
-	helixSpecsRef := plumbing.NewBranchReferenceName("helix-specs")
-	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(helixSpecsRef, commitHash))
-	if err != nil {
-		return fmt.Errorf("failed to create helix-specs branch reference: %w", err)
+	// Push helix-specs branch to bare repo
+	if err := giteagit.Push(ctx, tempDir, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/helix-specs:refs/heads/helix-specs",
+	}); err != nil {
+		return fmt.Errorf("failed to push: %w", err)
 	}
 
 	log.Info().Msg("Created orphan helix-specs branch")
@@ -742,45 +664,29 @@ func (s *ProjectRepoService) LoadStartupScriptFromHelixSpecs(codeRepoPath string
 		return "", fmt.Errorf("code repo path not set")
 	}
 
+	ctx := context.Background()
+
 	// Open bare repository
-	repo, err := git.PlainOpen(codeRepoPath)
+	repo, err := giteagit.OpenRepository(ctx, codeRepoPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer repo.Close()
 
-	// Get helix-specs branch reference
-	helixSpecsRef := plumbing.NewBranchReferenceName("helix-specs")
-	ref, err := repo.Reference(helixSpecsRef, true)
+	// Get helix-specs branch commit
+	commit, err := repo.GetBranchCommit("helix-specs")
 	if err != nil {
 		// helix-specs branch doesn't exist - fall back to main branch (legacy support)
 		log.Debug().Str("repo_path", codeRepoPath).Msg("helix-specs branch not found, falling back to main branch")
 		return s.LoadStartupScriptFromCodeRepo(codeRepoPath)
 	}
 
-	// Get commit from helix-specs
-	commit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		return "", fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	// Get tree from commit
-	tree, err := commit.Tree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get tree: %w", err)
-	}
-
-	// Get file from tree
-	file, err := tree.File(".helix/startup.sh")
+	// Get file content
+	content, err := commit.GetFileContent(".helix/startup.sh", 0)
 	if err != nil {
 		// File doesn't exist yet - try legacy location on main branch
 		log.Debug().Str("repo_path", codeRepoPath).Msg("startup.sh not in helix-specs, falling back to main branch")
 		return s.LoadStartupScriptFromCodeRepo(codeRepoPath)
-	}
-
-	// Get file contents
-	content, err := file.Contents()
-	if err != nil {
-		return "", fmt.Errorf("failed to read file contents: %w", err)
 	}
 
 	return content, nil
@@ -792,64 +698,47 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromHelixSpecs(codeRepoPath 
 		return nil, fmt.Errorf("code repo path not set")
 	}
 
-	repo, err := git.PlainOpen(codeRepoPath)
+	ctx := context.Background()
+
+	// Open repo to use high-level API
+	repo, err := giteagit.OpenRepository(ctx, codeRepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer repo.Close()
 
-	// Get helix-specs branch reference
-	helixSpecsRef := plumbing.NewBranchReferenceName("helix-specs")
-	ref, err := repo.Reference(helixSpecsRef, true)
+	// Check if helix-specs branch exists
+	_, err = repo.GetBranchCommit("helix-specs")
 	if err != nil {
-		// helix-specs branch doesn't exist - fall back to main branch (legacy support)
 		log.Debug().Str("repo_path", codeRepoPath).Msg("helix-specs branch not found for history, falling back to main branch")
 		return s.GetStartupScriptHistoryFromCodeRepo(codeRepoPath)
 	}
 
-	// Get commit history for .helix/startup.sh starting from helix-specs
-	filePath := ".helix/startup.sh"
-	commitIter, err := repo.Log(&git.LogOptions{
-		From:     ref.Hash(),
-		FileName: &filePath,
+	// Use gitea's high-level CommitsByFileAndRange API
+	commits, err := repo.CommitsByFileAndRange(giteagit.CommitsByFileAndRangeOptions{
+		Revision: "helix-specs",
+		File:     ".helix/startup.sh",
+		Page:     0, // All commits
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get git log: %w", err)
+		return nil, fmt.Errorf("failed to get commits for startup.sh: %w", err)
 	}
 
 	var versions []StartupScriptVersion
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		// Get file content at this commit
-		tree, err := commit.Tree()
+	for _, commit := range commits {
+		content, err := commit.GetFileContent(".helix/startup.sh", 0)
 		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
-			return nil // Skip this commit
-		}
-
-		file, err := tree.File(".helix/startup.sh")
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
-			return nil // Skip this commit
-		}
-
-		content, err := file.Contents()
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
-			return nil // Skip this commit
+			log.Warn().Err(err).Str("commit", commit.ID.String()).Msg("Failed to get file from commit")
+			continue
 		}
 
 		versions = append(versions, StartupScriptVersion{
-			CommitHash: commit.Hash.String(),
+			CommitHash: commit.ID.String(),
 			Content:    content,
 			Timestamp:  commit.Author.When,
 			Author:     commit.Author.Name,
-			Message:    commit.Message,
+			Message:    commit.Summary(),
 		})
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate commits: %w", err)
 	}
 
 	// If no versions found in helix-specs, check main branch for legacy scripts
@@ -859,6 +748,59 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromHelixSpecs(codeRepoPath 
 	}
 
 	return versions, nil
+}
+
+// Helper functions
+
+func splitLines(s string) []string {
+	var lines []string
+	for _, line := range splitByNewline(s) {
+		if line = trimString(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func splitByNewline(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		result = append(result, s[start:])
+	}
+	return result
+}
+
+func splitN(s, sep string, n int) []string {
+	var result []string
+	remaining := s
+	for i := 0; i < n-1 && len(remaining) > 0; i++ {
+		idx := indexOf(remaining, sep)
+		if idx < 0 {
+			break
+		}
+		result = append(result, remaining[:idx])
+		remaining = remaining[idx+len(sep):]
+	}
+	if len(remaining) > 0 {
+		result = append(result, remaining)
+	}
+	return result
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 // Backward compatibility aliases - these will be removed in a future release

@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-git/go-git/v6"
+	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -71,7 +71,7 @@ func (suite *KoditHandlersSuite) repoWithKoditEnabledNoID() *types.GitRepository
 // initGitRepo creates a minimal git repo and returns its path
 func (suite *KoditHandlersSuite) initGitRepo() string {
 	path := suite.T().TempDir()
-	_, err := git.PlainInit(path, false)
+	err := giteagit.InitRepository(context.Background(), path, false, "sha1")
 	suite.Require().NoError(err)
 	return path
 }

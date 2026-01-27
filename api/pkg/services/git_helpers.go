@@ -1,224 +1,176 @@
 package services
 
 import (
+	"context"
 	"fmt"
-	"io"
+	"path/filepath"
 	"strings"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/rs/zerolog/log"
 )
 
-// GitRepo wraps a go-git repository for common operations.
+// GitRepo wraps a gitea repository for common operations.
 // This replaces exec.Command("git", ...) calls with pure Go equivalents.
 type GitRepo struct {
-	repo *git.Repository
+	repo *giteagit.Repository
 	path string
+	ctx  context.Context
 }
 
 // OpenGitRepo opens a git repository at the given path.
 // Works with both bare and non-bare repositories.
 func OpenGitRepo(repoPath string) (*GitRepo, error) {
-	repo, err := git.PlainOpen(repoPath)
+	ctx := context.Background()
+	repo, err := giteagit.OpenRepository(ctx, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository at %s: %w", repoPath, err)
 	}
-	return &GitRepo{repo: repo, path: repoPath}, nil
+	return &GitRepo{repo: repo, path: repoPath, ctx: ctx}, nil
+}
+
+// Close releases resources held by the repository
+func (g *GitRepo) Close() {
+	if g.repo != nil {
+		g.repo.Close()
+	}
 }
 
 // GetBranchCommitHash returns the commit hash for a branch.
 // Equivalent to: git rev-parse <branch>
 func (g *GitRepo) GetBranchCommitHash(branchName string) (string, error) {
-	// Try refs/heads/<branch> first (local branch)
-	ref, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	commit, err := g.repo.GetBranchCommit(branchName)
 	if err != nil {
-		// Try as a direct reference name (e.g., for helix-specs)
-		ref, err = g.repo.Reference(plumbing.ReferenceName("refs/heads/"+branchName), true)
-		if err != nil {
-			return "", fmt.Errorf("branch %s not found: %w", branchName, err)
-		}
+		return "", fmt.Errorf("branch %s not found: %w", branchName, err)
 	}
-	return ref.Hash().String(), nil
+	return commit.ID.String(), nil
 }
 
 // ListFilesInBranch returns all file paths in a branch.
 // Equivalent to: git ls-tree --name-only -r <branch>
 func (g *GitRepo) ListFilesInBranch(branchName string) ([]string, error) {
-	ref, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	commit, err := g.repo.GetBranchCommit(branchName)
 	if err != nil {
 		return nil, fmt.Errorf("branch %s not found: %w", branchName, err)
 	}
 
-	commit, err := g.repo.CommitObject(ref.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit for branch %s: %w", branchName, err)
-	}
+	// Get the tree - commit embeds Tree
+	tree := &commit.Tree
 
-	tree, err := commit.Tree()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tree for branch %s: %w", branchName, err)
-	}
-
+	// List all entries recursively by walking the tree
 	var files []string
-	err = tree.Files().ForEach(func(f *object.File) error {
-		files = append(files, f.Name)
-		return nil
-	})
+	err = g.walkTree(tree, "", &files)
 	if err != nil {
-		return nil, fmt.Errorf("failed to iterate files: %w", err)
+		return nil, fmt.Errorf("failed to walk tree: %w", err)
 	}
 
 	return files, nil
 }
 
+// walkTree recursively walks a git tree and collects file paths
+func (g *GitRepo) walkTree(tree *giteagit.Tree, prefix string, files *[]string) error {
+	entries, err := tree.ListEntries()
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		path := entry.Name()
+		if prefix != "" {
+			path = filepath.Join(prefix, entry.Name())
+		}
+
+		if entry.IsDir() {
+			// Recurse into subdirectory
+			subtree, err := tree.SubTree(entry.Name())
+			if err != nil {
+				continue // Skip if we can't access subtree
+			}
+			if err := g.walkTree(subtree, path, files); err != nil {
+				continue // Skip on error
+			}
+		} else {
+			*files = append(*files, path)
+		}
+	}
+	return nil
+}
+
 // ReadFileFromBranch reads the content of a file from a specific branch.
 // Equivalent to: git show <branch>:<filepath>
 func (g *GitRepo) ReadFileFromBranch(branchName, filePath string) ([]byte, error) {
-	ref, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	commit, err := g.repo.GetBranchCommit(branchName)
 	if err != nil {
 		return nil, fmt.Errorf("branch %s not found: %w", branchName, err)
 	}
 
-	commit, err := g.repo.CommitObject(ref.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit for branch %s: %w", branchName, err)
-	}
-
-	file, err := commit.File(filePath)
+	// Use GetFileContent from commit which returns string
+	content, err := commit.GetFileContent(filePath, 0) // 0 = no limit
 	if err != nil {
 		return nil, fmt.Errorf("file %s not found in branch %s: %w", filePath, branchName, err)
 	}
 
-	reader, err := file.Reader()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
-	}
-	defer reader.Close()
-
-	content, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file content: %w", err)
-	}
-
-	return content, nil
+	return []byte(content), nil
 }
 
 // IsBranchMergedInto checks if sourceBranch is merged into targetBranch.
 // Equivalent to: git branch --merged <target> --list <source>
 func (g *GitRepo) IsBranchMergedInto(sourceBranch, targetBranch string) (bool, error) {
-	sourceRef, err := g.repo.Reference(plumbing.NewBranchReferenceName(sourceBranch), true)
+	sourceCommit, err := g.repo.GetBranchCommit(sourceBranch)
 	if err != nil {
 		return false, fmt.Errorf("source branch %s not found: %w", sourceBranch, err)
 	}
 
-	targetRef, err := g.repo.Reference(plumbing.NewBranchReferenceName(targetBranch), true)
+	targetCommit, err := g.repo.GetBranchCommit(targetBranch)
 	if err != nil {
 		return false, fmt.Errorf("target branch %s not found: %w", targetBranch, err)
 	}
 
-	sourceCommit, err := g.repo.CommitObject(sourceRef.Hash())
+	// Check if source commit is an ancestor of target commit using git merge-base
+	_, _, err = gitcmd.NewCommand("merge-base", "--is-ancestor").
+		AddDynamicArguments(sourceCommit.ID.String(), targetCommit.ID.String()).
+		RunStdString(g.ctx, &gitcmd.RunOpts{Dir: g.path})
 	if err != nil {
-		return false, fmt.Errorf("failed to get source commit: %w", err)
+		// Exit code 1 means not an ancestor, exit code 0 means it is
+		return false, nil // Not an ancestor
 	}
-
-	targetCommit, err := g.repo.CommitObject(targetRef.Hash())
-	if err != nil {
-		return false, fmt.Errorf("failed to get target commit: %w", err)
-	}
-
-	// Check if source commit is an ancestor of target commit
-	isAncestor, err := sourceCommit.IsAncestor(targetCommit)
-	if err != nil {
-		return false, fmt.Errorf("failed to check ancestry: %w", err)
-	}
-
-	return isAncestor, nil
+	return true, nil // Is an ancestor
 }
 
 // GetChangedFilesInCommit returns files changed in a specific commit.
-// Equivalent to: git diff-tree --no-commit-id --name-only -r <commit>
+// Uses gitea's high-level GetCommitFileStatus API.
 func (g *GitRepo) GetChangedFilesInCommit(commitHash string) ([]string, error) {
-	hash := plumbing.NewHash(commitHash)
-	commit, err := g.repo.CommitObject(hash)
+	// Use gitea's high-level API to get file status for the commit
+	status, err := giteagit.GetCommitFileStatus(g.ctx, g.path, commitHash)
 	if err != nil {
-		return nil, fmt.Errorf("commit %s not found: %w", commitHash, err)
+		return nil, fmt.Errorf("failed to get changed files: %w", err)
 	}
 
-	// Get the parent commit (if exists)
-	var parentTree *object.Tree
-	if commit.NumParents() > 0 {
-		parent, err := commit.Parent(0)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get parent commit: %w", err)
-		}
-		parentTree, err = parent.Tree()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get parent tree: %w", err)
-		}
-	}
-
-	currentTree, err := commit.Tree()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current tree: %w", err)
-	}
-
+	// Combine all changed files (added, modified, removed)
 	var files []string
-
-	if parentTree == nil {
-		// Initial commit - all files are "changed"
-		err = currentTree.Files().ForEach(func(f *object.File) error {
-			files = append(files, f.Name)
-			return nil
-		})
-	} else {
-		// Diff between parent and current
-		changes, err := parentTree.Diff(currentTree)
-		if err != nil {
-			return nil, fmt.Errorf("failed to diff trees: %w", err)
-		}
-		for _, change := range changes {
-			// Get the file path (could be From or To depending on operation)
-			if change.To.Name != "" {
-				files = append(files, change.To.Name)
-			} else if change.From.Name != "" {
-				files = append(files, change.From.Name)
-			}
-		}
-	}
-
-	return files, err
+	files = append(files, status.Added...)
+	files = append(files, status.Modified...)
+	files = append(files, status.Removed...)
+	return files, nil
 }
 
 // GetChangedFilesInBranch returns files changed in the latest commit of a branch.
 // Equivalent to: git diff-tree -m --no-commit-id --name-only -r <branch>
 func (g *GitRepo) GetChangedFilesInBranch(branchName string) ([]string, error) {
-	ref, err := g.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	commit, err := g.repo.GetBranchCommit(branchName)
 	if err != nil {
 		return nil, fmt.Errorf("branch %s not found: %w", branchName, err)
 	}
-	return g.GetChangedFilesInCommit(ref.Hash().String())
+	return g.GetChangedFilesInCommit(commit.ID.String())
 }
 
 // ListBranches returns all branch names in the repository.
 func (g *GitRepo) ListBranches() ([]string, error) {
-	refs, err := g.repo.References()
+	branches, _, err := g.repo.GetBranchNames(0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get references: %w", err)
+		return nil, fmt.Errorf("failed to list branches: %w", err)
 	}
-
-	var branches []string
-	err = refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsBranch() {
-			branches = append(branches, ref.Name().Short())
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate references: %w", err)
-	}
-
 	return branches, nil
 }
 

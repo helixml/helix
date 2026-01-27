@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/gorilla/mux"
@@ -839,13 +840,13 @@ func (s *GitHTTPServer) handleRepositoryStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Get branch count
-	stdout, _, _ := gitcmd.NewCommand("branch").
-		AddArguments("--list").
-		RunStdString(r.Context(), &gitcmd.RunOpts{
-			Dir: repoPath,
-		})
-	branchCount := len(strings.Split(strings.TrimSpace(stdout), "\n"))
+	// Get branch count using gitea's high-level API
+	gitRepo, err := giteagit.OpenRepository(r.Context(), repoPath)
+	branchCount := 0
+	if err == nil {
+		defer gitRepo.Close()
+		_, branchCount, _ = gitRepo.GetBranchNames(0, 0)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"id": "%s", "name": "%s", "branch_count": %d, "is_external": %t}`,

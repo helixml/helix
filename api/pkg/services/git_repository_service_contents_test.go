@@ -5,11 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/config"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -25,43 +24,49 @@ func TestCreateFileAndBrowseTree(t *testing.T) {
 	testDir := t.TempDir()
 	bareRepoPath := filepath.Join(testDir, "test-repo.git")
 	tempWorkPath := filepath.Join(testDir, "temp-work")
+	ctx := context.Background()
 
-	bareRepo, err := git.PlainInit(bareRepoPath, true)
+	// Initialize bare repository
+	err := giteagit.InitRepository(ctx, bareRepoPath, true, "sha1")
 	require.NoError(t, err)
 
+	// Initialize working repository
 	require.NoError(t, os.MkdirAll(tempWorkPath, 0755))
-	workRepo, err := git.PlainInit(tempWorkPath, false)
+	err = giteagit.InitRepository(ctx, tempWorkPath, false, "sha1")
 	require.NoError(t, err)
 
-	worktree, err := workRepo.Worktree()
-	require.NoError(t, err)
-
+	// Create initial file
 	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "README.md"), []byte("# Test Repo"), 0644))
-	_, err = worktree.Add("README.md")
+
+	// Add and commit
+	err = giteagit.AddChanges(ctx, tempWorkPath, true)
 	require.NoError(t, err)
 
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
-		Author: &object.Signature{
+	err = giteagit.CommitChanges(ctx, tempWorkPath, giteagit.CommitChangesOptions{
+		Message: "Initial commit",
+		Author: &giteagit.Signature{
 			Name:  "Test Author",
 			Email: "test@example.com",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Author",
+			Email: "test@example.com",
+			When:  time.Now(),
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = workRepo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{bareRepoPath},
+	// Add bare repo as remote and push
+	_, _, err = gitcmd.NewCommand("remote", "add", "origin").
+		AddDynamicArguments(bareRepoPath).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: tempWorkPath})
+	require.NoError(t, err)
+
+	err = giteagit.Push(ctx, tempWorkPath, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/master:refs/heads/master",
 	})
-	require.NoError(t, err)
-
-	err = workRepo.Push(&git.PushOptions{RemoteName: "origin"})
-	require.NoError(t, err)
-
-	headRef, err := bareRepo.Head()
-	require.NoError(t, err)
-
-	masterRef := plumbing.NewBranchReferenceName("master")
-	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
 	require.NoError(t, err)
 
 	repoID := "test-repo-id"
@@ -126,43 +131,49 @@ func TestBranchIsolation(t *testing.T) {
 	testDir := t.TempDir()
 	bareRepoPath := filepath.Join(testDir, "test-repo.git")
 	tempWorkPath := filepath.Join(testDir, "temp-work")
+	ctx := context.Background()
 
-	bareRepo, err := git.PlainInit(bareRepoPath, true)
+	// Initialize bare repository
+	err := giteagit.InitRepository(ctx, bareRepoPath, true, "sha1")
 	require.NoError(t, err)
 
+	// Initialize working repository
 	require.NoError(t, os.MkdirAll(tempWorkPath, 0755))
-	workRepo, err := git.PlainInit(tempWorkPath, false)
+	err = giteagit.InitRepository(ctx, tempWorkPath, false, "sha1")
 	require.NoError(t, err)
 
-	worktree, err := workRepo.Worktree()
-	require.NoError(t, err)
-
+	// Create initial file
 	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "README.md"), []byte("# Test Repo"), 0644))
-	_, err = worktree.Add("README.md")
+
+	// Add and commit
+	err = giteagit.AddChanges(ctx, tempWorkPath, true)
 	require.NoError(t, err)
 
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
-		Author: &object.Signature{
+	err = giteagit.CommitChanges(ctx, tempWorkPath, giteagit.CommitChangesOptions{
+		Message: "Initial commit",
+		Author: &giteagit.Signature{
 			Name:  "Test Author",
 			Email: "test@example.com",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Author",
+			Email: "test@example.com",
+			When:  time.Now(),
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = workRepo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{bareRepoPath},
+	// Add bare repo as remote and push
+	_, _, err = gitcmd.NewCommand("remote", "add", "origin").
+		AddDynamicArguments(bareRepoPath).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: tempWorkPath})
+	require.NoError(t, err)
+
+	err = giteagit.Push(ctx, tempWorkPath, giteagit.PushOptions{
+		Remote: "origin",
+		Branch: "refs/heads/master:refs/heads/master",
 	})
-	require.NoError(t, err)
-
-	err = workRepo.Push(&git.PushOptions{RemoteName: "origin"})
-	require.NoError(t, err)
-
-	headRef, err := bareRepo.Head()
-	require.NoError(t, err)
-
-	masterRef := plumbing.NewBranchReferenceName("master")
-	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
 	require.NoError(t, err)
 
 	repoID := "test-repo-id"
