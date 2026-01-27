@@ -116,7 +116,7 @@ const Projects: FC = () => {
 
   // Agent selection modal state for sample project fork
   const [agentModalOpen, setAgentModalOpen] = useState(false)
-  const [pendingSampleFork, setPendingSampleFork] = useState<{ sampleId: string; sampleName: string } | null>(null)
+  const [pendingSampleFork, setPendingSampleFork] = useState<{ sampleId: string; sampleName: string; sampleProject?: any } | null>(null)
 
   // GitHub auth wizard for sample projects that require it (e.g., helix-in-helix)
   const [sampleWizardOpen, setSampleWizardOpen] = useState(false)
@@ -253,51 +253,54 @@ const Projects: FC = () => {
     setCreateDialogOpen(true)
   }
 
-  // Step 1: User clicks on sample project - show agent selection modal
+  // Step 1: User clicks on sample project - always show agent selection modal first
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
     if (!requireLogin()) return
 
-    // Find the sample project to check if it requires GitHub auth
+    // Find the sample project
     const sampleProject = sampleProjects.find((p: any) => p.id === sampleId)
 
-    if (sampleProject?.requires_github_auth || (sampleProject?.required_repositories?.length || 0) > 0) {
-      // This sample project requires GitHub OAuth - show the wizard
-      setSampleWizardProject(sampleProject)
-      setSampleWizardOpen(true)
-    } else {
-      // Standard flow - show agent selection modal
-      setPendingSampleFork({ sampleId, sampleName })
-      setAgentModalOpen(true)
-    }
+    // Always show agent selection modal first
+    // Store the sample project for later (GitHub auth check happens after agent selection)
+    setPendingSampleFork({ sampleId, sampleName, sampleProject })
+    setAgentModalOpen(true)
   }
 
-  // Step 2: User selects an agent - proceed with fork
+  // Step 2: User selects an agent - proceed with fork or show GitHub wizard
   const handleAgentSelected = async (agentId: string) => {
     if (!pendingSampleFork) return
 
-    const { sampleId, sampleName } = pendingSampleFork
+    const { sampleId, sampleName, sampleProject } = pendingSampleFork
     setPendingSampleFork(null)
 
-    try {
-      snackbar.info(`Creating ${sampleName}...`)
+    // Check if this sample requires GitHub auth
+    if (sampleProject?.requires_github_auth || (sampleProject?.required_repositories?.length || 0) > 0) {
+      // Store the selected agent and open the GitHub wizard
+      setSelectedAgentForWizard(agentId)
+      setSampleWizardProject(sampleProject)
+      setSampleWizardOpen(true)
+    } else {
+      // Standard flow - create project directly
+      try {
+        snackbar.info(`Creating ${sampleName}...`)
 
-      const result = await instantiateSampleMutation.mutateAsync({
-        sampleId,
-        request: {
-          project_name: sampleName,
-          organization_id: account.organizationTools.organization?.id, // Pass current workspace context
-          helix_app_id: agentId, // Pass the selected agent
-        },
-      })
+        const result = await instantiateSampleMutation.mutateAsync({
+          sampleId,
+          request: {
+            project_name: sampleName,
+            organization_id: account.organizationTools.organization?.id,
+            helix_app_id: agentId,
+          },
+        })
 
-      snackbar.success('Sample project created successfully!')
+        snackbar.success('Sample project created successfully!')
 
-      // Navigate to the new project
-      if (result && result.project_id) {
-        account.orgNavigate('project-specs', { id: result.project_id })
+        if (result && result.project_id) {
+          account.orgNavigate('project-specs', { id: result.project_id })
+        }
+      } catch (err) {
+        snackbar.error('Failed to create sample project')
       }
-    } catch (err) {
-      snackbar.error('Failed to create sample project')
     }
   }
 
