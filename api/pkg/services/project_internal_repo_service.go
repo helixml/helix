@@ -577,11 +577,15 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 	}
 
 	// Get commit hash
-	commitHash, _ := GetBranchCommitID(ctx, tempDir, "helix-specs")
+	commitHash, err := GetBranchCommitID(ctx, tempDir, "helix-specs")
+	if err != nil {
+		log.Warn().Err(err).Str("code_repo_path", codeRepoPath).Msg("Failed to get commit hash after saving startup script")
+		commitHash = "(unknown)"
+	}
 
 	log.Info().
 		Str("code_repo_path", codeRepoPath).
-		Str("commit", commitHash[:8]).
+		Str("commit", ShortHash(commitHash)).
 		Msg("Startup script saved to helix-specs branch")
 
 	return true, nil

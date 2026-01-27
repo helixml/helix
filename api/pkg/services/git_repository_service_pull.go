@@ -112,7 +112,7 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
-			Str("commit", remoteCommit[:8]).
+			Str("commit", ShortHash(remoteCommit)).
 			Msg("Created local branch from upstream")
 		return nil
 	}
@@ -143,8 +143,8 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Str("branch", branchName).
 		Int("ahead", ahead).
 		Int("behind", behind).
-		Str("local", localCommit[:8]).
-		Str("remote", remoteCommit[:8]).
+		Str("local", ShortHash(localCommit)).
+		Str("remote", ShortHash(remoteCommit)).
 		Msg("Comparing local and upstream branches")
 
 	// If local has commits not in remote, we have divergence
@@ -169,8 +169,8 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
 		Int("commits_synced", behind).
-		Str("old_commit", localCommit[:8]).
-		Str("new_commit", remoteCommit[:8]).
+		Str("old_commit", ShortHash(localCommit)).
+		Str("new_commit", ShortHash(remoteCommit)).
 		Msg("Fast-forwarded base branch to upstream")
 
 	return nil
@@ -242,8 +242,8 @@ Upstream commit: %s`,
 		err.LocalBehind,
 		repoName,
 		err.BranchName,
-		err.LocalCommit[:8],
-		err.RemoteCommit[:8],
+		ShortHash(err.LocalCommit),
+		ShortHash(err.RemoteCommit),
 	)
 }
 

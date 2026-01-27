@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
@@ -34,6 +35,13 @@ func (wc *WorkingCopy) PushToBare(ctx context.Context, branch string) error {
 	})
 	if err != nil {
 		// Ignore "already up to date" - this is not an error
+		if giteagit.IsErrPushOutOfDate(err) || giteagit.IsErrPushRejected(err) {
+			return fmt.Errorf("failed to push to bare repo: %w", err)
+		}
+		// Check if error message indicates already up to date
+		if strings.Contains(err.Error(), "already up-to-date") || strings.Contains(err.Error(), "Everything up-to-date") {
+			return nil
+		}
 		return fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 	return nil

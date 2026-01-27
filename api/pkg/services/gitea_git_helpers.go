@@ -293,3 +293,15 @@ func GitRenameBranch(ctx context.Context, repoPath, oldName, newName string) err
 	}
 	return nil
 }
+
+// ShortHash safely truncates a commit hash to 8 characters for display.
+// Returns the full string if shorter than 8 characters, or "(empty)" if empty.
+func ShortHash(hash string) string {
+	if hash == "" {
+		return "(empty)"
+	}
+	if len(hash) <= 8 {
+		return hash
+	}
+	return hash[:8]
+}
