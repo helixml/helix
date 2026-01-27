@@ -510,7 +510,7 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 }
 
 // GetExternalRepoStatus returns the status of the local repo compared to the external remote.
-// Uses native git for reliable network operations (avoids go-git deadlock issues).
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID string, branchName string) (*types.ExternalStatus, error) {
 	status := &types.ExternalStatus{}
 

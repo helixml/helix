@@ -36,7 +36,7 @@ func (e *BranchDivergenceError) Error() string {
 //
 // If branchName is empty, uses the repository's DefaultBranch.
 //
-// Uses native git for reliable network operations (avoids go-git deadlock issues).
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branchName string) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -328,7 +328,7 @@ func (s *GitRepositoryService) SyncBaseBranchForTask(ctx context.Context, task *
 // If branchName is empty, uses the repository's DefaultBranch.
 // If DefaultBranch is also empty, returns an error - use SyncAllBranches instead.
 //
-// Uses native git for reliable network operations (avoids go-git deadlock issues).
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -395,7 +395,7 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 // 2. Fetches ALL branches from the "origin" remote
 // 3. Updates local refs to match the remote (including new and deleted branches if prune=true)
 //
-// Uses native git for reliable network operations (avoids go-git deadlock issues).
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {

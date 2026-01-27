@@ -15,7 +15,7 @@ import (
 // This is used when you have local commits in the Helix bare repo that need to be pushed
 // to an external repository (GitHub, Azure DevOps, etc.).
 //
-// Uses native git for reliable network operations (avoids go-git deadlock issues).
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool) error {
 	startTime := time.Now()
 
