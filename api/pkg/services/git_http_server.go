@@ -895,9 +895,6 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 }
 
-// Placeholder methods that will be filled in from the existing implementation
-// These handle the business logic for spec tasks, design docs, etc.
-
 // handleFeatureBranchPush transitions task from implementation → implementation_review
 func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types.GitRepository, branchName, commitHash, repoPath string, gitRepo *GitRepo) {
 	log.Info().Str("repo_id", repo.ID).Str("branch", branchName).Str("commit", commitHash).Msg("Detected feature branch push")
