@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
@@ -30,6 +31,13 @@ type GitRepositoryService struct {
 	enableGitServer bool          // Whether to enable git server functionality
 	testMode        bool          // Test mode for unit tests
 	koditService    *KoditService // Optional Kodit service for code intelligence
+
+	// Per-repository locks to serialize git operations and prevent race conditions.
+	// All compound operations (read+sync, write+push, receive-pack+push) must hold
+	// the lock for the entire duration to prevent concurrent syncs from overwriting
+	// commits between receive-pack and upstream push.
+	repoLocks map[string]*sync.Mutex
+	locksMu   sync.Mutex // protects repoLocks map
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -56,7 +64,32 @@ func NewGitRepositoryService(
 		gitUserEmail:    gitUserEmail,
 		enableGitServer: true,
 		testMode:        false,
+		repoLocks:       make(map[string]*sync.Mutex),
 	}
+}
+
+// GetRepoLock returns the mutex for a specific repository.
+// Used by GitHTTPServer to serialize push operations with other git operations.
+func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+
+	lock, ok := s.repoLocks[repoID]
+	if !ok {
+		lock = &sync.Mutex{}
+		s.repoLocks[repoID] = lock
+	}
+	return lock
+}
+
+// WithRepoLock executes a function while holding the repository lock.
+// This serializes all git operations on the same repository to prevent
+// race conditions between concurrent syncs and pushes.
+func (s *GitRepositoryService) WithRepoLock(repoID string, fn func() error) error {
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
 }
 
 // SetTestMode enables or disables test mode
@@ -565,7 +598,6 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 
 	return status, nil
 }
-
 
 // UpdateRepository updates an existing repository's metadata
 // koditAPIKey is optional - only needed when enabling KoditIndexing for local (non-external) repos
@@ -2243,7 +2275,6 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 
 	return nil
 }
-
 
 // buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
 // This is used by gitea/git module which expects credentials in the URL

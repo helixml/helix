@@ -142,11 +142,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions
 
-	// For external repos, pre-sync from upstream before attempting merge
-	// Also capture old ref for rollback if push fails later
+	// For external repos, acquire lock and sync before merge.
+	// The lock serializes git operations to prevent race conditions.
 	var oldDefaultBranchRef string
 	if repo.IsExternal && repo.ExternalURL != "" {
-		if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, false); err != nil {
+		// Acquire repo lock for the entire merge flow (sync → merge → push)
+		lock := s.gitRepositoryService.GetRepoLock(repo.ID)
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, true); err != nil {
 			log.Warn().
 				Err(err).
 				Str("task_id", specTask.ID).

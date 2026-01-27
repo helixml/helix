@@ -761,3 +761,100 @@ Push 2: ! [remote rejected] helix-specs -> helix-specs (incorrect old value prov
 - Consider making helix-specs a merge-based branch
 - Automatic merge for non-conflicting changes (different task directories)
 - Conflict detection and resolution for same-file changes
+
+---
+
+## Phase 4: Evidence from API Server Logs (2026-01-27)
+
+### Full Timeline from API Logs
+
+| Time (UTC) | Event | Commit | Details |
+|------------|-------|--------|---------|
+| 16:26:14Z | Task 001022 receive-pack | → `362140a75` | `Receive-pack completed pushed_branches=["helix-specs"]` |
+| 16:26:14Z | Task 001022 upstream push | | `Pushing branch to upstream (synchronous)` |
+| 16:26:16Z | Task 001022 upstream success | | `Successfully pushed branch to upstream branch=helix-specs` |
+| 16:26:16Z | Task 001022 post-push hook | `362140a75` | `Processing pushed branch branch=helix-specs commit=362140a7...` |
+| 16:29:11-14Z | Force sync from GitHub | | Multiple `Syncing ALL branches from external repository` with `force=true` |
+| 16:29:22Z | Task 001023 receive-pack | → `1a8a3cdb8` | `Receive-pack completed pushed_branches=["helix-specs"]` |
+| 16:29:22Z | Task 001023 upstream push | | `Pushing branch to upstream (synchronous)` |
+| 16:29:23Z | Task 001023 upstream success | | `Successfully pushed branch to upstream branch=helix-specs` |
+| 16:29:23Z | **BUG**: Post-push hook wrong commit | `362140a75` | `Processing pushed branch branch=helix-specs commit=362140a7...` ← **SHOULD BE 1a8a3cdb8!** |
+| 16:32:03Z | Task 001024 receive-pack | → `04e15b55d` | `Receive-pack completed pushed_branches=["helix-specs"]` |
+| 16:32:03Z | Pre-push sync | | `Successfully synced from upstream before push` |
+| 16:32:04Z | Task 001024 upstream push | | `Pushing branch to upstream (synchronous)` |
+| 16:32:05Z | Task 001024 upstream success | | `Successfully pushed branch to upstream branch=helix-specs` |
+| 16:32:05Z | Post-push hook | `04e15b55d` | `Processing pushed branch branch=helix-specs commit=04e15b55...` |
+| 16:32:05Z | Task detected | | `Design docs detected in push repo_id=... task_ids=["spt_01kg04npzjy912y5jnjp3nc59j"]` |
+
+### Critical Observation
+
+**At 16:29:23**, the post-push hook for task 001023 shows:
+```
+Processing pushed branch branch=helix-specs commit=362140a7539f01aa70462cdf0ebbb099b7e3a868
+```
+
+But the agent pushed `1a8a3cdb8`! The post-push hook is reading the **WRONG COMMIT**.
+
+### No Rollback Log Entry
+
+**Crucially, there is NO "Failed to push branch to upstream - rolling back" log entry** in the API logs around 16:29. This suggests:
+
+1. The upstream push to GitHub DID succeed for task 001023
+2. But something else caused the branch to point to the old commit
+3. OR the post-push hook simply reads the wrong commit (the bug we identified)
+
+### The Real Root Cause: Post-Push Hook Race Condition
+
+Looking at the logs more carefully:
+
+1. At 16:29:11-14, there were **force syncs** happening (`Syncing ALL branches from external repository` with `force=true`)
+2. These syncs were triggered by READ operations (not writes)
+3. The `force=true` sync OVERWROTE local helix-specs with whatever GitHub had at that moment
+4. If the sync happened AFTER receive-pack but BEFORE post-push to GitHub, this would:
+   - Overwrite the local commit `1a8a3cdb8` with the old GitHub commit `362140a75`
+   - The upstream push would then push `362140a75` (no-op since GitHub already has it)
+   - The post-push hook would see `362140a75`
+
+### Sequence Diagram
+
+```
+Agent 001023                    Helix API                     GitHub
+     │                              │                            │
+     │ git push (1a8a3cdb8)         │                            │
+     │ ───────────────────────────> │                            │
+     │                              │ receive-pack               │
+     │                              │ local: 362... → 1a8...     │
+     │                              │                            │
+     │                              │ (Before upstream push...)  │
+     │                              │                            │
+     │              CONCURRENT      │                            │
+     │              READ REQUEST → │ SyncAllBranches(force=true) │
+     │                              │ ───────────────────────────>│
+     │                              │ GitHub still has 362...    │
+     │                              │ <───────────────────────────│
+     │                              │ FORCE overwrites local!    │
+     │                              │ local: 1a8... → 362...     │
+     │                              │                            │
+     │                              │ (Now upstream push...)     │
+     │                              │ PushBranch(helix-specs)    │
+     │                              │ ───────────────────────────>│
+     │                              │ (no-op, already 362...)    │
+     │                              │                            │
+     │                              │ post-push hook             │
+     │                              │ reads: 362... (WRONG!)     │
+     │                              │                            │
+     │ <─────────────────────────── │ (agent sees success)       │
+     │                              │                            │
+     │        COMMIT 1a8a3cdb8 IS NOW LOST!                      │
+```
+
+### The Bug
+
+The `SyncAllBranches(force=true)` is being called by read operations (e.g., viewing the repo), and it **force-overwrites** local refs. If this happens in the window between `receive-pack` and `PushBranchToRemote`, the commit is lost.
+
+### Fix Required
+
+1. **Don't use force=true for SyncAllBranches during reads** - force sync should only be used for explicit user action
+2. **Lock the repository during push operations** - prevent concurrent sync operations
+3. **Push immediately after receive-pack** - minimize the window where commits can be lost
+4. **Don't force-sync helix-specs** - Helix is the source of truth for this branch

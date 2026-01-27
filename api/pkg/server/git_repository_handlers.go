@@ -1010,7 +1010,11 @@ func (s *HelixAPIServer) syncAllBranches(w http.ResponseWriter, r *http.Request)
 
 	force := r.URL.Query().Get("force") == "true"
 
-	err = s.gitRepositoryService.SyncAllBranches(r.Context(), repoID, force)
+	// Acquire repo lock to serialize git operations and prevent race conditions
+	// with concurrent pushes or other syncs.
+	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
+		return s.gitRepositoryService.SyncAllBranches(r.Context(), repoID, force)
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Bool("force", force).Msg("Failed to sync all branches from remote")
 		http.Error(w, fmt.Sprintf("Failed to sync from upstream: %s", err.Error()), http.StatusInternalServerError)

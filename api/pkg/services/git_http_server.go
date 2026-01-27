@@ -68,18 +68,18 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
 type GitHTTPServer struct {
-	store                  store.Store
-	gitRepoService         *GitRepositoryService
-	serverBaseURL          string
-	authTokenHeader        string
-	enablePush             bool
-	enablePull             bool
-	maxRepoSize            int64
-	requestTimeout         time.Duration
-	testMode       bool
-	authorizeFn    AuthorizationFunc
-	triggerManager *trigger.Manager
-	wg                     sync.WaitGroup
+	store           store.Store
+	gitRepoService  *GitRepositoryService
+	serverBaseURL   string
+	authTokenHeader string
+	enablePush      bool
+	enablePull      bool
+	maxRepoSize     int64
+	requestTimeout  time.Duration
+	testMode        bool
+	authorizeFn     AuthorizationFunc
+	triggerManager  *trigger.Manager
+	wg              sync.WaitGroup
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -419,13 +419,17 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	}
 
 	// If this is an external repository, sync from upstream BEFORE serving the pull.
+	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
 	if repo != nil && repo.ExternalURL != "" {
+		lock := s.gitRepoService.GetRepoLock(repoID)
+		lock.Lock()
 		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
-		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
 		} else {
 			log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
 		}
+		lock.Unlock()
 	}
 
 	// Handle GZIP-encoded request body (following gitea's pattern)
@@ -507,13 +511,21 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Acquire repo lock to serialize all git operations on this repository.
+	// This prevents race conditions where a concurrent read (with force sync)
+	// could overwrite commits between receive-pack and upstream push.
+	// The lock MUST be held for the entire push flow: sync -> receive-pack -> upstream push.
+	lock := s.gitRepoService.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
 	// This ensures we have the latest changes and can detect conflicts early.
 	// If sync fails (e.g., local ahead of remote), reject the push - this indicates
 	// something wrote to helix-specs locally without pushing to upstream.
 	if repo != nil && repo.ExternalURL != "" {
 		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
-		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
 			return
