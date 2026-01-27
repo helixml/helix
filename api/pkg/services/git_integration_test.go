@@ -550,6 +550,32 @@ func (s *GitIntegrationSuite) TestPushWhileReading_NoDataLoss() {
 	s.Equal(commitHash, upstreamCommit, "Pushed commit should be in upstream")
 }
 
+func (s *GitIntegrationSuite) TestNoReentrancy_NestedLockWouldDeadlock() {
+	// This test verifies that our locking pattern does NOT cause reentrancy.
+	// If SyncAllBranches or PushBranchToRemote tried to acquire the lock,
+	// this test would deadlock and timeout.
+
+	done := make(chan bool)
+
+	go func() {
+		// Simulate WithExternalRepoWrite pattern:
+		// Acquire lock, then call SyncAllBranches (which must NOT acquire lock)
+		err := s.gitRepoService.WithRepoLock("test-repo", func() error {
+			// This call would DEADLOCK if SyncAllBranches tried to acquire the lock
+			return s.gitRepoService.SyncAllBranches(s.ctx, "test-repo", true)
+		})
+		s.Require().NoError(err)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success - no deadlock
+	case <-time.After(5 * time.Second):
+		s.Fail("Test timed out - possible reentrancy deadlock detected")
+	}
+}
+
 // =============================================================================
 // HTTP Server Tests
 // =============================================================================

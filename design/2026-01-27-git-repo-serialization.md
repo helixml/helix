@@ -155,3 +155,64 @@ Using `force=false` was confusing because it implied we might want to preserve l
 | Strict read | `MustSyncBeforeRead` | sync + read |
 | Explicit sync API | `syncAllBranchesHandler` | sync |
 | Server-side merge | `approveImplementationHandler` | sync + merge + push |
+| Push to remote API | `pushToRemoteGitRepository` | push |
+| Create PR API | `createPullRequest` | push + PR creation |
+| Ensure PR (async) | `ensurePullRequest` | push |
+
+## Audit Results (2026-01-27)
+
+### Issues Found and Fixed
+
+| Location | Issue | Fix |
+|----------|-------|-----|
+| `git_http_server.go:handleUploadPack` | `lock.Unlock()` without defer - not panic-safe | Wrapped in `func() { lock.Lock(); defer lock.Unlock(); ... }()` |
+| `git_repository_handlers.go:pushToRemoteGitRepository` | `PushBranchToRemote` without lock | Wrapped in `WithRepoLock` |
+| `git_repository_handlers.go:createPullRequest` | `PushBranchToRemote` + `CreatePullRequest` without lock | Wrapped both in `WithRepoLock` |
+| `git_http_server.go:ensurePullRequest` | `PushBranchToRemote` in async goroutine without lock | Wrapped in `WithRepoLock` |
+
+### No Reentrancy
+
+Verified that inner functions do NOT acquire locks:
+- `SyncAllBranches` - no lock calls
+- `PushBranchToRemote` - no lock calls
+- `CreatePullRequest` - no lock calls
+- `CreateOrUpdateFileContents` - no lock calls
+
+Lock acquisition only happens at entry points (HTTP handlers and helper wrappers).
+Test `TestNoReentrancy_NestedLockWouldDeadlock` proves no deadlock.
+
+### Panic Safety
+
+All lock acquisitions use `defer lock.Unlock()` pattern.
+
+### Data Race Fix
+
+`GetRepository` was mutating fields on a shared `types.GitRepository` pointer from the store.
+Fixed by making a defensive copy of the struct before mutating:
+```go
+storedRepo, err := s.store.GetGitRepository(ctx, repoID)
+// Make defensive copy
+gitRepo := *storedRepo
+if storedRepo.Branches != nil {
+    gitRepo.Branches = make([]string, len(storedRepo.Branches))
+    copy(gitRepo.Branches, storedRepo.Branches)
+}
+```
+
+## Tests
+
+Integration tests in `api/pkg/services/git_integration_test.go`:
+
+| Test | Purpose |
+|------|---------|
+| `TestPushToExternalRepo` | Basic push flow works |
+| `TestSyncFromUpstream` | Sync pulls external changes |
+| `TestForceSyncOverwritesDivergedLocal` | Force sync overwrites local divergence |
+| `TestConcurrentPushes_DifferentFiles` | Concurrent pushes are serialized |
+| `TestLockSerializesOperations` | Lock prevents concurrent locked operations |
+| `TestLockPerRepo_DifferentReposConcurrent` | Different repos can operate concurrently |
+| `TestPushWhileReading_NoDataLoss` | Push during read completes successfully |
+| `TestNoReentrancy_NestedLockWouldDeadlock` | Proves no reentrancy deadlock |
+| `TestHTTPServer_InfoRefs` | HTTP git protocol works |
+
+All tests pass with `-race` flag.

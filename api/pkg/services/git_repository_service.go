@@ -505,9 +505,18 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
 
-	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions when updateRepositoryFromGit
+	// mutates fields like Branches, LastActivity, etc.
+	gitRepo := *storedRepo
+	// Deep copy the Branches slice to avoid shared backing array
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
 	}
 
 	// Got from database - verify the LocalPath exists if this is not external
@@ -527,12 +536,12 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	// Update with current git information (clones external repos if needed, detects default branch)
-	err = s.updateRepositoryFromGit(ctx, gitRepo)
+	err = s.updateRepositoryFromGit(ctx, &gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
 	}
 
-	return gitRepo, nil
+	return &gitRepo, nil
 }
 
 // GetExternalRepoStatus returns the status of the local repo compared to the external remote.

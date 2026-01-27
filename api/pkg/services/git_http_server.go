@@ -420,16 +420,19 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 
 	// If this is an external repository, sync from upstream BEFORE serving the pull.
 	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
+	// Wrap in func() to ensure defer works correctly for panic safety.
 	if repo != nil && repo.ExternalURL != "" {
-		lock := s.gitRepoService.GetRepoLock(repoID)
-		lock.Lock()
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
-		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
-			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
-		} else {
-			log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
-		}
-		lock.Unlock()
+		func() {
+			lock := s.gitRepoService.GetRepoLock(repoID)
+			lock.Lock()
+			defer lock.Unlock()
+			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+			if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
+			} else {
+				log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
+			}
+		}()
 	}
 
 	// Handle GZIP-encoded request body (following gitea's pattern)
@@ -1019,7 +1022,10 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
-	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false); err != nil {
+	// Acquire repo lock for push operation to prevent race conditions.
+	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
+		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false)
+	}); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 
