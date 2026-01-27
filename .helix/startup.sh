@@ -13,6 +13,34 @@ echo "  Helix-in-Helix Development Setup"
 echo "========================================"
 echo ""
 
+# =========================================
+# Rename numbered repos to canonical names
+# =========================================
+# The API auto-increments repo names (helix-1, zed-2, etc.) when duplicates exist.
+# The ./stack script expects ../zed and ../qwen-code to exist.
+# We rename to canonical names and create symlinks for API compatibility on restart.
+
+cd ~/work
+
+for pattern in "helix-" "zed-" "qwen-code-"; do
+    canonical="${pattern%-}"  # Remove trailing dash (e.g., "helix-" -> "helix")
+    for numbered in ${pattern}[0-9]*; do
+        [ -d "$numbered" ] || continue
+        # Skip if it's already a symlink
+        [ -L "$numbered" ] && continue
+        if [ ! -e "$canonical" ]; then
+            echo "Renaming $numbered → $canonical"
+            mv "$numbered" "$canonical"
+            ln -s "$canonical" "$numbered"
+            echo "  Created symlink $numbered → $canonical"
+        else
+            echo "Skipping $numbered (canonical $canonical already exists)"
+        fi
+    done
+done
+
+echo ""
+
 # Ensure tmux is installed (needed for ./stack start)
 if ! command -v tmux &> /dev/null; then
     echo "Installing tmux..."
