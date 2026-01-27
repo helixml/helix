@@ -80,6 +80,30 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 - [ ] Third task
 ` + "```" + `
 
+## Kodit MCP Server - Discover Patterns
+
+You have access to **Kodit**, an MCP server for code intelligence. Use it to discover patterns
+in other repositories and libraries within the organization:
+
+- Find how similar features are implemented elsewhere
+- Discover existing utilities, helpers, or patterns to reuse
+- Understand architectural conventions used in related projects
+- Search private/internal codebases the organization has indexed
+
+This helps you design solutions that are consistent with existing patterns rather than
+reinventing approaches that already exist.
+
+## Document Your Learnings
+
+**Your design docs may be cloned to similar projects.** Write down what you discover:
+
+- Patterns you found in the codebase ("This project uses X pattern for Y")
+- Decisions and rationale ("Chose A over B because...")
+- Things you learned from Kodit searches ("Found existing utility Z in repo W")
+- Constraints or gotchas you identified ("Note: this codebase requires X")
+
+Future agents implementing similar tasks will read your notes and skip the discovery process.
+
 ## After Pushing
 
 Tell the user the design is ready for review. The backend detects your push and moves the task to review status.
