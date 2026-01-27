@@ -112,12 +112,18 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 		redirectURL = p.config.CallbackURL
 	}
 
+	// Use consumer-specified scopes, or fall back to provider's default scopes
+	effectiveScopes := scopes
+	if len(effectiveScopes) == 0 {
+		effectiveScopes = p.oauthConfig.Scopes
+	}
+
 	// Clone the config to use custom redirect URL and consumer-specified scopes
 	oauth2Config := &oauth2.Config{
 		ClientID:     p.oauthConfig.ClientID,
 		ClientSecret: p.oauthConfig.ClientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       scopes,
+		Scopes:       effectiveScopes,
 		Endpoint:     p.oauthConfig.Endpoint,
 	}
 
