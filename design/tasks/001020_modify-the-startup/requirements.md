@@ -43,4 +43,4 @@ The same `HELIX_PRIMARY_REPO_NAME` is used for:
 
 ## Out of Scope
 
-- Changing the API's auto-increment logic (that's a separate concern for avoiding DB conflicts)
+- Changing the API's auto-increment logic (that's a separate concern for avoiding DB conflicts and confusing users who have multiple repos with the same name)
