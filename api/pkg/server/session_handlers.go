@@ -1836,10 +1836,20 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 				}
 			}
 
-			// Set primary repository from project (repos are now managed at project level)
+			// Set primary repository and UseHostDocker from project (repos are now managed at project level)
 			project, err := s.Controller.Options.Store.GetProject(ctx, projectID)
-			if err == nil && project.DefaultRepoID != "" {
-				agent.PrimaryRepositoryID = project.DefaultRepoID
+			if err == nil {
+				if project.DefaultRepoID != "" {
+					agent.PrimaryRepositoryID = project.DefaultRepoID
+				}
+				// Set UseHostDocker from project (requires admin access)
+				if project.UseHostDocker {
+					if !user.Admin {
+						http.Error(rw, "UseHostDocker requires admin access", http.StatusForbidden)
+						return
+					}
+					agent.UseHostDocker = true
+				}
 			} else if len(projectRepos) > 0 {
 				// Use first repo as fallback if no default set
 				agent.PrimaryRepositoryID = projectRepos[0].ID

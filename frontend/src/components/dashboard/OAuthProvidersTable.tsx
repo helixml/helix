@@ -4,7 +4,7 @@ import {
   Button,
   DialogActions,
   DialogContent,
-  DialogTitle,  
+  DialogTitle,
   FormControlLabel,
   Grid,
   IconButton,
@@ -13,12 +13,14 @@ import {
   Typography,
   Chip,
   Card,
-  CardContent,  
+  CardContent,
   CardActions,
   CardHeader,
   Avatar,
   Tooltip,
-  Divider,  
+  Divider,
+  Alert,
+  Link,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
@@ -45,61 +47,117 @@ import {
   BUILT_IN_PROVIDERS,
 } from '../icons/ProviderIcons'
 
+// Provider setup instructions - concise guidance on where to get credentials
+const PROVIDER_SETUP_GUIDE: Record<string, {
+  setupUrl: string;
+  steps: string[];
+}> = {
+  github: {
+    setupUrl: 'https://github.com/settings/developers',
+    steps: [
+      'Go to GitHub → Settings → Developer settings → OAuth Apps',
+      'Click "New OAuth App" and fill in your app details',
+      'Copy the Client ID and generate a Client Secret',
+    ],
+  },
+  google: {
+    setupUrl: 'https://console.cloud.google.com/apis/credentials',
+    steps: [
+      'Go to Google Cloud Console → APIs & Services → Credentials',
+      'Click "Create Credentials" → "OAuth client ID"',
+      'Select "Web application" and configure authorized redirect URIs',
+    ],
+  },
+  microsoft: {
+    setupUrl: 'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
+    steps: [
+      'Go to Azure Portal → App registrations → New registration',
+      'Add a redirect URI under Authentication',
+      'Create a client secret under Certificates & secrets',
+    ],
+  },
+  slack: {
+    setupUrl: 'https://api.slack.com/apps',
+    steps: [
+      'Go to api.slack.com/apps → Create New App',
+      'Choose "From scratch" and select your workspace',
+      'Find Client ID and Client Secret under Basic Information',
+    ],
+  },
+  linkedin: {
+    setupUrl: 'https://www.linkedin.com/developers/apps',
+    steps: [
+      'Go to LinkedIn Developers → Create app',
+      'Verify your app and request API products',
+      'Find credentials under Auth tab',
+    ],
+  },
+  atlassian: {
+    setupUrl: 'https://developer.atlassian.com/console/myapps/',
+    steps: [
+      'Go to Atlassian Developer Console → Create → OAuth 2.0 integration',
+      'Configure permissions and callback URL',
+      'Copy Client ID and Secret from Settings',
+    ],
+  },
+  hubspot: {
+    setupUrl: 'https://developers.hubspot.com/get-started',
+    steps: [
+      'Go to HubSpot Developer → Create a private app',
+      'Configure scopes under Settings',
+      'Copy App ID and Client Secret',
+    ],
+  },
+};
+
 // Add provider URL defaults for built-in providers
+// Note: Scopes are specified by consumers (apps, sample projects) when starting OAuth flow
 export const PROVIDER_DEFAULTS: Record<string, {
   auth_url: string;
   token_url: string;
   user_info_url: string;
-  scopes: string[];
   type: string;
 }> = {
   github: {
     auth_url: 'https://github.com/login/oauth/authorize',
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
-    scopes: ['read:user', 'user:email', 'repo'],
     type: 'github'
   },
   google: {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
     token_url: 'https://oauth2.googleapis.com/token',
     user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
-    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
     type: 'google'
   },
   microsoft: {
     auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     user_info_url: 'https://graph.microsoft.com/v1.0/me',
-    scopes: ['openid', 'profile', 'email', 'offline_access'],
     type: 'microsoft'
   },
   slack: {
     auth_url: 'https://slack.com/oauth/v2/authorize',
     token_url: 'https://slack.com/api/oauth.v2.access',
     user_info_url: 'https://slack.com/api/users.identity',
-    scopes: ['identity.basic', 'identity.email', 'identity.avatar'],
     type: 'slack'
   },
   linkedin: {
     auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
     token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
     user_info_url: 'https://api.linkedin.com/v2/me',
-    scopes: ['r_liteprofile', 'r_emailaddress'],
     type: 'linkedin'
   },
   atlassian: {
     auth_url: 'https://auth.atlassian.com/authorize',
     token_url: 'https://auth.atlassian.com/oauth/token',
     user_info_url: 'https://api.atlassian.com/me',
-    scopes: ['read:me'],
     type: 'atlassian'
   },
   hubspot: {
     auth_url: 'https://app-na2.hubspot.com/oauth/authorize',
     token_url: 'https://api.hubapi.com/oauth/v1/token',
     user_info_url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
-    scopes: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.tickets.read', 'crm.objects.deals.read'],
     type: 'hubspot'
   }
 }; 
@@ -217,13 +275,6 @@ const OAuthProvidersTable: React.FC = () => {
     
     const { name, checked } = e.target
     setCurrentProvider(prev => prev ? { ...prev, [name]: checked } : null)
-  }
-  
-  const handleScopeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!currentProvider) return
-    
-    const scopes = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-    setCurrentProvider(prev => prev ? { ...prev, scopes } : null)
   }
   
   const handleSaveProvider = async () => {
@@ -726,13 +777,13 @@ const OAuthProvidersTable: React.FC = () => {
                   onChange={handleInputChange}
                 />
               </Grid>
-              
+
               <Grid item xs={12}>
                 <Divider sx={{ my: 1 }}>
                   <Chip label="Authentication Settings" />
                 </Divider>
               </Grid>
-              
+
               <Grid item xs={12}>
                 <FormControlLabel
                   control={
@@ -745,6 +796,40 @@ const OAuthProvidersTable: React.FC = () => {
                   label="Enabled"
                 />
               </Grid>
+
+              {/* Setup guide for known provider types - shown after enable toggle */}
+              {currentProvider.type && currentProvider.type !== 'custom' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
+                <Grid item xs={12}>
+                  <Alert
+                    severity="info"
+                    icon={false}
+                    sx={{
+                      '& .MuiAlert-message': { width: '100%' },
+                      backgroundColor: 'rgba(33, 150, 243, 0.05)',
+                      py: 1,
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      <Link
+                        href={PROVIDER_SETUP_GUIDE[currentProvider.type].setupUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Open {PROVIDER_TYPES[currentProvider.type as keyof typeof PROVIDER_TYPES]} Developer Console ↗
+                      </Link>
+                    </Typography>
+                    <Box component="ol" sx={{ m: 0, pl: 2, '& li': { mb: 0.25 } }}>
+                      {PROVIDER_SETUP_GUIDE[currentProvider.type].steps.map((step, i) => (
+                        <li key={i}>
+                          <Typography variant="caption" color="text.secondary">
+                            {step}
+                          </Typography>
+                        </li>
+                      ))}
+                    </Box>
+                  </Alert>
+                </Grid>
+              )}
               
               <Grid item xs={6}>
                 <TextField
@@ -819,16 +904,6 @@ const OAuthProvidersTable: React.FC = () => {
                 </>
               )}
               
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Scopes"
-                  name="scopes"
-                  value={currentProvider?.scopes?.join(', ')}
-                  onChange={handleScopeChange}
-                  helperText="Comma-separated list of OAuth scopes (e.g. profile, email, read:user)"
-                />
-              </Grid>
             </Grid>
           )}
         </DialogContent>

@@ -472,11 +472,33 @@ export class MessageProcessor {
       return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
     });
 
+    // Also protect inline code spans
+    const inlineCode: string[] = [];
+    processedMessage = processedMessage.replace(/`([^`]+)`/g, (match) => {
+      inlineCode.push(match);
+      return `__INLINE_CODE_${inlineCode.length - 1}__`;
+    });
+
+    // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
+    // This prevents malformed tags like <svg xmlns="... from breaking rendering
+    const ALLOWED_TAG_NAMES = ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
+    processedMessage = processedMessage.replace(/<(\/?)([\w-]+)/g, (match, slash, tagName) => {
+      if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
+        return match; // Keep allowed tags
+      }
+      return `&lt;${slash}${tagName}`; // Escape disallowed tags
+    });
+
     // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
     processedMessage = DOMPurify.sanitize(processedMessage, {
-      ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_TAGS: ALLOWED_TAG_NAMES,
       ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
       ADD_ATTR: ['target']
+    });
+
+    // Restore inline code
+    inlineCode.forEach((code, index) => {
+      processedMessage = processedMessage.replace(`__INLINE_CODE_${index}__`, code);
     });
 
     // Restore code blocks
@@ -717,6 +739,9 @@ const CodeBlockWithCopy: FC<{ children: string; language?: string }> = ({ childr
   );
 };
 
+// Throttle interval for streaming updates (ms)
+const STREAMING_THROTTLE_MS = 150;
+
 // Main component
 const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
@@ -731,17 +756,23 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
   const [thinkingWidgetContent, setThinkingWidgetContent] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!text) {
+  // Throttling refs for streaming performance
+  const throttleTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProcessedTextRef = React.useRef<string>('');
+  const pendingTextRef = React.useRef<string>('');
+
+  // Process content helper
+  const processContent = useCallback((textToProcess: string) => {
+    if (!textToProcess) {
       setProcessedContent('');
       setCitationData(null);
       setThinkingWidgetContent(null);
       return;
     }
-    // Process the message content
+
     let content: string;
     if (session) {
-      const processor = new MessageProcessor(text, {
+      const processor = new MessageProcessor(textToProcess, {
         session,
         getFileURL,
         showBlinker,
@@ -775,12 +806,50 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         setThinkingWidgetContent(null);
       }
     } else {
-      content = processBasicContent(text);
+      content = processBasicContent(textToProcess);
       setCitationData(null);
       setThinkingWidgetContent(null);
     }
     setProcessedContent(content);
-  }, [text, session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
+    lastProcessedTextRef.current = textToProcess;
+  }, [session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
+
+  useEffect(() => {
+    // Store the latest text
+    pendingTextRef.current = text;
+
+    // If not streaming, process immediately
+    if (!isStreaming) {
+      // Clear any pending throttle
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+        throttleTimeoutRef.current = null;
+      }
+      processContent(text);
+      return;
+    }
+
+    // During streaming, throttle updates
+    // If no pending timeout, process immediately and start throttle window
+    if (!throttleTimeoutRef.current) {
+      processContent(text);
+      throttleTimeoutRef.current = setTimeout(() => {
+        throttleTimeoutRef.current = null;
+        // Process any pending text that arrived during throttle window
+        if (pendingTextRef.current !== lastProcessedTextRef.current) {
+          processContent(pendingTextRef.current);
+        }
+      }, STREAMING_THROTTLE_MS);
+    }
+    // If there's already a pending timeout, the text will be processed when it fires
+
+    return () => {
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+        throttleTimeoutRef.current = null;
+      }
+    };
+  }, [text, isStreaming, processContent]);
 
   return (
     <>

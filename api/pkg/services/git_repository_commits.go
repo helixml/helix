@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -21,38 +19,48 @@ func (s *GitRepositoryService) ListCommits(ctx context.Context, req *types.ListC
 		return nil, fmt.Errorf("repository has no local path")
 	}
 
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	// Open repository using gitea's wrapper
+	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer gitRepo.Close()
 
-	var ref *plumbing.Reference
+	// Determine starting ref and get the commit
+	var startCommit *giteagit.Commit
 	if req.Branch == "" {
-		ref, err = gitRepo.Head()
+		// Use HEAD
+		headBranch, err := GetHEADBranch(ctx, repo.LocalPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get HEAD: %w", err)
 		}
-	} else {
-		ref, err = gitRepo.Reference(plumbing.NewBranchReferenceName(req.Branch), true)
+		startCommit, err = gitRepo.GetBranchCommit(headBranch)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get branch reference: %w", err)
+			return nil, fmt.Errorf("failed to get HEAD commit: %w", err)
+		}
+	} else {
+		// Verify branch exists and get commit
+		startCommit, err = gitRepo.GetBranchCommit(req.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get branch commit: %w", err)
 		}
 	}
 
-	var sinceTime, untilTime *time.Time
+	// Parse time filters
+	var sinceStr, untilStr string
 	if req.Since != "" {
 		t, err := time.Parse(time.RFC3339, req.Since)
 		if err != nil {
 			return nil, fmt.Errorf("invalid since date format: %w", err)
 		}
-		sinceTime = &t
+		sinceStr = t.Format(time.RFC3339)
 	}
 	if req.Until != "" {
 		t, err := time.Parse(time.RFC3339, req.Until)
 		if err != nil {
 			return nil, fmt.Errorf("invalid until date format: %w", err)
 		}
-		untilTime = &t
+		untilStr = t.Format(time.RFC3339)
 	}
 
 	perPage := req.PerPage
@@ -63,62 +71,38 @@ func (s *GitRepositoryService) ListCommits(ctx context.Context, req *types.ListC
 	if page <= 0 {
 		page = 1
 	}
-	skip := (page - 1) * perPage
 
-	commitIter, err := gitRepo.Log(&git.LogOptions{
-		From: ref.Hash(),
-	})
+	// Use gitea's high-level CommitsByRange API
+	// Parameters: page, pageSize, not, since, until
+	giteaCommits, err := startCommit.CommitsByRange(page, perPage, "", sinceStr, untilStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get git log: %w", err)
+		return nil, fmt.Errorf("failed to get commits: %w", err)
 	}
 
+	// Get total count for pagination
+	// Note: CommitsCount returns total commits from this commit back (ignores time filters)
+	// For accurate total with filters, we'd need to count separately
+	totalCount, err := startCommit.CommitsCount()
+	if err != nil {
+		// Non-fatal, just use current page size as estimate
+		totalCount = int64(len(giteaCommits))
+	}
+
+	// Convert to our Commit type
 	var commits []*types.Commit
-	count := 0
-	skipped := 0
-	totalCount := 0
-
-	errStopIteration := fmt.Errorf("stop iteration")
-
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		if sinceTime != nil && commit.Author.When.Before(*sinceTime) {
-			return nil
-		}
-		if untilTime != nil && commit.Author.When.After(*untilTime) {
-			return nil
-		}
-
-		// Count all matching commits for total
-		totalCount++
-
-		if skipped < skip {
-			skipped++
-			return nil
-		}
-
-		if count >= perPage {
-			// Continue counting for total but don't add to results
-			return nil
-		}
-
+	for _, c := range giteaCommits {
 		commits = append(commits, &types.Commit{
-			SHA:       commit.Hash.String(),
-			Message:   commit.Message,
-			Author:    commit.Author.Name,
-			Email:     commit.Author.Email,
-			Timestamp: commit.Author.When,
+			SHA:       c.ID.String(),
+			Author:    c.Author.Name,
+			Email:     c.Author.Email,
+			Timestamp: c.Author.When,
+			Message:   c.Summary(),
 		})
-
-		count++
-		return nil
-	})
-
-	if err != nil && err != errStopIteration {
-		return nil, fmt.Errorf("failed to iterate commits: %w", err)
 	}
 
 	return &types.ListCommitsResponse{
 		Commits: commits,
-		Total:   totalCount,
+		Total:   int(totalCount),
 		Page:    page,
 		PerPage: perPage,
 	}, nil

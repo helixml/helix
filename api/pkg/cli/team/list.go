@@ -3,9 +3,9 @@ package team
 import (
 	"fmt"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
@@ -41,29 +41,17 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("failed to list teams: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-		table.SetHeader([]string{"ID", "Name", "Created"})
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Name", "Created"})
 
 		for _, team := range teams {
-			table.Append([]string{
+			cli.AppendRow(table, []string{
 				team.ID,
 				team.Name,
 				team.CreatedAt.Format("2006-01-02 15:04:05"),
 			})
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 		return nil
 	},
 }

@@ -13,6 +13,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -242,12 +243,13 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 
 // listGitRepositories lists all repositories, optionally filtered by owner
 // @Summary List git repositories
-// @Description List all git repositories, optionally filtered by owner and type
+// @Description List all git repositories, optionally filtered by owner, type, and project
 // @Tags git-repositories
 // @Produce json
 // @Param owner_id query string false "Filter by owner ID"
 // @Param repo_type query string false "Filter by repository type"
 // @Param organization_id query string false "Filter by organization ID"
+// @Param project_id query string false "Filter by project ID"
 // @Success 200 {array} types.GitRepository
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories [get]
@@ -258,6 +260,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	ownerID := r.URL.Query().Get("owner_id")
 	repoType := r.URL.Query().Get("repo_type")
 	orgID := r.URL.Query().Get("organization_id")
+	projectID := r.URL.Query().Get("project_id")
 
 	user := getRequestUser(r)
 
@@ -269,9 +272,30 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// If filtering by project, verify user has access to the project
+	if projectID != "" {
+		project, err := s.Store.GetProject(ctx, projectID)
+		if err != nil {
+			http.Error(w, "Project not found", http.StatusNotFound)
+			return
+		}
+		// Check user has access to this project (owner or org member)
+		if project.UserID != user.ID && project.OrganizationID != "" {
+			_, err := s.authorizeOrgMember(ctx, user, project.OrganizationID)
+			if err != nil {
+				writeErrResponse(w, err, http.StatusForbidden)
+				return
+			}
+		} else if project.UserID != user.ID {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
+
 	repositories, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
 		OwnerID:        ownerID,
 		OrganizationID: orgID,
+		ProjectID:      projectID,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list git repositories")
@@ -668,21 +692,29 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 		path = "."
 	}
 
+	// Get repository first to determine branch and check if external
+	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	branch := r.URL.Query().Get("branch")
 	if branch == "" {
-		repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for default branch")
-			http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
 		branch = repository.DefaultBranch
 		if branch == "" {
 			branch = "main"
 		}
 	}
 
-	entries, err := apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path, branch)
+	// For external repos, sync from upstream before reading
+	var entries []types.TreeEntry
+	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
+		var browseErr error
+		entries, browseErr = apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path, branch)
+		return browseErr
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Str("branch", branch).Msg("Failed to browse repository tree")
 		http.Error(w, fmt.Sprintf("Failed to browse repository: %s", err.Error()), http.StatusInternalServerError)
@@ -718,7 +750,21 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
-	branches, err := apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+	// Get repository to check if external
+	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// For external repos, sync from upstream before reading
+	var branches []string
+	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
+		var listErr error
+		branches, listErr = apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+		return listErr
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository branches")
 		http.Error(w, fmt.Sprintf("Failed to list branches: %s", err.Error()), http.StatusInternalServerError)
@@ -757,21 +803,29 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 		return
 	}
 
+	// Get repository first to determine branch and check if external
+	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	branch := r.URL.Query().Get("branch")
 	if branch == "" {
-		repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for default branch")
-			http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
 		branch = repository.DefaultBranch
 		if branch == "" {
 			branch = "main"
 		}
 	}
 
-	content, err := apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path, branch)
+	// For external repos, sync from upstream before reading
+	var content string
+	err = apiServer.gitRepositoryService.WithExternalRepoRead(r.Context(), repository, func() error {
+		var readErr error
+		content, readErr = apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path, branch)
+		return readErr
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Str("branch", branch).Msg("Failed to get file contents")
 		http.Error(w, fmt.Sprintf("Failed to get file contents: %s", err.Error()), http.StatusInternalServerError)
@@ -869,19 +923,39 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		}
 	}
 
-	fileContent, err := s.gitRepositoryService.CreateOrUpdateFileContents(
+	// Use WithExternalRepoWrite to handle pre-sync, write, post-push, and rollback
+	var fileContent string
+	err = s.gitRepositoryService.WithExternalRepoWrite(
 		r.Context(),
-		repoID,
-		request.Path,
-		request.Branch,
-		content,
-		request.Message,
-		authorName,
-		authorEmail,
+		existing,
+		services.ExternalRepoWriteOptions{
+			Branch:          request.Branch,
+			FailOnSyncError: true,
+			FailOnPushError: true,
+		},
+		func() error {
+			var writeErr error
+			fileContent, writeErr = s.gitRepositoryService.CreateOrUpdateFileContents(
+				r.Context(),
+				repoID,
+				request.Path,
+				request.Branch,
+				content,
+				request.Message,
+				authorName,
+				authorEmail,
+			)
+			return writeErr
+		},
 	)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
-		http.Error(w, fmt.Sprintf("Failed to create/update file: %s", err.Error()), http.StatusInternalServerError)
+		// Check if it's a sync error (409) or other error (500)
+		if strings.Contains(err.Error(), "sync from upstream") {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to create/update file: %s", err.Error()), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -1290,10 +1364,22 @@ func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *htt
 		}
 	}
 
-	err = s.gitRepositoryService.CreateBranch(r.Context(), repoID, request.BranchName, baseBranch)
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Str("branch", request.BranchName).Msg("Failed to create branch")
-		http.Error(w, fmt.Sprintf("Failed to create branch: %s", err.Error()), http.StatusInternalServerError)
+	// Use WithExternalRepoWrite to sync, create branch, and push for external repos
+	writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+		r.Context(),
+		repository,
+		services.ExternalRepoWriteOptions{
+			Branch:          request.BranchName,
+			FailOnSyncError: true,
+			FailOnPushError: true,
+		},
+		func() error {
+			return s.gitRepositoryService.CreateBranch(r.Context(), repoID, request.BranchName, baseBranch)
+		},
+	)
+	if writeErr != nil {
+		log.Error().Err(writeErr).Str("repo_id", repoID).Str("branch", request.BranchName).Msg("Failed to create branch")
+		http.Error(w, fmt.Sprintf("Failed to create branch: %s", writeErr.Error()), http.StatusInternalServerError)
 		return
 	}
 

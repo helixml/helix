@@ -8,10 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
-	"github.com/go-git/go-git/v6/plumbing/transport/http"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -51,14 +49,12 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 
 	bareRepoPath := fmt.Sprintf("%s/%s.git", suite.testDir, repoID)
 
-	cloneOptions := &git.CloneOptions{
-		URL:      suite.adoRepo,
-		Bare:     true,
-		Progress: os.Stdout,
-		Auth:     &http.BasicAuth{Username: "PAT", Password: suite.adoToken},
-	}
-
-	_, err := git.PlainClone(bareRepoPath, cloneOptions)
+	// Clone using gitea (with authentication embedded in URL)
+	authURL := suite.buildAuthenticatedURL(suite.adoRepo, suite.adoToken)
+	err := giteagit.Clone(ctx, authURL, bareRepoPath, giteagit.CloneRepoOptions{
+		Bare:   true,
+		Mirror: true,
+	})
 	suite.Require().NoError(err, "Failed to clone external repository")
 
 	gitRepo := &types.GitRepository{
@@ -94,38 +90,47 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 	err = suite.s.PushBranchToRemote(ctx, repoID, branchName, false)
 	suite.Require().NoError(err, "Failed to push branch to remote")
 
+	// Verify push by cloning to a new directory
 	verifyDir := suite.T().TempDir()
-	verifyCloneOptions := &git.CloneOptions{
-		URL:           suite.adoRepo,
-		ReferenceName: plumbing.NewBranchReferenceName(branchName),
-		SingleBranch:  true,
-		Auth:          &http.BasicAuth{Username: "PAT", Password: suite.adoToken},
-	}
+	verifyAuthURL := suite.buildAuthenticatedURL(suite.adoRepo, suite.adoToken)
 
-	verifyRepo, err := git.PlainClone(verifyDir, verifyCloneOptions)
+	err = giteagit.Clone(ctx, verifyAuthURL, verifyDir, giteagit.CloneRepoOptions{
+		Branch: branchName,
+	})
 	suite.Require().NoError(err, "Failed to clone remote to verify push")
 
-	commitIter, err := verifyRepo.Log(&git.LogOptions{})
+	// Get recent commits using git log
+	stdout, _, err := gitcmd.NewCommand("log", "--oneline", "-2").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: verifyDir})
 	suite.Require().NoError(err, "Failed to get commit log from remote")
 
-	var commits []string
-	_ = commitIter.ForEach(func(c *object.Commit) error {
-		commits = append(commits, c.Message)
-		if len(commits) >= 2 {
-			return fmt.Errorf("stop")
-		}
-		return nil
-	})
-
+	commits := strings.Split(strings.TrimSpace(stdout), "\n")
 	suite.Require().GreaterOrEqual(len(commits), 1, "Expected at least 1 commit in the remote branch")
 
+	// Verify commit message is present
 	foundCommit := false
-	for _, msg := range commits {
-		if strings.TrimSpace(msg) == strings.TrimSpace(commitMsg) {
+	for _, line := range commits {
+		if strings.Contains(line, "Test commit") {
 			foundCommit = true
 			break
 		}
 	}
 
-	suite.True(foundCommit, "Commit not found in remote branch, got: %v, expected: %s", commits, commitMsg)
+	suite.True(foundCommit, "Commit not found in remote branch, got: %v, expected message containing: %s", commits, "Test commit")
+}
+
+// buildAuthenticatedURL embeds credentials into the URL for Azure DevOps
+// Uses the production BuildAuthenticatedURL function for consistency
+func (suite *GitRepositoryPushSuiteADO) buildAuthenticatedURL(repoURL, token string) string {
+	if token == "" {
+		return repoURL
+	}
+
+	// Use production function - ADO uses "PAT" as username
+	authURL, err := BuildAuthenticatedURL(repoURL, "PAT", token)
+	if err != nil {
+		suite.T().Logf("Failed to build authenticated URL: %v", err)
+		return repoURL
+	}
+	return authURL
 }

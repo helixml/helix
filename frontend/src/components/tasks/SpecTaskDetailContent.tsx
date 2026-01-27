@@ -696,33 +696,55 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Clone Info
           </Typography>
 
-          {/* Link to source task if this was cloned */}
+          {/* Link to source task and batch progress if this was cloned */}
           {task?.cloned_from_id && (
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                p: 1,
-                bgcolor: 'action.hover',
-                borderRadius: 1,
-                cursor: 'pointer',
-                mb: 1,
-                '&:hover': { bgcolor: 'action.selected' },
-              }}
-              onClick={() => {
-                if (task.cloned_from_project_id && task.cloned_from_id) {
-                  account.orgNavigate('project-task-detail', {
-                    id: task.cloned_from_project_id,
-                    taskId: task.cloned_from_id,
-                  })
-                }
-              }}
-            >
-              <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary">
-                Cloned from another task
-              </Typography>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+              <Box
+                sx={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  p: 1,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'action.selected' },
+                }}
+                onClick={() => {
+                  if (task.cloned_from_project_id && task.cloned_from_id) {
+                    account.orgNavigate('project-task-detail', {
+                      id: task.cloned_from_project_id,
+                      taskId: task.cloned_from_id,
+                    })
+                  }
+                }}
+              >
+                <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                <Typography variant="caption" color="text.secondary">
+                  Cloned from another task
+                </Typography>
+              </Box>
+              {task.clone_group_id && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    bgcolor: 'action.hover',
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.selected' },
+                  }}
+                  onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                >
+                  <Wand2 size={16} style={{ color: 'inherit', opacity: 0.7 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Batch Progress
+                  </Typography>
+                </Box>
+              )}
             </Box>
           )}
 
@@ -991,7 +1013,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onStartPlanning={handleStartPlanning}
                     onReviewSpec={handleReviewSpec}
                     onReject={handleArchiveClick}
-                    hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                    hasExternalRepo={projectRepositories.some(r => r.is_external || r.external_type || r.external_url)}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -1041,6 +1063,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         {task.design_docs_pushed_at && (
                           <Tooltip title="Clone task to other projects">
                             <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                              <Wand2 size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {task.clone_group_id && (
+                          <Tooltip title="View batch clone progress">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                              sx={{ color: 'primary.main' }}
+                            >
                               <Wand2 size={18} />
                             </IconButton>
                           </Tooltip>
@@ -1224,7 +1257,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onStartPlanning={handleStartPlanning}
                 onReviewSpec={handleReviewSpec}
                 onReject={handleArchiveClick}
-                hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                hasExternalRepo={projectRepositories.some(r => r.is_external || r.external_type || r.external_url)}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
@@ -1274,6 +1307,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                          <Wand2 size={18} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.clone_group_id && (
+                      <Tooltip title="View batch clone progress">
+                        <IconButton
+                          size="small"
+                          onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                          sx={{ color: 'primary.main' }}
+                        >
                           <Wand2 size={18} />
                         </IconButton>
                       </Tooltip>

@@ -15,3 +15,6 @@ var FinetuningTemplate string
 
 //go:embed agent_implementation_approved_push.tmpl
 var ImplementationApprovedPushPrompt string
+
+//go:embed agent_rebase_required.tmpl
+var RebaseRequiredPrompt string

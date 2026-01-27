@@ -758,6 +758,22 @@ export interface ServerQuickCreateProjectRequest {
   repo_id?: string;
 }
 
+export interface ServerRequiredGitHubRepo {
+  /** AllowFork allows users without write access to fork the repo to their account */
+  allow_fork?: boolean;
+  /** DefaultBranch overrides the default branch for this repo */
+  default_branch?: string;
+  /** GitHubURL is the GitHub repository URL (e.g., "github.com/helixml/helix") */
+  github_url?: string;
+  /** IsPrimary marks this as the primary/default repository for the project */
+  is_primary?: boolean;
+  /**
+   * SubPath is the directory name to clone into (e.g., "helix", "zed")
+   * If empty, uses the repo name
+   */
+  sub_path?: string;
+}
+
 export interface ServerSampleProject {
   /** "web", "api", "mobile", "data", "ai" */
   category?: string;
@@ -866,10 +882,28 @@ export interface ServerSimpleSampleProject {
   demo_url?: string;
   description?: string;
   difficulty?: string;
+  /** Whether this sample project is shown to users */
+  enabled?: boolean;
   github_repo?: string;
   id?: string;
   name?: string;
   readme_url?: string;
+  /**
+   * RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
+   * When set, the project creation flow will:
+   * 1. Check if user has GitHub OAuth connected
+   * 2. Verify write access to each repo (or offer to fork)
+   * 3. Clone repos with authentication
+   * 4. Wait for cloning to complete before starting session
+   */
+  required_repositories?: ServerRequiredGitHubRepo[];
+  /**
+   * RequiredScopes specifies the OAuth scopes needed for this sample project
+   * These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
+   */
+  required_scopes?: string[];
+  /** RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access */
+  requires_github_auth?: boolean;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
   /** Enable host Docker access (for Helix-in-Helix dev) */
@@ -1525,6 +1559,19 @@ export enum TypesChatMessagePartType {
   ChatMessagePartTypeImageURL = "image_url",
 }
 
+export interface TypesCheckSampleProjectAccessRequest {
+  github_connection_id?: string;
+  sample_project_id?: string;
+}
+
+export interface TypesCheckSampleProjectAccessResponse {
+  all_have_write_access?: boolean;
+  github_username?: string;
+  has_github_connected?: boolean;
+  repositories?: TypesRepositoryAccessCheck[];
+  sample_project_id?: string;
+}
+
 export interface TypesChecklistItem {
   description?: string;
   index?: number;
@@ -1778,6 +1825,16 @@ export interface TypesCreateTeamRequest {
   organization_id?: string;
 }
 
+export interface TypesCreatedRepository {
+  /** "pending", "cloning", "ready", "error" */
+  clone_status?: string;
+  github_url?: string;
+  id?: string;
+  is_forked?: boolean;
+  is_primary?: boolean;
+  name?: string;
+}
+
 export interface TypesCrispTrigger {
   enabled?: boolean;
   /** Token identifier */
@@ -1945,21 +2002,60 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
+export interface TypesForkRepositoriesRequest {
+  fork_to_organization?: string;
+  github_connection_id?: string;
+  /** List of GitHub URLs to fork */
+  repositories_to_fork?: string[];
+  sample_project_id?: string;
+}
+
+export interface TypesForkRepositoriesResponse {
+  forked_repositories?: TypesForkedRepository[];
+}
+
 export interface TypesForkSimpleProjectRequest {
   description?: string;
+  /**
+   * For repos the user doesn't have write access to, fork them to this target
+   * If empty, forks to user's personal GitHub account
+   */
+  fork_to_organization?: string;
+  /**
+   * GitHub OAuth connection ID for authenticated cloning
+   * Required for sample projects with RequiresGitHubAuth=true
+   */
+  github_connection_id?: string;
   /** Optional: agent app to use for spec tasks (uses default if empty) */
   helix_app_id?: string;
   /** Optional: if empty, project is personal */
   organization_id?: string;
   project_name?: string;
+  /**
+   * RepositoryDecisions maps repo URLs to the user's decision about access
+   * Key: GitHub URL (e.g., "github.com/helixml/helix")
+   * Value: "use_original" (has write access) or "fork" (will fork)
+   */
+  repository_decisions?: Record<string, string>;
   sample_project_id?: string;
 }
 
 export interface TypesForkSimpleProjectResponse {
+  /** CloningInProgress indicates repos are still being cloned */
+  cloning_in_progress?: boolean;
   github_repo_url?: string;
   message?: string;
   project_id?: string;
+  /** RepositoriesCreated lists the repositories attached to the project */
+  repositories_created?: TypesCreatedRepository[];
   tasks_created?: number;
+}
+
+export interface TypesForkedRepository {
+  forked_url?: string;
+  original_url?: string;
+  owner?: string;
+  repo?: string;
 }
 
 export interface TypesFrontendLicenseInfo {
@@ -3302,6 +3398,18 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepositoryAccessCheck {
+  can_fork?: boolean;
+  default_branch?: string;
+  /** URL of existing fork if any */
+  existing_fork?: string;
+  github_url?: string;
+  has_write_access?: boolean;
+  is_primary?: boolean;
+  owner?: string;
+  repo?: string;
 }
 
 export interface TypesRepositoryInfo {
@@ -9124,6 +9232,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Check if the authenticated user has write access to the required repositories for a sample project
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsSimpleCheckAccessCreate
+     * @summary Check repository access for a sample project
+     * @request POST:/api/v1/sample-projects/simple/check-access
+     * @secure
+     */
+    v1SampleProjectsSimpleCheckAccessCreate: (
+      request: TypesCheckSampleProjectAccessRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesCheckSampleProjectAccessResponse, SystemHTTPError>({
+        path: `/api/v1/sample-projects/simple/check-access`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Fork a sample project and create tasks from natural language prompts
      *
      * @tags sample-projects
@@ -9139,6 +9270,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Fork the specified repositories to the user's GitHub account
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsSimpleForkReposCreate
+     * @summary Fork repositories for a sample project
+     * @request POST:/api/v1/sample-projects/simple/fork-repos
+     * @secure
+     */
+    v1SampleProjectsSimpleForkReposCreate: (request: TypesForkRepositoriesRequest, params: RequestParams = {}) =>
+      this.request<TypesForkRepositoriesResponse, SystemHTTPError>({
+        path: `/api/v1/sample-projects/simple/fork-repos`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

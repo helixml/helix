@@ -51,7 +51,7 @@ use the Alt key as the modifier (not Super/Cmd, which browsers capture).
 
 Left side:
   - Workspace numbers (1, 2, 3, 4) - click to switch
-  - Fox icon - launch Firefox
+  - Globe icon - launch Chrome
   - Cat icon - launch terminal
   - Flag icons - switch keyboard layout (US/UK/French)
 
@@ -64,7 +64,7 @@ Right side:
 Applications automatically open in designated workspaces:
   - Workspace 1: Zed (code editor)
   - Workspace 2: Terminals (Kitty, Ghostty)
-  - Workspace 3: Firefox (browser)
+  - Workspace 3: Chrome (browser)
   - Workspace 4: Other applications
 
 
@@ -74,7 +74,7 @@ Applications automatically open in designated workspaces:
 
 2. Open a terminal (Alt + Enter) - it appears on workspace 2
 
-3. Open Firefox (Alt + Shift + f) - it appears on workspace 3
+3. Open Chrome (Alt + Shift + f) - it appears on workspace 3
 
 4. Switch between workspaces:
    - Alt + 1 for Zed
@@ -100,7 +100,7 @@ Windows:
 
 Apps:
   Alt + d               App launcher
-  Alt + Shift + f       Open Firefox
+  Alt + Shift + f       Open Chrome
   Alt + Shift + Return  Open terminal (alternative)
 
 

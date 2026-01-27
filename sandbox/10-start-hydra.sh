@@ -33,12 +33,15 @@ HYDRA_PID=$!
 echo "✅ Hydra daemon started (PID: $HYDRA_PID)"
 
 # Wait for Hydra socket to be ready
-TIMEOUT=30
+# Hydra waits up to 60s for Docker, so we need to wait longer here
+TIMEOUT=90
 ELAPSED=0
 until [ -S /var/run/hydra/hydra.sock ]; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: Hydra socket not ready within $TIMEOUT seconds"
-        return 1
+        echo "ℹ️  Hydra runs in a restart loop, so it will keep trying. Continuing..."
+        # Don't fail - Hydra will restart and eventually succeed when Docker is ready
+        break
     fi
     echo "Waiting for Hydra socket... ($ELAPSED/$TIMEOUT)"
     sleep 1

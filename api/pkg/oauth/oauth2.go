@@ -47,12 +47,11 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 		})
 	}
 
-	// Create OAuth2 config
+	// Create OAuth2 config (scopes are provided per-call in GetAuthorizationURL)
 	oauthConfig := &oauth2.Config{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  config.CallbackURL,
-		Scopes:       config.Scopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  config.AuthURL,
 			TokenURL: config.TokenURL,
@@ -85,19 +84,21 @@ func (p *OAuth2Provider) GetType() types.OAuthProviderType {
 
 // GetAuthorizationURL generates the authorization URL for the OAuth flow
 // metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
-func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string) (string, error) {
+// scopes is optional - if provided, these scopes are requested instead of the provider's default scopes
+func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string, scopes []string) (string, error) {
 	// Generate a random state
 	state, err := p.store.GenerateRandomState(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// Store the state in the database with the user ID
+	// Store the state in the database with the user ID and requested scopes
 	tokenObj := &types.OAuthRequestToken{
 		UserID:     userID,
 		ProviderID: p.config.ID,
 		State:      state,
 		Metadata:   metadata,
+		Scopes:     scopes,
 		ExpiresAt:  time.Now().Add(30 * time.Minute),
 	}
 
@@ -111,18 +112,17 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 		redirectURL = p.config.CallbackURL
 	}
 
-	// Clone the config to use a custom redirect URL if provided
+	// Clone the config to use custom redirect URL and consumer-specified scopes
 	oauth2Config := &oauth2.Config{
 		ClientID:     p.oauthConfig.ClientID,
 		ClientSecret: p.oauthConfig.ClientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       p.oauthConfig.Scopes,
+		Scopes:       scopes,
 		Endpoint:     p.oauthConfig.Endpoint,
 	}
 
 	// Generate the authorization URL
 	authURL := oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	// authURL := oauth2Config.AuthCodeURL(state)
 
 	return authURL, nil
 }
@@ -173,7 +173,7 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 		AccessToken:       token.AccessToken,
 		RefreshToken:      token.RefreshToken,
 		ExpiresAt:         token.Expiry,
-		Scopes:            p.config.Scopes,
+		Scopes:            requestToken.Scopes, // Use scopes from the request token (what was actually requested)
 		ProviderUserID:    userInfo.ID,
 		ProviderUserEmail: userInfo.Email,
 		ProviderUsername:  userInfo.DisplayName,

@@ -1,5 +1,5 @@
 import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Button,
@@ -91,6 +91,7 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
+  const queryClient = useQueryClient();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -272,10 +273,10 @@ const SpecTasksPage: FC = () => {
     return defaultRepo?.default_branch || 'main';
   }, [projectRepositories, defaultRepoId]);
 
-  // Check if the default repo is an external repo (e.g., Azure DevOps)
+  // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
   const hasExternalRepo = useMemo(() => {
     const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId);
-    return !!(defaultRepo?.azure_devops || defaultRepo?.external_type);
+    return !!(defaultRepo?.is_external || defaultRepo?.azure_devops || defaultRepo?.external_type);
   }, [projectRepositories, defaultRepoId]);
 
   // Set baseBranch to default when dialog opens
@@ -620,6 +621,8 @@ const SpecTasksPage: FC = () => {
       if (response.data) {
         console.log('SpecTask created successfully:', response.data);
         snackbar.success('SpecTask created! Planning agent will generate specifications.');
+        // Invalidate task list to update kanban board immediately
+        queryClient.invalidateQueries({ queryKey: ['spec-tasks'] });
         setCreateDialogOpen(false);
         setTaskPrompt('');
         setTaskPriority('medium');

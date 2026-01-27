@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -6,11 +6,14 @@ import {
   Tooltip,
   CircularProgress,
   Grid,
+  Button,
 } from '@mui/material';
-import { Wand2, Check, AlertCircle, Play } from 'lucide-react';
+import { Wand2, Check, AlertCircle, Play, PlayCircle } from 'lucide-react';
 import { useCloneGroupProgress } from '../../services/specTaskService';
 import TaskCard from '../tasks/TaskCard';
 import useRouter from '../../hooks/useRouter';
+import useApi from '../../hooks/useApi';
+import useSnackbar from '../../hooks/useSnackbar';
 import { TypesSpecTaskWithProject } from '../../api/api';
 
 interface CloneGroupProgressProps {
@@ -155,6 +158,11 @@ const StackedProgressBar: React.FC<{
                 </Box>
               }
               arrow
+              slotProps={{
+                popper: {
+                  sx: { zIndex: 1500 },
+                },
+              }}
             >
               <Box
                 onClick={() => onTaskClick?.(task.task_id, task.project_id || '')}
@@ -270,10 +278,54 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
   groupId,
 }) => {
   const { navigate } = useRouter();
-  const { data: progress, isLoading, error } = useCloneGroupProgress(groupId);
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const { data: progress, isLoading, error, refetch } = useCloneGroupProgress(groupId);
+  const [isStartingAll, setIsStartingAll] = useState(false);
 
   const handleTaskClick = (taskId: string, projectId: string) => {
     navigate('project-task-detail', { id: projectId, taskId });
+  };
+
+  // Find tasks in spec_review with design docs pushed (ready to start)
+  const tasksReadyToStart = (progress?.full_tasks || []).filter(
+    (task) => task.status === 'spec_review' && task.design_docs_pushed_at
+  );
+
+  const handleStartAll = async () => {
+    if (tasksReadyToStart.length === 0) return;
+
+    setIsStartingAll(true);
+    const apiClient = api.getApiClient();
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const task of tasksReadyToStart) {
+      try {
+        await apiClient.v1SpecTasksApproveSpecsCreate(task.id!, {
+          approved: true,
+          feedback: '',
+          auto_start: true,
+        });
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to start task ${task.id}:`, err);
+        failCount++;
+      }
+    }
+
+    setIsStartingAll(false);
+
+    if (failCount === 0) {
+      snackbar.success(`Started implementation for ${successCount} tasks`);
+    } else if (successCount > 0) {
+      snackbar.warning(`Started ${successCount} tasks, ${failCount} failed`);
+    } else {
+      snackbar.error(`Failed to start all tasks`);
+    }
+
+    // Refetch to update the progress display
+    refetch();
   };
 
   if (isLoading) {
@@ -321,16 +373,32 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
         </Box>
       )}
 
-      {/* Progress summary */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-        <Typography variant="body2">
-          <strong>{progress.completed_tasks}</strong> / {progress.total_tasks} completed
-        </Typography>
-        <Chip
-          label={`${progress.progress_pct || 0}%`}
-          size="small"
-          color={progress.progress_pct === 100 ? 'success' : 'primary'}
-        />
+      {/* Progress summary with Start All button */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="body2">
+            <strong>{progress.completed_tasks}</strong> / {progress.total_tasks} completed
+          </Typography>
+          <Chip
+            label={`${progress.progress_pct || 0}%`}
+            size="small"
+            color={progress.progress_pct === 100 ? 'success' : 'primary'}
+          />
+        </Box>
+
+        {/* Start All button - only show when there are tasks ready to start */}
+        {tasksReadyToStart.length > 0 && (
+          <Button
+            variant="contained"
+            color="success"
+            size="small"
+            startIcon={isStartingAll ? <CircularProgress size={16} color="inherit" /> : <PlayCircle size={16} />}
+            onClick={handleStartAll}
+            disabled={isStartingAll}
+          >
+            {isStartingAll ? 'Starting...' : `Start All (${tasksReadyToStart.length})`}
+          </Button>
+        )}
       </Box>
 
       {/* Stacked bar */}

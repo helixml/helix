@@ -234,6 +234,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // For stream mode (floating window), keep stream mounted to prevent fullscreen exit on hiccups
 
   // Screenshot mode: use traditional early-return rendering
+  // Use height prop if provided, otherwise fill parent container (for aspect-ratio containers)
+  const screenshotHeight = height ?? '100%';
+
   if (mode === 'screenshot') {
     // Starting state - show spinner
     if (isStarting) {
@@ -241,7 +244,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         <Box
           sx={{
             width: '100%',
-            height: height,
+            height: screenshotHeight,
             position: 'relative',
             border: '1px solid',
             borderColor: 'divider',
@@ -269,7 +272,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         <Box
           sx={{
             width: '100%',
-            height: height,
+            height: screenshotHeight,
             position: 'relative',
             border: '1px solid',
             borderColor: 'divider',
@@ -328,7 +331,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
     return (
       <Box sx={{
-        height: height,
+        height: screenshotHeight,
         width: '100%',
         overflow: 'hidden'
       }}>
@@ -339,7 +342,6 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
-          height={height}
         />
       </Box>
     );

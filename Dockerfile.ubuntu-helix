@@ -7,19 +7,19 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-14).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.24  -> sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e
+# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
 
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.24 as of 2026-01-13)
+# Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.24@sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e AS go-build-env
+FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -907,18 +907,20 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Zed desktop file and icon
-COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed.desktop
-RUN chmod 644 /usr/share/applications/dev.zed.Zed.desktop
-COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed.png
+# Use dev.zed.Zed-Dev.desktop to match StartupWMClass (dev build reports as Zed-Dev)
+# Use simple "zed" icon name for universal compatibility
+COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/zed.png
 # Generate icon sizes for Zed
 RUN set -e && \
     for size in 16 24 32 48 64 128 256; do \
         mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
-        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed.png \
+        convert /usr/share/icons/hicolor/512x512/apps/zed.png \
             -resize ${size}x${size} \
-            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed.png; \
+            /usr/share/icons/hicolor/${size}x${size}/apps/zed.png; \
     done && \
-    echo "Generated Zed icons:" && ls -la /usr/share/icons/hicolor/48x48/apps/dev.zed.Zed.png && \
+    echo "Generated Zed icons:" && ls -la /usr/share/icons/hicolor/48x48/apps/zed.png && \
     gtk-update-icon-cache -f /usr/share/icons/hicolor && \
     update-desktop-database /usr/share/applications
 

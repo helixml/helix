@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ import (
 // TestSpecTaskGitWorkflow_EndToEnd tests the complete git-based workflow
 // Uses REAL git operations (no external dependencies)
 func TestSpecTaskGitWorkflow_EndToEnd(t *testing.T) {
-	_ = context.Background() // Not used but keep for future
+	ctx := context.Background()
 
 	// Setup test workspace with real git
 	testDir := t.TempDir()
@@ -27,7 +27,7 @@ func TestSpecTaskGitWorkflow_EndToEnd(t *testing.T) {
 	t.Log("Creating real git repository for SpecTask...")
 
 	// Initialize git repository
-	repo, err := git.PlainInit(gitRepoPath, false)
+	err := giteagit.InitRepository(ctx, gitRepoPath, false, "sha1")
 	require.NoError(t, err)
 
 	// Create initial files
@@ -35,20 +35,22 @@ func TestSpecTaskGitWorkflow_EndToEnd(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(gitRepoPath, "src"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(gitRepoPath, "src/main.go"), []byte("package main"), 0644))
 
-	worktree, err := repo.Worktree()
+	// Add and commit
+	err = giteagit.AddChanges(ctx, gitRepoPath, true)
 	require.NoError(t, err)
 
-	_, err = worktree.Add(".")
-	require.NoError(t, err)
-
-	signature := &object.Signature{
-		Name:  "Test Agent",
-		Email: "test@helix.ml",
-		When:  time.Now(),
-	}
-
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
-		Author: signature,
+	err = giteagit.CommitChanges(ctx, gitRepoPath, giteagit.CommitChangesOptions{
+		Message: "Initial commit",
+		Author: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
 	})
 	require.NoError(t, err)
 
@@ -61,21 +63,14 @@ func TestSpecTaskGitWorkflow_EndToEnd(t *testing.T) {
 	t.Log("PHASE 1: Simulating planning agent writing design docs...")
 
 	// Create helix-specs branch
-	headRef, err := repo.Head()
-	require.NoError(t, err)
-
-	branchRef := plumbing.NewHashReference(
-		plumbing.NewBranchReferenceName("helix-specs"),
-		headRef.Hash(),
-	)
-	err = repo.Storer.SetReference(branchRef)
-	require.NoError(t, err)
+	_, _, gitErr := gitcmd.NewCommand("branch", "helix-specs").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	// Checkout helix-specs branch
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName("helix-specs"),
-	})
-	require.NoError(t, err)
+	_, _, gitErr = gitcmd.NewCommand("checkout", "helix-specs").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	// Create task directory
 	taskID := "spec_test_123"
@@ -137,27 +132,64 @@ type User struct {
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task-metadata.json"), []byte(metadata), 0644))
 
 	// Commit each file separately (as agent would)
-	_, err = worktree.Add(filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "requirements.md"))
+	err = giteagit.AddChanges(ctx, gitRepoPath, false, filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "requirements.md"))
 	require.NoError(t, err)
-	_, err = worktree.Commit("Add requirements specification", &git.CommitOptions{Author: signature})
+	err = giteagit.CommitChanges(ctx, gitRepoPath, giteagit.CommitChangesOptions{
+		Message: "Add requirements specification",
+		Author: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+	})
 	require.NoError(t, err)
 
-	_, err = worktree.Add(filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "design.md"))
+	err = giteagit.AddChanges(ctx, gitRepoPath, false, filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "design.md"))
 	require.NoError(t, err)
-	_, err = worktree.Commit("Add technical design", &git.CommitOptions{Author: signature})
+	err = giteagit.CommitChanges(ctx, gitRepoPath, giteagit.CommitChangesOptions{
+		Message: "Add technical design",
+		Author: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+	})
 	require.NoError(t, err)
 
-	_, err = worktree.Add(filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "tasks.md"))
+	err = giteagit.AddChanges(ctx, gitRepoPath, false, filepath.Join("tasks", fmt.Sprintf("2025-10-23_add-auth_%s", taskID), "tasks.md"))
 	require.NoError(t, err)
-	_, err = worktree.Commit("Add implementation plan", &git.CommitOptions{Author: signature})
+	err = giteagit.CommitChanges(ctx, gitRepoPath, giteagit.CommitChangesOptions{
+		Message: "Add implementation plan",
+		Author: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+	})
 	require.NoError(t, err)
 
 	t.Log("✅ Design docs committed to helix-specs branch")
 
-	// Verify branch exists and has commits
-	designDocsBranch, err := repo.Reference(plumbing.NewBranchReferenceName("helix-specs"), false)
-	require.NoError(t, err)
-	assert.NotNil(t, designDocsBranch)
+	// Verify branch exists
+	stdout, _, gitErr := gitcmd.NewCommand("branch", "--list", "helix-specs").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
+	assert.Contains(t, stdout, "helix-specs")
 
 	// Verify files exist in branch
 	assert.FileExists(t, filepath.Join(taskDir, "requirements.md"))
@@ -181,16 +213,12 @@ type User struct {
 
 	t.Log("✅ Implementation agent read design docs from helix-specs")
 
-	// Get head reference for feature branch (use current HEAD as base)
-	headRef, err = repo.Head()
-	require.NoError(t, err)
-
-	featureBranch := plumbing.NewBranchReferenceName(fmt.Sprintf("feature/%s", taskID))
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: featureBranch,
-		Create: true,
-	})
-	require.NoError(t, err)
+	// Create feature branch
+	featureBranch := fmt.Sprintf("feature/%s", taskID)
+	_, _, gitErr = gitcmd.NewCommand("checkout", "-b").
+		AddDynamicArguments(featureBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	// Simulate implementation commits
 	implementationFiles := []struct {
@@ -209,19 +237,33 @@ type User struct {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filePath), 0755))
 		require.NoError(t, os.WriteFile(filePath, []byte(impl.content), 0644))
 
-		_, err = worktree.Add(impl.path)
+		err = giteagit.AddChanges(ctx, gitRepoPath, false, impl.path)
 		require.NoError(t, err)
 
-		_, err = worktree.Commit(impl.commit, &git.CommitOptions{Author: signature})
+		err = giteagit.CommitChanges(ctx, gitRepoPath, giteagit.CommitChangesOptions{
+			Message: impl.commit,
+			Author: &giteagit.Signature{
+				Name:  "Test Agent",
+				Email: "test@helix.ml",
+				When:  time.Now(),
+			},
+			Committer: &giteagit.Signature{
+				Name:  "Test Agent",
+				Email: "test@helix.ml",
+				When:  time.Now(),
+			},
+		})
 		require.NoError(t, err)
 	}
 
 	t.Log("✅ Implementation commits made to feature branch")
 
 	// Verify feature branch exists
-	featureRef, err := repo.Reference(featureBranch, false)
-	require.NoError(t, err)
-	assert.NotNil(t, featureRef)
+	stdout, _, gitErr = gitcmd.NewCommand("branch", "--list").
+		AddDynamicArguments(featureBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
+	assert.Contains(t, stdout, featureBranch)
 
 	// ========================================
 	// PHASE 3: VERIFY COMPLETE WORKFLOW
@@ -230,29 +272,21 @@ type User struct {
 	t.Log("PHASE 3: Verifying complete git workflow...")
 
 	// Verify all branches exist (git defaults to "master" not "main")
-	expectedBranches := []string{"master", "helix-specs", fmt.Sprintf("feature/%s", taskID)}
-	refs, err := repo.References()
-	require.NoError(t, err)
-
-	foundBranches := make(map[string]bool)
-	refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsBranch() {
-			foundBranches[ref.Name().Short()] = true
-		}
-		return nil
-	})
+	expectedBranches := []string{"master", "helix-specs", featureBranch}
+	stdout, _, gitErr = gitcmd.NewCommand("branch").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	for _, branch := range expectedBranches {
-		assert.True(t, foundBranches[branch], "Branch %s should exist", branch)
+		assert.Contains(t, stdout, branch, "Branch %s should exist", branch)
 	}
 
 	t.Logf("✅ All branches exist: %v", expectedBranches)
 
 	// Verify helix-specs has design documents
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName("helix-specs"),
-	})
-	require.NoError(t, err)
+	_, _, gitErr = gitcmd.NewCommand("checkout", "helix-specs").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	requirementsPath := filepath.Join(taskDir, "requirements.md")
 	assert.FileExists(t, requirementsPath)
@@ -263,28 +297,21 @@ type User struct {
 	assert.Contains(t, string(requirementsData), "WHEN a user submits valid credentials")
 
 	// Verify feature branch has implementation
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: featureBranch,
-	})
-	require.NoError(t, err)
+	_, _, gitErr = gitcmd.NewCommand("checkout").
+		AddDynamicArguments(featureBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	assert.FileExists(t, filepath.Join(gitRepoPath, "src/models/user.go"))
 	assert.FileExists(t, filepath.Join(gitRepoPath, "src/auth/jwt.go"))
 
 	// Count commits on feature branch
-	featureCommit, err := repo.CommitObject(featureRef.Hash())
-	require.NoError(t, err)
+	stdout, _, gitErr = gitcmd.NewCommand("rev-list", "--count", "HEAD").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: gitRepoPath})
+	require.NoError(t, gitErr)
 
 	commitCount := 0
-	iter := object.NewCommitPreorderIter(featureCommit, nil, nil)
-	err = iter.ForEach(func(c *object.Commit) error {
-		commitCount++
-		if commitCount > 10 { // Safety limit
-			return fmt.Errorf("stop")
-		}
-		return nil
-	})
-
+	fmt.Sscanf(strings.TrimSpace(stdout), "%d", &commitCount)
 	assert.GreaterOrEqual(t, commitCount, 4, "Feature branch should have implementation commits")
 
 	t.Log("✅ COMPLETE GIT WORKFLOW VALIDATED")
@@ -309,63 +336,52 @@ func TestDesignDocsWorktree_RealGitOperations(t *testing.T) {
 
 // TestMultiPhaseWorkflow_GitBranches tests that both phases use correct git branches
 func TestMultiPhaseWorkflow_GitBranches(t *testing.T) {
+	ctx := context.Background()
 	testDir := t.TempDir()
 	repoPath := filepath.Join(testDir, "repo")
 
 	// Initialize repo
-	repo, err := git.PlainInit(repoPath, false)
-	require.NoError(t, err)
-
-	worktree, err := repo.Worktree()
+	err := giteagit.InitRepository(ctx, repoPath, false, "sha1")
 	require.NoError(t, err)
 
 	// Initial commit
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Project"), 0644))
-	_, err = worktree.Add(".")
+	err = giteagit.AddChanges(ctx, repoPath, true)
 	require.NoError(t, err)
 
-	signature := &object.Signature{
-		Name:  "Test Agent",
-		Email: "test@helix.ml",
-		When:  time.Now(),
-	}
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{Author: signature})
+	err = giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+		Message: "Initial commit",
+		Author: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+		Committer: &giteagit.Signature{
+			Name:  "Test Agent",
+			Email: "test@helix.ml",
+			When:  time.Now(),
+		},
+	})
 	require.NoError(t, err)
 
 	// PLANNING: Create helix-specs branch
-	headRef, err := repo.Head()
-	require.NoError(t, err)
-
-	designDocsRef := plumbing.NewHashReference(
-		plumbing.NewBranchReferenceName("helix-specs"),
-		headRef.Hash(),
-	)
-	err = repo.Storer.SetReference(designDocsRef)
-	require.NoError(t, err)
+	_, _, gitErr := gitcmd.NewCommand("branch", "helix-specs").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	require.NoError(t, gitErr)
 
 	// IMPLEMENTATION: Create feature branch from main
-	featureRef := plumbing.NewHashReference(
-		plumbing.NewBranchReferenceName("feature/spec_test"),
-		headRef.Hash(),
-	)
-	err = repo.Storer.SetReference(featureRef)
-	require.NoError(t, err)
+	_, _, gitErr = gitcmd.NewCommand("branch", "feature/spec_test").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	require.NoError(t, gitErr)
 
 	// Verify all branches exist (git creates "master" as default, not "main")
 	branches := []string{"master", "helix-specs", "feature/spec_test"}
-	refs, err := repo.References()
-	require.NoError(t, err)
-
-	foundBranches := []string{}
-	refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsBranch() {
-			foundBranches = append(foundBranches, ref.Name().Short())
-		}
-		return nil
-	})
+	stdout, _, gitErr := gitcmd.NewCommand("branch").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	require.NoError(t, gitErr)
 
 	for _, expectedBranch := range branches {
-		assert.Contains(t, foundBranches, expectedBranch)
+		assert.Contains(t, stdout, expectedBranch)
 	}
 
 	t.Log("✅ Multi-phase git branch workflow validated")

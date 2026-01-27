@@ -29,6 +29,8 @@ import { RefreshCcw, Trash, Info } from 'lucide-react'
 
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import useAccount from '../../hooks/useAccount'
+import useRouter from '../../hooks/useRouter'
 import { formatDate } from '../../utils/format'
 import { 
   PROVIDER_ICONS,
@@ -73,6 +75,8 @@ interface OAuthConnection {
 const OAuthConnections: React.FC<{}> = () => {
   const { error, success } = useSnackbar()
   const api = useApi()
+  const account = useAccount()
+  const router = useRouter()
   
   // React Query hooks
   const { 
@@ -731,7 +735,17 @@ const OAuthConnections: React.FC<{}> = () => {
           </Typography>
           {notConfigured && (
             <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
-              This service is not yet configured. Contact your administrator to enable it.
+              This service is not yet configured.{' '}
+              {account.user?.admin ? (
+                <span
+                  onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}
+                  style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  Configure it in the dashboard.
+                </span>
+              ) : (
+                'Contact your administrator to enable it.'
+              )}
             </Typography>
           )}
           {isDisabled && (
@@ -824,7 +838,17 @@ const OAuthConnections: React.FC<{}> = () => {
             {getAllProviders().length === 0 && (
               <Paper sx={{ p: 3, textAlign: 'center', backgroundColor: 'rgba(0,0,0,0.02)' }}>
                 <Typography color="text.secondary">
-                  No available services to connect. Please contact your administrator to enable OAuth providers.
+                  No available services to connect.{' '}
+                  {account.user?.admin ? (
+                    <span
+                      onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}
+                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Configure OAuth providers in the dashboard.
+                    </span>
+                  ) : (
+                    'Please contact your administrator to enable OAuth providers.'
+                  )}
                 </Typography>
               </Paper>
             )}

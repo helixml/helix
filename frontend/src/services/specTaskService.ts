@@ -146,10 +146,10 @@ export function useUpdateSpecTask() {
 export function useApproveSpecTask() {
   const api = useApi();
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (taskId: string) => {
-      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { 
+      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, {
         approved: true,
         comments: 'Approved via UI'
       });
@@ -157,6 +157,7 @@ export function useApproveSpecTask() {
     },
     onSuccess: (_, taskId) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
     },
   });
 }

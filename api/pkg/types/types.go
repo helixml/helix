@@ -2932,6 +2932,19 @@ type ForkSimpleProjectRequest struct {
 	Description     string `json:"description,omitempty"`
 	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
 	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+
+	// GitHub OAuth connection ID for authenticated cloning
+	// Required for sample projects with RequiresGitHubAuth=true
+	GitHubConnectionID string `json:"github_connection_id,omitempty"`
+
+	// For repos the user doesn't have write access to, fork them to this target
+	// If empty, forks to user's personal GitHub account
+	ForkToOrganization string `json:"fork_to_organization,omitempty"`
+
+	// RepositoryDecisions maps repo URLs to the user's decision about access
+	// Key: GitHub URL (e.g., "github.com/helixml/helix")
+	// Value: "use_original" (has write access) or "fork" (will fork)
+	RepositoryDecisions map[string]string `json:"repository_decisions,omitempty"`
 }
 
 // ForkSimpleProjectResponse represents the fork response
@@ -2940,6 +2953,70 @@ type ForkSimpleProjectResponse struct {
 	GitHubRepoURL string `json:"github_repo_url"`
 	TasksCreated  int    `json:"tasks_created"`
 	Message       string `json:"message"`
+
+	// RepositoriesCreated lists the repositories attached to the project
+	RepositoriesCreated []CreatedRepository `json:"repositories_created,omitempty"`
+
+	// CloningInProgress indicates repos are still being cloned
+	CloningInProgress bool `json:"cloning_in_progress,omitempty"`
+}
+
+// CreatedRepository represents a repository created during sample project fork
+type CreatedRepository struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	GitHubURL   string `json:"github_url"`
+	IsForked    bool   `json:"is_forked"`
+	IsPrimary   bool   `json:"is_primary"`
+	CloneStatus string `json:"clone_status"` // "pending", "cloning", "ready", "error"
+}
+
+// CheckSampleProjectAccessRequest represents a request to check repo access for a sample project
+type CheckSampleProjectAccessRequest struct {
+	SampleProjectID    string `json:"sample_project_id"`
+	GitHubConnectionID string `json:"github_connection_id"`
+}
+
+// CheckSampleProjectAccessResponse represents the result of checking repo access
+type CheckSampleProjectAccessResponse struct {
+	SampleProjectID    string                  `json:"sample_project_id"`
+	HasGitHubConnected bool                    `json:"has_github_connected"`
+	GitHubUsername     string                  `json:"github_username,omitempty"`
+	Repositories       []RepositoryAccessCheck `json:"repositories"`
+	AllHaveWriteAccess bool                    `json:"all_have_write_access"`
+}
+
+// RepositoryAccessCheck represents the access check result for a single repository
+type RepositoryAccessCheck struct {
+	GitHubURL      string `json:"github_url"`
+	Owner          string `json:"owner"`
+	Repo           string `json:"repo"`
+	HasWriteAccess bool   `json:"has_write_access"`
+	CanFork        bool   `json:"can_fork"`
+	ExistingFork   string `json:"existing_fork,omitempty"` // URL of existing fork if any
+	IsPrimary      bool   `json:"is_primary"`
+	DefaultBranch  string `json:"default_branch"`
+}
+
+// ForkRepositoriesRequest represents a request to fork repos for a sample project
+type ForkRepositoriesRequest struct {
+	SampleProjectID    string   `json:"sample_project_id"`
+	GitHubConnectionID string   `json:"github_connection_id"`
+	RepositoriesToFork []string `json:"repositories_to_fork"` // List of GitHub URLs to fork
+	ForkToOrganization string   `json:"fork_to_organization,omitempty"`
+}
+
+// ForkRepositoriesResponse represents the result of forking repos
+type ForkRepositoriesResponse struct {
+	ForkedRepositories []ForkedRepository `json:"forked_repositories"`
+}
+
+// ForkedRepository represents a successfully forked repository
+type ForkedRepository struct {
+	OriginalURL string `json:"original_url"`
+	ForkedURL   string `json:"forked_url"`
+	Owner       string `json:"owner"`
+	Repo        string `json:"repo"`
 }
 
 // =============================================================================

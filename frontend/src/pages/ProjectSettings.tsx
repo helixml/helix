@@ -1123,10 +1123,10 @@ const ProjectSettings: FC = () => {
                 </Button>
               </Box>
               <Divider sx={{ mb: 3 }} />
-              {/* Stream viewer - matches startup script editor height */}
+              {/* Stream viewer - 16:9 aspect ratio based on dynamic width */}
               <Box
                 sx={{
-                  height: 500, // Slightly taller than Monaco editor to account for toolbar
+                  aspectRatio: '16 / 9',
                   backgroundColor: '#000',
                   overflow: 'hidden',
                 }}

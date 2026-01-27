@@ -192,6 +192,90 @@ func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error)
 	return user, nil
 }
 
+// CheckRepositoryPermissions checks if the authenticated user has write/push access to a repository
+// Returns the permissions object which includes admin, push, pull booleans
+func (c *Client) CheckRepositoryPermissions(ctx context.Context, owner, repo string) (*github.Repository, error) {
+	repository, _, err := c.client.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository permissions: %w", err)
+	}
+	return repository, nil
+}
+
+// HasPushAccess checks if the authenticated user can push to a repository
+func (c *Client) HasPushAccess(ctx context.Context, owner, repo string) (bool, error) {
+	repository, err := c.CheckRepositoryPermissions(ctx, owner, repo)
+	if err != nil {
+		return false, err
+	}
+	// Check permissions - the Permissions field is only populated for authenticated users
+	perms := repository.GetPermissions()
+	if perms != nil {
+		// Push permission means the user can push to the repository
+		if push, ok := perms["push"]; ok && push {
+			return true, nil
+		}
+		// Admin permission also implies push access
+		if admin, ok := perms["admin"]; ok && admin {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ForkRepository creates a fork of a repository to the authenticated user's account
+// If organization is empty, forks to the user's personal account
+// Returns the forked repository
+func (c *Client) ForkRepository(ctx context.Context, owner, repo, organization string) (*github.Repository, error) {
+	opts := &github.RepositoryCreateForkOptions{}
+	if organization != "" {
+		opts.Organization = organization
+	}
+
+	forkedRepo, _, err := c.client.Repositories.CreateFork(ctx, owner, repo, opts)
+	if err != nil {
+		// GitHub returns 202 Accepted when fork is in progress
+		// go-github handles this, but the error might still be raised
+		if _, ok := err.(*github.AcceptedError); ok {
+			// Fork is in progress, return the repo anyway
+			// The fork endpoint returns the repo even with 202
+		} else {
+			return nil, fmt.Errorf("failed to fork repository: %w", err)
+		}
+	}
+
+	// Ensure we have valid repo data - this can happen if GitHub returns 202
+	// but the response body doesn't contain the forked repo details
+	if forkedRepo == nil {
+		return nil, fmt.Errorf("fork request accepted but no repository data returned for %s/%s", owner, repo)
+	}
+
+	return forkedRepo, nil
+}
+
+// ForkExists checks if a fork of the given repo already exists in the user's account or organization
+func (c *Client) ForkExists(ctx context.Context, owner, repo, forkOwner string) (*github.Repository, error) {
+	// Try to get the forked repo directly
+	forkedRepo, resp, err := c.client.Repositories.Get(ctx, forkOwner, repo)
+	if err != nil {
+		if resp != nil && resp.StatusCode == 404 {
+			return nil, nil // Fork doesn't exist
+		}
+		return nil, fmt.Errorf("failed to check for existing fork: %w", err)
+	}
+	// Verify it's actually a fork of the expected repo
+	if forkedRepo.Fork != nil && *forkedRepo.Fork {
+		if forkedRepo.Parent != nil {
+			parentOwner := forkedRepo.Parent.Owner.GetLogin()
+			parentName := forkedRepo.Parent.GetName()
+			if parentOwner == owner && parentName == repo {
+				return forkedRepo, nil // This is a fork of the expected repo
+			}
+		}
+	}
+	return nil, nil // Repo exists but is not a fork of the expected repo
+}
+
 // ParseGitHubURL extracts owner and repo from a GitHub URL
 // Supports formats:
 //   - https://github.com/owner/repo
