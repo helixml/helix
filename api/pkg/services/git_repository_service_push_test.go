@@ -42,6 +42,10 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 	if suite.adoToken == "" || suite.adoRepo == "" {
 		suite.T().Skip("CI_ADO_TOKEN and CI_ADO_REPO environment variables are required")
 	}
+	// Skip if the URL doesn't look like a valid ADO URL (catches placeholder values)
+	if !strings.HasPrefix(suite.adoRepo, "https://dev.azure.com/") && !strings.Contains(suite.adoRepo, ".visualstudio.com/") {
+		suite.T().Skip("CI_ADO_REPO does not appear to be a valid Azure DevOps URL")
+	}
 
 	ctx := context.Background()
 	repoID := "test-repo-push"
@@ -120,16 +124,17 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 }
 
 // buildAuthenticatedURL embeds credentials into the URL for Azure DevOps
+// Uses the production BuildAuthenticatedURL function for consistency
 func (suite *GitRepositoryPushSuiteADO) buildAuthenticatedURL(repoURL, token string) string {
-	// For ADO, use PAT as password with any username
-	// URL format: https://oauth2:TOKEN@dev.azure.com/...
 	if token == "" {
 		return repoURL
 	}
 
-	// Parse and reconstruct with embedded credentials
-	if strings.HasPrefix(repoURL, "https://") {
-		return strings.Replace(repoURL, "https://", "https://oauth2:"+token+"@", 1)
+	// Use production function - ADO uses "PAT" as username
+	authURL, err := BuildAuthenticatedURL(repoURL, "PAT", token)
+	if err != nil {
+		suite.T().Logf("Failed to build authenticated URL: %v", err)
+		return repoURL
 	}
-	return repoURL
+	return authURL
 }
