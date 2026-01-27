@@ -197,17 +197,24 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "  Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
-        # If already cloned, just skip
+        # If already cloned, ensure remote URL has no embedded credentials
+        # (credentials come from .git-credentials via credential helper)
         if [ -d "$CLONE_DIR/.git" ]; then
             echo "    Already cloned at $CLONE_DIR"
+            # Strip any embedded credentials from remote URL
+            GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
+            GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
+            CLEAN_REMOTE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
+            git -C "$CLONE_DIR" remote set-url origin "$CLEAN_REMOTE_URL" 2>/dev/null || true
+            echo "    ✅ Remote URL using credential helper"
             continue
         fi
 
-        # Clone repository using HTTP with credentials
+        # Clone repository using clean URL (credentials from .git-credentials)
         GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
         GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
         echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
-        GIT_CLONE_URL="${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}/git/${REPO_ID}"
+        GIT_CLONE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
 
         if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
             echo ""
