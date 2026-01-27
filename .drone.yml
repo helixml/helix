@@ -13,7 +13,7 @@ workspace:
 
 steps:
   - name: build-backend
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -47,7 +47,7 @@ steps:
     depends_on: []
 
   #  - name: run-linter
-  #    image: golangci/golangci-lint:v1.64-alpine
+  #    image: golangci/golangci-lint:v2.8.0-alpine
   #    volumes:
   #      - name: go-build-cache
   #        path: /root/.cache/go-build
@@ -84,7 +84,7 @@ steps:
     depends_on: []
 
   - name: unit-test
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -125,7 +125,7 @@ steps:
     depends_on: []
 
   - name: unit-test-nocgo
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -140,7 +140,7 @@ steps:
     depends_on: []
 
   - name: api-integration-test
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -193,7 +193,7 @@ steps:
     # depends_on: [unit-test]
 
   # - name: oauth-github-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #     - name: oauth-github-test-results
   #       path: /tmp/helix-oauth-test-results
@@ -252,7 +252,7 @@ steps:
   #       - push
   #   # depends_on: [unit-test]
   # - name: upload-oauth-github-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #     - name: oauth-github-test-results
   #       path: /tmp/helix-oauth-test-results
@@ -271,7 +271,7 @@ steps:
   #       - failure
   #   depends_on: [oauth-github-integration-test]
   # - name: oauth-gmail-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-gmail-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -329,7 +329,7 @@ steps:
   #     - push
   #   # depends_on: [unit-test]
   # - name: upload-oauth-gmail-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-gmail-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -348,7 +348,7 @@ steps:
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
   - name: oauth-outlook-integration-test
-    image: golang:1.24
+    image: golang:1.25
     volumes:
       - name: oauth-outlook-test-results
         path: /tmp/helix-oauth-test-results
@@ -405,7 +405,7 @@ steps:
     # depends_on: [unit-test]
 
   - name: upload-oauth-outlook-test-artifacts
-    image: golang:1.24
+    image: golang:1.25
     volumes:
       - name: oauth-outlook-test-results
         path: /tmp/helix-oauth-test-results
@@ -425,7 +425,7 @@ steps:
     depends_on: [oauth-outlook-integration-test]
 
   # - name: oauth-google-calendar-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-google-calendar-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -485,7 +485,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-google-calendar-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-google-calendar-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -505,7 +505,7 @@ steps:
   #   depends_on: [oauth-google-calendar-integration-test]
 
   # - name: oauth-jira-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-jira-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -573,7 +573,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-jira-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-jira-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -593,7 +593,7 @@ steps:
   #   depends_on: [oauth-jira-integration-test]
 
   # - name: oauth-confluence-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-confluence-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -661,7 +661,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-confluence-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-confluence-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -681,7 +681,7 @@ steps:
   #   depends_on: [oauth-confluence-integration-test]
 
   - name: release-backend
-    image: golang:1.24-bullseye
+    image: golang:1.25-bullseye
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -727,7 +727,7 @@ steps:
     depends_on: [build-backend, build-frontend]
 
   - name: build-operator
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -741,7 +741,7 @@ steps:
     depends_on: []
 
   - name: run-linter-operator
-    image: golangci/golangci-lint:v1.64-alpine
+    image: golangci/golangci-lint:v2.8.0-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -1178,7 +1178,7 @@ trigger:
 
 steps:
   - name: smoke-test-saas
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: integration-test
         path: /integration-test
@@ -1267,7 +1267,7 @@ services:
 #
 # steps:
 #   - name: spectask-sway-test
-#     image: golang:1.24-alpine3.21
+#     image: golang:1.25-alpine
 #     volumes:
 #       - name: spectask-test-results
 #         path: /tmp/helix-spectask-test-results
@@ -1291,7 +1291,7 @@ services:
 #     depends_on: []
 #
 #   - name: spectask-kde-test
-#     image: golang:1.24-alpine3.21
+#     image: golang:1.25-alpine
 #     volumes:
 #       - name: spectask-test-results
 #         path: /tmp/helix-spectask-test-results

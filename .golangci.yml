@@ -1,9 +1,12 @@
+version: "2"
+
+run:
+  timeout: 10m
+
 linters:
   enable:
     - staticcheck
     - unconvert
-    - gofmt
-    - goimports
     - ineffassign
     - gosimple
     - govet
@@ -15,43 +18,43 @@ linters:
     - revive
     - forbidigo
     # - gocritic
+  exclusions:
+    paths:
+      - vendor
+      - llama/llama.cpp
+    rules:
+      - path: 'api/cmd'
+        linters:
+          - forbidigo
+      - path: 'api/pkg/cli'
+        linters:
+          - forbidigo
+      - path: 'demos'
+        linters:
+          - forbidigo
+      - path: '.*_test.go'
+        linters:
+          - forbidigo
 
-#  disable:
-#    - goanalysis_metalinter
-
-issues:
-  exclude-dirs:
-    - vendor
-    - llama/llama.cpp
-  exclude-rules:
-    - path: 'api/cmd'
-      linters:
-        - forbidigo
-    - path: 'api/pkg/cli'
-      linters:
-        - forbidigo
-    - path: 'demos'
-      linters:
-        - forbidigo
-    - path: '.*_test.go'
-      linters:
-        - forbidigo
-
-run:
-  timeout: 10m
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 linters-settings:
   forbidigo:
     forbid:
-      - ^fmt\.Print.*
-      - ^print(ln)?$
-    rules:
-      - name: error-strings
-        disabled: false
-      - name: error-naming
-        disabled: false
+      - pattern: ^fmt\.Print.*
+      - pattern: ^print(ln)?$
 
   gocritic:
     enabled-tags:
       - diagnostic
       - style
+
+  revive:
+    rules:
+      - name: error-strings
+        disabled: false
+      - name: error-naming
+        disabled: false
