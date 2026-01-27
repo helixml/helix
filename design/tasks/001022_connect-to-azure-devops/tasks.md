@@ -1,25 +1,31 @@
 # Implementation Tasks
 
-## Investigation
+## Investigation (Do First)
 
-- [ ] Add console.log in `BrowseProvidersDialog.tsx` to log `patConnections` data when loaded
-- [ ] Add console.log to log result of `getPatConnectionForProvider('azure-devops')` 
-- [ ] Check browser Network tab to verify `GET /api/v1/git-provider-connections` is being called
-- [ ] Verify API response includes connections with `provider_type: "ado"`
-- [ ] Check if `patConnectionsLoading` is stuck as `true`
+- [ ] Open browser DevTools console before testing Azure DevOps connection
+- [ ] Enter Azure DevOps PAT with "Save connection" checked, submit form
+- [ ] Check console for `Failed to save connection:` error message
+- [ ] Check Network tab for `POST /api/v1/git-provider-connections` - look for 400/500 errors
+- [ ] If error found, check response body for specific validation failure message
+- [ ] Compare with GitHub PAT flow - does GitHub show the same error or succeed?
 
-## Potential Fixes
+## Likely Fix: Show Save Errors to User
 
-- [ ] Verify `useGitProviderConnections()` hook is returning data correctly
-- [ ] Check if React Query cache is properly invalidated after `createPatConnection` mutation
-- [ ] Ensure dialog doesn't close before query cache invalidation completes
-- [ ] Verify the `provider_type` field in TypeScript interface matches API response casing
+- [ ] In `BrowseProvidersDialog.tsx` `handlePatSubmit()`, change silent `console.error` to `snackbar.error()`
+- [ ] Extract error message from response: `err?.response?.data || err?.message`
+- [ ] Test that user now sees feedback when save fails
 
-## Testing
+## If Azure DevOps Validation is Failing
 
-- [ ] Test creating new Azure DevOps PAT connection with "Save connection" checked
-- [ ] Verify connection appears in database: `SELECT * FROM git_provider_connections WHERE provider_type = 'ado'`
-- [ ] Close and reopen dialog - verify "Connected as [user]" shows
-- [ ] Click Azure DevOps - verify it skips PAT entry form and browses repos directly
-- [ ] Refresh page - verify saved connection is still recognized
-- [ ] Test deleting saved connection and adding a new one
+- [ ] Check `GetUserProfile()` in `api/pkg/agent/skill/azure_devops/client.go`
+- [ ] Verify the Azure DevOps profile API URL is correct for the user's org type (cloud vs server)
+- [ ] Check if PAT requires specific scopes to access user profile
+- [ ] Test with a known-working Azure DevOps PAT and org URL
+
+## Verification
+
+- [ ] Create new Azure DevOps PAT connection - verify "Connection saved" message appears
+- [ ] Close and reopen dialog - verify "Connected as [user]" shows for Azure DevOps
+- [ ] Click Azure DevOps - verify it skips PAT entry and browses repos directly
+- [ ] Query database: `SELECT * FROM git_provider_connections WHERE provider_type = 'ado'`
+- [ ] Test GitHub PAT flow still works correctly (regression test)
