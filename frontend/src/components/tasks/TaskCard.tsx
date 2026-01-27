@@ -562,19 +562,46 @@ export default function TaskCard({
       sx={{
         mb: 1.5,
         backgroundColor: isArchived ? 'rgba(156, 163, 175, 0.08)' : 'background.paper',
-        cursor: 'pointer',
+        cursor: isArchiving ? 'default' : 'pointer',
         border: isArchived ? '1px dashed' : '1px solid',
         borderColor: isArchived ? 'rgba(156, 163, 175, 0.4)' : 'rgba(0, 0, 0, 0.08)',
         borderLeft: `3px ${isArchived ? 'dashed' : 'solid'} ${isArchived ? 'rgba(156, 163, 175, 0.5)' : accentColor}`,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',
-        opacity: isArchived ? 0.7 : 1,
+        opacity: isArchiving ? 0.5 : isArchived ? 0.7 : 1,
+        pointerEvents: isArchiving ? 'none' : 'auto',
+        position: 'relative',
         '&:hover': {
           borderColor: isArchived ? 'rgba(156, 163, 175, 0.5)' : 'rgba(0, 0, 0, 0.12)',
           backgroundColor: isArchived ? 'rgba(156, 163, 175, 0.12)' : 'rgba(0, 0, 0, 0.01)',
         },
       }}
     >
+      {/* Archiving overlay */}
+      {isArchiving && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            zIndex: 10,
+            borderRadius: 'inherit',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CircularProgress size={16} />
+            <Typography variant="caption" color="text.secondary">
+              Archiving...
+            </Typography>
+          </Box>
+        </Box>
+      )}
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         {/* Task name */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>

@@ -311,12 +311,23 @@ function setup_sandbox_profile() {
       source "$DIR/.env"
     fi
 
-    # If COMPOSE_PROFILES is set in .env, use it to determine sandbox profile
-    # Otherwise default to code-nvidia
+    # If COMPOSE_PROFILES is set in .env, use it
+    # Otherwise auto-detect GPU from hardware (inherited from outer Helix via GPU passthrough)
     if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
       export OUTER_SANDBOX_PROFILE="${COMPOSE_PROFILES}"
+      echo "  📋 Using COMPOSE_PROFILES from .env: $OUTER_SANDBOX_PROFILE"
+    elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+      export OUTER_SANDBOX_PROFILE="code-nvidia"
+      echo "  🎮 NVIDIA GPU detected (inherited from outer Helix)"
+    elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]]; then
+      export OUTER_SANDBOX_PROFILE="code-amd-intel"
+      echo "  🎮 AMD GPU detected (inherited from outer Helix)"
+    elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
+      export OUTER_SANDBOX_PROFILE="code-amd-intel"
+      echo "  🎮 Intel/Generic GPU detected (inherited from outer Helix)"
     else
       export OUTER_SANDBOX_PROFILE="code-nvidia"
+      echo "  ⚠️  No GPU detected, defaulting to code-nvidia"
     fi
 
     # Set sandbox names based on the determined profile
