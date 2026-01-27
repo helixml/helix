@@ -741,8 +741,8 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		}, nil
 	}
 
-	// Agent can push to their feature branch
-	allowedBranches := []string{}
+	// Agent can push to their feature branch AND helix-specs (for design docs)
+	allowedBranches := []string{SpecsBranchName} // Always allow helix-specs
 	if task.BranchName != "" {
 		allowedBranches = append(allowedBranches, task.BranchName)
 	}
