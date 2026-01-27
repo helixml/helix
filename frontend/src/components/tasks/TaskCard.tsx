@@ -577,31 +577,6 @@ export default function TaskCard({
         },
       }}
     >
-      {/* Archiving overlay */}
-      {isArchiving && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.8)',
-            zIndex: 10,
-            borderRadius: 'inherit',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CircularProgress size={16} />
-            <Typography variant="caption" color="text.secondary">
-              Archiving...
-            </Typography>
-          </Box>
-        </Box>
-      )}
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         {/* Task name */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>

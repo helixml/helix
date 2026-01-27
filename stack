@@ -301,33 +301,34 @@ function get_sandbox_names() {
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 # In Helix-in-Helix mode, sandbox is started separately on host Docker, not via compose profiles
 function setup_sandbox_profile() {
-  # In Helix-in-Helix mode, determine the sandbox profile from .env but don't start sandbox
+  # In Helix-in-Helix mode, determine the sandbox profile but don't start sandbox
   # on inner Docker - it will be started separately on host Docker by start_outer_sandbox()
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
     echo "🎮 Helix-in-Helix mode: Sandbox will run on host Docker (not via compose profiles)"
 
-    # Read .env to get the configured profile (same logic as normal mode below)
-    if [[ -f "$DIR/.env" ]]; then
-      source "$DIR/.env"
-    fi
-
-    # If COMPOSE_PROFILES is set in .env, use it
-    # Otherwise auto-detect GPU from hardware (inherited from outer Helix via GPU passthrough)
-    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
-      export OUTER_SANDBOX_PROFILE="${COMPOSE_PROFILES}"
-      echo "  📋 Using COMPOSE_PROFILES from .env: $OUTER_SANDBOX_PROFILE"
-    elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-      export OUTER_SANDBOX_PROFILE="code-nvidia"
-      echo "  🎮 NVIDIA GPU detected (inherited from outer Helix)"
-    elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]]; then
-      export OUTER_SANDBOX_PROFILE="code-amd-intel"
-      echo "  🎮 AMD GPU detected (inherited from outer Helix)"
-    elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
-      export OUTER_SANDBOX_PROFILE="code-amd-intel"
-      echo "  🎮 Intel/Generic GPU detected (inherited from outer Helix)"
+    # Check for GPU_VENDOR inherited from outer Helix (passed through to desktop container)
+    # This avoids needing to configure GPU settings in inner .env
+    if [[ -n "${GPU_VENDOR:-}" ]]; then
+      echo "  📋 GPU_VENDOR inherited from outer Helix: $GPU_VENDOR"
+      if [[ "$GPU_VENDOR" == "nvidia" ]]; then
+        export OUTER_SANDBOX_PROFILE="code-nvidia"
+      else
+        # AMD, Intel, or other -> use code-amd-intel profile
+        export OUTER_SANDBOX_PROFILE="code-amd-intel"
+      fi
     else
-      export OUTER_SANDBOX_PROFILE="code-nvidia"
-      echo "  ⚠️  No GPU detected, defaulting to code-nvidia"
+      # Fall back to .env or default
+      if [[ -f "$DIR/.env" ]]; then
+        source "$DIR/.env"
+      fi
+
+      if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
+        export OUTER_SANDBOX_PROFILE="${COMPOSE_PROFILES}"
+        echo "  📋 Using COMPOSE_PROFILES from .env: $OUTER_SANDBOX_PROFILE"
+      else
+        export OUTER_SANDBOX_PROFILE="code-nvidia"
+        echo "  ⚠️  No GPU_VENDOR or COMPOSE_PROFILES set, defaulting to code-nvidia"
+      fi
     fi
 
     # Set sandbox names based on the determined profile
