@@ -2,16 +2,31 @@
 
 **Date:** 2026-01-27
 **Status:** Investigation
-**Issue:** 409 errors when agents push to external repos (Azure DevOps)
+**Issue:** Multi-agent push race condition causes lost commits
 
 ## Problem Statement
 
-When an agent tries to push to an external repository's helix-specs branch, we're getting:
+**Core Issue:** Two agents pushed design docs to the same helix-specs branch, and **both pushes succeeded** even though neither agent had pulled the latest changes. Git should have rejected the second push because the old SHA didn't match the current ref, but somehow it was accepted.
+
+**Observed behavior:**
 ```
-error fetching from remote: failed to update 'refs/heads/helix-specs' (non-fast-forward)
+Agent 001022: 4fca338ce..362140a75 (succeeded)
+Agent 001023: 362140a75..1a8a3cdb8 (agent thought it succeeded, but commit was lost!)
+Agent 001024: 362140a75..04e15b55d (succeeded - note parent is 362140a75, NOT 1a8a3cdb8)
 ```
 
-This happens because our local (middle) helix-specs branch is **ahead** of the upstream (remote) helix-specs branch.
+Agent 001024's push used `362140a75` as parent, which means Agent 001023's commit `1a8a3cdb8` was already gone. The Helix git server should have rejected 001024's push with "failed to update ref" because the server's current ref was `1a8a3cdb8`, not `362140a75`.
+
+**Expected behavior (from manual testing):**
+When two git clones make divergent changes and push sequentially, the second push is rejected:
+```
+$ git push origin master  # Second push from diverged clone
+ ! [rejected]        master -> master (fetch first)
+error: failed to push some refs...
+hint: Updates were rejected because the remote contains work that you do not have locally.
+```
+
+**Mystery:** Manual testing confirms git correctly rejects diverged pushes. So why did the Helix git server accept them?
 
 ## User's Scenario
 
