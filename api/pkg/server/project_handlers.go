@@ -419,20 +419,29 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 
 				// Push helix-specs branch to external upstream (if external repo)
 				// helix-specs is PUSH-ONLY: Helix is source of truth, always push to upstream
+				// Run async to avoid blocking the HTTP response (push can be slow/hang)
 				if primaryRepo.IsExternal && primaryRepo.ExternalURL != "" {
-					if err := s.gitRepositoryService.PushBranchToRemote(r.Context(), primaryRepo.ID, "helix-specs", false); err != nil {
-						log.Warn().
-							Err(err).
-							Str("project_id", projectID).
-							Str("primary_repo_id", project.DefaultRepoID).
-							Str("external_url", primaryRepo.ExternalURL).
-							Msg("failed to push helix-specs to external upstream (startup script saved locally)")
-					} else {
-						log.Info().
-							Str("project_id", projectID).
-							Str("primary_repo_id", project.DefaultRepoID).
-							Msg("Startup script pushed to external upstream (helix-specs branch)")
-					}
+					repoID := primaryRepo.ID
+					externalURL := primaryRepo.ExternalURL
+					go func() {
+						// Use background context with 30 second timeout
+						pushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						defer cancel()
+
+						if err := s.gitRepositoryService.PushBranchToRemote(pushCtx, repoID, "helix-specs", false); err != nil {
+							log.Warn().
+								Err(err).
+								Str("project_id", projectID).
+								Str("primary_repo_id", repoID).
+								Str("external_url", externalURL).
+								Msg("failed to push helix-specs to external upstream (startup script saved locally)")
+						} else {
+							log.Info().
+								Str("project_id", projectID).
+								Str("primary_repo_id", repoID).
+								Msg("Startup script pushed to external upstream (helix-specs branch)")
+						}
+					}()
 				}
 			}
 		}
