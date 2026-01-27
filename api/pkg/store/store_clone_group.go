@@ -89,17 +89,25 @@ func (s *PostgresStore) GetCloneGroupProgress(ctx context.Context, groupID strin
 			Name:        group.SourceTaskName,
 		},
 		Tasks:           make([]types.CloneGroupTaskProgress, 0, len(tasks)),
+		FullTasks:       make([]types.SpecTaskWithProject, 0, len(tasks)),
 		TotalTasks:      len(tasks),
 		StatusBreakdown: make(map[string]int),
 	}
 
 	for _, t := range tasks {
+		// Minimal progress info (for stacked bar)
 		progress.Tasks = append(progress.Tasks, types.CloneGroupTaskProgress{
 			TaskID:      t.ID,
 			ProjectID:   t.ProjectID,
 			ProjectName: projectNames[t.ProjectID],
 			Name:        t.Name,
 			Status:      t.Status.String(),
+		})
+
+		// Full task with project name (for TaskCard rendering)
+		progress.FullTasks = append(progress.FullTasks, types.SpecTaskWithProject{
+			SpecTask:    t,
+			ProjectName: projectNames[t.ProjectID],
 		})
 
 		progress.StatusBreakdown[t.Status.String()]++

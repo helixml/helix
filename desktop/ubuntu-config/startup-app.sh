@@ -120,8 +120,9 @@ export GTK_IM_MODULE=gtk-im-context-simple
 export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
-# HiDPI cursor support - larger cursors for better streaming quality
-# This matches cursor-size=48 in dconf-settings.ini
+# Cursor size must match the Helix-Invisible cursor theme (48x48 cursors)
+# and dconf cursor-size=48. Using 48x48 allows hotspots to be spaced at
+# multiples of 6, which survive Mutter's rounding at 200% and 300% scaling.
 export XCURSOR_SIZE=48
 
 # Display scaling
@@ -176,6 +177,16 @@ if [ -f /opt/gow/dconf-settings.ini ]; then
     gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
     dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
 fi
+
+# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
+# This is needed because GNOME requires explicit default handler configuration.
+# Without this, clicking URLs in Zed/agent output or calling xdg-open silently fails.
+# See: design/2025-12-08-ubuntu-launch-firefox.md
+gow_log "[start] Setting Firefox as default browser..."
+xdg-mime default firefox.desktop x-scheme-handler/http
+xdg-mime default firefox.desktop x-scheme-handler/https
+xdg-mime default firefox.desktop text/html
+gow_log "[start] Firefox set as default browser for HTTP/HTTPS URLs"
 
 # Enable extensions before gnome-shell starts so they are loaded:
 # - Just Perfection: Hides the ScreenCast "stop" button that would crash Wolf if clicked

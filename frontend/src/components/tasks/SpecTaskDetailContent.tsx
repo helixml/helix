@@ -1,5 +1,6 @@
 import React, { FC, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
+  Alert,
   Box,
   Typography,
   Chip,
@@ -7,8 +8,6 @@ import {
   IconButton,
   TextField,
   Button,
-  Checkbox,
-  FormControlLabel,
   Tooltip,
   Select,
   FormControl,
@@ -31,46 +30,53 @@ import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
-import MenuBookIcon from '@mui/icons-material/MenuBook'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
-import ComputerIcon from '@mui/icons-material/Computer'
-import TuneIcon from '@mui/icons-material/Tune'
-import DifferenceIcon from '@mui/icons-material/Difference'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
+import LinkIcon from '@mui/icons-material/Link'
+import ArchiveIcon from '@mui/icons-material/Archive'
+import { TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
-import DesignDocViewer from './DesignDocViewer'
+
 import DiffViewer from './DiffViewer'
+import SpecTaskActionButtons from './SpecTaskActionButtons'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useRouter from '../../hooks/useRouter'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
-import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/specTaskService'
+import { useGetProject, useGetProjectRepositories } from '../../services/projectService'
+import CloneTaskDialog from '../specTask/CloneTaskDialog'
+import AgentDropdown from '../agent/AgentDropdown'
+import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
+import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
-import PromptLibrarySidebar from '../common/PromptLibrarySidebar'
-import { usePromptHistory } from '../../hooks/usePromptHistory'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import { SlidersHorizontal, GitCompare, MonitorPlay, Wand2 } from 'lucide-react'
 
 interface SpecTaskDetailContentProps {
   taskId: string
   onClose?: () => void
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (taskId: string, reviewId: string, reviewTitle?: string) => void
+  /** Called when task is archived - parent should close all tabs showing this task */
+  onTaskArchived?: (taskId: string) => void
 }
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   onClose,
   onOpenReview,
+  onTaskArchived,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -79,6 +85,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
+  const router = useRouter()
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: 'md' })
 
@@ -87,6 +94,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   })
+
+  // Fetch project and repositories to get default branch
+  const { data: project } = useGetProject(task?.project_id || '', !!task?.project_id)
+  const { data: projectRepositories = [] } = useGetProjectRepositories(task?.project_id || '', !!task?.project_id)
+
+  const defaultBranchName = useMemo(() => {
+    const defaultRepo = projectRepositories.find(r => r.id === project?.default_repo_id)
+    return defaultRepo?.default_branch || 'main'
+  }, [projectRepositories, project?.default_repo_id])
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false)
@@ -164,8 +180,34 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   }, [])
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
-  const [currentView, setCurrentView] = useState<'chat' | 'desktop' | 'changes' | 'details'>('desktop')
+  // Initialize from URL query param 'view' if present
+  const getInitialView = (): 'chat' | 'desktop' | 'changes' | 'details' => {
+    const viewParam = router.params.view
+    if (viewParam === 'chat' || viewParam === 'desktop' || viewParam === 'changes' || viewParam === 'details') {
+      return viewParam
+    }
+    return 'desktop'
+  }
+  const [currentView, setCurrentView] = useState<'chat' | 'desktop' | 'changes' | 'details'>(getInitialView)
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
+
+  // Sync currentView with URL query param
+  useEffect(() => {
+    const viewParam = router.params.view
+    if (viewParam && (viewParam === 'chat' || viewParam === 'desktop' || viewParam === 'changes' || viewParam === 'details')) {
+      if (viewParam !== currentView) {
+        setCurrentView(viewParam)
+      }
+    }
+  }, [router.params.view])
+
+  // Update URL when view changes
+  const handleViewChange = useCallback((newView: 'chat' | 'desktop' | 'changes' | 'details' | null) => {
+    if (newView && newView !== currentView) {
+      setCurrentView(newView)
+      router.mergeParams({ view: newView })
+    }
+  }, [currentView, router])
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
@@ -178,8 +220,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
 
-  // Prompt library sidebar state
-  const [showPromptLibrary, setShowPromptLibrary] = useState(false)
 
   // Just Do It mode state
   const [justDoItMode, setJustDoItMode] = useState(false)
@@ -188,6 +228,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+
+  // Clone dialog state
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
+  const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<string | null>(null)
+
+  // Archive state
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
+
+  // Fetch clone groups where this task was the source
+  const { data: cloneGroups } = useCloneGroups(taskId)
 
   // Initialize edit form data when task changes
   useEffect(() => {
@@ -200,18 +251,41 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task, isEditMode])
 
-  // Get the active session ID
+  // Check if task is completed/merged - container is shut down so desktop view won't work
+  const isTaskCompleted = task?.status === 'done' || task?.merged_to_main
+
+  // Check if task is archived/rejected - container is shut down so desktop view won't work
+  const isTaskArchived = task?.archived
+
+  // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = task?.planning_session_id
+
+  // Subscribe to WebSocket updates for the active session when chat is visible
+  // On big screens: chat is visible unless collapsed
+  // On mobile: chat is visible when currentView === 'chat'
+  const isChatVisible = isBigScreen ? !chatCollapsed : currentView === 'chat'
+
+  useEffect(() => {
+    if (activeSessionId && isChatVisible) {
+      streaming.setCurrentSessionId(activeSessionId)
+    } else {
+      // Clear subscription when chat is hidden to disconnect WebSocket
+      streaming.setCurrentSessionId(null)
+    }
+  }, [activeSessionId, isChatVisible])
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === 'details') {
       // If there's an active session and we're on details, switch to appropriate view
       // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
-      setCurrentView(isBigScreen ? 'desktop' : 'chat')
+      const newView = isBigScreen ? 'desktop' : 'chat'
+      setCurrentView(newView)
+      router.mergeParams({ view: newView })
     } else if (!activeSessionId && currentView !== 'details') {
       // If no active session, switch to details view
       setCurrentView('details')
+      router.mergeParams({ view: 'details' })
     }
   }, [activeSessionId, isBigScreen])
 
@@ -219,13 +293,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
   const sessionData = sessionResponse?.data
 
-  // Initialize prompt history for the session
-  const promptHistory = usePromptHistory({
-    sessionId: activeSessionId || 'default',
-    specTaskId: task?.id,
-    projectId: task?.project_id,
-    apiClient: api.getApiClient(),
-  })
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -293,7 +360,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
 
       snackbar.success('Planning started! Agent session will begin shortly.')
-      setCurrentView('session')
+      handleViewChange('desktop')
     } catch (err: any) {
       console.error('Failed to start planning:', err)
       snackbar.error(err?.message || 'Failed to start planning. Please try again.')
@@ -406,6 +473,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, editFormData, updateSpecTask, snackbar])
 
+  // Handle review spec navigation
+  const handleReviewSpec = useCallback(async () => {
+    if (!task?.id) return
+
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id)
+      const reviews = response.data?.reviews || []
+      if (reviews.length > 0) {
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+        if (onOpenReview) {
+          onOpenReview(task.id, latestReview.id, task.name || 'Spec Review')
+        } else {
+          account.orgNavigate('project-task-review', {
+            id: task.project_id,
+            taskId: task.id,
+            reviewId: latestReview.id,
+          })
+        }
+      } else {
+        snackbar.error('No design review found')
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error)
+      snackbar.error('Failed to load design review')
+    }
+  }, [task?.id, task?.name, task?.project_id, onOpenReview, account])
+
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
     if (!activeSessionId) {
@@ -460,82 +554,69 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [activeSessionId, snackbar])
 
+  // Handle archive task
+  const handleArchiveClick = useCallback((e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      // Shift+click bypasses confirmation
+      performArchive()
+    } else {
+      setArchiveConfirmOpen(true)
+    }
+  }, [])
+
+  const performArchive = useCallback(async () => {
+    if (!task?.id || isArchiving) return
+
+    setIsArchiving(true)
+    setArchiveConfirmOpen(false)
+
+    try {
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id, { archived: true })
+      snackbar.success('Task archived')
+      // If parent handles task archival (TabsView), let it close all tabs
+      if (onTaskArchived) {
+        onTaskArchived(task.id)
+      } else {
+        // Fallback: navigate back to the project specs page (standalone usage)
+        if (task.project_id) {
+          account.orgNavigate('project-specs', { id: task.project_id })
+        }
+        if (onClose) onClose()
+      }
+    } catch (err) {
+      console.error('Failed to archive task:', err)
+      snackbar.error('Failed to archive task')
+    } finally {
+      setIsArchiving(false)
+    }
+  }, [task?.id, task?.project_id, isArchiving, api, snackbar, account, onClose, onTaskArchived])
+
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
-      {/* Action Buttons */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        {task?.status === 'backlog' && (
-          <>
-            <Button
-              variant="contained"
-              color={justDoItMode ? 'success' : 'warning'}
-              startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
-              onClick={handleStartPlanning}
-              disabled={isStartingPlanning}
-            >
-              {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
-            </Button>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={justDoItMode}
-                  onChange={handleToggleJustDoIt}
-                  disabled={updatingJustDoIt}
-                  color="warning"
-                  size="small"
-                />
-              }
-              label={<Typography variant="body2">Just Do It</Typography>}
-              sx={{ ml: 1 }}
-            />
-          </>
-        )}
-        {task?.status === 'spec_review' && (
-          <Button
-            variant="contained"
-            color="info"
-            startIcon={<Description />}
-            onClick={async () => {
-              try {
-                const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
-                const reviews = response.data?.reviews || []
-                if (reviews.length > 0) {
-                  const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
-                  if (onOpenReview) {
-                    onOpenReview(task.id!, latestReview.id, task.name || 'Spec Review')
-                  } else {
-                    account.orgNavigate('project-task-review', {
-                      id: task.project_id,
-                      taskId: task.id,
-                      reviewId: latestReview.id,
-                    })
-                  }
-                } else {
-                  snackbar.error('No design review found')
-                }
-              } catch (error) {
-                console.error('Failed to fetch design reviews:', error)
-                snackbar.error('Failed to load design review')
-              }
-            }}
-          >
-            Review Spec
-          </Button>
-        )}
-        {task?.pull_request_url && (
-          <Button
-            variant="outlined"
-            color="secondary"
-            startIcon={<LaunchIcon />}
-            onClick={() => window.open(task.pull_request_url, '_blank')}
-          >
-            View Pull Request
-          </Button>
-        )}
-      </Box>
+      {/* Completed task message */}
+      {isTaskCompleted && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Task finished
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+            Merged to default branch
+          </Typography>
+        </Alert>
+      )}
 
-      <Divider sx={{ mb: 3 }} />
+      {/* Archived/rejected task message */}
+      {isTaskArchived && !isTaskCompleted && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Task rejected
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+            This task has been archived
+          </Typography>
+        </Alert>
+      )}
 
       {/* Description */}
       <Box sx={{ mb: 3 }}>
@@ -588,22 +669,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
-        <FormControl fullWidth size="small">
-          <InputLabel>Agent</InputLabel>
-          <Select
-            value={selectedAgent}
-            onChange={(e) => handleAgentChange(e.target.value)}
-            label="Agent"
-            disabled={updatingAgent}
-            endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
-          >
-            {sortedApps.map((app) => (
-              <MenuItem key={app.id} value={app.id}>
-                {app.config?.helix?.name || 'Unnamed Agent'}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <AgentDropdown
+          value={selectedAgent}
+          onChange={handleAgentChange}
+          agents={sortedApps}
+          label="Agent"
+          disabled={updatingAgent}
+          size="small"
+        />
       </Box>
 
       {/* Timestamps */}
@@ -615,6 +688,76 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           Updated: {task?.updated_at ? new Date(task.updated_at).toLocaleString() : 'N/A'}
         </Typography>
       </Box>
+
+      {/* Clone Info - Bidirectional links */}
+      {(task?.cloned_from_id || (cloneGroups && cloneGroups.length > 0)) && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Clone Info
+          </Typography>
+
+          {/* Link to source task if this was cloned */}
+          {task?.cloned_from_id && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                p: 1,
+                bgcolor: 'action.hover',
+                borderRadius: 1,
+                cursor: 'pointer',
+                mb: 1,
+                '&:hover': { bgcolor: 'action.selected' },
+              }}
+              onClick={() => {
+                if (task.cloned_from_project_id && task.cloned_from_id) {
+                  account.orgNavigate('project-task-detail', {
+                    id: task.cloned_from_project_id,
+                    taskId: task.cloned_from_id,
+                  })
+                }
+              }}
+            >
+              <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary">
+                Cloned from another task
+              </Typography>
+            </Box>
+          )}
+
+          {/* Links to clone groups if this task was cloned to others */}
+          {cloneGroups && cloneGroups.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Cloned to {cloneGroups.length} batch{cloneGroups.length > 1 ? 'es' : ''}:
+              </Typography>
+              {cloneGroups.map((group) => (
+                <Box
+                  key={group.id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    bgcolor: 'action.hover',
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    mb: 0.5,
+                    '&:hover': { bgcolor: 'action.selected' },
+                  }}
+                  onClick={() => setSelectedCloneGroupId(group.id || null)}
+                >
+                  <Wand2 size={16} style={{ color: 'inherit', opacity: 0.7 }} />
+                  <Typography variant="caption">
+                    {group.total_targets} project{group.total_targets !== 1 ? 's' : ''} • {new Date(group.created_at || '').toLocaleDateString()}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
 
       {/* Debug Info */}
       <Divider sx={{ my: 2 }} />
@@ -644,6 +787,36 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Session ID: {activeSessionId}
           </Typography>
         )}
+        {sessionData?.config?.sway_version && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            Desktop: {sessionData.config.sway_version}
+          </Typography>
+        )}
+        {sessionData?.config?.gpu_vendor && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            GPU: {sessionData.config.gpu_vendor.toUpperCase()}
+          </Typography>
+        )}
+        {sessionData?.config?.render_node && (
+          <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
+            Render: {sessionData.config.render_node}
+          </Typography>
+        )}
+
+        {/* Archive button */}
+        <Tooltip title="Hold Shift to skip confirmation">
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <ArchiveIcon />}
+            onClick={handleArchiveClick}
+            disabled={isArchiving || task?.archived}
+            sx={{ mt: 2, fontSize: '0.75rem' }}
+          >
+            {isArchiving ? 'Archiving...' : 'Archive Task'}
+          </Button>
+        </Tooltip>
       </Box>
     </>
   )
@@ -701,7 +874,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         setChatCollapsed(true)
                         // Switch to desktop view when collapsing chat
                         if (currentView === 'chat') {
-                          setCurrentView('desktop')
+                          handleViewChange('desktop')
                         }
                       }}
                       sx={{ p: 0.25 }}
@@ -711,34 +884,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Tooltip>
                 </Box>
                 <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <Box sx={{ flex: 1 }}>
-                    <RobustPromptInput
-                      sessionId={activeSessionId}
-                      specTaskId={task.id}
-                      projectId={task.project_id}
-                      apiClient={api.getApiClient()}
-                      onSend={async (message: string, interrupt?: boolean) => {
-                        await streaming.NewInference({
-                          type: SESSION_TYPE_TEXT,
-                          message,
-                          sessionId: activeSessionId,
-                          interrupt: interrupt ?? true,
-                        })
-                      }}
-                      onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                      placeholder="Send message to agent..."
-                    />
-                  </Box>
-                  <Tooltip title={showPromptLibrary ? 'Hide prompt library' : 'Show prompt library'}>
-                    <IconButton
-                      size="small"
-                      onClick={() => setShowPromptLibrary(!showPromptLibrary)}
-                      sx={{ mt: 0.5, color: showPromptLibrary ? 'primary.main' : 'text.secondary' }}
-                    >
-                      <MenuBookIcon sx={{ fontSize: 20 }} />
-                    </IconButton>
-                  </Tooltip>
+                <Box sx={{ p: 1.5, flexShrink: 0 }}>
+                  <RobustPromptInput
+                    sessionId={activeSessionId}
+                    specTaskId={task.id}
+                    projectId={task.project_id}
+                    apiClient={api.getApiClient()}
+                    onSend={async (message: string, interrupt?: boolean) => {
+                      await streaming.NewInference({
+                        type: SESSION_TYPE_TEXT,
+                        message,
+                        sessionId: activeSessionId,
+                        interrupt: interrupt ?? true,
+                      })
+                    }}
+                    onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                    placeholder="Send message to agent..."
+                  />
                 </Box>
               </Box>
             </Panel>
@@ -781,7 +943,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   <ToggleButtonGroup
                     value={currentView}
                     exclusive
-                    onChange={(_, newView) => newView && setCurrentView(newView)}
+                    onChange={(_, newView) => handleViewChange(newView)}
                     size="small"
                     sx={{
                       '& .MuiToggleButton-root': {
@@ -797,20 +959,54 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   >
                     <ToggleButton value="desktop" aria-label="Desktop view">
                       <Tooltip title="Desktop">
-                        <ComputerIcon sx={{ fontSize: 18 }} />
+                        <MonitorPlay size={16} />
                       </Tooltip>
                     </ToggleButton>
                     <ToggleButton value="changes" aria-label="Changes view">
                       <Tooltip title="Changes">
-                        <DifferenceIcon sx={{ fontSize: 18 }} />
+                        <GitCompare size={16} />
                       </Tooltip>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
                       <Tooltip title="Details">
-                        <TuneIcon sx={{ fontSize: 18 }} />
+                        <SlidersHorizontal size={16}/>
                       </Tooltip>
                     </ToggleButton>
                   </ToggleButtonGroup>
+
+                  {/* Status-specific action buttons */}
+                  <SpecTaskActionButtons
+                    task={{
+                      id: task.id || '',
+                      status: task.status || '',
+                      design_docs_pushed_at: task.design_docs_pushed_at,
+                      pull_request_url: task.pull_request_url,
+                      base_branch: task.base_branch,
+                      branch_name: task.branch_name,
+                      archived: task.archived,
+                      just_do_it_mode: justDoItMode,
+                      planning_session_id: task.planning_session_id,
+                    }}
+                    variant="inline"
+                    onStartPlanning={handleStartPlanning}
+                    onReviewSpec={handleReviewSpec}
+                    onReject={handleArchiveClick}
+                    hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                    isStartingPlanning={isStartingPlanning}
+                    isArchiving={isArchiving}
+                  />
+                  {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
+                  {task.design_docs_pushed_at && task.status !== 'spec_review' && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<Description />}
+                      onClick={handleReviewSpec}
+                      sx={{ ml: 1, fontSize: '0.75rem' }}
+                    >
+                      View Spec
+                    </Button>
+                  )}
 
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
@@ -839,6 +1035,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Edit task">
                             <IconButton size="small" onClick={handleEditToggle}>
                               <EditIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {task.design_docs_pushed_at && (
+                          <Tooltip title="Clone task to other projects">
+                            <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                              <Wand2 size={18} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -873,20 +1076,44 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </Box>
 
                 {currentView === 'desktop' && (
-                  <ExternalAgentDesktopViewer
-                    sessionId={activeSessionId}
-                    sandboxId={activeSessionId}
-                    mode="stream"
-                    onClientIdCalculated={setClientUniqueId}
-                    displayWidth={displaySettings.width}
-                    displayHeight={displaySettings.height}
-                    displayFps={displaySettings.fps}
-                  />
+                  isTaskCompleted ? (
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                      <Alert severity="success" sx={{ maxWidth: 400 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                          Task finished
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This task has been merged to the default branch. The agent session has ended.
+                        </Typography>
+                      </Alert>
+                    </Box>
+                  ) : isTaskArchived ? (
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                      <Alert severity="warning" sx={{ maxWidth: 400 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                          Task rejected
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This task has been archived. The agent session has ended.
+                        </Typography>
+                      </Alert>
+                    </Box>
+                  ) : (
+                    <ExternalAgentDesktopViewer
+                      sessionId={activeSessionId}
+                      sandboxId={activeSessionId}
+                      mode="stream"
+                      onClientIdCalculated={setClientUniqueId}
+                      displayWidth={displaySettings.width}
+                      displayHeight={displaySettings.height}
+                      displayFps={displaySettings.fps}
+                    />
+                  )
                 )}
                 {currentView === 'changes' && (
                   <DiffViewer
                     sessionId={activeSessionId}
-                    baseBranch="main"
+                    baseBranch={defaultBranchName}
                     pollInterval={3000}
                   />
                 )}
@@ -898,35 +1125,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             </Panel>
 
-            {/* Prompt library sidebar */}
-            {showPromptLibrary && (
-              <>
-                <PanelResizeHandle style={{
-                  width: 6,
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  cursor: 'col-resize',
-                  transition: 'background 0.15s',
-                }}>
-                  <div style={{
-                    width: 2,
-                    height: '100%',
-                    margin: '0 auto',
-                    background: 'rgba(255, 255, 255, 0.12)',
-                    borderRadius: 1,
-                  }} />
-                </PanelResizeHandle>
-                <Panel defaultSize={20} minSize={15}>
-                  <PromptLibrarySidebar
-                    pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
-                    recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
-                    onSelectPrompt={(content) => promptHistory.setDraft(content)}
-                    onPinPrompt={promptHistory.pinPrompt}
-                    onSearch={promptHistory.searchHistory}
-                    onClose={() => setShowPromptLibrary(false)}
-                  />
-                </Panel>
-              </>
-            )}
           </PanelGroup>
         ) : (
           <>
@@ -951,7 +1149,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <ToggleButtonGroup
                 value={currentView}
                 exclusive
-                onChange={(_, newView) => newView && setCurrentView(newView)}
+                onChange={(_, newView) => handleViewChange(newView)}
                 size="small"
                 sx={{
                   flexShrink: 0,
@@ -978,20 +1176,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {activeSessionId && (
                   <ToggleButton value="desktop" aria-label="Desktop view">
                     <Tooltip title="Desktop">
-                      <ComputerIcon sx={{ fontSize: 18 }} />
+                      <MonitorPlay size={16} />
                     </Tooltip>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="changes" aria-label="Changes view">
                     <Tooltip title="Changes">
-                      <DifferenceIcon sx={{ fontSize: 18 }} />
+                      <GitCompare size={16} />
                     </Tooltip>
                   </ToggleButton>
                 )}
                 <ToggleButton value="details" aria-label="Details view">
                   <Tooltip title="Details">
-                    <TuneIcon sx={{ fontSize: 18 }} />
+                    <SlidersHorizontal size={16}/>
                   </Tooltip>
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -1007,6 +1205,40 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     <VerticalSplitIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
+              )}
+
+              {/* Status-specific action buttons */}
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id || '',
+                  status: task.status || '',
+                  design_docs_pushed_at: task.design_docs_pushed_at,
+                  pull_request_url: task.pull_request_url,
+                  base_branch: task.base_branch,
+                  branch_name: task.branch_name,
+                  archived: task.archived,
+                  just_do_it_mode: justDoItMode,
+                  planning_session_id: task.planning_session_id,
+                }}
+                variant="inline"
+                onStartPlanning={handleStartPlanning}
+                onReviewSpec={handleReviewSpec}
+                onReject={handleArchiveClick}
+                hasExternalRepo={projectRepositories.some(r => r.git_url && r.git_url !== '')}
+                isStartingPlanning={isStartingPlanning}
+                isArchiving={isArchiving}
+              />
+              {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
+              {task.design_docs_pushed_at && task.status !== 'spec_review' && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<Description />}
+                  onClick={handleReviewSpec}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  View Spec
+                </Button>
               )}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
@@ -1036,6 +1268,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <Tooltip title="Edit task">
                         <IconButton size="small" onClick={handleEditToggle}>
                           <EditIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.design_docs_pushed_at && (
+                      <Tooltip title="Clone task to other projects">
+                        <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                          <Wand2 size={18} />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -1077,7 +1316,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {activeSessionId && currentView === 'chat' && (
               <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                 <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
-                <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                <Box sx={{ p: 1.5, flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                   <Box sx={{ flex: 1 }}>
                     <RobustPromptInput
                       sessionId={activeSessionId}
@@ -1103,15 +1342,39 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Desktop View - mobile */}
             {activeSessionId && currentView === 'desktop' && (
               <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <ExternalAgentDesktopViewer
-                  sessionId={activeSessionId}
-                  sandboxId={activeSessionId}
-                  mode="stream"
-                  onClientIdCalculated={setClientUniqueId}
-                  displayWidth={displaySettings.width}
-                  displayHeight={displaySettings.height}
-                  displayFps={displaySettings.fps}
-                />
+                {isTaskCompleted ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                    <Alert severity="success" sx={{ maxWidth: 400 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                        Task finished
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This task has been merged to the default branch. The agent session has ended.
+                      </Typography>
+                    </Alert>
+                  </Box>
+                ) : isTaskArchived ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                    <Alert severity="warning" sx={{ maxWidth: 400 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
+                        Task rejected
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        This task has been archived. The agent session has ended.
+                      </Typography>
+                    </Alert>
+                  </Box>
+                ) : (
+                  <ExternalAgentDesktopViewer
+                    sessionId={activeSessionId}
+                    sandboxId={activeSessionId}
+                    mode="stream"
+                    onClientIdCalculated={setClientUniqueId}
+                    displayWidth={displaySettings.width}
+                    displayHeight={displaySettings.height}
+                    displayFps={displaySettings.fps}
+                  />
+                )}
               </Box>
             )}
 
@@ -1120,7 +1383,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <Box sx={{ flex: 1, overflow: 'hidden' }}>
                 <DiffViewer
                   sessionId={activeSessionId}
-                  baseBranch="main"
+                  baseBranch={defaultBranchName}
                   pollInterval={3000}
                 />
               </Box>
@@ -1158,6 +1421,44 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={taskId}
+        taskName={task?.name || ''}
+        sourceProjectId={task?.project_id || ''}
+      />
+
+      {/* Clone Group Progress Dialog */}
+      <Dialog
+        open={selectedCloneGroupId !== null}
+        onClose={() => setSelectedCloneGroupId(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Clone Batch Progress
+          <IconButton size="small" onClick={() => setSelectedCloneGroupId(null)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {selectedCloneGroupId && (
+            <CloneGroupProgressFull groupId={selectedCloneGroupId} />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive Confirmation Dialog */}
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => setArchiveConfirmOpen(false)}
+        onConfirm={performArchive}
+        taskName={task?.name}
+        isArchiving={isArchiving}
+      />
     </Box>
   )
 }

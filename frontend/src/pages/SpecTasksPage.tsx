@@ -26,7 +26,6 @@ import {
   Refresh as RefreshIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
-  SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
   Tab as TabIcon,
@@ -83,7 +82,7 @@ import {
   useResumeProjectExploratorySession,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
-import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
+import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
 
 const SpecTasksPage: FC = () => {
@@ -110,22 +109,6 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
-  // Query sandbox instances to check for privileged mode availability
-  const { data: sandboxInstances } = useQuery({
-    queryKey: ['sandbox-instances'],
-    queryFn: async () => {
-      // API endpoint still named WolfInstances for backwards compatibility
-      const response = await api.getApiClient().v1WolfInstancesList();
-      return response.data;
-    },
-    staleTime: 60000, // Cache for 1 minute
-  });
-
-  // Check if any sandbox has privileged mode enabled
-  const hasPrivilegedSandbox = useMemo(() => {
-    return sandboxInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
-  }, [sandboxInstances]);
-
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
   useEffect(() => {
@@ -136,10 +119,11 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // Read query params for view mode override and task/desktop opening
+  // Read query params for view mode override and task/desktop/review opening
   const queryTab = router.params.tab as string | undefined;
   const openTaskId = router.params.openTask as string | undefined;
   const openDesktopId = router.params.openDesktop as string | undefined;
+  const openReviewId = router.params.openReview as string | undefined;
 
   // State for view management - always default to kanban, but respect query param
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
@@ -857,6 +841,7 @@ const SpecTasksPage: FC = () => {
       breadcrumbTitle={project ? undefined : "SpecTasks"}
       orgBreadcrumbs={true}
       showDrawerButton={true}
+      disableContentScroll={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
           {/* View mode toggle: Board vs Workspace vs Audit Trail */}
@@ -1101,7 +1086,8 @@ const SpecTasksPage: FC = () => {
         display: 'flex',
         flexDirection: 'row',
         width: '100%',
-        height: 'calc(100vh - 120px)',
+        flex: 1,
+        minHeight: 0,
         overflow: 'hidden',
         position: 'relative',
       }}>
@@ -1112,6 +1098,7 @@ const SpecTasksPage: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
           overflow: 'hidden',
           transition: 'all 0.3s ease-in-out',
           px: 3,
@@ -1168,6 +1155,8 @@ const SpecTasksPage: FC = () => {
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
                 initialTaskId={openTaskId}
                 initialDesktopId={openDesktopId}
+                initialReviewId={openReviewId}
+                exploratorySessionId={exploratorySessionData?.id}
               />
             )}
             {viewMode === 'audit' && (
@@ -1506,33 +1495,6 @@ const SpecTasksPage: FC = () => {
                   />
                 </Tooltip>
               </FormControl>
-
-              {/* Use Host Docker Checkbox (for Helix-in-Helix development) - only show if a privileged sandbox is available */}
-              {hasPrivilegedSandbox && (
-                <FormControl fullWidth>
-                  <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={useHostDocker}
-                          onChange={(e) => setUseHostDocker(e.target.checked)}
-                          color="info"
-                        />
-                      }
-                      label={
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Use Host Docker 🐳
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            For Helix-in-Helix development — agent can build and run Helix containers
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </Tooltip>
-                </FormControl>
-              )}
             </Stack>
           </Box>
 

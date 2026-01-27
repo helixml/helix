@@ -1,6 +1,10 @@
 # Ghostty Terminal Configuration for Helix Desktop
 # Modern GPU-accelerated terminal with native blur support
 
+# Use single-instance mode to reuse existing process for new windows
+# This dramatically reduces memory usage when opening multiple terminals
+gtk-single-instance = true
+
 # Translucent background with blur effect
 background-opacity = 0.9
 background-blur-radius = 16

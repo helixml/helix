@@ -6,9 +6,12 @@ import {
   IconButton,
   Tooltip,
   Paper,
+  useTheme,
 } from '@mui/material'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import { Copy } from 'lucide-react'
 import { FileDiff } from '../../hooks/useLiveFileDiff'
+import useThemeConfig from '../../hooks/useThemeConfig'
+import { ITheme } from '../../themes'
 
 interface DiffContentProps {
   file: FileDiff | null
@@ -16,7 +19,6 @@ interface DiffContentProps {
   onCopyPath?: () => void
 }
 
-// Parse unified diff into lines with metadata
 interface DiffLine {
   type: 'header' | 'hunk' | 'add' | 'remove' | 'context' | 'empty'
   content: string
@@ -37,7 +39,6 @@ function parseDiff(diffContent: string): DiffLine[] {
     if (line.startsWith('---') || line.startsWith('+++')) {
       result.push({ type: 'header', content: line })
     } else if (line.startsWith('@@')) {
-      // Parse hunk header: @@ -start,count +start,count @@
       const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
       if (match) {
         oldLine = parseInt(match[1], 10)
@@ -65,7 +66,6 @@ function parseDiff(diffContent: string): DiffLine[] {
         newLineNo: newLine++,
       })
     } else {
-      // Other lines (diff header, etc)
       result.push({ type: 'context', content: line })
     }
   }
@@ -73,38 +73,41 @@ function parseDiff(diffContent: string): DiffLine[] {
   return result
 }
 
-// Get color for line type
-function getLineBackground(type: DiffLine['type']): string {
+function getLineBackground(type: DiffLine['type'], themeConfig: ITheme): string {
   switch (type) {
     case 'add':
-      return 'rgba(46, 160, 67, 0.15)'
+      return `${themeConfig.greenRoot}1A`
     case 'remove':
-      return 'rgba(248, 81, 73, 0.15)'
+      return `${themeConfig.redRoot}1A`
     case 'hunk':
-      return 'rgba(56, 139, 253, 0.1)'
+      return `${themeConfig.tealRoot}0F`
     case 'header':
-      return 'rgba(128, 128, 128, 0.1)'
+      return 'rgba(128, 128, 128, 0.06)'
     default:
       return 'transparent'
   }
 }
 
-function getLineColor(type: DiffLine['type']): string {
+function getLineColor(type: DiffLine['type'], themeConfig: ITheme): string {
   switch (type) {
     case 'add':
-      return '#3fb950'
+      return themeConfig.greenRoot
     case 'remove':
-      return '#f85149'
+      return themeConfig.redRoot
     case 'hunk':
-      return '#58a6ff'
+      return themeConfig.tealRoot
     case 'header':
-      return '#8b949e'
+      return themeConfig.neutral400
     default:
-      return 'inherit'
+      return themeConfig.darkText
   }
 }
 
 const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
+  const monoFont = theme.typography.fontFamilyMono
+
   const parsedDiff = useMemo(() => {
     if (!file?.diff) return []
     return parseDiff(file.diff)
@@ -113,7 +116,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <CircularProgress size={32} />
+        <CircularProgress size={24} sx={{ color: themeConfig.tealRoot }} />
       </Box>
     )
   }
@@ -121,22 +124,35 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   if (!file) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: themeConfig.neutral400 }}>
           Select a file to view changes
         </Typography>
       </Box>
     )
   }
 
-  // Binary file
   if (file.is_binary) {
     return (
       <Box sx={{ p: 3 }}>
-        <Paper elevation={0} sx={{ p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
-          <Typography variant="body2" color="text.secondary">
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            bgcolor: 'rgba(255, 255, 255, 0.02)',
+            borderRadius: 1,
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+          }}
+        >
+          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
             Binary file changed
           </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+          <Typography
+            variant="caption"
+            sx={{
+              fontFamily: monoFont,
+              color: themeConfig.neutral400,
+            }}
+          >
             {file.path}
           </Typography>
         </Paper>
@@ -144,34 +160,69 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
     )
   }
 
-  // No diff content available
   if (!file.diff) {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', flex: 1 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{
+              fontFamily: monoFont,
+              flex: 1,
+              color: themeConfig.darkText,
+            }}
+          >
             {file.path}
           </Typography>
           {onCopyPath && (
             <Tooltip title="Copy path">
-              <IconButton size="small" onClick={onCopyPath}>
-                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              <IconButton
+                size="small"
+                onClick={onCopyPath}
+                sx={{
+                  color: themeConfig.neutral400,
+                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
+                }}
+              >
+                <Copy size={14} strokeWidth={1.5} />
               </IconButton>
             </Tooltip>
           )}
         </Box>
-        <Paper elevation={0} sx={{ p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
-          <Typography variant="body2" color="text.secondary">
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            bgcolor: 'rgba(255, 255, 255, 0.02)',
+            borderRadius: 1,
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+          }}
+        >
+          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
             {file.status === 'added' ? 'New file' : 'No diff content available'}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+          <Box sx={{ display: 'flex', gap: 2, mt: 1.5 }}>
             {file.additions > 0 && (
-              <Typography variant="caption" sx={{ color: 'success.main' }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: themeConfig.greenRoot,
+                  fontFamily: monoFont,
+                  fontWeight: 600,
+                }}
+              >
                 +{file.additions} additions
               </Typography>
             )}
             {file.deletions > 0 && (
-              <Typography variant="caption" sx={{ color: 'error.main' }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: themeConfig.redRoot,
+                  fontFamily: monoFont,
+                  fontWeight: 600,
+                }}
+              >
                 -{file.deletions} deletions
               </Typography>
             )}
@@ -182,56 +233,87 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
   }
 
   return (
-    <Box sx={{ height: '100%', overflow: 'auto' }}>
-      {/* File header */}
+    <Box sx={{ height: '100%', overflow: 'auto', bgcolor: themeConfig.darkBackgroundColor }}>
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1,
+          gap: 1.5,
           px: 2,
-          py: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
+          py: 1.25,
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          bgcolor: 'rgba(255, 255, 255, 0.02)',
           position: 'sticky',
           top: 0,
           zIndex: 1,
+          backdropFilter: 'blur(8px)',
         }}
       >
-        <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', flex: 1, fontSize: '0.85rem' }}>
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontFamily: monoFont,
+            flex: 1,
+            fontSize: '0.8rem',
+            fontWeight: 500,
+            color: themeConfig.darkText,
+          }}
+        >
           {file.path}
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
           {file.additions > 0 && (
-            <Typography variant="caption" sx={{ color: 'success.main', fontFamily: 'monospace' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: themeConfig.greenRoot,
+                fontFamily: monoFont,
+                fontWeight: 600,
+                fontSize: '0.75rem',
+              }}
+            >
               +{file.additions}
             </Typography>
           )}
           {file.deletions > 0 && (
-            <Typography variant="caption" sx={{ color: 'error.main', fontFamily: 'monospace' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: themeConfig.redRoot,
+                fontFamily: monoFont,
+                fontWeight: 600,
+                fontSize: '0.75rem',
+              }}
+            >
               -{file.deletions}
             </Typography>
           )}
           {onCopyPath && (
             <Tooltip title="Copy path">
-              <IconButton size="small" onClick={onCopyPath}>
-                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              <IconButton
+                size="small"
+                onClick={onCopyPath}
+                sx={{
+                  color: themeConfig.neutral400,
+                  p: 0.5,
+                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
+                }}
+              >
+                <Copy size={14} strokeWidth={1.5} />
               </IconButton>
             </Tooltip>
           )}
         </Box>
       </Box>
 
-      {/* Diff content */}
       <Box
         component="pre"
         sx={{
           m: 0,
           p: 0,
-          fontFamily: 'Monaco, Consolas, monospace',
-          fontSize: '0.8rem',
-          lineHeight: 1.5,
+          fontFamily: monoFont,
+          fontSize: '0.72rem',
+          lineHeight: 1.6,
           overflow: 'auto',
         }}
       >
@@ -240,76 +322,75 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
             key={idx}
             sx={{
               display: 'flex',
-              backgroundColor: getLineBackground(line.type),
+              backgroundColor: getLineBackground(line.type, themeConfig),
+              transition: 'background-color 0.1s ease',
               '&:hover': {
                 backgroundColor: line.type === 'context' || line.type === 'empty'
-                  ? 'rgba(128, 128, 128, 0.1)'
+                  ? 'rgba(255, 255, 255, 0.03)'
                   : undefined,
               },
             }}
           >
-            {/* Line numbers */}
             <Box
               sx={{
                 display: 'flex',
                 flexShrink: 0,
                 userSelect: 'none',
-                borderRight: 1,
-                borderColor: 'divider',
+                borderRight: '1px solid rgba(255, 255, 255, 0.06)',
               }}
             >
-              <Typography
-                component="span"
-                sx={{
-                  width: 40,
-                  px: 0.5,
-                  textAlign: 'right',
-                  color: 'text.secondary',
-                  fontSize: '0.75rem',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {line.oldLineNo ?? ''}
-              </Typography>
-              <Typography
-                component="span"
-                sx={{
-                  width: 40,
-                  px: 0.5,
-                  textAlign: 'right',
-                  color: 'text.secondary',
-                  fontSize: '0.75rem',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {line.newLineNo ?? ''}
-              </Typography>
-            </Box>
-
-            {/* Line prefix */}
             <Typography
               component="span"
               sx={{
-                width: 16,
+                width: 44,
+                px: 1,
+                textAlign: 'right',
+                color: themeConfig.neutral500,
+                fontSize: '0.65rem',
+                fontFamily: monoFont,
+              }}
+            >
+              {line.oldLineNo ?? ''}
+            </Typography>
+            <Typography
+              component="span"
+              sx={{
+                width: 44,
+                px: 1,
+                textAlign: 'right',
+                color: themeConfig.neutral500,
+                fontSize: '0.65rem',
+                fontFamily: monoFont,
+              }}
+            >
+              {line.newLineNo ?? ''}
+              </Typography>
+            </Box>
+
+            <Typography
+              component="span"
+              sx={{
+                width: 20,
                 textAlign: 'center',
-                color: getLineColor(line.type),
-                fontFamily: 'monospace',
-                fontWeight: 'bold',
+                color: getLineColor(line.type, themeConfig),
+                fontFamily: monoFont,
+                fontWeight: 600,
+                fontSize: '0.72rem',
                 flexShrink: 0,
               }}
             >
               {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
             </Typography>
 
-            {/* Line content */}
             <Typography
               component="span"
               sx={{
                 flex: 1,
                 pl: 1,
                 pr: 2,
-                color: getLineColor(line.type),
-                fontFamily: 'monospace',
+                color: getLineColor(line.type, themeConfig),
+                fontFamily: monoFont,
+                fontSize: '0.72rem',
                 whiteSpace: 'pre',
                 overflowX: 'auto',
               }}

@@ -118,7 +118,22 @@ func main() {
 			logger.Info("RevDial client stopped")
 		}()
 	} else if revdialEnabled {
-		logger.Warn("RevDial client disabled: missing HELIX_API_URL, HELIX_SESSION_ID, or USER_API_TOKEN")
+		// Log exactly which variables are missing to help debug helix-in-helix issues
+		missing := []string{}
+		if apiURL == "" {
+			missing = append(missing, "HELIX_API_BASE_URL")
+		}
+		if runnerID == "" {
+			missing = append(missing, "HELIX_SESSION_ID")
+		}
+		if runnerToken == "" {
+			missing = append(missing, "USER_API_TOKEN")
+		}
+		logger.Warn("RevDial client disabled: missing required environment variables",
+			"missing", missing,
+			"api_url_set", apiURL != "",
+			"session_id_set", sessionID != "",
+			"user_token_set", runnerToken != "")
 	}
 
 	// Start AgentClient for non-Zed agent host types (e.g., VS Code + Roo Code)

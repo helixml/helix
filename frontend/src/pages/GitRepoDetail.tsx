@@ -45,7 +45,6 @@ import {
   GitPullRequest,
   Kanban,
   Plus,
-  RefreshCw,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -64,7 +63,6 @@ import {
   useListRepositoryCommits,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
-  useSyncAllBranches,
   useCreateBranch,
   useCreateGitRepository,
   QUERY_KEYS,
@@ -145,7 +143,6 @@ const GitRepoDetail: FC = () => {
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
   const pushPullMutation = usePushPullGitRepository()
-  const syncAllBranchesMutation = useSyncAllBranches()
   const createBranchMutation = useCreateBranch()
 
   // Fetch projects that use this repository as their primary repo
@@ -448,19 +445,6 @@ const GitRepoDetail: FC = () => {
     }
   }
 
-  const handleSyncAll = async () => {
-    if (!repoId) return
-
-    try {
-      await syncAllBranchesMutation.mutateAsync({ repositoryId: repoId })
-      snackbar.success('Successfully synced all branches from upstream')
-    } catch (error: any) {
-      console.error('Failed to sync from upstream:', error)
-      const errorMessage = error?.response?.data?.error || error?.message || String(error)
-      snackbar.error('Failed to sync from upstream: ' + errorMessage)
-    }
-  }
-
   // Handlers for CreateProjectDialog
   const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
     try {
@@ -737,21 +721,6 @@ const GitRepoDetail: FC = () => {
                   size="small"
                   variant="outlined"
                 />
-                {/* Sync button for external repos */}
-                {isExternal && (
-                  <Tooltip title="Sync all branches from upstream repository">
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={syncAllBranchesMutation.isPending ? <CircularProgress size={14} /> : <RefreshCw size={14} />}
-                      onClick={handleSyncAll}
-                      disabled={syncAllBranchesMutation.isPending}
-                      sx={{ ml: 1 }}
-                    >
-                      {syncAllBranchesMutation.isPending ? 'Syncing...' : 'Sync from Upstream'}
-                    </Button>
-                  </Tooltip>
-                )}
               </Box>
             </Box>
 

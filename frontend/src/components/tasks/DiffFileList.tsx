@@ -9,16 +9,18 @@ import {
   Chip,
   Tooltip,
 } from '@mui/material'
-import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
-import AddIcon from '@mui/icons-material/Add'
-import RemoveIcon from '@mui/icons-material/Remove'
-import EditIcon from '@mui/icons-material/Edit'
-import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import ImageIcon from '@mui/icons-material/Image'
-import CodeIcon from '@mui/icons-material/Code'
-import DescriptionIcon from '@mui/icons-material/Description'
+import {
+  Plus,
+  Minus,
+  FileEdit,
+  FileText,
+  Image,
+  Code,
+  Copy,
+  ArrowRightLeft,
+} from 'lucide-react'
 import { FileDiff } from '../../hooks/useLiveFileDiff'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 interface DiffFileListProps {
   files: FileDiff[]
@@ -26,58 +28,6 @@ interface DiffFileListProps {
   onSelectFile: (path: string) => void
 }
 
-// Get appropriate icon for file type
-const getFileIcon = (path: string, status: FileDiff['status']) => {
-  const ext = path.split('.').pop()?.toLowerCase()
-
-  // Status-based icons
-  if (status === 'added') {
-    return <AddIcon sx={{ color: 'success.main', fontSize: 18 }} />
-  }
-  if (status === 'deleted') {
-    return <RemoveIcon sx={{ color: 'error.main', fontSize: 18 }} />
-  }
-  if (status === 'renamed') {
-    return <DriveFileRenameOutlineIcon sx={{ color: 'info.main', fontSize: 18 }} />
-  }
-  if (status === 'copied') {
-    return <ContentCopyIcon sx={{ color: 'info.main', fontSize: 18 }} />
-  }
-
-  // File type icons for modified files
-  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico']
-  const codeExts = ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'h', 'cs']
-  const docExts = ['md', 'txt', 'doc', 'docx', 'pdf']
-
-  if (imageExts.includes(ext || '')) {
-    return <ImageIcon sx={{ color: 'warning.main', fontSize: 18 }} />
-  }
-  if (codeExts.includes(ext || '')) {
-    return <CodeIcon sx={{ color: 'primary.main', fontSize: 18 }} />
-  }
-  if (docExts.includes(ext || '')) {
-    return <DescriptionIcon sx={{ color: 'secondary.main', fontSize: 18 }} />
-  }
-
-  return <EditIcon sx={{ color: 'warning.main', fontSize: 18 }} />
-}
-
-// Get status color
-const getStatusColor = (status: FileDiff['status']): 'success' | 'error' | 'info' | 'warning' => {
-  switch (status) {
-    case 'added':
-      return 'success'
-    case 'deleted':
-      return 'error'
-    case 'renamed':
-    case 'copied':
-      return 'info'
-    default:
-      return 'warning'
-  }
-}
-
-// Get status label
 const getStatusLabel = (status: FileDiff['status']): string => {
   switch (status) {
     case 'added':
@@ -96,10 +46,61 @@ const getStatusLabel = (status: FileDiff['status']): string => {
 }
 
 const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile }) => {
+  const themeConfig = useThemeConfig()
+
+  const getStatusColor = (status: FileDiff['status']): string => {
+    switch (status) {
+      case 'added':
+        return themeConfig.greenRoot
+      case 'deleted':
+        return themeConfig.redRoot
+      case 'renamed':
+      case 'copied':
+        return themeConfig.tealRoot
+      default:
+        return themeConfig.yellowRoot
+    }
+  }
+
+  const getFileIcon = (path: string, status: FileDiff['status']) => {
+    const ext = path.split('.').pop()?.toLowerCase()
+    const iconSize = 16
+    const strokeWidth = 1.5
+
+    if (status === 'added') {
+      return <Plus size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.greenRoot }} />
+    }
+    if (status === 'deleted') {
+      return <Minus size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.redRoot }} />
+    }
+    if (status === 'renamed') {
+      return <ArrowRightLeft size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+    if (status === 'copied') {
+      return <Copy size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico']
+    const codeExts = ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'h', 'cs']
+    const docExts = ['md', 'txt', 'doc', 'docx', 'pdf']
+
+    if (imageExts.includes(ext || '')) {
+      return <Image size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.yellowRoot }} />
+    }
+    if (codeExts.includes(ext || '')) {
+      return <Code size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.tealRoot }} />
+    }
+    if (docExts.includes(ext || '')) {
+      return <FileText size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.magentaRoot }} />
+    }
+
+    return <FileEdit size={iconSize} strokeWidth={strokeWidth} style={{ color: themeConfig.yellowRoot }} />
+  }
+
   if (files.length === 0) {
     return (
       <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
           No file changes detected
         </Typography>
       </Box>
@@ -111,22 +112,27 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
       {files.map((file) => {
         const fileName = file.path.split('/').pop() || file.path
         const dirPath = file.path.substring(0, file.path.length - fileName.length)
+        const isSelected = selectedFile === file.path
+        const statusColor = getStatusColor(file.status)
 
         return (
           <ListItemButton
             key={file.path}
-            selected={selectedFile === file.path}
+            selected={isSelected}
             onClick={() => onSelectFile(file.path)}
             sx={{
-              py: 0.5,
-              borderLeft: 3,
-              borderColor: selectedFile === file.path ? 'primary.main' : 'transparent',
+              py: 0.75,
+              px: 1.5,
+              borderLeft: 2,
+              borderColor: isSelected ? themeConfig.tealRoot : 'transparent',
+              bgcolor: isSelected ? `${themeConfig.tealRoot}14` : 'transparent',
+              transition: 'all 0.15s ease',
               '&:hover': {
-                backgroundColor: 'action.hover',
+                bgcolor: isSelected ? `${themeConfig.tealRoot}1F` : 'rgba(255, 255, 255, 0.04)',
               },
             }}
           >
-            <ListItemIcon sx={{ minWidth: 32 }}>
+            <ListItemIcon sx={{ minWidth: 28, opacity: 0.9 }}>
               {getFileIcon(file.path, file.status)}
             </ListItemIcon>
             <ListItemText
@@ -135,19 +141,30 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                   <Typography
                     variant="body2"
                     sx={{
-                      fontFamily: 'monospace',
                       fontSize: '0.8rem',
+                      fontWeight: 500,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                       textDecoration: file.status === 'deleted' ? 'line-through' : 'none',
-                      color: file.status === 'deleted' ? 'text.secondary' : 'text.primary',
+                      color: file.status === 'deleted' ? themeConfig.darkTextFaded : themeConfig.darkText,
                     }}
                   >
                     {fileName}
                   </Typography>
                   {file.is_binary && (
-                    <Chip label="binary" size="small" sx={{ height: 16, fontSize: '0.65rem' }} />
+                    <Chip
+                      label="binary"
+                      size="small"
+                      sx={{
+                        height: 16,
+                        fontSize: '0.6rem',
+                        fontWeight: 600,
+                        bgcolor: 'rgba(255, 255, 255, 0.08)',
+                        color: themeConfig.darkTextFaded,
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                      }}
+                    />
                   )}
                 </Box>
               }
@@ -155,13 +172,12 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                 dirPath && (
                   <Typography
                     variant="caption"
-                    color="text.secondary"
                     sx={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.7rem',
+                      fontSize: '0.65rem',
                       display: 'block',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
+                      color: themeConfig.neutral400,
                     }}
                   >
                     {dirPath}
@@ -169,36 +185,53 @@ const DiffFileList: FC<DiffFileListProps> = ({ files, selectedFile, onSelectFile
                 )
               }
             />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
-              {/* Line changes */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, flexShrink: 0 }}>
               {(file.additions > 0 || file.deletions > 0) && !file.is_binary && (
-                <Box sx={{ display: 'flex', gap: 0.5, fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
                   {file.additions > 0 && (
-                    <Typography variant="caption" sx={{ color: 'success.main' }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: themeConfig.greenRoot,
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                      }}
+                    >
                       +{file.additions}
                     </Typography>
                   )}
                   {file.deletions > 0 && (
-                    <Typography variant="caption" sx={{ color: 'error.main' }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: themeConfig.redRoot,
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                      }}
+                    >
                       -{file.deletions}
                     </Typography>
                   )}
                 </Box>
               )}
-              {/* Status badge */}
-              <Tooltip title={file.status}>
-                <Chip
-                  label={getStatusLabel(file.status)}
-                  size="small"
-                  color={getStatusColor(file.status)}
+              <Tooltip title={file.status} placement="right">
+                <Box
                   sx={{
-                    height: 18,
-                    minWidth: 22,
+                    width: 20,
+                    height: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
                     fontSize: '0.65rem',
-                    fontWeight: 'bold',
-                    '& .MuiChip-label': { px: 0.5 },
+                    fontWeight: 700,
+                    color: statusColor,
+                    bgcolor: `${statusColor}15`,
+                    border: `1px solid ${statusColor}30`,
                   }}
-                />
+                >
+                  {getStatusLabel(file.status)}
+                </Box>
               </Tooltip>
             </Box>
           </ListItemButton>

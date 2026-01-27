@@ -37,4 +37,10 @@ declare module '@mui/material/styles' {
     chartErrorGradientStartOpacity?: number;
     chartErrorGradientEndOpacity?: number;
   }
+  interface TypographyVariants {
+    fontFamilyMono: string;
+  }
+  interface TypographyVariantsOptions {
+    fontFamilyMono?: string;
+  }
 } 

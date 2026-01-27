@@ -84,9 +84,23 @@ func (s *Server) createSession(ctx context.Context) error {
 	s.rdSessionPath = rdSessionPath
 	s.logger.Info("RemoteDesktop session created", "path", rdSessionPath)
 
+	// Select device types: keyboard (1) + pointer (2) + touchscreen (4) = 7
+	// This is REQUIRED for proper touch support - without it, touch events
+	// are injected as pointer events, causing Chrome to treat swipes as
+	// text selection instead of scrolling.
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+	selectDevicesOptions := map[string]dbus.Variant{
+		"types": dbus.MakeVariant(uint32(7)), // KEYBOARD | POINTER | TOUCHSCREEN
+	}
+	if err := rdSession.Call(remoteDesktopSessionIface+".SelectDevices", 0, selectDevicesOptions).Err; err != nil {
+		s.logger.Warn("SelectDevices failed (touch may not work properly)", "err", err)
+		// Non-fatal - continue without touchscreen support
+	} else {
+		s.logger.Info("device types selected", "types", 7, "keyboard", true, "pointer", true, "touchscreen", true)
+	}
+
 	// Read the SessionId property from the RemoteDesktop session
 	// This is more reliable than extracting from the path
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 	var sessionID string
 	var sessionIDVariant dbus.Variant
 	if err := rdSession.Call("org.freedesktop.DBus.Properties.Get", 0,
@@ -697,4 +711,3 @@ func (s *Server) checkScreenshotSessionHealth(ctx context.Context) {
 		}
 	}
 }
-

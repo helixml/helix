@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2390,18 +2391,31 @@ func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, git
 }
 
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
+	// Strip credentials from the URL (e.g., https://user@host.com -> https://host.com)
+	repoURL := stripCredentialsFromURL(repo.ExternalURL)
+
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
-		return fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/pullrequest/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeGitHub:
-		// Repo the suffix .git if it's there
-		repoURL := strings.TrimSuffix(repo.ExternalURL, ".git")
-
+		// Remove the suffix .git if it's there
+		repoURL = strings.TrimSuffix(repoURL, ".git")
 		return fmt.Sprintf("%s/pull/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeGitLab:
-		return fmt.Sprintf("%s/merge_requests/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/merge_requests/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeBitbucket:
-		return fmt.Sprintf("%s/pull-requests/%s", repo.ExternalURL, pullRequestID)
+		return fmt.Sprintf("%s/pull-requests/%s", repoURL, pullRequestID)
 	}
 	return ""
+}
+
+// stripCredentialsFromURL removes username:password@ or username@ from a URL
+func stripCredentialsFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL // Return as-is if parsing fails
+	}
+	// Clear the user info (username/password)
+	parsed.User = nil
+	return parsed.String()
 }

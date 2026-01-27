@@ -2288,6 +2288,12 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// MaxTokens is the model's context window size (max input tokens)
+	// Looked up from model_info.json, 0 if not found
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// MaxOutputTokens is the model's max completion tokens
+	// Looked up from model_info.json, 0 if not found
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -2375,9 +2381,10 @@ type LLMCall struct {
 }
 
 type CreateSecretRequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	AppID string `json:"app_id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	AppID     string `json:"app_id"`
+	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
 }
 
 type Secret struct {
@@ -2388,7 +2395,8 @@ type Secret struct {
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
-	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
+	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
 }
 
 // LicenseKey represents a license key in the database

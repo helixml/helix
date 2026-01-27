@@ -1,6 +1,6 @@
 #!/bin/bash
 # Chrome wrapper for container environments
-# Adds flags to speed up startup in containers
+# Adds flags to speed up startup and reduce GPU memory usage
 
 exec /usr/bin/google-chrome-stable \
     --no-first-run \
@@ -19,4 +19,7 @@ exec /usr/bin/google-chrome-stable \
     --use-mock-keychain \
     --disable-features=TranslateUI \
     --disable-ipc-flooding-protection \
+    --process-per-site \
+    --renderer-process-limit=1 \
+    --disable-accelerated-2d-canvas \
     "$@"

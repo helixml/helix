@@ -1799,6 +1799,18 @@ const docTemplate = `{
                         "description": "Filter to specific file path",
                         "name": "path",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the workspace/repo to diff (optional, defaults to first found)",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "If true, diff the helix-specs branch uncommitted changes instead",
+                        "name": "helix_specs",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2014,6 +2026,64 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspaces": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a list of git workspaces (repositories) in the container.\nEach workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get workspaces from container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Workspaces response with list of repos",
+                        "schema": {
+                            "type": "object"
                         }
                     },
                     "401": {
@@ -6892,6 +6962,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/secrets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all secrets associated with a specific project.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "List secrets for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Secret"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.",
+                "tags": [
+                    "secrets"
+                ],
+                "summary": "Create a secret for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body with secret name and value.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/startup-script/history": {
             "get": {
                 "security": [
@@ -9346,6 +9488,155 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/expose": {
+            "get": {
+                "description": "Returns all ports currently exposed from the session's dev container",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List exposed ports for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ListExposedPortsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Makes a port from the session's dev container accessible via a public URL",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Expose a port from the session's dev container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Port to expose",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ExposePortRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ExposePortResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/expose/{port}": {
+            "delete": {
+                "description": "Removes public access to a previously exposed port",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Unexpose a port from the session's dev container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Port number",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Session or port not found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -14254,6 +14545,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ClientBufferStats": {
+            "type": "object",
+            "properties": {
+                "buffer_pct": {
+                    "type": "integer"
+                },
+                "buffer_size": {
+                    "type": "integer"
+                },
+                "buffer_used": {
+                    "type": "integer"
+                },
+                "client_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -14382,6 +14690,79 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/hydra.DevContainerStatus"
+                },
+                "video_stats": {
+                    "$ref": "#/definitions/server.VideoStreamingStats"
+                }
+            }
+        },
+        "server.ExposePortRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "description": "defaults to \"http\"",
+                    "type": "string"
+                }
+            }
+        },
+        "server.ExposePortResponse": {
+            "type": "object",
+            "properties": {
+                "allocated_port": {
+                    "description": "for random port mode",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.ExposedPort": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "description": "\"http\" or \"tcp\"",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"active\", \"inactive\"",
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },
@@ -14492,6 +14873,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "license_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ListExposedPortsResponse": {
+            "type": "object",
+            "properties": {
+                "exposed_ports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ExposedPort"
+                    }
+                },
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -14709,14 +15104,6 @@ const docTemplate = `{
         "server.SampleTaskPrompt": {
             "type": "object",
             "properties": {
-                "constraints": {
-                    "description": "Any specific constraints or requirements",
-                    "type": "string"
-                },
-                "context": {
-                    "description": "Additional context about the codebase",
-                    "type": "string"
-                },
                 "labels": {
                     "description": "Tags for organization",
                     "type": "array",
@@ -14733,7 +15120,7 @@ const docTemplate = `{
                     ]
                 },
                 "prompt": {
-                    "description": "Natural language request",
+                    "description": "Natural language request (include all context here)",
                     "type": "string"
                 }
             }
@@ -14923,6 +15310,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "use_host_docker": {
+                    "description": "Enable host Docker access (for Helix-in-Helix dev)",
+                    "type": "boolean"
                 }
             }
         },
@@ -15003,6 +15394,26 @@ const docTemplate = `{
                 },
                 "technical_design": {
                     "type": "string"
+                }
+            }
+        },
+        "server.VideoStreamingStats": {
+            "type": "object",
+            "properties": {
+                "client_buffers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ClientBufferStats"
+                    }
+                },
+                "client_count": {
+                    "type": "integer"
+                },
+                "frames_received": {
+                    "type": "integer"
+                },
+                "gop_buffer_size": {
+                    "type": "integer"
                 }
             }
         },
@@ -16538,6 +16949,13 @@ const docTemplate = `{
                 "completed_tasks": {
                     "type": "integer"
                 },
+                "full_tasks": {
+                    "description": "Full task objects for TaskCard rendering",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWithProject"
+                    }
+                },
                 "progress_pct": {
                     "type": "integer"
                 },
@@ -16934,6 +17352,24 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateSecretRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "optional, if set, the secret will be available to the specified project",
+                    "type": "string"
+                },
+                "value": {
                     "type": "string"
                 }
             }
@@ -21222,6 +21658,10 @@ const docTemplate = `{
                 "ownerType": {
                     "$ref": "#/definitions/types.OwnerType"
                 },
+                "project_id": {
+                    "description": "optional, if set, the secret will be available as env var in project sessions",
+                    "type": "string"
+                },
                 "updated": {
                     "type": "string"
                 },
@@ -22827,6 +23267,250 @@ const docTemplate = `{
                 },
                 "user_short_title": {
                     "description": "User override for tab title (pointer to allow clearing with empty string)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskWithProject": {
+            "type": "object",
+            "properties": {
+                "agent_work_state": {
+                    "description": "Current agent work state (idle/working/done) from activity tracking",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
+                "archived": {
+                    "description": "Archive to hide from main view",
+                    "type": "boolean"
+                },
+                "base_branch": {
+                    "description": "The base branch this was created from",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "\"new\" or \"existing\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
+                "branch_name": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "branch_prefix": {
+                    "description": "User-specified prefix for new branches (task# appended)",
+                    "type": "string"
+                },
+                "clone_group_id": {
+                    "description": "Groups tasks from same clone operation",
+                    "type": "string"
+                },
+                "cloned_from_id": {
+                    "description": "Clone tracking",
+                    "type": "string"
+                },
+                "cloned_from_project_id": {
+                    "description": "Original project",
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "description": "Metadata",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "design_doc_path": {
+                    "type": "string"
+                },
+                "design_docs_pushed_at": {
+                    "description": "When design docs were pushed to helix-specs branch",
+                    "type": "string"
+                },
+                "estimated_hours": {
+                    "description": "Simple tracking",
+                    "type": "integer"
+                },
+                "external_agent_id": {
+                    "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_approved_at": {
+                    "type": "string"
+                },
+                "implementation_approved_by": {
+                    "description": "Implementation tracking",
+                    "type": "string"
+                },
+                "implementation_plan": {
+                    "description": "Discrete tasks breakdown (markdown)",
+                    "type": "string"
+                },
+                "just_do_it_mode": {
+                    "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "last_prompt_content": {
+                    "description": "Last prompt sent to agent (for continue functionality)",
+                    "type": "string"
+                },
+                "last_push_at": {
+                    "description": "When branch was last pushed",
+                    "type": "string"
+                },
+                "last_push_commit_hash": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "merge_commit_hash": {
+                    "description": "Merge commit hash",
+                    "type": "string"
+                },
+                "merged_at": {
+                    "description": "When merge happened",
+                    "type": "string"
+                },
+                "merged_to_main": {
+                    "description": "Whether branch was merged to main",
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "original_prompt": {
+                    "description": "Kiro's actual approach: simple, human-readable artifacts",
+                    "type": "string"
+                },
+                "planning_options": {
+                    "$ref": "#/definitions/types.StartPlanningOptions"
+                },
+                "planning_session_id": {
+                    "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
+                    "type": "string"
+                },
+                "planning_started_at": {
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "pull_request_id": {
+                    "type": "string"
+                },
+                "pull_request_url": {
+                    "description": "Computed field, not stored",
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "session_updated_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
+                "short_title": {
+                    "description": "Short title for tab display (auto-generated from agent writing short-title.txt)\nUserShortTitle takes precedence if set (user override)",
+                    "type": "string"
+                },
+                "spec_approval": {
+                    "$ref": "#/definitions/types.SpecApprovalResponse"
+                },
+                "spec_approved_at": {
+                    "type": "string"
+                },
+                "spec_approved_by": {
+                    "description": "Approval tracking",
+                    "type": "string"
+                },
+                "spec_revision_count": {
+                    "description": "Number of spec revisions requested",
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Spec-driven workflow statuses - see constants below",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskStatus"
+                        }
+                    ]
+                },
+                "task_number": {
+                    "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",
+                    "type": "integer"
+                },
+                "technical_design": {
+                    "description": "Design document (markdown)",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"feature\", \"bug\", \"refactor\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
+                "user_short_title": {
+                    "description": "User override",
+                    "type": "string"
+                },
+                "workspace_config": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "zed_instance_id": {
+                    "description": "Multi-session support",
                     "type": "string"
                 }
             }

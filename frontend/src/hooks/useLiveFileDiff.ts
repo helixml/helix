@@ -57,6 +57,34 @@ interface UseLiveFileDiffOptions {
   pollInterval?: number
   /** Whether to enable polling (default: true when sessionId is set) */
   enabled?: boolean
+  /** Name of the workspace/repo to diff (optional) */
+  workspace?: string
+  /** If true, diff the helix-specs branch instead of current branch */
+  helixSpecs?: boolean
+}
+
+/**
+ * Represents a git workspace/repository in the container
+ */
+export interface WorkspaceInfo {
+  /** Directory name (e.g., "my-repo") */
+  name: string
+  /** Full path to the repository */
+  path: string
+  /** Currently checked out branch */
+  current_branch: string
+  /** Whether this is the primary repository */
+  is_primary: boolean
+  /** Whether the repo has a helix-specs branch */
+  has_helix_specs: boolean
+}
+
+/**
+ * Response from the /workspaces endpoint
+ */
+export interface WorkspacesResponse {
+  workspaces: WorkspaceInfo[]
+  error?: string
 }
 
 const DIFF_QUERY_KEY = (sessionId: string) => ['external-agent-diff', sessionId]
@@ -74,6 +102,8 @@ export function useLiveFileDiff({
   pathFilter,
   pollInterval = 3000,
   enabled = true,
+  workspace,
+  helixSpecs = false,
 }: UseLiveFileDiffOptions) {
   const api = useApi()
   const queryClient = useQueryClient()
@@ -81,7 +111,7 @@ export function useLiveFileDiff({
   const lastSuccessTime = useRef<number>(0)
 
   const query = useQuery({
-    queryKey: [...DIFF_QUERY_KEY(sessionId || ''), baseBranch, includeContent, pathFilter],
+    queryKey: [...DIFF_QUERY_KEY(sessionId || ''), baseBranch, includeContent, pathFilter, workspace, helixSpecs],
     queryFn: async (): Promise<DiffResponse> => {
       if (!sessionId) {
         return {
@@ -97,6 +127,8 @@ export function useLiveFileDiff({
           base: baseBranch,
           include_content: includeContent,
           path: pathFilter,
+          workspace: workspace,
+          helix_specs: helixSpecs,
         })
 
         // Mark as live if we got a successful response
@@ -147,6 +179,8 @@ export function useLiveFileDiff({
         base: baseBranch,
         include_content: true,
         path: filePath,
+        workspace: workspace,
+        helix_specs: helixSpecs,
       })
 
       const data = response.data as DiffResponse
@@ -155,14 +189,14 @@ export function useLiveFileDiff({
       console.error('Failed to fetch file diff:', err)
       return null
     }
-  }, [sessionId, baseBranch, api])
+  }, [sessionId, baseBranch, workspace, helixSpecs])
 
   // Force refresh
   const refresh = useCallback(() => {
     if (sessionId) {
       queryClient.invalidateQueries({ queryKey: DIFF_QUERY_KEY(sessionId) })
     }
-  }, [sessionId, queryClient])
+  }, [sessionId])
 
   return {
     /** The diff response data */
@@ -185,3 +219,32 @@ export function useLiveFileDiff({
 }
 
 export default useLiveFileDiff
+
+const WORKSPACES_QUERY_KEY = (sessionId: string) => ['external-agent-workspaces', sessionId]
+
+/**
+ * Hook for fetching workspaces (git repositories) from a running desktop container.
+ */
+export function useWorkspaces(sessionId: string | undefined, enabled = true) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: WORKSPACES_QUERY_KEY(sessionId || ''),
+    queryFn: async (): Promise<WorkspacesResponse> => {
+      if (!sessionId) {
+        return { workspaces: [] }
+      }
+
+      try {
+        const response = await api.getApiClient().v1ExternalAgentsWorkspacesDetail(sessionId)
+        return response.data as WorkspacesResponse
+      } catch (err: any) {
+        console.error('Failed to fetch workspaces:', err)
+        return { workspaces: [], error: err?.message || 'Failed to fetch workspaces' }
+      }
+    },
+    enabled: enabled && !!sessionId,
+    staleTime: 30000, // Workspaces don't change often
+    refetchOnWindowFocus: false,
+  })
+}

@@ -32,39 +32,39 @@ const SOCKET_PATH = '/run/user/1000/helix-cursor.sock';
 
 // Hotspot fingerprinting: map (hotspotX, hotspotY) to CSS cursor names
 // These values match the Helix-Invisible cursor theme exactly
-// Each cursor type has a unique hotspot position at 24x24 size
+// Each cursor type has a unique hotspot position at 48x48 size
+//
+// IMPORTANT: All hotspots are multiples of 6 to survive Mutter's rounding
+// at 200% and 300% display scaling. See meta-cursor-sprite-xcursor.c:385-390.
 //
 // Format: "hotspotX,hotspotY" -> "css-cursor-name"
-// Note: We match on hotspot only (not size) for flexibility
 const CURSOR_FINGERPRINTS = {
-    // Arrow/pointer cursors (top-left area hotspots)
+    // Row Y=0 (arrow-based cursors)
     '0,0': 'default',
     '6,0': 'pointer',
-    '0,1': 'context-menu',
-    '0,2': 'help',
-    '0,3': 'progress',
-    '0,4': 'copy',
-    '0,5': 'alias',
+    '12,0': 'context-menu',
+    '18,0': 'help',
+    '24,0': 'progress',
+    '30,0': 'copy',
+    '36,0': 'alias',
+    '42,0': 'zoom-in',
 
-    // Wait/busy (top-center)
-    '12,0': 'wait',
+    // Row Y=6 (action cursors)
+    '0,6': 'wait',
+    '6,6': 'crosshair',
+    '12,6': 'move',
+    '18,6': 'grab',
+    '24,6': 'grabbing',
+    '30,6': 'not-allowed',
+    '36,6': 'cell',
+    '42,6': 'zoom-out',
 
-    // Centered cursors with distinct Y values
-    '12,1': 'crosshair',
-    '12,2': 'move',
-    '12,3': 'grab',
-    '12,4': 'grabbing',
-    '12,5': 'not-allowed',
-    '12,6': 'cell',
-    '12,7': 'zoom-in',
-    '12,8': 'zoom-out',
-
-    // Resize cursors (each direction has unique hotspot)
-    '12,9': 'ns-resize',      // Vertical resize (north-south)
-    '12,10': 'ew-resize',     // Horizontal resize (east-west)
-    '12,11': 'nwse-resize',   // Diagonal resize (NW-SE / backslash) - top_left_corner, bottom_right_corner
-    '12,12': 'text',          // Text cursor / I-beam
-    '12,13': 'nesw-resize',   // Diagonal resize (NE-SW / forward slash) - top_right_corner, bottom_left_corner
+    // Row Y=12 (text and resize cursors)
+    '0,12': 'text',           // Text cursor / I-beam
+    '6,12': 'ns-resize',      // Vertical resize (north-south)
+    '12,12': 'ew-resize',     // Horizontal resize (east-west)
+    '18,12': 'nwse-resize',   // Diagonal resize (NW-SE) - top_left_corner, bottom_right_corner
+    '24,12': 'nesw-resize',   // Diagonal resize (NE-SW) - top_right_corner, bottom_left_corner
 };
 
 export default class HelixCursorExtension extends Extension {

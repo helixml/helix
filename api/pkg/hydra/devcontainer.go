@@ -194,17 +194,32 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Get container IP
-	// For host network mode, the container shares the host's network namespace
-	// so we use "host" to indicate this
+	// Get container IP from inspection
 	inspect, err := dockerClient.ContainerInspect(ctx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 
-	// With host network mode, container shares host network - use "host" as indicator
-	ipAddress := "host"
-	_ = inspect // Container info is available but IP is shared with host
+	// Get IP address based on network mode
+	var ipAddress string
+	if inspect.HostConfig.NetworkMode.IsHost() {
+		// Host network mode - container shares host's network namespace
+		ipAddress = "host"
+	} else {
+		// Bridge or other network - get IP from network settings
+		for _, network := range inspect.NetworkSettings.Networks {
+			if network.IPAddress != "" {
+				ipAddress = network.IPAddress
+				break
+			}
+		}
+		if ipAddress == "" {
+			ipAddress = inspect.NetworkSettings.IPAddress
+		}
+	}
+	if ipAddress == "" {
+		ipAddress = "host" // Fallback if no IP found
+	}
 
 	// Track container
 	dc := &DevContainer{

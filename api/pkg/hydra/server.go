@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -201,6 +203,11 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
+
+	// Port proxy - forward HTTP requests to a port on the desktop container's network
+	// This enables exposing dev container services to the outside world
+	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -577,6 +584,307 @@ func (s *Server) handleGetDevContainerClients(w http.ResponseWriter, r *http.Req
 			break
 		}
 	}
+}
+
+// handleGetDevContainerVideoStats proxies a request to the desktop container's /video/stats endpoint
+// to get video streaming statistics including per-client buffer usage
+func (s *Server) handleGetDevContainerVideoStats(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Get the dev container to find its IP address
+	container, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("dev container not found: %s", err), http.StatusNotFound)
+		return
+	}
+
+	if container.IPAddress == "" {
+		http.Error(w, "dev container has no IP address", http.StatusServiceUnavailable)
+		return
+	}
+
+	if container.Status != DevContainerStatusRunning {
+		http.Error(w, fmt.Sprintf("dev container not running (status: %s)", container.Status), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proxy request to the desktop container's /video/stats endpoint
+	desktopURL := fmt.Sprintf("http://%s:9876/video/stats", container.IPAddress)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", desktopURL, nil)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create request: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("desktop_url", desktopURL).
+			Msg("Failed to query desktop /video/stats endpoint")
+		// Return empty stats instead of error
+		emptyResp := struct {
+			SessionID string        `json:"session_id"`
+			Sources   []interface{} `json:"sources"`
+		}{
+			SessionID: sessionID,
+			Sources:   []interface{}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(emptyResp)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Forward the response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+}
+
+// handleDevContainerProxy forwards HTTP requests to a port on the desktop container's network.
+// This enables exposing services running inside dev containers to the outside world.
+// URL format: /api/v1/dev-containers/{session_id}/proxy/{port}/...
+func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+	portStr := vars["port"]
+
+	// Parse port number
+	var port int
+	if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil || port < 1 || port > 65535 {
+		http.Error(w, fmt.Sprintf("invalid port: %s", portStr), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Get the dev container to find its IP address
+	container, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("dev container not found: %s", err), http.StatusNotFound)
+		return
+	}
+
+	if container.IPAddress == "" {
+		http.Error(w, "dev container has no IP address", http.StatusServiceUnavailable)
+		return
+	}
+
+	if container.Status != DevContainerStatusRunning {
+		http.Error(w, fmt.Sprintf("dev container not running (status: %s)", container.Status), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Build target URL - strip the proxy prefix from the path
+	// Original: /api/v1/dev-containers/{session_id}/proxy/{port}/some/path
+	// Target: http://{container_ip}:{port}/some/path
+	proxyPrefix := fmt.Sprintf("/api/v1/dev-containers/%s/proxy/%s", sessionID, portStr)
+	targetPath := strings.TrimPrefix(r.URL.Path, proxyPrefix)
+	if targetPath == "" {
+		targetPath = "/"
+	}
+
+	// Handle host networking mode where IPAddress is "host" instead of an actual IP
+	targetHost := container.IPAddress
+	if targetHost == "host" {
+		targetHost = "localhost"
+	}
+
+	targetURL := fmt.Sprintf("http://%s:%d%s", targetHost, port, targetPath)
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Int("port", port).
+		Str("target_url", targetURL).
+		Str("method", r.Method).
+		Msg("Proxying request to dev container")
+
+	// Check for WebSocket upgrade
+	if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+		s.handleDevContainerWebSocketProxy(w, r, targetHost, port, targetPath)
+		return
+	}
+
+	// Create proxy request
+	proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create proxy request: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers from original request (except Host and hop-by-hop headers)
+	for key, values := range r.Header {
+		// Skip hop-by-hop headers
+		switch strings.ToLower(key) {
+		case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+			"te", "trailers", "transfer-encoding", "upgrade":
+			continue
+		}
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Set forwarding headers
+	proxyReq.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	proxyReq.Header.Set("X-Forwarded-Host", r.Host)
+	proxyReq.Header.Set("X-Forwarded-Proto", "http")
+	if r.TLS != nil {
+		proxyReq.Header.Set("X-Forwarded-Proto", "https")
+	}
+
+	// Execute proxy request
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		// Don't follow redirects - let the browser handle them
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Int("port", port).
+			Str("target_url", targetURL).
+			Msg("Failed to proxy request to dev container")
+		http.Error(w, fmt.Sprintf("failed to connect to service: %s", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	// Write status code
+	w.WriteHeader(resp.StatusCode)
+
+	// Stream response body
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				break
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+}
+
+// handleDevContainerWebSocketProxy handles WebSocket upgrade requests to dev container ports
+func (s *Server) handleDevContainerWebSocketProxy(w http.ResponseWriter, r *http.Request, targetHost string, port int, targetPath string) {
+	// Hijack the client connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "WebSocket not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, clientBuf, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to hijack connection: %s", err), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Connect to target
+	targetAddr := fmt.Sprintf("%s:%d", targetHost, port)
+	targetConn, err := net.Dial("tcp", targetAddr)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		log.Warn().Err(err).Str("target", targetAddr).Msg("Failed to connect to target for WebSocket proxy")
+		return
+	}
+	defer targetConn.Close()
+
+	// Build and send the original request to the target
+	targetURL := fmt.Sprintf("http://%s%s", targetAddr, targetPath)
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	proxyReq, err := http.NewRequest(r.Method, targetURL, nil)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+		return
+	}
+
+	// Copy all headers including WebSocket upgrade headers
+	for key, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Send request to target
+	if err := proxyReq.Write(targetConn); err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Read response from target
+	targetReader := bufio.NewReader(targetConn)
+	resp, err := http.ReadResponse(targetReader, proxyReq)
+	if err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+
+	// Forward response to client
+	resp.Write(clientConn)
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		return // Not upgraded, done
+	}
+
+	log.Debug().
+		Str("target", targetAddr).
+		Str("path", targetPath).
+		Msg("WebSocket upgrade successful in dev container proxy")
+
+	// Bidirectional copy for WebSocket
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(targetConn, clientBuf)
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, targetReader)
+	}()
+
+	wg.Wait()
 }
 
 // handleSystemStats returns GPU stats and session counts

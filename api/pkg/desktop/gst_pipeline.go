@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,18 @@ import (
 
 // gstInitOnce ensures GStreamer is initialized only once
 var gstInitOnce sync.Once
+
+// pipelineCreateMu serializes pipeline creation to prevent race conditions
+// when multiple clients connect simultaneously to the same PipeWire node.
+// The pipewirezerocopysrc element's CUDA context and PipeWire stream setup
+// can fail if multiple instances try to initialize concurrently.
+// NOTE: With SharedVideoSource, only ONE pipeline is created per PipeWire node,
+// so this mutex mainly protects against the rare case of concurrent session starts.
+var pipelineCreateMu sync.Mutex
+
+// activePipelineCount tracks how many pipelines are currently running.
+// Used for logging/debugging.
+var activePipelineCount atomic.Int32
 
 // InitGStreamer initializes the GStreamer library. Safe to call multiple times.
 func InitGStreamer() {
@@ -31,6 +44,7 @@ type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)
 	PTS        uint64    // Presentation timestamp in microseconds
 	IsKeyframe bool      // True if this is an IDR frame
+	IsReplay   bool      // True if this is a GOP replay frame (decoder warmup, don't display)
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 
@@ -48,6 +62,7 @@ type GstPipeline struct {
 	pipeline      *gst.Pipeline
 	appsink       *app.Sink
 	frameCh       chan VideoFrame
+	errorCh       chan error // Channel for pipeline errors (GPU OOM, encoder failures, etc.)
 	running       atomic.Bool
 	stopOnce      sync.Once
 	pipelineID    string     // For logging
@@ -79,6 +94,12 @@ func NewGstPipeline(pipelineStr string) (*GstPipeline, error) {
 func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*GstPipeline, error) {
 	InitGStreamer()
 
+	// Serialize pipeline creation to prevent race conditions when multiple
+	// clients connect simultaneously. This is especially important for
+	// pipewirezerocopysrc which initializes CUDA context and PipeWire streams.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
+
 	// Parse the pipeline string
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
@@ -102,6 +123,7 @@ func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*Gs
 		pipeline:   pipeline,
 		appsink:    appsink,
 		frameCh:    make(chan VideoFrame, 8), // Buffer a few frames
+		errorCh:    make(chan error, 1),      // Buffer 1 error (only care about first fatal error)
 		pipelineID: fmt.Sprintf("gst-%p", pipeline),
 	}
 
@@ -130,6 +152,16 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// Serialize pipeline start to prevent race conditions when multiple
+	// clients connect simultaneously. pipewirezerocopysrc initializes
+	// CUDA context and PipeWire streams during state transition to PLAYING.
+	pipelineCreateMu.Lock()
+	defer pipelineCreateMu.Unlock()
+
+	// Track how many pipelines are being started for logging
+	currentCount := activePipelineCount.Load()
+	fmt.Printf("[GST_PIPELINE] Starting pipeline %s (active pipelines: %d)\n", g.pipelineID, currentCount)
+
 	// Configure appsink properties
 	g.appsink.SetProperty("emit-signals", true)
 	g.appsink.SetProperty("max-buffers", uint(2))
@@ -156,6 +188,8 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	}
 
 	g.running.Store(true)
+	newCount := activePipelineCount.Add(1)
+	fmt.Printf("[GST_PIPELINE] Pipeline %s started (active pipelines: %d)\n", g.pipelineID, newCount)
 
 	// Monitor for EOS and errors
 	go g.watchBus(ctx)
@@ -279,8 +313,27 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 		case gst.MessageError:
 			gerr := msg.ParseError()
 			if gerr != nil {
-				// Log error but don't crash - let caller handle via Frames() closing
-				fmt.Printf("[GST_PIPELINE] Error: %s\n", gerr.Error())
+				// Log error with full debug info - helps diagnose pipeline failures
+				errMsg := gerr.Error()
+				fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
+				if debugStr := gerr.DebugString(); debugStr != "" {
+					fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
+				}
+				// Log the element that produced the error
+				srcName := msg.Source()
+				if srcName != "" {
+					fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
+				}
+
+				// Create a user-friendly error message for common failures
+				userErr := g.createUserFriendlyError(errMsg, srcName)
+				// Non-blocking send to error channel (only first error matters)
+				select {
+				case g.errorCh <- userErr:
+					fmt.Printf("[GST_PIPELINE] Error sent to error channel: %s\n", userErr.Error())
+				default:
+					// Channel full - first error already captured
+				}
 			}
 			g.Stop()
 			return
@@ -288,6 +341,9 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 			gwarn := msg.ParseWarning()
 			if gwarn != nil {
 				fmt.Printf("[GST_PIPELINE] Warning: %s\n", gwarn.Error())
+				if debugStr := gwarn.DebugString(); debugStr != "" {
+					fmt.Printf("[GST_PIPELINE] Warning Debug: %s\n", debugStr)
+				}
 			}
 		case gst.MessageStateChanged:
 			// Could log state changes if needed for debugging
@@ -310,6 +366,10 @@ func (g *GstPipeline) Stop() {
 			g.pipeline.SetState(gst.StateNull)
 		}
 
+		// Decrement active pipeline count
+		remaining := activePipelineCount.Add(-1)
+		fmt.Printf("[GST_PIPELINE] Pipeline %s stopped (active pipelines: %d)\n", g.pipelineID, remaining)
+
 		close(g.frameCh)
 	})
 }
@@ -322,6 +382,46 @@ func (g *GstPipeline) IsRunning() bool {
 // GetFrameStats returns frame receive and drop counts for diagnostics.
 func (g *GstPipeline) GetFrameStats() (received, dropped uint64) {
 	return g.framesReceived.Load(), g.framesDropped.Load()
+}
+
+// Errors returns a channel that receives pipeline errors.
+// Only fatal errors are sent (e.g., GPU OOM, encoder failures).
+// The channel is buffered with size 1 - only the first error is captured.
+func (g *GstPipeline) Errors() <-chan error {
+	return g.errorCh
+}
+
+// createUserFriendlyError converts GStreamer error messages into user-friendly text.
+// Common errors like "NV_ENC_ERR_OUT_OF_MEMORY" become actionable messages.
+func (g *GstPipeline) createUserFriendlyError(errMsg, srcElement string) error {
+	// Map common GStreamer/NVENC errors to user-friendly messages
+	switch {
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR_OUT_OF_MEMORY") || containsIgnoreCase(errMsg, "out of memory"):
+		return fmt.Errorf("GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions.")
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR_NO_ENCODE_DEVICE"):
+		return fmt.Errorf("No GPU encoder available. The GPU may be in use by another process.")
+	case containsIgnoreCase(errMsg, "NV_ENC_ERR"):
+		return fmt.Errorf("GPU encoder error: %s. Try closing other sessions.", errMsg)
+	case containsIgnoreCase(errMsg, "Could not get EOS"):
+		return fmt.Errorf("Video pipeline stopped unexpectedly. Please try reconnecting.")
+	case containsIgnoreCase(errMsg, "Resource not found"):
+		return fmt.Errorf("Video source not available. The session may have ended.")
+	case containsIgnoreCase(errMsg, "Permission denied"):
+		return fmt.Errorf("Permission denied accessing video source.")
+	case containsIgnoreCase(errMsg, "Internal data stream error"):
+		return fmt.Errorf("Video streaming error. Please try reconnecting.")
+	default:
+		// For unknown errors, include the source element for debugging
+		if srcElement != "" {
+			return fmt.Errorf("Video error from %s: %s", srcElement, errMsg)
+		}
+		return fmt.Errorf("Video error: %s", errMsg)
+	}
+}
+
+// containsIgnoreCase is a case-insensitive substring check
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // CheckGstElement checks if a GStreamer element is available.

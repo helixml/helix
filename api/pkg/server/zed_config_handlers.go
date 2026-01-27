@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	modelPkg "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -193,6 +194,25 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				"model":    zedConfig.Agent.DefaultModel.Model,
 			}
 		}
+		// Add feature-specific models to prevent Zed from using hardcoded gpt-4.1-mini defaults
+		if zedConfig.Agent.InlineAssistantModel != nil {
+			agentConfig["inline_assistant_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.InlineAssistantModel.Provider,
+				"model":    zedConfig.Agent.InlineAssistantModel.Model,
+			}
+		}
+		if zedConfig.Agent.CommitMessageModel != nil {
+			agentConfig["commit_message_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.CommitMessageModel.Provider,
+				"model":    zedConfig.Agent.CommitMessageModel.Model,
+			}
+		}
+		if zedConfig.Agent.ThreadSummaryModel != nil {
+			agentConfig["thread_summary_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.ThreadSummaryModel.Provider,
+				"model":    zedConfig.Agent.ThreadSummaryModel.Model,
+			}
+		}
 	}
 
 	// Use app.Updated for version, or current time if app is minimal
@@ -206,7 +226,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	if session.Metadata.SpecTaskID != "" {
 		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
 			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
-				codeAgentConfig = buildCodeAgentConfig(app, sandboxAPIURL)
+				codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL)
 			}
 		}
 	}
@@ -402,7 +422,7 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		}
 	}
 
-	codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, specTaskApp, sandboxAPIURL)
 	if codeAgentConfig != nil {
 		agentName = codeAgentConfig.AgentName
 		log.Info().
@@ -418,11 +438,11 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 // buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.
 // Returns nil if no zed_external assistant is found.
-func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfig {
+func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *types.App, helixURL string) *types.CodeAgentConfig {
 	// Find the assistant with AgentType = zed_external
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.AgentType == types.AgentTypeZedExternal {
-			return buildCodeAgentConfigFromAssistant(&assistant, helixURL)
+			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL)
 		}
 	}
 	return nil
@@ -432,7 +452,7 @@ func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfi
 // For zed_external agents, use GenerationModelProvider/GenerationModel - that's where the UI
 // stores the user's model selection for external agents.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
-func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
+func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
 	runtime := assistant.CodeAgentRuntime
 	if runtime == "" {
@@ -491,13 +511,35 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		}
 	}
 
+	// Look up model info to get token limits
+	var maxTokens, maxOutputTokens int
+	if apiServer.modelInfoProvider != nil {
+		modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
+			Provider: providerName,
+			Model:    modelName,
+		})
+		if err != nil {
+			log.Debug().Err(err).Str("model", modelName).Msg("Could not find model info for token limits")
+		} else {
+			maxTokens = modelInfo.ContextLength
+			maxOutputTokens = modelInfo.MaxCompletionTokens
+			log.Debug().
+				Str("model", modelName).
+				Int("max_tokens", maxTokens).
+				Int("max_output_tokens", maxOutputTokens).
+				Msg("Got model info for token limits")
+		}
+	}
+
 	return &types.CodeAgentConfig{
-		Provider:  providerName,
-		Model:     model,
-		AgentName: agentName,
-		BaseURL:   baseURL,
-		APIType:   apiType,
-		Runtime:   runtime,
+		Provider:        providerName,
+		Model:           model,
+		AgentName:       agentName,
+		BaseURL:         baseURL,
+		APIType:         apiType,
+		Runtime:         runtime,
+		MaxTokens:       maxTokens,
+		MaxOutputTokens: maxOutputTokens,
 	}
 }
 

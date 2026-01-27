@@ -21,6 +21,7 @@ type VideoFrame struct {
 	Data       []byte    // H.264 NAL units (Annex B format with start codes)
 	PTS        uint64    // Presentation timestamp in microseconds
 	IsKeyframe bool      // True if this is an IDR frame
+	IsReplay   bool      // True if this is a GOP replay frame (decoder warmup, don't display)
 	Timestamp  time.Time // Wall clock time when frame was received
 }
 

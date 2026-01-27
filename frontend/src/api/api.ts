@@ -571,6 +571,13 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerClientBufferStats {
+  buffer_pct?: number;
+  buffer_size?: number;
+  buffer_used?: number;
+  client_id?: number;
+}
+
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
@@ -622,6 +629,36 @@ export interface ServerDevContainerWithClients {
   sandbox_id?: string;
   session_id?: string;
   status?: HydraDevContainerStatus;
+  video_stats?: ServerVideoStreamingStats;
+}
+
+export interface ServerExposePortRequest {
+  name?: string;
+  port?: number;
+  /** defaults to "http" */
+  protocol?: string;
+}
+
+export interface ServerExposePortResponse {
+  /** for random port mode */
+  allocated_port?: number;
+  name?: string;
+  port?: number;
+  protocol?: string;
+  session_id?: string;
+  status?: string;
+  urls?: string[];
+}
+
+export interface ServerExposedPort {
+  created_at?: string;
+  name?: string;
+  port?: number;
+  /** "http" or "tcp" */
+  protocol?: string;
+  /** "active", "inactive" */
+  status?: string;
+  url?: string;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -666,6 +703,11 @@ export interface ServerInteractionWithContext {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerListExposedPortsResponse {
+  exposed_ports?: ServerExposedPort[];
+  session_id?: string;
 }
 
 export interface ServerLogsSummary {
@@ -749,15 +791,11 @@ export interface ServerSampleProjectTask {
 }
 
 export interface ServerSampleTaskPrompt {
-  /** Any specific constraints or requirements */
-  constraints?: string;
-  /** Additional context about the codebase */
-  context?: string;
   /** Tags for organization */
   labels?: string[];
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
-  /** Natural language request */
+  /** Natural language request (include all context here) */
   prompt?: string;
 }
 
@@ -834,6 +872,8 @@ export interface ServerSimpleSampleProject {
   readme_url?: string;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
+  /** Enable host Docker access (for Helix-in-Helix dev) */
+  use_host_docker?: boolean;
 }
 
 export interface ServerSlotLogSummary {
@@ -864,6 +904,13 @@ export interface ServerTaskSpecsResponse {
   status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
+}
+
+export interface ServerVideoStreamingStats {
+  client_buffers?: ServerClientBufferStats[];
+  client_count?: number;
+  frames_received?: number;
+  gop_buffer_size?: number;
 }
 
 export interface ServicesKoditEnrichmentAttributes {
@@ -1525,6 +1572,8 @@ export interface TypesCloneGroup {
 export interface TypesCloneGroupProgress {
   clone_group_id?: string;
   completed_tasks?: number;
+  /** Full task objects for TaskCard rendering */
+  full_tasks?: TypesSpecTaskWithProject[];
   progress_pct?: number;
   source_task?: TypesCloneGroupSourceTask;
   /** status -> count */
@@ -1690,6 +1739,14 @@ export interface TypesCreateSampleRepositoryRequest {
   organization_id?: string;
   owner_id?: string;
   sample_type?: string;
+}
+
+export interface TypesCreateSecretRequest {
+  app_id?: string;
+  name?: string;
+  /** optional, if set, the secret will be available to the specified project */
+  project_id?: string;
+  value?: string;
 }
 
 export interface TypesCreateTaskRequest {
@@ -3471,6 +3528,8 @@ export interface TypesSecret {
   name?: string;
   owner?: string;
   ownerType?: TypesOwnerType;
+  /** optional, if set, the secret will be available as env var in project sessions */
+  project_id?: string;
   updated?: string;
   value?: number[];
 }
@@ -4156,6 +4215,117 @@ export interface TypesSpecTaskUpdateRequest {
   status?: TypesSpecTaskStatus;
   /** User override for tab title (pointer to allow clearing with empty string) */
   user_short_title?: string;
+}
+
+export interface TypesSpecTaskWithProject {
+  /** Current agent work state (idle/working/done) from activity tracking */
+  agent_work_state?: TypesAgentWorkState;
+  /** Archive to hide from main view */
+  archived?: boolean;
+  /** The base branch this was created from */
+  base_branch?: string;
+  /** "new" or "existing" */
+  branch_mode?: TypesBranchMode;
+  /** Git tracking */
+  branch_name?: string;
+  /** User-specified prefix for new branches (task# appended) */
+  branch_prefix?: string;
+  /** Groups tasks from same clone operation */
+  clone_group_id?: string;
+  /** Clone tracking */
+  cloned_from_id?: string;
+  /** Original project */
+  cloned_from_project_id?: string;
+  completed_at?: string;
+  created_at?: string;
+  /** Metadata */
+  created_by?: string;
+  description?: string;
+  design_doc_path?: string;
+  /** When design docs were pushed to helix-specs branch */
+  design_docs_pushed_at?: string;
+  /** Simple tracking */
+  estimated_hours?: number;
+  /** External agent tracking (single agent per SpecTask, spans entire workflow) */
+  external_agent_id?: string;
+  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  helix_app_id?: string;
+  id?: string;
+  implementation_approved_at?: string;
+  /** Implementation tracking */
+  implementation_approved_by?: string;
+  /** Discrete tasks breakdown (markdown) */
+  implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
+  labels?: string[];
+  /** Last prompt sent to agent (for continue functionality) */
+  last_prompt_content?: string;
+  /** When branch was last pushed */
+  last_push_at?: string;
+  /** Git tracking */
+  last_push_commit_hash?: string;
+  /** Merge commit hash */
+  merge_commit_hash?: string;
+  /** When merge happened */
+  merged_at?: string;
+  /** Whether branch was merged to main */
+  merged_to_main?: boolean;
+  metadata?: Record<string, any>;
+  name?: string;
+  /** Kiro's actual approach: simple, human-readable artifacts */
+  original_prompt?: string;
+  planning_options?: TypesStartPlanningOptions;
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
+  planning_session_id?: string;
+  planning_started_at?: string;
+  /** "low", "medium", "high", "critical" */
+  priority?: TypesSpecTaskPriority;
+  project_id?: string;
+  project_name?: string;
+  project_path?: string;
+  pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
+  /** User stories + EARS acceptance criteria (markdown) */
+  requirements_spec?: string;
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  session_updated_at?: string;
+  /**
+   * Short title for tab display (auto-generated from agent writing short-title.txt)
+   * UserShortTitle takes precedence if set (user override)
+   */
+  short_title?: string;
+  spec_approval?: TypesSpecApprovalResponse;
+  spec_approved_at?: string;
+  /** Approval tracking */
+  spec_approved_by?: string;
+  /** Number of spec revisions requested */
+  spec_revision_count?: number;
+  started_at?: string;
+  /** Spec-driven workflow statuses - see constants below */
+  status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
+  /** Design document (markdown) */
+  technical_design?: string;
+  /** "feature", "bug", "refactor" */
+  type?: string;
+  updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
+  /** User override */
+  user_short_title?: string;
+  workspace_config?: number[];
+  /** Multi-session support */
+  zed_instance_id?: string;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -5924,6 +6094,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         include_content?: boolean;
         /** Filter to specific file path */
         path?: string;
+        /** Name of the workspace/repo to diff (optional, defaults to first found) */
+        workspace?: string;
+        /** If true, diff the helix-specs branch uncommitted changes instead */
+        helix_specs?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -6004,6 +6178,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: data,
         secure: true,
         type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspacesDetail
+     * @summary Get workspaces from container
+     * @request GET:/api/v1/external-agents/{sessionID}/workspaces
+     * @secure
+     */
+    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspaces`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -8242,6 +8434,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all secrets associated with a specific project.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsDetail
+     * @summary List secrets for a project
+     * @request GET:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSecret[], any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.
+     *
+     * @tags secrets
+     * @name V1ProjectsSecretsCreate
+     * @summary Create a secret for a project
+     * @request POST:/api/v1/projects/{id}/secrets
+     * @secure
+     */
+    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
+      this.request<TypesSecret, any>({
+        path: `/api/v1/projects/${id}/secrets`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description Get git commit history for project startup script
      *
      * @tags Projects
@@ -9375,6 +9603,56 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns all ports currently exposed from the session's dev container
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDetail
+     * @summary List exposed ports for a session
+     * @request GET:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerListExposedPortsResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Makes a port from the session's dev container accessible via a public URL
+     *
+     * @tags sessions
+     * @name V1SessionsExposeCreate
+     * @summary Expose a port from the session's dev container
+     * @request POST:/api/v1/sessions/{id}/expose
+     */
+    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
+      this.request<ServerExposePortResponse, string>({
+        path: `/api/v1/sessions/${id}/expose`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes public access to a previously exposed port
+     *
+     * @tags sessions
+     * @name V1SessionsExposeDelete
+     * @summary Unexpose a port from the session's dev container
+     * @request DELETE:/api/v1/sessions/{id}/expose/{port}
+     */
+    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/sessions/${id}/expose/${port}`,
+        method: "DELETE",
+        format: "json",
         ...params,
       }),
 

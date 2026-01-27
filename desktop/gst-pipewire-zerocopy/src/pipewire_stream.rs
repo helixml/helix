@@ -216,9 +216,9 @@ impl PipeWireStream {
         // When max_framerate>0, Mutter skips frames causing judder and caps FPS at ~30-40.
         // With max_framerate=0/1, Mutter sends all damage events without frame limiting.
         //
-        // Trade-off: Animations (alt-tab, etc) run at ~1 FPS without the follow-up mechanism.
-        // We accept this because the alternative (judder + 30-40 FPS cap) is worse.
-        // The 100ms keepalive provides 10 FPS minimum for static screens.
+        // Trade-off: Static screens produce zero frames from Mutter. The pipewirezerocopysrc
+        // keepalive mechanism (keepalive-time=500) resends the last buffer every 500ms,
+        // ensuring 2 FPS minimum on static screens to keep the stream alive.
         let negotiated_max_fps = 0;
         eprintln!(
             "[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled frame limiter), cuda={}",
@@ -868,6 +868,16 @@ fn run_pipewire_loop(
 
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
+
+            // Detect out-of-order frames from compositor (PTS should be monotonically increasing)
+            static LAST_PTS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+            static OOO_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let prev_pts = LAST_PTS.swap(pts_ns, Ordering::SeqCst);
+            if pts_ns > 0 && prev_pts > 0 && pts_ns < prev_pts {
+                let ooo = OOO_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                eprintln!("[PIPEWIRE_OOO] OUT OF ORDER FRAME! #{} prev_pts={} curr_pts={} delta={}ns",
+                    ooo, prev_pts, pts_ns, prev_pts - pts_ns);
+            }
 
             // Note: Cursor metadata is handled by Go PipeWire client via separate session
             // The Rust plugin only handles video frames

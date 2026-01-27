@@ -430,11 +430,13 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/ws/terminal", s.handleWSTerminal) // Claude Code terminal (tmux)
 	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
 	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 	mux.HandleFunc("/clients", s.handleClients)
+	mux.HandleFunc("/video/stats", s.handleVideoStats)
 
 	return mux
 }
@@ -529,6 +531,29 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 			LastY:     c.LastY,
 			LastSeen:  c.LastSeen.Format(time.RFC3339),
 		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// VideoStatsResponse is the JSON response for the /video/stats endpoint
+type VideoStatsResponse struct {
+	SessionID string        `json:"session_id"`
+	Sources   []SourceStats `json:"sources"`
+}
+
+// handleVideoStats returns video streaming statistics including per-client buffer usage.
+// Used by the admin dashboard to monitor streaming performance.
+func (s *Server) handleVideoStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := VideoStatsResponse{
+		SessionID: s.config.SessionID,
+		Sources:   GetSharedVideoRegistry().GetAllStats(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

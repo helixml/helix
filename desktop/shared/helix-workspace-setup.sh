@@ -160,8 +160,11 @@ git config --global pull.rebase false
 echo "  Git pull strategy: merge"
 
 # Configure git credentials for HTTP operations (MUST happen before cloning!)
+# Always overwrite credentials on startup as API key may have changed
+rm -f ~/.git-credentials
+git config --global credential.helper 'store --file ~/.git-credentials'
+
 if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
-    git config --global credential.helper 'store --file ~/.git-credentials'
     GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
     GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
     echo "${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}" > ~/.git-credentials

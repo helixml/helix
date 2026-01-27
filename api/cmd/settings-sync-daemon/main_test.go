@@ -245,11 +245,11 @@ func TestInjectAvailableModels(t *testing.T) {
 					if model, ok := m.(AvailableModel); ok {
 						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
 						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
-						assert.NotZero(t, model.MaxOutputTokens, "max_output_tokens should be set")
+						// MaxOutputTokens can be 0 (omitted via omitempty) - Zed uses model defaults
 					} else if model, ok := m.(map[string]interface{}); ok {
 						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
 						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
-						assert.NotNil(t, model["max_output_tokens"], "max_output_tokens should be set")
+						// max_output_tokens can be absent - Zed uses model defaults
 					}
 					break
 				}

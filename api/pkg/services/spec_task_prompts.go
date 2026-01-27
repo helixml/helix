@@ -18,7 +18,16 @@ type PlanningPromptData struct {
 }
 
 // planningPromptTemplate is the compiled template for planning prompts
-var planningPromptTemplate = template.Must(template.New("planning").Parse(`You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
+var planningPromptTemplate = template.Must(template.New("planning").Parse(`## CURRENT PHASE: PLANNING/SPEC-WRITING
+
+You are in the PLANNING phase. You are NOT in the implementation phase.
+- Your job now: Write specification documents (requirements.md, design.md, tasks.md)
+- Do NOT implement anything yet - no code changes, no file edits to the codebase
+- Implementation begins LATER, after this phase is complete and the user approves your plan
+
+---
+
+You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
 
 Speak English.
 {{.Guidelines}}

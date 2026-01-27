@@ -60,22 +60,19 @@ func getVideoMode(configOverride string) VideoMode {
 }
 
 // getDefaultGOPSize returns the default GOP (Group of Pictures) size.
-// Set via HELIX_GOP_SIZE environment variable. Default is 1800 frames (30 seconds at 60fps).
-// Since we use TCP WebSocket (reliable transport), keyframes are mainly for:
-// - Initial connection (new encoder pipeline = fresh keyframe)
-// - Rare encoder state corruption recovery
-// Larger GOP = smoother bandwidth (keyframes are 5-10x larger than P-frames).
+// Set via HELIX_GOP_SIZE environment variable. Default is 120 frames (2s at 60fps).
+// Shorter GOP means faster mid-stream joins (less catchup data to replay).
 func getDefaultGOPSize() int {
 	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
 		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
 			return gop
 		}
 	}
-	return 1800 // Default: 30 seconds at 60fps - TCP is reliable, keyframes mainly for error recovery
+	return 120 // Default: 2s at 60fps
 }
 
 // getEffectiveGOPSize returns the GOP size to use for this stream.
-// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (1800)
+// Priority: config.GOPSize > HELIX_GOP_SIZE env var > default (120)
 func (v *VideoStreamer) getEffectiveGOPSize() int {
 	if v.config.GOPSize > 0 {
 		return v.config.GOPSize
@@ -164,7 +161,8 @@ type StreamConfig struct {
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket.
-// Uses pipewirezerocopysrc for zero-copy DMA-BUF capture on both GNOME and Sway.
+// Uses SharedVideoSource to share a single GStreamer pipeline across all clients
+// connected to the same PipeWire node, preventing resource contention.
 type VideoStreamer struct {
 	nodeID       uint32
 	cursorNodeID uint32    // Separate node for cursor monitoring (avoids multi-consumer conflict)
@@ -173,11 +171,17 @@ type VideoStreamer struct {
 	config       StreamConfig
 	ws           *websocket.Conn
 	logger       *slog.Logger
-	gstPipeline  *GstPipeline // GStreamer pipeline with appsink
-	running      atomic.Bool
-	cancel       context.CancelFunc
-	mu           sync.Mutex // Protects Start/Stop
-	wsMu         sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
+
+	// Shared video source - ONE pipeline shared by all clients for this node
+	sharedSource   *SharedVideoSource
+	sharedClientID uint64            // Our client ID in the shared source
+	frameCh        <-chan VideoFrame // Channel to receive frames from shared source
+	errorCh        <-chan error      // Channel to receive pipeline errors (GPU OOM, etc.)
+
+	running atomic.Bool
+	cancel  context.CancelFunc
+	mu      sync.Mutex // Protects Start/Stop
+	wsMu    sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
 
 	// Frame tracking
 	frameCount uint64
@@ -227,7 +231,8 @@ func (v *VideoStreamer) SetVideoEnabled(enabled bool) {
 }
 
 // Start begins capturing and streaming video.
-// Uses go-gst bindings with appsink for guaranteed in-order frame delivery.
+// Uses SharedVideoSource to share a single GStreamer pipeline across all clients
+// connected to the same PipeWire node, preventing resource contention.
 func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -247,31 +252,33 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Log with source info
 	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
-	v.logger.Info("starting video capture",
+	v.logger.Info("starting video capture (shared source)",
 		"source", sourceInfo,
 		"video_mode", string(v.videoMode),
 		"encoder", encoder,
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
 		"bitrate", v.config.Bitrate,
-		"pipeline", pipelineStr,
 	)
 
-	// Create GStreamer pipeline with appsink
-	// Use realtime clock for native pipewiresrc so PTS can be compared to time.Now()
-	var err error
+	// Get or create shared video source for this PipeWire node
+	// All clients connecting to the same node share ONE GStreamer pipeline
 	opts := GstPipelineOptions{
 		UseRealtimeClock: v.useRealtimeClock,
 	}
-	v.gstPipeline, err = NewGstPipelineWithOptions(pipelineStr, opts)
+	v.sharedSource = GetSharedVideoRegistry().GetOrCreate(v.nodeID, pipelineStr, opts)
+
+	// Subscribe to receive frames and errors from the shared source
+	var err error
+	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
 	if err != nil {
-		return fmt.Errorf("create GStreamer pipeline: %w", err)
+		return fmt.Errorf("subscribe to shared video source: %w", err)
 	}
 
-	// Start the pipeline
-	if err := v.gstPipeline.Start(ctx); err != nil {
-		return fmt.Errorf("start GStreamer pipeline: %w", err)
-	}
+	v.logger.Info("subscribed to shared video source",
+		"node_id", v.nodeID,
+		"client_id", v.sharedClientID,
+		"total_clients", v.sharedSource.GetClientCount())
 
 	v.running.Store(true)
 
@@ -280,9 +287,14 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		v.logger.Error("failed to send StreamInit", "err", err)
 	}
 
-	// Send initial cursor (default arrow) so frontend has something to render immediately.
-	// This will be replaced by actual cursor data once cursor monitoring starts.
-	v.sendCursorName("default", 0, 0)
+	// Send cached cursor state so frontend renders correct cursor immediately.
+	// This fixes corrupted cursor display after reconnect by ensuring the client
+	// gets the current cursor shape rather than waiting for the next change event.
+	_, _, cachedCursor := GetGlobalCursorState().Get()
+	if cachedCursor == "" {
+		cachedCursor = "default"
+	}
+	v.sendCursorName(cachedCursor, 0, 0)
 
 	// Send ConnectionComplete to signal frontend that connection is ready
 	if err := v.sendConnectionComplete(); err != nil {
@@ -463,7 +475,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
 			// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
 			slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true", v.nodeID)
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
@@ -483,7 +495,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				bufferType = "dmabuf"
 			}
 
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=33",
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=%s buffer-type=%s keepalive-time=500",
 				v.nodeID, captureSource, bufferType)
 			// Add render-node for multi-GPU systems
 			if renderNode := getRenderDevice(); renderNode != "" {
@@ -507,7 +519,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
 		// Works on GStreamer 1.24+ with proper driver support
 		// Falls back gracefully to system memory if DMA-BUF unavailable
-		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 		// Add fd property if we have portal FD (required for ScreenCast access)
 		if v.pipeWireFd > 0 {
 			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
@@ -524,7 +536,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	default: // VideoModeSHM
 		// Standard pipewiresrc path - most compatible
 		// Uses damage-based capture (only sends frames when screen changes)
-		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+		// keepalive-time=500 ensures frames are sent at least every 500ms on static screens
+		srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 		// Add fd property if we have portal FD (required for ScreenCast access)
 		if v.pipeWireFd > 0 {
 			srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
@@ -752,7 +765,31 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 	return v.writeJSON(msg)
 }
 
-// readFramesAndSend reads video frames from appsink and sends to WebSocket.
+// sendStreamError sends a pipeline error to the WebSocket client.
+// This is used to notify the client when the GStreamer pipeline fails
+// (e.g., GPU out of memory, encoder error).
+//
+// Wire format: type(1) + errorLength(2) + errorMessage(...)
+// Type is StreamMsgStreamError (0x31)
+func (v *VideoStreamer) sendStreamError(errMsg string) error {
+	// Truncate message if too long (max 65535 bytes due to 2-byte length)
+	if len(errMsg) > 65535 {
+		errMsg = errMsg[:65535]
+	}
+
+	// Build binary message
+	msgLen := 1 + 2 + len(errMsg) // type + length + message
+	msg := make([]byte, msgLen)
+	msg[0] = StreamMsgStreamError
+	binary.BigEndian.PutUint16(msg[1:3], uint16(len(errMsg)))
+	copy(msg[3:], errMsg)
+
+	v.logger.Info("sending stream error to client", "error", errMsg)
+	_, err := v.writeMessage(websocket.BinaryMessage, msg)
+	return err
+}
+
+// readFramesAndSend reads video frames from shared source and sends to WebSocket.
 // Frames are delivered in encode order via channel - no UDP reordering possible.
 func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
@@ -768,22 +805,31 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	var totalIntervalMs int64
 	var intervalCount int64
 
-	frameCh := v.gstPipeline.Frames()
+	// Use the frame and error channels from the shared video source
+	frameCh := v.frameCh
+	errorCh := v.errorCh
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case pipelineErr := <-errorCh:
+			// Pipeline error (e.g., GPU OOM) - send to WebSocket client
+			v.logger.Error("pipeline error received", "err", pipelineErr)
+			if err := v.sendStreamError(pipelineErr.Error()); err != nil {
+				v.logger.Error("failed to send stream error to client", "err", err)
+			}
+			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Pipeline stopped
-				v.logger.Info("appsink channel closed")
+				// Shared source stopped or we were unsubscribed
+				v.logger.Info("shared video source channel closed")
 				return
 			}
 
 			// Measure WebSocket send time
 			sendStart := time.Now()
-			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS)
+			actualSendTime, err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.IsReplay, frame.PTS)
 			if err != nil {
 				v.logger.Error("send frame error", "err", err)
 				return
@@ -826,7 +872,7 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				// Get pipeline frame stats to track drops
-				pipelineReceived, pipelineDropped := v.gstPipeline.GetFrameStats()
+				pipelineReceived, pipelineDropped := v.sharedSource.GetFrameStats()
 
 				// Calculate frame timing stats
 				var avgIntervalMs int64
@@ -1008,9 +1054,10 @@ func patchSPSConstraintSet3(data []byte) []byte {
 
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
+// isReplay is true for GOP replay frames (decoder warmup on mid-stream join)
 // pts is the presentation timestamp in microseconds from GStreamer
 // Returns the wall clock time when the frame was actually written to the socket (after mutex).
-func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) (time.Time, error) {
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, isReplay bool, pts uint64) (time.Time, error) {
 	// Skip sending if video is paused (screenshot mode)
 	if !v.videoEnabled.Load() {
 		return time.Time{}, nil
@@ -1027,12 +1074,18 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64)
 	// PTS is already in microseconds from GStreamer (converted in gst_pipeline.go)
 
 	// VideoFrame format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
+	// Flags byte: bit 0 = keyframe (0x01), bit 1 = replay (0x02)
 	header := make([]byte, 15)
 	header[0] = StreamMsgVideoFrame
 	header[1] = StreamCodecH264
+	var flags byte
 	if isKeyframe {
-		header[2] = 0x01 // keyframe flag
+		flags |= 0x01 // bit 0: keyframe
 	}
+	if isReplay {
+		flags |= 0x02 // bit 1: replay (GOP catchup frame)
+	}
+	header[2] = flags
 	binary.BigEndian.PutUint64(header[3:11], pts)
 	binary.BigEndian.PutUint16(header[11:13], uint16(v.config.Width))
 	binary.BigEndian.PutUint16(header[13:15], uint16(v.config.Height))
@@ -1137,10 +1190,12 @@ func (v *VideoStreamer) monitorCursor(ctx context.Context) {
 
 	switch compositor {
 	case "gnome":
-		// GNOME uses PipeWire ScreenCast with cursor metadata
-		v.monitorCursorPipeWire(ctx, cursorCallback)
+		// GNOME: Always use CSS fallback rendering (no cursor bitmaps from mutter).
+		// Mutter's cursor bitmaps are often corrupted, so we use our pre-rendered sprites.
+		v.monitorCursorPipeWire(ctx)
 	case "sway":
-		// Sway uses Wayland ext-image-copy-capture-cursor-session-v1
+		// Sway: Use Wayland ext-image-copy-capture-cursor-session-v1 to get cursor bitmaps.
+		// Sway's cursor bitmaps are reliable, so we use them directly.
 		v.monitorCursorWayland(ctx, cursorCallback)
 	default:
 		v.logger.Warn("unknown compositor, cursor monitoring disabled", "compositor", compositor)
@@ -1215,7 +1270,7 @@ func (v *VideoStreamer) sendCursorName(cursorName string, hotspotX, hotspotY int
 // The Unix socket can only have one listener, so we share it via SharedCursorBroadcaster.
 //
 // Fallback: If no cursor data after 5 seconds, sends default cursor.
-func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback cursorCallbackFunc) {
+func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context) {
 	v.logger.Info("registering with shared cursor broadcaster for GNOME Shell extension")
 
 	// Get the shared cursor broadcaster (creates socket listener if first use)
@@ -1234,23 +1289,15 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 			"pixels_len", len(pixels),
 			"cursor_name", cursorName)
 
-		// If we have pixel data, send cursor image
-		if len(pixels) > 0 {
-			// Convert to callback format
-			// Position is not tracked by GNOME extension (frontend tracks position client-side)
-			// GNOME Shell extension uses Cogl.PixelFormat.RGBA_8888 which is R,G,B,A byte order
-			// Use DRM_FORMAT_RGBA8888 (0x34324152) which the frontend handles with direct copy
-			callback(
-				0, 0, // Position not available from extension
-				int32(hotspotX), int32(hotspotY),
-				uint32(width), uint32(height),
-				int32(width*4), // stride = width * 4 bytes per pixel
-				0x34324152,     // DRM_FORMAT_RGBA8888 - matches Cogl RGBA_8888 byte order
-				pixels,
-			)
-		} else if cursorName != "" {
-			// No pixels available - send cursor name for CSS fallback rendering
+		// GNOME/Mutter: Always use cursor name for CSS fallback rendering.
+		// Mutter's cursor bitmaps from the Shell extension are often corrupted,
+		// so we ignore them and use our pre-rendered cursor sprites instead.
+		// This is different from Sway, where we DO use the Wayland protocol cursor bitmaps.
+		if cursorName != "" {
 			v.sendCursorName(cursorName, int32(hotspotX), int32(hotspotY))
+		} else {
+			// No cursor name available - use default cursor
+			v.sendCursorName("default", int32(hotspotX), int32(hotspotY))
 		}
 	})
 
@@ -1271,8 +1318,8 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 			case <-ticker.C:
 				if !receivedCursor.Load() && time.Since(startTime) > 5*time.Second {
 					v.logger.Warn("no cursor data from GNOME extension after 5s, sending default cursor")
-					defaultCursor := generateDefaultArrowCursor()
-					callback(0, 0, 0, 0, 24, 24, 24*4, 0x34325241, defaultCursor)
+					// Use CSS fallback rendering for default cursor (no bitmaps from mutter)
+					v.sendCursorName("default", 0, 0)
 					return
 				}
 			}
@@ -1282,43 +1329,6 @@ func (v *VideoStreamer) monitorCursorPipeWire(ctx context.Context, callback curs
 	// Wait for context cancellation
 	<-ctx.Done()
 	v.logger.Info("cursor monitoring stopped")
-}
-
-// generateDefaultArrowCursor creates a simple 24x24 white arrow cursor bitmap.
-// Format: ARGB8888 (4 bytes per pixel)
-func generateDefaultArrowCursor() []byte {
-	const size = 24
-	const stride = size * 4
-	pixels := make([]byte, size*stride)
-
-	// Arrow shape: simple pointer cursor
-	// Each row is defined by start column, end column
-	arrowRows := []struct{ start, end int }{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}, {0, 8},
-		{0, 9}, {0, 10}, {0, 11}, {0, 12}, {0, 7}, {0, 4}, {3, 5}, {4, 6},
-		{5, 7}, {6, 8}, {7, 9}, {8, 10}, {9, 11}, {10, 12}, {0, 0}, {0, 0},
-	}
-
-	for y := 0; y < size && y < len(arrowRows); y++ {
-		row := arrowRows[y]
-		for x := row.start; x < row.end && x < size; x++ {
-			offset := y*stride + x*4
-			// ARGB8888: Blue, Green, Red, Alpha
-			pixels[offset+0] = 255 // B
-			pixels[offset+1] = 255 // G
-			pixels[offset+2] = 255 // R
-			pixels[offset+3] = 255 // A
-
-			// Add black outline (if at edge of filled area)
-			if x == row.start || x == row.end-1 {
-				pixels[offset+0] = 0
-				pixels[offset+1] = 0
-				pixels[offset+2] = 0
-			}
-		}
-	}
-
-	return pixels
 }
 
 // monitorCursorWayland uses Go Wayland client to read cursor from ext-image-copy-capture
@@ -1371,9 +1381,13 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
-	// Stop GStreamer pipeline
-	if v.gstPipeline != nil {
-		v.gstPipeline.Stop()
+	// Unsubscribe from shared video source
+	// This will stop the pipeline if we're the last client
+	if v.sharedSource != nil && v.sharedClientID > 0 {
+		v.sharedSource.Unsubscribe(v.sharedClientID)
+		v.logger.Info("unsubscribed from shared video source",
+			"client_id", v.sharedClientID,
+			"remaining_clients", v.sharedSource.GetClientCount())
 	}
 
 	// Unregister from session for multi-player presence
@@ -1503,6 +1517,10 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 
 	if err := streamer.Start(ctx); err != nil {
 		logger.Error("failed to start streamer", "err", err)
+		// Send error to WebSocket client so they see what went wrong
+		if sendErr := streamer.sendStreamError(err.Error()); sendErr != nil {
+			logger.Error("failed to send start error to client", "sendErr", sendErr)
+		}
 		return
 	}
 
@@ -1510,8 +1528,34 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	for {
 		messageType, msg, err := ws.ReadMessage()
 		if err != nil {
+			// Enhanced disconnect diagnostics
+			duration := time.Since(streamer.startTime)
+			closeCode := ""
+			closeText := ""
+			if closeErr, ok := err.(*websocket.CloseError); ok {
+				closeCode = fmt.Sprintf("%d", closeErr.Code)
+				closeText = closeErr.Text
+			}
+
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.Error("websocket read error", "err", err)
+				logger.Error("websocket unexpected close",
+					"err", err,
+					"close_code", closeCode,
+					"close_text", closeText,
+					"duration", duration.Round(time.Second),
+					"frames_sent", streamer.frameCount,
+					"user", config.UserName,
+					"session", config.SessionID,
+				)
+			} else {
+				// Normal close - still log for debugging
+				logger.Info("websocket closed",
+					"close_code", closeCode,
+					"close_text", closeText,
+					"duration", duration.Round(time.Second),
+					"frames_sent", streamer.frameCount,
+					"user", config.UserName,
+				)
 			}
 			return
 		}

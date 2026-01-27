@@ -35,6 +35,7 @@ import ConnectionOverlay from './ConnectionOverlay';
 import RemoteCursorsOverlay from './RemoteCursorsOverlay';
 import AgentCursorOverlay from './AgentCursorOverlay';
 import CursorRenderer from './CursorRenderer';
+import InsecureContextWarning from './InsecureContextWarning';
 
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
@@ -132,6 +133,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isThrottled, setIsThrottled] = useState(false); // Show warning when input throttling is active
   const [debugKeyEvent, setDebugKeyEvent] = useState<string | null>(null); // Debug: show last key event for iPad troubleshooting
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(null); // Debug override for throttle ratio
+  // Connection debug log for iPad (no devtools) - shows recent connection events
+  const [connectionLog, setConnectionLog] = useState<Array<{ time: string; msg: string }>>([]);
+  const addConnectionLog = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[DesktopStreamViewer] ${msg}`);
+    setConnectionLog(prev => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
+  }, []);
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
@@ -186,6 +194,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [isIOS, setIsIOS] = useState(false);
   // iOS custom fullscreen mode (not native video fullscreen - our custom overlay with full interaction)
   const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
+
+  // Insecure context detection - WebCodecs requires HTTPS or localhost
+  // When user sets chrome://flags/#unsafely-treat-insecure-origin-as-secure,
+  // window.isSecureContext returns true even on HTTP - trust it!
+  const isInsecureContext = React.useMemo(() => {
+    // If browser supports isSecureContext, trust it completely
+    // This correctly detects when the chrome flag is set
+    if (typeof window.isSecureContext !== 'undefined') {
+      return !window.isSecureContext;
+    }
+    // Fallback for very old browsers: check protocol and hostname
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const isHttps = protocol === 'https:';
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    return !isHttps && !isLocalhost;
+  }, []);
 
   // Toolbar icon sizes - larger on touch devices for easier tapping
   const toolbarIconSize = hasTouchCapability ? 'medium' : 'small';
@@ -528,11 +553,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         if (data.type === 'connected') {
           // WebSocket opened - show initializing status (still waiting for connectionComplete)
+          addConnectionLog('WebSocket opened');
           setStatus('Initializing stream...');
         } else if (data.type === 'streamInit') {
           // Stream parameters received - decoding about to start
           setStatus('Starting video decoder...');
         } else if (data.type === 'connectionComplete') {
+          addConnectionLog('Connection complete');
           setIsConnected(true);
           hasEverConnectedRef.current = true; // Mark first successful connection
           setError(null); // Clear any previous errors on successful connection
@@ -554,7 +581,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           videoStartTimeoutRef.current = setTimeout(() => {
             console.error('[DesktopStreamViewer] Video start timeout - GStreamer pipeline may have failed');
-            setError('Video stream failed to start. The desktop may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
+            setError('Video stream failed to start. This can happen if the server is overloaded, or if your browser suspended the connection (common on mobile devices to save power). Try refreshing the page or clicking the Restart button.');
             setIsConnecting(false);
             setIsConnected(false);
             onConnectionChange?.(false);
@@ -601,6 +628,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
 
           const errorMsg = data.message || 'Stream error';
+          addConnectionLog(`Error: ${errorMsg}`);
 
           // Check if error is AlreadyStreaming - retry instead of permanent failure
           if (errorMsg.includes('AlreadyStreaming') || errorMsg.includes('already streaming')) {
@@ -668,10 +696,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
           // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
           if (isExplicitlyClosingRef.current) {
+            addConnectionLog('Disconnected (explicit)');
             console.log('[DesktopStreamViewer] Explicit close - showing Disconnected overlay');
             setIsConnecting(false);
             setStatus('Disconnected');
           } else {
+            addConnectionLog(`Disconnected unexpectedly (code: ${data.code || 'unknown'})`);
             console.log('[DesktopStreamViewer] Unexpected disconnect - will auto-reconnect');
             setIsConnecting(true);
             setStatus('Reconnecting...');
@@ -930,6 +960,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
+    setStats(null); // Clear stale stats on disconnect
 
     // Clear presence state - other users are no longer visible when disconnected
     setRemoteUsers(new Map());
@@ -1150,16 +1181,25 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
   }, [isPhone]);
 
-  // Auto-fullscreen on landscape rotation for touch devices (mobile/tablet)
+  // Auto-fullscreen on landscape rotation for actual mobile devices (phone/tablet)
+  // Only triggers on real orientation change events, not window resize
   useEffect(() => {
-    if (!hasTouchCapability) return;
+    // Only enable for actual mobile devices, not touch-capable laptops/desktops
+    // Check for mobile user agent patterns (phones and tablets)
+    const isMobileDevice = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad on iOS 13+
+
+    if (!isMobileDevice) return;
+
+    // Only use screen.orientation API - no resize fallback (resize causes false positives)
+    if (!screen.orientation) return;
 
     const handleOrientationChange = () => {
       const doc = document as any;
       const elem = containerRef.current as any;
 
-      // Check if device is in landscape orientation
-      const isLandscape = window.innerWidth > window.innerHeight;
+      // Use screen.orientation.type for accurate detection
+      const isLandscape = screen.orientation.type.startsWith('landscape');
       const fullscreenElement = doc.fullscreenElement ||
         doc.webkitFullscreenElement ||
         doc.webkitCurrentFullScreenElement ||
@@ -1168,7 +1208,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       if (isLandscape && !fullscreenElement && elem) {
         // Auto-enter fullscreen when rotated to landscape
-        console.log('[DesktopStreamViewer] Landscape detected, entering fullscreen');
+        console.log('[DesktopStreamViewer] Orientation changed to landscape, entering fullscreen');
         // Try all fullscreen APIs
         if (elem.requestFullscreen) {
           elem.requestFullscreen().catch(() => {
@@ -1185,7 +1225,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       } else if (!isLandscape && fullscreenElement) {
         // Exit fullscreen when rotated back to portrait
-        console.log('[DesktopStreamViewer] Portrait detected, exiting fullscreen');
+        console.log('[DesktopStreamViewer] Orientation changed to portrait, exiting fullscreen');
         if (doc.exitFullscreen) {
           doc.exitFullscreen().catch(() => {});
         } else if (doc.webkitExitFullscreen) {
@@ -1200,19 +1240,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
     };
 
-    // Listen for orientation changes (screen.orientation API) and resize (fallback)
-    if (screen.orientation) {
-      screen.orientation.addEventListener('change', handleOrientationChange);
-    }
-    window.addEventListener('resize', handleOrientationChange);
+    screen.orientation.addEventListener('change', handleOrientationChange);
 
     return () => {
-      if (screen.orientation) {
-        screen.orientation.removeEventListener('change', handleOrientationChange);
-      }
-      window.removeEventListener('resize', handleOrientationChange);
+      screen.orientation.removeEventListener('change', handleOrientationChange);
     };
-  }, [hasTouchCapability]);
+  }, []);
 
   // Load touch mode preference from localStorage on mount
   useEffect(() => {
@@ -1521,9 +1554,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
   // leaving the canvas black while React still thinks we're connected.
-  // This health check monitors lastFrameRenderTime and forces reconnection if frames stop.
-  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without frames = stall
+  // This health check monitors decoder state and forces reconnection if decoder crashes.
+  const FRAME_STALL_THRESHOLD_MS = 5000; // 5 seconds without WS data = stall, trigger reconnect
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
+  const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
+  const lastDecoderCrashReconnectRef = useRef<number>(0);
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === 'screenshot' || isConnecting) {
@@ -1542,22 +1577,51 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Check if frames have been rendered recently
+      // Check decoder health
       const stats = stream.getStats();
-      const now = performance.now();
-      const timeSinceLastFrame = stats.lastFrameRenderTime > 0 ? now - stats.lastFrameRenderTime : 0;
 
-      // Only trigger stall detection after we've received at least one frame (lastFrameRenderTime > 0)
-      // and if we've been connected long enough for frames to be expected
-      if (stats.lastFrameRenderTime > 0 && timeSinceLastFrame > FRAME_STALL_THRESHOLD_MS) {
-        console.log(`[DesktopStreamViewer] Frame stall detected: ${Math.round(timeSinceLastFrame)}ms since last frame, forcing reconnect`);
-        console.log('[DesktopStreamViewer] Stats at stall:', {
-          fps: stats.fps,
-          framesDecoded: stats.framesDecoded,
-          decodeQueueSize: stats.decodeQueueSize,
-          wsReadyState: ws?.readyState,
-        });
-        reconnect(500, 'Reconnecting (video stalled)...');
+      // Check decoder state - if closed, decoder crashed and we need to reconnect
+      const decoderState = (stats as any).decoderState;
+      if (decoderState === 'closed') {
+        const now = Date.now();
+        const timeSinceLastCrashReconnect = now - lastDecoderCrashReconnectRef.current;
+
+        if (timeSinceLastCrashReconnect < DECODER_CRASH_RECONNECT_COOLDOWN_MS) {
+          // Still in cooldown, don't spam reconnects
+          console.log(`[DesktopStreamViewer] Decoder closed but in cooldown (${Math.round(timeSinceLastCrashReconnect/1000)}s ago)`);
+          return;
+        }
+
+        const crashMsg = `Decoder crashed (state=closed)`;
+        console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
+        addConnectionLog(crashMsg);
+        lastDecoderCrashReconnectRef.current = now;
+        reconnect(500, 'Reconnecting (decoder crashed)...');
+        return;
+      }
+
+      // Check WebSocket data flow instead of frame renders - static screens have no frame output but connection is fine
+      const lastWsMessageTime = (stats as any).lastWsMessageTime || 0;
+      const timeSinceWsData = lastWsMessageTime > 0 ? Date.now() - lastWsMessageTime : 0;
+
+      // Reconnect if WebSocket data has stopped flowing (real connection issue)
+      // With keepalive enabled (500ms), we should always receive messages on static screens
+      if (lastWsMessageTime > 0 && timeSinceWsData > FRAME_STALL_THRESHOLD_MS) {
+        const now = Date.now();
+        const timeSinceLastCrashReconnect = now - lastDecoderCrashReconnectRef.current;
+
+        if (timeSinceLastCrashReconnect < DECODER_CRASH_RECONNECT_COOLDOWN_MS) {
+          // Still in cooldown, don't spam reconnects
+          console.log(`[DesktopStreamViewer] WS data stall but in cooldown (${Math.round(timeSinceLastCrashReconnect/1000)}s ago)`);
+          return;
+        }
+
+        const stallMsg = `WS data stall: ${Math.round(timeSinceWsData)}ms since last message`;
+        console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
+        addConnectionLog(stallMsg);
+        lastDecoderCrashReconnectRef.current = now;
+        reconnect(500, 'Reconnecting (connection stalled)...');
+        return;
       }
     };
 
@@ -1565,12 +1629,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => clearInterval(intervalId);
   }, [isConnected, qualityMode, isConnecting, reconnect]);
 
-  // Auto-focus container when stream connects for keyboard input
-  useEffect(() => {
-    if (isConnected && containerRef.current) {
-      containerRef.current.focus();
-    }
-  }, [isConnected]);
+  // NOTE: We intentionally do NOT auto-focus the container when stream connects.
+  // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
+  // and causes keyboard shortcuts like Cmd+C to be intercepted by the viewer.
+  // The user must explicitly click on the viewer to focus it for keyboard input.
 
   // Reset reconnectClicked when isConnecting becomes true (connection attempt has started)
   // This provides immediate button feedback: click → disable → wait for isConnecting
@@ -2284,6 +2346,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             width: isScreenshotMode ? (width || 1920) : wsStats.width,
             height: isScreenshotMode ? (height || 1080) : wsStats.height,
             fps: isScreenshotMode ? screenshotFps : wsStats.fps,
+            fpsUpdatedAt: isScreenshotMode ? Date.now() : (wsStats as any).fpsUpdatedAt,
             receiveFps: isScreenshotMode ? 0 : wsStats.receiveFps,
             videoPayloadBitrate: isScreenshotMode ? 'N/A' : wsStats.videoPayloadBitrateMbps.toFixed(2),
             totalBitrate: isScreenshotMode ? 'N/A' : wsStats.totalBitrateMbps.toFixed(2),
@@ -2310,6 +2373,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
             // Debug flags
             usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
+            // Decoder health
+            decoderState: (wsStats as any).decoderState,
           },
           // Input buffer stats (detects TCP send buffer congestion)
           input: {
@@ -2974,17 +3039,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
       const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
 
+      // Check if user has selected text outside the container - if so, let browser handle copy
+      const selection = window.getSelection();
+      const hasExternalSelection = selection && selection.toString().length > 0 &&
+        selection.anchorNode && !container.contains(selection.anchorNode);
+      if (hasExternalSelection && isCopyKeystroke) {
+        console.log('[DesktopStreamViewer] Text selected outside container - letting browser handle copy');
+        return; // Don't preventDefault, let browser copy the selected text
+      }
+
       if (isCopyKeystroke && sessionId) {
-        // Send the copy keystroke to remote first
-        console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
+        // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
-          // Forward Ctrl+C to remote
+          console.log('[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote');
+          // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
           const ctrlCDown = new KeyboardEvent('keydown', {
             code: 'KeyC',
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
+            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
@@ -2996,11 +3071,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             key: 'c',
             ctrlKey: true,
             shiftKey: event.shiftKey,
+            altKey: false,
             metaKey: false,
             bubbles: true,
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
+          console.log('[Clipboard] Ctrl+C sent to remote desktop');
+        } else {
+          console.warn('[Clipboard] Copy keystroke detected but no input handler available');
         }
 
         // Wait briefly for remote clipboard to update, then sync back to local
@@ -3129,9 +3208,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
             showClipboardToast('Pasted', 'success');
 
-            // Forward the SAME keystroke the user pressed:
-            // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
-            // - User pressed Ctrl+Shift+V → send Ctrl+Shift+V (for terminals)
+            // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
+            // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
+            // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
             const input = getInput();
             if (input) {
               const pasteKeyDown = new KeyboardEvent('keydown', {
@@ -3139,6 +3218,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
+                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
@@ -3150,13 +3230,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
                 shiftKey: userPressedShift,
+                altKey: false,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
               });
               input.onKeyUp(pasteKeyUp);
 
-              console.log(`[Clipboard] Forwarded Ctrl+${userPressedShift ? 'Shift+' : ''}V to remote`);
+              console.log(`[Clipboard] Ctrl+${userPressedShift ? 'Shift+' : ''}V sent to remote desktop`);
+            } else {
+              console.warn('[Clipboard] Paste keystroke detected but no input handler available');
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
@@ -3334,13 +3417,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Ensure content doesn't overflow above the visible area
         maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px)` : undefined,
         minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
-        zIndex: keyboardHeight > 0 ? 1000 : undefined,
+        // High z-index for iOS fullscreen to cover everything, or keyboard open
+        zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
-        // High z-index for iOS fullscreen to cover everything
-        zIndex: isIOSFullscreen ? 9999 : undefined,
         // Prevent iOS tap highlight (blue rectangle on touch)
         WebkitTapHighlightColor: 'transparent',
         WebkitTouchCallout: 'none',
@@ -3833,8 +3915,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Insecure Context Warning - WebCodecs requires HTTPS or localhost */}
+      {isInsecureContext && !suppressOverlay && (
+        <InsecureContextWarning />
+      )}
+
       {/* Connection Status Overlay */}
-      {!suppressOverlay && (
+      {!suppressOverlay && !isInsecureContext && (
         <ConnectionOverlay
           isConnected={isConnected}
           isConnecting={isConnecting}
@@ -3869,6 +3956,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
+        onSelectStart={(e) => e.preventDefault()}
+        onDragStart={(e) => e.preventDefault()}
         style={{
           // Use calculated dimensions to maintain aspect ratio
           // Canvas doesn't support objectFit like video, so we calculate size manually
@@ -3893,6 +3982,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
           touchAction: 'none',
+          // Prevent text selection on double-click in Safari iPad
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -4029,6 +4122,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           screenshotFps={screenshotFps}
           screenshotQuality={screenshotQuality}
           debugKeyEvent={debugKeyEvent}
+          connectionLog={connectionLog}
+          isConnected={isConnected}
+          isConnecting={isConnecting}
         />
       )}
 

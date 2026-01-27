@@ -1,6 +1,7 @@
 package external_agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -265,7 +266,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	// Build mounts
-	mounts := h.buildMounts(agent, workspaceDir, containerType)
+	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
@@ -331,15 +332,13 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Wait for desktop-bridge to be ready before returning
 	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
 	// Without this, frontend connects immediately but screenshot/video fail
-	if containerType != "headless" && resp.IPAddress != "" && resp.IPAddress != "host" {
-		if err := h.waitForDesktopBridge(ctx, resp.IPAddress, agent.SessionID); err != nil {
-			log.Warn().Err(err).
-				Str("session_id", agent.SessionID).
-				Str("container_ip", resp.IPAddress).
-				Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-			// Don't fail - container is running, just not fully ready yet
-			// Frontend should handle this gracefully with retry logic
-		}
+	// Uses RevDial for health check since container IP is inside sandbox's DinD network
+	if err := h.waitForDesktopBridge(ctx, agent.SessionID); err != nil {
+		log.Warn().Err(err).
+			Str("session_id", agent.SessionID).
+			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
+		// Don't fail - container is running, just not fully ready yet
+		// Frontend should handle this gracefully with retry logic
 	}
 
 	// Track session
@@ -372,6 +371,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.GPUVendor = resp.GPUVendor
 		dbSession.Metadata.RenderNode = resp.RenderNode
 
+		// Store sandbox ID on the session for port proxying
+		dbSession.SandboxID = sandboxID
+
 		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 			log.Warn().Err(err).Str("session_id", agent.SessionID).Msg("Failed to update session metadata with container info")
 		}
@@ -384,6 +386,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Status:        "running",
 		ContainerName: resp.ContainerName,
 		ContainerIP:   resp.IPAddress,
+		SandboxID:     sandboxID,
 	}, nil
 }
 
@@ -873,6 +876,19 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
+	hasUserAPIToken := false
+	for _, e := range agent.Env {
+		if strings.HasPrefix(e, "USER_API_TOKEN=") {
+			hasUserAPIToken = true
+			break
+		}
+	}
+	log.Info().
+		Int("agent_env_count", len(agent.Env)).
+		Bool("has_user_api_token", hasUserAPIToken).
+		Str("session_id", agent.SessionID).
+		Msg("buildEnvVars: Appending agent.Env (USER_API_TOKEN should be present for RevDial)")
+
 	env = append(env, agent.Env...)
 
 	return env
@@ -881,7 +897,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 // buildMounts builds volume mounts for the container
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
-func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string) []hydra.MountConfig {
+// useHostDocker: if true, also mount the host Docker socket for privileged mode
+func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool) []hydra.MountConfig {
 	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
@@ -939,19 +956,28 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		ReadOnly:    false,
 	})
 
+	// Host Docker socket for privileged mode (Helix-in-Helix development)
+	// When enabled, allows the desktop container to create sandboxes on the host Docker
+	// instead of trying to run DinD-in-DinD (which fails with overlay2 storage driver)
+	if useHostDocker {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      "/var/run/host-docker.sock",
+			Destination: "/var/run/host-docker.sock",
+			ReadOnly:    false,
+		})
+	}
+
 	return mounts
 }
 
-// waitForDesktopBridge polls the desktop-bridge health endpoint until it's ready.
+// waitForDesktopBridge polls the desktop-bridge health endpoint via RevDial until it's ready.
 // Desktop-bridge startup includes: D-Bus wait, Wayland socket wait, portal wait, GStreamer init.
 // This can take 10-30 seconds depending on the compositor and GPU.
-func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, containerIP, sessionID string) error {
-	healthURL := fmt.Sprintf("http://%s:9876/health", containerIP)
-
-	// Create client with short timeout per request
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
+// Uses RevDial connection because the container IP is inside the sandbox's DinD network
+// and not directly reachable from the API container.
+func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID string) error {
+	// RevDial runner ID follows the pattern "desktop-{sessionID}"
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
 	// Poll for up to 60 seconds (desktop startup can be slow)
 	maxAttempts := 60
@@ -959,8 +985,8 @@ func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, containerIP, s
 
 	log.Info().
 		Str("session_id", sessionID).
-		Str("health_url", healthURL).
-		Msg("Waiting for desktop-bridge to be ready...")
+		Str("runner_id", runnerID).
+		Msg("Waiting for desktop-bridge to be ready via RevDial...")
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
@@ -969,16 +995,13 @@ func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, containerIP, s
 		default:
 		}
 
-		resp, err := client.Get(healthURL)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				log.Info().
-					Str("session_id", sessionID).
-					Int("attempts", attempt).
-					Msg("Desktop-bridge is ready")
-				return nil
-			}
+		// Try to connect via RevDial and check health endpoint
+		if h.checkDesktopBridgeHealth(ctx, runnerID, sessionID) {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("attempts", attempt).
+				Msg("Desktop-bridge is ready")
+			return nil
 		}
 
 		// Log progress every 10 attempts
@@ -994,4 +1017,43 @@ func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, containerIP, s
 	}
 
 	return fmt.Errorf("desktop-bridge not ready after %d seconds", maxAttempts)
+}
+
+// checkDesktopBridgeHealth checks if the desktop-bridge is ready via RevDial
+func (h *HydraExecutor) checkDesktopBridgeHealth(ctx context.Context, runnerID, sessionID string) bool {
+	if h.connman == nil {
+		log.Debug().Msg("Connection manager not available for health check")
+		return false
+	}
+
+	// Create a context with timeout for this single check
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	// Try to dial the desktop container via RevDial
+	conn, err := h.connman.Dial(checkCtx, runnerID)
+	if err != nil {
+		// RevDial not yet available - container still starting or registering
+		return false
+	}
+	defer conn.Close()
+
+	// Send health check request over RevDial tunnel
+	healthReq, err := http.NewRequest("GET", "http://localhost:9876/health", nil)
+	if err != nil {
+		return false
+	}
+
+	if err := healthReq.Write(conn); err != nil {
+		return false
+	}
+
+	// Read response
+	resp, err := http.ReadResponse(bufio.NewReader(conn), healthReq)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
 }

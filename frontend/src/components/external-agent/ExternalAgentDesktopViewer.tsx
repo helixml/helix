@@ -76,8 +76,10 @@ const useSandboxState = (sessionId: string) => {
   }, [sessionId]);
 
   // Backend now returns 'starting' state for recently-created containers
+  // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
+  // before we know the real state (avoids mount/unmount flicker)
   const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
-  const isStarting = sandboxState === 'starting';
+  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === 'absent';
   // Check if this is a Claude Code session (uses terminal instead of video)
@@ -133,13 +135,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
   const uploadCountRef = useRef(0);
 
-  // Set current session ID in streaming context when session panel is open
-  // This enables WebSocket updates and proper query invalidation
-  useEffect(() => {
-    if (showSessionPanel && sessionPanelOpen && sessionId) {
-      setCurrentSessionId(sessionId);
-    }
-  }, [showSessionPanel, sessionPanelOpen, sessionId]);
+  // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
+  // based on whether the chat panel is visible. This component no longer subscribes directly
+  // to avoid duplicate subscriptions and to allow proper disconnect when chat is collapsed.
 
   // Handle file upload from drag/drop - append path to prompt input with a unique key
   const handleFileUploaded = useCallback((filePath: string) => {

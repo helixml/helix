@@ -21,7 +21,7 @@ import {
   Collapse,
   IconButton,
 } from '@mui/material';
-import { Copy, ChevronDown, ChevronRight, FolderGit2, Check, ExternalLink } from 'lucide-react';
+import { Wand2, ChevronDown, ChevronRight, FolderGit2, Check, ExternalLink } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import useApi from '../../hooks/useApi';
 import { useCloneTask, useReposWithoutProjects, CloneTaskResponse } from '../../services/specTaskService';
@@ -174,7 +174,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
       return (
         <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth onClick={(e) => e.stopPropagation()}>
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Copy size={24} />
+            <Wand2 size={24} />
             Clone Group Progress
           </DialogTitle>
           <DialogContent>
@@ -265,7 +265,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
               <Button
                 variant="text"
                 size="small"
-                startIcon={<Copy size={14} />}
+                startIcon={<Wand2 size={14} />}
                 onClick={() => setShowCloneProgress(true)}
                 sx={{ mt: 2 }}
               >
@@ -286,7 +286,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth onClick={(e) => e.stopPropagation()}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Copy size={24} />
+        <Wand2 size={24} />
         Clone Task to Projects
       </DialogTitle>
       <DialogContent>
@@ -476,7 +476,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
           onClick={handleClone}
           variant="contained"
           disabled={totalTargets === 0 || cloneTaskMutation.isPending}
-          startIcon={cloneTaskMutation.isPending ? <CircularProgress size={16} /> : <Copy size={16} />}
+          startIcon={cloneTaskMutation.isPending ? <CircularProgress size={16} /> : <Wand2 size={16} />}
         >
           {cloneTaskMutation.isPending ? 'Cloning...' : `Clone to ${totalTargets} Target(s)`}
         </Button>

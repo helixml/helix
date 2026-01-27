@@ -127,7 +127,7 @@ const Projects: FC = () => {
   // Search and pagination for projects
   const [projectsSearchQuery, setProjectsSearchQuery] = useState('')
   const [projectsPage, setProjectsPage] = useState(0)
-  const projectsPerPage = 12
+  const projectsPerPage = 24
 
   // Search and pagination for repositories
   const [reposSearchQuery, setReposSearchQuery] = useState('')
@@ -533,14 +533,14 @@ const Projects: FC = () => {
       case 'prompts':
         return 'Prompts'
       default:
-        return 'Workspaces'
+        return 'Projects'
     }
   }
 
   return (
     <Page
       breadcrumbTitle={getBreadcrumbTitle()}
-      breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
+      breadcrumbParent={currentView !== 'projects' ? { title: 'Projects', routeName: 'projects' } : undefined}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (

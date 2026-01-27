@@ -597,6 +597,48 @@ func (c *RevDialClient) GetDevContainerClients(ctx context.Context, sessionID st
 	return &result, nil
 }
 
+// VideoStatsResponse contains video streaming statistics from the desktop server
+type VideoStatsResponse struct {
+	SessionID string        `json:"session_id"`
+	Sources   []SourceStats `json:"sources"`
+}
+
+// SourceStats contains statistics for a single shared video source
+type SourceStats struct {
+	NodeID         uint32              `json:"node_id"`
+	Running        bool                `json:"running"`
+	ClientCount    int                 `json:"client_count"`
+	FramesReceived uint64              `json:"frames_received"`
+	FramesDropped  uint64              `json:"frames_dropped"`
+	GOPBufferSize  int                 `json:"gop_buffer_size"`
+	Clients        []ClientBufferStats `json:"clients"`
+}
+
+// ClientBufferStats contains buffer statistics for a single streaming client
+type ClientBufferStats struct {
+	ClientID   uint64 `json:"client_id"`
+	BufferUsed int    `json:"buffer_used"`
+	BufferSize int    `json:"buffer_size"`
+	BufferPct  int    `json:"buffer_pct"`
+}
+
+// GetDevContainerVideoStats gets video streaming statistics for a dev container via RevDial
+func (c *RevDialClient) GetDevContainerVideoStats(ctx context.Context, sessionID string) (*VideoStatsResponse, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/video/stats", sessionID)
+
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VideoStatsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // doRequest performs an HTTP request over RevDial
 func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	conn, err := c.connman.Dial(ctx, c.deviceID)

@@ -3,14 +3,11 @@ import { useRoute } from 'react-router5'
 import {
   Box,
   IconButton,
-  Typography,
   Tooltip,
-  Breadcrumbs,
-  Link,
   CircularProgress,
+  Stack,
 } from '@mui/material'
 import {
-  ArrowBack as BackIcon,
   ViewModule as TiledIcon,
 } from '@mui/icons-material'
 
@@ -45,19 +42,14 @@ const SpecTaskReviewPage: FC = () => {
   // Fetch project data for breadcrumb
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, !!projectId)
 
-  // Fetch review data for title
-  const { data: reviewData, isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {
+  // Fetch review data
+  const { isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {
     enabled: !!taskId && !!reviewId,
   })
 
   const handleBack = () => {
     // Navigate back to the task detail page
     account.orgNavigate('project-task-detail', { id: projectId, taskId })
-  }
-
-  const handleBackToTasks = () => {
-    // Navigate back to the project's spec tasks page
-    account.orgNavigate('project-specs', { id: projectId })
   }
 
   const handleOpenInWorkspace = () => {
@@ -76,70 +68,40 @@ const SpecTaskReviewPage: FC = () => {
   }
 
   return (
-    <Page>
-      {/* Header with navigation */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 2,
-          py: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          backgroundColor: 'background.paper',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Tooltip title="Back to task">
-            <IconButton onClick={handleBack} size="small">
-              <BackIcon />
+    <Page
+      breadcrumbs={[
+        {
+          title: 'Projects',
+          routeName: 'projects',
+        },
+        {
+          title: project?.name || 'Project',
+          routeName: 'project-specs',
+          params: { id: projectId },
+        },
+        {
+          title: task?.name || 'Task',
+          routeName: 'project-task-detail',
+          params: { id: projectId, taskId },
+        },
+        {
+          title: 'Spec Review',
+        },
+      ]}
+      orgBreadcrumbs={true}
+      showDrawerButton={true}
+      topbarContent={
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+          <Tooltip title="Open in Split Screen">
+            <IconButton onClick={handleOpenInWorkspace} size="small">
+              <TiledIcon />
             </IconButton>
           </Tooltip>
-
-          <Breadcrumbs separator="›" sx={{ fontSize: '0.875rem' }}>
-            <Link
-              component="button"
-              underline="hover"
-              color="inherit"
-              onClick={() => account.orgNavigate('projects')}
-              sx={{ cursor: 'pointer' }}
-            >
-              Projects
-            </Link>
-            <Link
-              component="button"
-              underline="hover"
-              color="inherit"
-              onClick={() => account.orgNavigate('project-specs', { id: projectId })}
-              sx={{ cursor: 'pointer' }}
-            >
-              {project?.name || 'Project'}
-            </Link>
-            <Link
-              component="button"
-              underline="hover"
-              color="inherit"
-              onClick={handleBack}
-              sx={{ cursor: 'pointer' }}
-            >
-              {task?.name || 'Task'}
-            </Link>
-            <Typography color="text.primary" sx={{ fontSize: '0.875rem' }}>
-              Spec Review
-            </Typography>
-          </Breadcrumbs>
-        </Box>
-
-        <Tooltip title="Split Screen">
-          <IconButton onClick={handleOpenInWorkspace} size="small">
-            <TiledIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
+        </Stack>
+      }
+    >
       {/* Review content - embedded mode without floating window */}
-      <Box sx={{ flex: 1, overflow: 'auto', height: 'calc(100vh - 120px)' }}>
+      <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
         <DesignReviewContent
           specTaskId={taskId}
           reviewId={reviewId}

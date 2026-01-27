@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -231,6 +231,29 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       })
     }
   }, [session?.interactions?.length, scrollToBottom])
+
+  // Maintain sticky scroll when session data updates (e.g., from polling or WebSocket)
+  // Use useLayoutEffect to run synchronously after DOM mutations but before browser paint
+  // This ensures we scroll before any scroll events could fire from layout reflow
+  const prevScrollHeightRef = useRef(0)
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container || !session?.interactions) return
+
+    const prevScrollHeight = prevScrollHeightRef.current
+    const currentScrollHeight = container.scrollHeight
+
+    // If content height changed and we were at bottom, scroll to bottom
+    if (currentScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
+      // Check isAtBottomRef BEFORE the scroll - this is the value from before the DOM update
+      if (isAtBottomRef.current) {
+        container.scrollTop = currentScrollHeight
+      }
+    }
+
+    prevScrollHeightRef.current = currentScrollHeight
+  })
 
   // DISABLED: MutationObserver was causing constant scroll jumps
   // because scroll events weren't being detected on iOS Safari,

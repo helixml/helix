@@ -23,7 +23,7 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
+import { Bot } from 'lucide-react'
 import AddIcon from '@mui/icons-material/Add'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import EditIcon from '@mui/icons-material/Edit'
@@ -241,7 +241,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                             src={app.config?.helix?.avatar}
                             sx={{ width: 40, height: 40 }}
                           >
-                            <SmartToyIcon />
+                            <Bot size={24} />
                           </Avatar>
                         </ListItemIcon>
                         <ListItemText

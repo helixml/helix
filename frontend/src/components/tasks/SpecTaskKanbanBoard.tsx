@@ -666,9 +666,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };  
 
   // Handle archiving/unarchiving a task
-  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
-    // If archiving (not unarchiving), show confirmation dialog
+  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean, shiftKey?: boolean) => {
+    // If archiving (not unarchiving), show confirmation dialog unless shift is held
     if (archived) {
+      if (shiftKey) {
+        // Shift+click bypasses confirmation
+        await performArchive(task, archived);
+        return;
+      }
       setTaskToArchive(task);
       setArchiveConfirmOpen(true);
       return;
@@ -889,9 +894,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
-              Agent Fleet
+              Agent Swarm
             </Typography>
-            <Tooltip title="Each agent has its own desktop. You and your team can all connect to watch and pair. The agent owns the session.">
+            <Tooltip title="Each agent has its own desktop. You and your team can all connect to watch and pair. Each agent owns its desktop.">
               <InfoIcon sx={{ fontSize: 16, color: 'text.secondary', cursor: 'help' }} />
             </Tooltip>
           </Box>
@@ -1041,12 +1046,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           setArchiveConfirmOpen(false);
           setTaskToArchive(null);
         }}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (taskToArchive) {
-            setArchiveConfirmOpen(false);
             const task = taskToArchive;
+            await performArchive(task, true);
+            setArchiveConfirmOpen(false);
             setTaskToArchive(null);
-            performArchive(task, true);
           }
         }}
         taskName={taskToArchive?.name}
