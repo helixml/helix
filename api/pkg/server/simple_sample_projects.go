@@ -631,7 +631,11 @@ CRITICAL TIMING INSTRUCTIONS:
 - During IMPLEMENTATION (later, when told): THAT is when you actually ask "What is your brand color?" and wait for their response
 - Do NOT guess a color or use a placeholder - you MUST wait until implementation to ask
 
-The color discovery happens during implementation, and that learning gets captured in the spec for cloning to other shapes.`,
+CRITICAL: RECORD THE COLOR IN THE SPECS
+When the user tells you their brand color during implementation, you MUST:
+1. Update design.md with "User specified brand color: <the exact value they gave>"
+2. Commit and push the updated design.md to helix-specs IMMEDIATELY
+This is IMPERATIVE - if you don't record and push the color, it cannot be cloned to other shapes.`,
 				Priority: "high",
 				Labels:   []string{"design", "branding", "visual"},
 			},
