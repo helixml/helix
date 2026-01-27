@@ -76,10 +76,9 @@ type GitHTTPServer struct {
 	enablePull             bool
 	maxRepoSize            int64
 	requestTimeout         time.Duration
-	testMode               bool
-	authorizeFn            AuthorizationFunc
-	sendMessageToAgentFunc SpecTaskMessageSender
-	triggerManager         *trigger.Manager
+	testMode       bool
+	authorizeFn    AuthorizationFunc
+	triggerManager *trigger.Manager
 	wg                     sync.WaitGroup
 }
 
@@ -152,10 +151,6 @@ func NewGitHTTPServer(
 
 func (s *GitHTTPServer) SetTestMode(enabled bool) {
 	s.testMode = enabled
-}
-
-func (s *GitHTTPServer) SetMessageSender(sender SpecTaskMessageSender) {
-	s.sendMessageToAgentFunc = sender
 }
 
 // RegisterRoutes registers the git HTTP routes

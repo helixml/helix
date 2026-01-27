@@ -360,9 +360,6 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
 
-	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
-	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
-
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)

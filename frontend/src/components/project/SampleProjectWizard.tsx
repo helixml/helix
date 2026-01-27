@@ -519,7 +519,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
                 </Typography>
               </Box>
 
-              {repo.status === 'cloning' && repo.clone_progress && (
+              {repo.status === 'cloning' && repo.clone_progress && repo.clone_progress.percentage > 0 && (
                 <Box>
                   <LinearProgress
                     variant="determinate"
@@ -540,8 +540,13 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
                 </Box>
               )}
 
-              {repo.status === 'cloning' && !repo.clone_progress && (
-                <LinearProgress sx={{ height: 8, borderRadius: 4 }} />
+              {repo.status === 'cloning' && (!repo.clone_progress || repo.clone_progress.percentage === 0) && (
+                <Box>
+                  <LinearProgress sx={{ height: 8, borderRadius: 4, mb: 0.5 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    {repo.clone_progress?.phase || 'Cloning repository...'}
+                  </Typography>
+                </Box>
               )}
 
               {repo.status === 'active' && (

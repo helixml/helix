@@ -4529,20 +4529,6 @@ func (mr *MockStoreMockRecorder) UpdateGitRepository(ctx, repo any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitRepository", reflect.TypeOf((*MockStore)(nil).UpdateGitRepository), ctx, repo)
 }
 
-// UpdateGitRepositoryCloneProgress mocks base method.
-func (m *MockStore) UpdateGitRepositoryCloneProgress(ctx context.Context, repoID string, progress *types.CloneProgress) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateGitRepositoryCloneProgress", ctx, repoID, progress)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateGitRepositoryCloneProgress indicates an expected call of UpdateGitRepositoryCloneProgress.
-func (mr *MockStoreMockRecorder) UpdateGitRepositoryCloneProgress(ctx, repoID, progress any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitRepositoryCloneProgress", reflect.TypeOf((*MockStore)(nil).UpdateGitRepositoryCloneProgress), ctx, repoID, progress)
-}
-
 // UpdateInteraction mocks base method.
 func (m *MockStore) UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.ctrl.T.Helper()

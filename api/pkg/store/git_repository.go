@@ -67,21 +67,6 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).Save(repo).Error
 }
 
-// UpdateGitRepositoryCloneProgress updates just the clone_progress column for a repository
-// This is a more efficient operation for real-time progress updates during cloning
-func (s *PostgresStore) UpdateGitRepositoryCloneProgress(ctx context.Context, repoID string, progress *types.CloneProgress) error {
-	if repoID == "" {
-		return fmt.Errorf("repo id not specified")
-	}
-
-	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).
-		Where("id = ?", repoID).
-		Updates(map[string]interface{}{
-			"clone_progress": progress,
-			"updated_at":     time.Now(),
-		}).Error
-}
-
 // DeleteGitRepository deletes a git repository record
 func (s *PostgresStore) DeleteGitRepository(ctx context.Context, id string) error {
 	if id == "" {

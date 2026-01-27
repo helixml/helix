@@ -499,7 +499,6 @@ type Store interface {
 	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
-	UpdateGitRepositoryCloneProgress(ctx context.Context, repoID string, progress *types.CloneProgress) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 
