@@ -1321,6 +1321,16 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		var createdRepos []types.CreatedRepository
 		var primaryRepoID string
 
+		// Get existing repo names for this user to handle duplicates
+		existingRepos, _ := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: createdProject.OrganizationID,
+			OwnerID:        user.ID,
+		})
+		existingNames := make(map[string]bool)
+		for _, repo := range existingRepos {
+			existingNames[repo.Name] = true
+		}
+
 		for _, reqRepo := range sampleProject.RequiredGitHubRepos {
 			owner, repo, parseErr := parseGitHubURLSimple(reqRepo.GitHubURL)
 			if parseErr != nil {
@@ -1362,7 +1372,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Create GitRepository entry as external GitHub repo
-			repoID := fmt.Sprintf("%s-%s", createdProject.ID, data.SlugifyName(repo))
 			externalURL := fmt.Sprintf("https://github.com/%s/%s", finalOwner, finalRepo)
 			cloneURL := externalURL + ".git"
 
@@ -1371,9 +1380,14 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				defaultBranch = "main"
 			}
 
+			// Auto-increment name if it already exists (e.g., helix -> helix-2 -> helix-3)
+			repoName := services.GetUniqueRepoName(repo, existingNames)
+
+			repoID := fmt.Sprintf("%s-%s", createdProject.ID, data.SlugifyName(repoName))
+
 			gitRepo := &types.GitRepository{
 				ID:                repoID,
-				Name:              repo,
+				Name:              repoName,
 				Description:       fmt.Sprintf("GitHub repository %s/%s", finalOwner, finalRepo),
 				OwnerID:           user.ID,
 				OrganizationID:    createdProject.OrganizationID,
@@ -1419,7 +1433,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 			createdRepos = append(createdRepos, types.CreatedRepository{
 				ID:          repoID,
-				Name:        repo,
+				Name:        repoName,
 				GitHubURL:   externalURL,
 				IsForked:    isForked,
 				IsPrimary:   reqRepo.IsPrimary,

@@ -143,15 +143,8 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Auto-increment name if it already exists
-	baseName := request.Name
-	uniqueName := baseName
-	suffix := 1
-	for existingNames[uniqueName] {
-		uniqueName = fmt.Sprintf("%s-%d", baseName, suffix)
-		suffix++
-	}
-	request.Name = uniqueName
+	// Auto-increment name if it already exists (e.g., repo -> repo-2 -> repo-3)
+	request.Name = GetUniqueRepoName(request.Name, existingNames)
 
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
@@ -733,6 +726,20 @@ func incrementRepositoryName(name string) string {
 
 	// No numeric suffix, add -2
 	return fmt.Sprintf("%s-2", name)
+}
+
+// GetUniqueRepoName returns a unique repository name by appending -2, -3, etc. if needed.
+// The existingNames map is updated with the returned name marked as used.
+// Examples: "helix" -> "helix", "helix" (if exists) -> "helix-2", etc.
+func GetUniqueRepoName(baseName string, existingNames map[string]bool) string {
+	name := baseName
+	suffix := 2
+	for existingNames[name] {
+		name = fmt.Sprintf("%s-%d", baseName, suffix)
+		suffix++
+	}
+	existingNames[name] = true
+	return name
 }
 
 // CreateSampleRepository creates a sample/demo repository
