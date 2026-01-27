@@ -3,11 +3,13 @@
 package desktop
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -34,6 +36,8 @@ type ClaudeCodeBridge struct {
 	onError         func(err error)
 
 	// Lifecycle
+	ctx     context.Context
+	cancel  context.CancelFunc
 	started bool
 	mu      sync.Mutex
 }
@@ -73,6 +77,8 @@ func NewClaudeCodeBridge(cfg ClaudeCodeBridgeConfig) (*ClaudeCodeBridge, error) 
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	bridge := &ClaudeCodeBridge{
 		sessionID:      cfg.SessionID,
 		tmuxSession:    tmuxSession,
@@ -80,6 +86,8 @@ func NewClaudeCodeBridge(cfg ClaudeCodeBridgeConfig) (*ClaudeCodeBridge, error) 
 		onAgentReady:   cfg.OnAgentReady,
 		onMessageAdded: cfg.OnMessageAdded,
 		onError:        cfg.OnError,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	return bridge, nil
@@ -129,6 +137,13 @@ func (b *ClaudeCodeBridge) Start() error {
 	go func() {
 		// Check if tmux session exists
 		for i := 0; i < 60; i++ {
+			select {
+			case <-b.ctx.Done():
+				log.Debug().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Context cancelled while waiting for tmux")
+				return
+			default:
+			}
+
 			cmd := exec.Command("tmux", "has-session", "-t", b.tmuxSession)
 			if err := cmd.Run(); err == nil {
 				log.Info().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Claude Code tmux session ready")
@@ -137,13 +152,13 @@ func (b *ClaudeCodeBridge) Start() error {
 				}
 				return
 			}
+
 			// Wait 1 second before retry
 			select {
-			case <-make(chan struct{}):
-				// Will never fire - just for select timeout pattern
-			default:
+			case <-b.ctx.Done():
+				return
+			case <-time.After(time.Second):
 			}
-			exec.Command("sleep", "1").Run()
 		}
 		log.Warn().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Timeout waiting for Claude Code tmux session")
 	}()
@@ -154,7 +169,7 @@ func (b *ClaudeCodeBridge) Start() error {
 // handleInteraction processes a Claude interaction and converts it to a message
 func (b *ClaudeCodeBridge) handleInteraction(interaction *ClaudeInteraction) {
 	// Only relay assistant messages (Claude's responses)
-	if interaction.Type != "assistant" && interaction.Message == nil {
+	if interaction.Type != "assistant" || interaction.Message == nil {
 		return
 	}
 
@@ -236,6 +251,11 @@ func (b *ClaudeCodeBridge) Close() error {
 	}
 
 	log.Info().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Closing")
+
+	// Cancel context to stop any waiting goroutines
+	if b.cancel != nil {
+		b.cancel()
+	}
 
 	if b.jsonlWatcher != nil {
 		b.jsonlWatcher.Stop()

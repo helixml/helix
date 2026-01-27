@@ -35,6 +35,11 @@ type AgentClient struct {
 	mu              sync.Mutex
 	reconnect       bool
 	onReady         func() // Called when agent is ready
+
+	// Current request tracking for response routing
+	currentRequestID   string
+	currentAcpThreadID string
+	requestMu          sync.RWMutex
 }
 
 // AgentClientConfig contains configuration for the agent client
@@ -353,6 +358,21 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 			return
 		}
 
+		// Extract and store request tracking info for response routing
+		c.requestMu.Lock()
+		if reqID, ok := cmd.Data["request_id"].(string); ok {
+			c.currentRequestID = reqID
+		}
+		if acpThreadID, ok := cmd.Data["acp_thread_id"].(string); ok {
+			c.currentAcpThreadID = acpThreadID
+		}
+		log.Debug().
+			Str("session_id", c.sessionID).
+			Str("request_id", c.currentRequestID).
+			Str("acp_thread_id", c.currentAcpThreadID).
+			Msg("[AgentClient] Stored request tracking info")
+		c.requestMu.Unlock()
+
 		// Route to appropriate backend
 		switch c.hostType {
 		case types.AgentHostTypeVSCode:
@@ -442,27 +462,38 @@ func (c *AgentClient) sendAgentReady() {
 	}
 }
 
-// sendMessageAdded sends message_added event to Helix API
+// sendMessageAdded sends response to Helix API using chat_response for proper routing
+// Note: handleChatResponse in the API already sends the done signal, so we don't need
+// a separate chat_response_done event for complete responses.
 func (c *AgentClient) sendMessageAdded(content string, isComplete bool) {
+	c.requestMu.RLock()
+	requestID := c.currentRequestID
+	c.requestMu.RUnlock()
+
+	// Use chat_response for proper routing via request_id
+	// This works uniformly for all agent types (Roo Code, Claude Code)
+	// Note: handleChatResponse already sends to doneChan, so no separate done event needed
 	syncMsg := types.SyncMessage{
-		EventType: "message_added",
+		EventType: "chat_response",
 		SessionID: c.sessionID,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"content":  content,
-			"complete": isComplete,
+			"request_id": requestID,
+			"content":    content,
+			"complete":   isComplete,
 		},
 	}
 
 	select {
 	case c.sendChan <- syncMsg:
-		log.Debug().
+		log.Info().
 			Str("session_id", c.sessionID).
+			Str("request_id", requestID).
 			Bool("complete", isComplete).
 			Int("content_len", len(content)).
-			Msg("[AgentClient] Sent message_added")
+			Msg("[AgentClient] Sent chat_response")
 	default:
-		log.Warn().Msg("[AgentClient] Send channel full, dropping message_added")
+		log.Warn().Msg("[AgentClient] Send channel full, dropping chat_response")
 	}
 }
 
