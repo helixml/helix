@@ -18,15 +18,16 @@ import (
 )
 
 // AgentClient handles the WebSocket connection to Helix API for receiving commands
-// and translates them to the appropriate agent backend (Zed, Roo Code, or headless).
+// and translates them to the appropriate agent backend (Zed, Roo Code, Claude Code, or headless).
 type AgentClient struct {
 	apiURL          string
 	sessionID       string
 	token           string
 	hostType        types.AgentHostType
 	rooCodeProtocol types.RooCodeProtocol
-	rooBridge       *RooCodeBridge // Socket.IO bridge (for RooCodeProtocolSocketIO)
-	rooIPC          *RooCodeIPC    // IPC client (for RooCodeProtocolIPC)
+	rooBridge       *RooCodeBridge    // Socket.IO bridge (for RooCodeProtocolSocketIO)
+	rooIPC          *RooCodeIPC       // IPC client (for RooCodeProtocolIPC)
+	claudeBridge    *ClaudeCodeBridge // Claude Code bridge (for AgentHostTypeClaudeCode)
 	conn            *websocket.Conn
 	sendChan        chan interface{}
 	ctx             context.Context
@@ -167,6 +168,30 @@ func NewAgentClient(cfg AgentClientConfig) (*AgentClient, error) {
 			client.rooBridge = rooBridge
 		}
 
+	case types.AgentHostTypeClaudeCode:
+		// Claude Code mode: Use ClaudeCodeBridge for tmux communication
+		log.Info().
+			Str("session_id", cfg.SessionID).
+			Msg("[AgentClient] Using Claude Code bridge")
+
+		claudeBridge, err := NewClaudeCodeBridge(ClaudeCodeBridgeConfig{
+			SessionID: cfg.SessionID,
+			OnAgentReady: func() {
+				client.sendAgentReady()
+			},
+			OnMessageAdded: func(content string, isComplete bool) {
+				client.sendMessageAdded(content, isComplete)
+			},
+			OnError: func(err error) {
+				log.Error().Err(err).Str("session_id", cfg.SessionID).Msg("[AgentClient] Claude Code bridge error")
+			},
+		})
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create Claude Code bridge: %w", err)
+		}
+		client.claudeBridge = claudeBridge
+
 	case types.AgentHostTypeHeadless:
 		// TODO: Implement headless ACP client
 		log.Warn().Msg("[AgentClient] Headless mode not yet implemented")
@@ -187,7 +212,7 @@ func (c *AgentClient) Start() error {
 		return nil
 	}
 
-	// Start the appropriate Roo Code communication backend
+	// Start the appropriate agent communication backend
 	if c.rooBridge != nil {
 		// Socket.IO mode: Start the bridge server that Roo Code connects to
 		if err := c.rooBridge.Start(); err != nil {
@@ -198,6 +223,12 @@ func (c *AgentClient) Start() error {
 		// IPC mode: Connect to the Roo Code IPC socket
 		if err := c.rooIPC.Start(); err != nil {
 			return fmt.Errorf("failed to start Roo Code IPC client: %w", err)
+		}
+	}
+	if c.claudeBridge != nil {
+		// Claude Code mode: Start the JSONL watcher and tmux bridge
+		if err := c.claudeBridge.Start(); err != nil {
+			return fmt.Errorf("failed to start Claude Code bridge: %w", err)
 		}
 	}
 
@@ -335,6 +366,13 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Roo Code via Socket.IO")
 				}
 			}
+		case types.AgentHostTypeClaudeCode:
+			// Route to Claude Code via tmux
+			if c.claudeBridge != nil {
+				if err := c.claudeBridge.SendMessage(message); err != nil {
+					log.Error().Err(err).Msg("[AgentClient] Failed to send message to Claude Code")
+				}
+			}
 		case types.AgentHostTypeHeadless:
 			// TODO: Route to headless ACP client
 			log.Warn().Msg("[AgentClient] Headless mode not yet implemented")
@@ -345,6 +383,8 @@ func (c *AgentClient) handleCommand(cmd types.ExternalAgentCommand) {
 			_ = c.rooIPC.StopTask()
 		} else if c.rooBridge != nil {
 			_ = c.rooBridge.StopTask()
+		} else if c.claudeBridge != nil {
+			_ = c.claudeBridge.StopTask()
 		}
 
 	default:
@@ -431,12 +471,15 @@ func (c *AgentClient) Stop() error {
 	c.reconnect = false
 	c.cancel()
 
-	// Close Roo Code communication backend
+	// Close agent communication backends
 	if c.rooIPC != nil {
 		_ = c.rooIPC.Close()
 	}
 	if c.rooBridge != nil {
 		_ = c.rooBridge.Close()
+	}
+	if c.claudeBridge != nil {
+		_ = c.claudeBridge.Close()
 	}
 
 	// Close WebSocket

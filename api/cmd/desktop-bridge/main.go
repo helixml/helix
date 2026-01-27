@@ -136,11 +136,15 @@ func main() {
 			"user_token_set", runnerToken != "")
 	}
 
-	// Start AgentClient for non-Zed agent host types (e.g., VS Code + Roo Code)
+	// Start AgentClient for non-Zed agent host types (VS Code + Roo Code, Claude Code)
 	// This handles the WebSocket connection to Helix API and translation to the agent
 	agentHostType := os.Getenv("HELIX_AGENT_HOST_TYPE")
-	if agentHostType == "vscode" && apiURL != "" && sessionID != "" && runnerToken != "" {
-		logger.Info("starting AgentClient for VS Code + Roo Code mode",
+	needsAgentClient := (agentHostType == "vscode" || agentHostType == "claude_code") &&
+		apiURL != "" && sessionID != "" && runnerToken != ""
+
+	if needsAgentClient {
+		logger.Info("starting AgentClient",
+			"host_type", agentHostType,
 			"session_id", sessionID,
 			"api_url", apiURL)
 
@@ -148,8 +152,8 @@ func main() {
 			APIURL:            apiURL,
 			SessionID:         sessionID,
 			Token:             runnerToken,
-			HostType:          "vscode",
-			RooCodeSocketPort: "9879", // Port for RooCodeBridge Socket.IO server
+			HostType:          agentHostType,
+			RooCodeSocketPort: "9879", // Port for RooCodeBridge Socket.IO server (vscode only)
 		})
 		if err != nil {
 			logger.Error("failed to create AgentClient", "err", err)
