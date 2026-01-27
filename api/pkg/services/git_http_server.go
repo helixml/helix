@@ -508,11 +508,14 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
+	// This ensures we have the latest changes and can detect conflicts early.
+	// If sync fails (e.g., local ahead of remote), reject the push - this indicates
+	// something wrote to helix-specs locally without pushing to upstream.
 	if repo != nil && repo.ExternalURL != "" {
 		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
-			http.Error(w, fmt.Sprintf("Failed to sync from upstream repository: %v", err), http.StatusConflict)
+			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
 			return
 		}
 		log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before push")

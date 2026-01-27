@@ -1655,65 +1655,87 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	// Base path for design docs
 	basePath := fmt.Sprintf("design/tasks/%s", task.DesignDocPath)
 
-	// Write requirements.md
-	if task.RequirementsSpec != "" {
-		filePath := basePath + "/requirements.md"
-		_, _, err := CommitFileToBareBranch(
-			ctx,
-			repo.LocalPath,
-			SpecsBranchName,
-			filePath,
-			[]byte(task.RequirementsSpec),
-			authorName,
-			authorEmail,
-			fmt.Sprintf("Pre-populate cloned specs: requirements.md for %s", task.Name),
-		)
-		if err != nil {
-			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned requirements.md")
-		}
+	// Use WithExternalRepoWrite to handle pre-sync, writes, post-push, and rollback
+	// For task cloning, we use lenient options - don't fail task start if push fails
+	if s.gitRepositoryService == nil {
+		return fmt.Errorf("gitRepositoryService is required for prepopulateClonedSpecs")
 	}
 
-	// Write design.md
-	if task.TechnicalDesign != "" {
-		filePath := basePath + "/design.md"
-		_, _, err := CommitFileToBareBranch(
-			ctx,
-			repo.LocalPath,
-			SpecsBranchName,
-			filePath,
-			[]byte(task.TechnicalDesign),
-			authorName,
-			authorEmail,
-			fmt.Sprintf("Pre-populate cloned specs: design.md for %s", task.Name),
-		)
-		if err != nil {
-			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned design.md")
-		}
-	}
+	writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+		ctx,
+		repo,
+		ExternalRepoWriteOptions{
+			Branch:          SpecsBranchName,
+			FailOnSyncError: true,  // Fail if we can't sync - prevents divergence
+			FailOnPushError: false, // Don't fail task start on push error (but still rollback)
+		},
+		func() error {
+			// Write requirements.md
+			if task.RequirementsSpec != "" {
+				filePath := basePath + "/requirements.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.RequirementsSpec),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: requirements.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned requirements.md")
+				}
+			}
 
-	// Write tasks.md
-	if task.ImplementationPlan != "" {
-		filePath := basePath + "/tasks.md"
-		_, _, err := CommitFileToBareBranch(
-			ctx,
-			repo.LocalPath,
-			SpecsBranchName,
-			filePath,
-			[]byte(task.ImplementationPlan),
-			authorName,
-			authorEmail,
-			fmt.Sprintf("Pre-populate cloned specs: tasks.md for %s", task.Name),
-		)
-		if err != nil {
-			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned tasks.md")
-		}
-	}
+			// Write design.md
+			if task.TechnicalDesign != "" {
+				filePath := basePath + "/design.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.TechnicalDesign),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: design.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned design.md")
+				}
+			}
 
-	log.Info().
-		Str("task_id", task.ID).
-		Str("cloned_from", task.ClonedFromID).
-		Str("design_doc_path", task.DesignDocPath).
-		Msg("Pre-populated cloned specs in helix-specs branch")
+			// Write tasks.md
+			if task.ImplementationPlan != "" {
+				filePath := basePath + "/tasks.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.ImplementationPlan),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: tasks.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned tasks.md")
+				}
+			}
+
+			log.Info().
+				Str("task_id", task.ID).
+				Str("cloned_from", task.ClonedFromID).
+				Str("design_doc_path", task.DesignDocPath).
+				Msg("Pre-populated cloned specs in helix-specs branch")
+
+			return nil
+		},
+	)
+	if writeErr != nil {
+		return writeErr
+	}
 
 	return nil
 }

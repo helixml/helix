@@ -108,10 +108,16 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			startupScript, err := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
-			if err != nil {
+			// Sync from upstream before reading for external repos
+			var startupScript string
+			readErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+				var loadErr error
+				startupScript, loadErr = s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
+				return loadErr
+			})
+			if readErr != nil {
 				log.Warn().
-					Err(err).
+					Err(readErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")
@@ -245,16 +251,29 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 			Msg("failed to get primary repository")
 		// Don't fail project creation - startup script can be added later
 	} else if primaryRepo.LocalPath != "" {
-		err = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
-			primaryRepo.LocalPath,
-			created.Name,
-			req.StartupScript,
-			user.FullName,
-			user.Email,
+		// Use WithExternalRepoWrite with lenient options - don't fail project creation
+		// if startup script sync/push fails. The utility still handles rollback on push failure.
+		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+			r.Context(),
+			primaryRepo,
+			services.ExternalRepoWriteOptions{
+				Branch:          "helix-specs",
+				FailOnSyncError: false, // Don't fail project creation on sync error
+				FailOnPushError: false, // Don't fail project creation on push error (but still rollback)
+			},
+			func() error {
+				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+					primaryRepo.LocalPath,
+					created.Name,
+					req.StartupScript,
+					user.FullName,
+					user.Email,
+				)
+			},
 		)
-		if err != nil {
+		if writeErr != nil {
 			log.Warn().
-				Err(err).
+				Err(writeErr).
 				Str("project_id", created.ID).
 				Str("primary_repo_id", req.DefaultRepoID).
 				Msg("failed to initialize startup script in primary code repo (continuing)")
@@ -405,50 +424,48 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.StartupScript != nil && project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			changed, saveErr := s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email)
-			if saveErr != nil {
-				log.Warn().
-					Err(saveErr).
+			var changed bool
+			writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+				r.Context(),
+				primaryRepo,
+				services.ExternalRepoWriteOptions{
+					Branch:          "helix-specs",
+					FailOnSyncError: true,
+					FailOnPushError: true,
+				},
+				func() error {
+					var saveErr error
+					changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
+						primaryRepo.LocalPath,
+						*req.StartupScript,
+						user.FullName,
+						user.Email,
+					)
+					if saveErr != nil {
+						return saveErr
+					}
+					if !changed {
+						log.Debug().
+							Str("project_id", projectID).
+							Str("primary_repo_id", project.DefaultRepoID).
+							Msg("Startup script unchanged")
+					}
+					return nil
+				},
+			)
+			if writeErr != nil {
+				log.Error().
+					Err(writeErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("failed to save startup script to helix-specs branch")
-			} else if !changed {
-				log.Debug().
-					Str("project_id", projectID).
-					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("Startup script unchanged, skipping push to external")
-			} else {
+					Msg("Failed to save startup script")
+				return nil, system.NewHTTPError500(fmt.Sprintf("Failed to save startup script: %s", writeErr.Error()))
+			}
+			if changed {
 				log.Info().
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("Startup script saved to helix-specs branch")
-
-				// Push helix-specs branch to external upstream (if external repo)
-				// helix-specs is PUSH-ONLY: Helix is source of truth, always push to upstream
-				// Run async to avoid blocking the HTTP response (push can be slow/hang)
-				if primaryRepo.IsExternal && primaryRepo.ExternalURL != "" {
-					repoID := primaryRepo.ID
-					externalURL := primaryRepo.ExternalURL
-					go func() {
-						// Use background context with 30 second timeout
-						pushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-						defer cancel()
-
-						if err := s.gitRepositoryService.PushBranchToRemote(pushCtx, repoID, "helix-specs", false); err != nil {
-							log.Warn().
-								Err(err).
-								Str("project_id", projectID).
-								Str("primary_repo_id", repoID).
-								Str("external_url", externalURL).
-								Msg("failed to push helix-specs to external upstream (startup script saved locally)")
-						} else {
-							log.Info().
-								Str("project_id", projectID).
-								Str("primary_repo_id", repoID).
-								Msg("Startup script pushed to external upstream (helix-specs branch)")
-						}
-					}()
-				}
+					Msg("Startup script saved and pushed to upstream")
 			}
 		}
 	}

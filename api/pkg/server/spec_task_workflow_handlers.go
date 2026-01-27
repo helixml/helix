@@ -142,6 +142,21 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions
 
+	// For external repos, pre-sync from upstream before attempting merge
+	// Also capture old ref for rollback if push fails later
+	var oldDefaultBranchRef string
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, false); err != nil {
+			log.Warn().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("repo_id", repo.ID).
+				Msg("Failed to sync from upstream before merge - continuing with local state")
+		}
+		// Capture ref before merge for rollback
+		oldDefaultBranchRef, _ = services.GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+	}
+
 	// Try fast-forward merge of feature branch to main
 	_, mergeErr := services.MergeBranchFastForward(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
 	if mergeErr != nil {
@@ -193,6 +208,36 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		// Return task with merge conflict flag set (already saved to DB)
 		writeResponse(w, specTask, http.StatusOK)
 		return
+	}
+
+	// For external repos, push the merged default branch to upstream
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+			// Push failed - rollback merge and return error
+			log.Error().
+				Err(pushErr).
+				Str("task_id", specTask.ID).
+				Str("branch", repo.DefaultBranch).
+				Msg("Failed to push merged branch to upstream - rolling back")
+
+			if oldDefaultBranchRef != "" {
+				if rollbackErr := services.UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+					log.Error().
+						Err(rollbackErr).
+						Str("task_id", specTask.ID).
+						Str("branch", repo.DefaultBranch).
+						Msg("Failed to rollback branch after push failure")
+				}
+			}
+
+			http.Error(w, fmt.Sprintf("Failed to push merge to upstream: %s", pushErr.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		log.Info().
+			Str("task_id", specTask.ID).
+			Str("branch", repo.DefaultBranch).
+			Msg("Pushed merged branch to upstream")
 	}
 
 	// Merge succeeded - now record the approval
