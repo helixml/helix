@@ -54,13 +54,13 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 		return fmt.Errorf("branch is required for external repo write operations")
 	}
 
-	// 1. Pre-sync from upstream
+	// 1. Pre-sync from upstream (force=true to handle non-fast-forward branches)
 	log.Debug().
 		Str("repo_id", repo.ID).
 		Str("branch", opts.Branch).
 		Msg("Pre-syncing from upstream before write")
 
-	if err := s.SyncAllBranches(ctx, repo.ID, false); err != nil {
+	if err := s.SyncAllBranches(ctx, repo.ID, true); err != nil {
 		if opts.FailOnSyncError {
 			return fmt.Errorf("failed to sync from upstream before writing (local may be out of sync): %w", err)
 		}
@@ -70,8 +70,9 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 			Msg("Pre-sync from upstream failed (continuing with write)")
 	}
 
-	// 2. Capture current branch ref for rollback
+	// 2. Capture current branch ref for rollback (empty if branch doesn't exist yet)
 	oldRef, _ := GetBranchCommitID(ctx, repo.LocalPath, opts.Branch)
+	branchExistedBefore := oldRef != ""
 
 	// 3. Execute the write operation
 	if err := writeFunc(); err != nil {
@@ -84,9 +85,11 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 		Str("branch", opts.Branch).
 		Msg("Pushing changes to upstream after write")
 
-	if err := s.PushBranchToRemote(ctx, repo.ID, opts.Branch, false); err != nil {
+	pushErr := s.PushBranchToRemote(ctx, repo.ID, opts.Branch, false)
+	if pushErr != nil {
 		// 5. Rollback on push failure
-		if oldRef != "" {
+		if branchExistedBefore {
+			// Branch existed before - reset to old ref
 			log.Warn().
 				Str("repo_id", repo.ID).
 				Str("branch", opts.Branch).
@@ -100,16 +103,31 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 					Str("branch", opts.Branch).
 					Msg("Failed to rollback branch ref after push failure")
 			}
+		} else {
+			// Branch was newly created - delete it
+			log.Warn().
+				Str("repo_id", repo.ID).
+				Str("branch", opts.Branch).
+				Msg("Push to upstream failed, deleting newly created local branch")
+
+			if deleteErr := DeleteBranch(ctx, repo.LocalPath, opts.Branch); deleteErr != nil {
+				log.Error().
+					Err(deleteErr).
+					Str("repo_id", repo.ID).
+					Str("branch", opts.Branch).
+					Msg("Failed to delete newly created branch after push failure")
+			}
 		}
 
 		if opts.FailOnPushError {
-			return fmt.Errorf("failed to push to upstream (local changes rolled back): %w", err)
+			return fmt.Errorf("failed to push to upstream (local changes rolled back): %w", pushErr)
 		}
 		log.Warn().
-			Err(err).
+			Err(pushErr).
 			Str("repo_id", repo.ID).
 			Str("branch", opts.Branch).
 			Msg("Push to upstream failed (changes rolled back)")
+		return nil // Return early - don't log success
 	}
 
 	log.Debug().
@@ -146,12 +164,12 @@ func (s *GitRepositoryService) WithExternalRepoRead(
 		return readFunc()
 	}
 
-	// Sync from upstream before reading
+	// Sync from upstream before reading (force=true to handle non-fast-forward branches)
 	log.Debug().
 		Str("repo_id", repo.ID).
 		Msg("Syncing from upstream before read")
 
-	if err := s.SyncAllBranches(ctx, repo.ID, false); err != nil {
+	if err := s.SyncAllBranches(ctx, repo.ID, true); err != nil {
 		// Don't fail reads on sync error - local data may still be useful
 		log.Warn().
 			Err(err).
@@ -174,12 +192,12 @@ func (s *GitRepositoryService) MustSyncBeforeRead(
 		return readFunc()
 	}
 
-	// Sync from upstream before reading - fail if sync fails
+	// Sync from upstream before reading - fail if sync fails (force=true for non-fast-forward)
 	log.Debug().
 		Str("repo_id", repo.ID).
 		Msg("Syncing from upstream before read (strict mode)")
 
-	if err := s.SyncAllBranches(ctx, repo.ID, false); err != nil {
+	if err := s.SyncAllBranches(ctx, repo.ID, true); err != nil {
 		return fmt.Errorf("failed to sync from upstream before reading: %w", err)
 	}
 
