@@ -300,6 +300,54 @@ func ParseDesignDocTaskIDs(files []string) (taskIDs []string, dirNamesNeedingLoo
 	return taskIDs, dirNamesNeedingLookup
 }
 
+// MergeBranchFastForward performs a fast-forward merge of sourceBranch into targetBranch in a bare repo.
+// This only works if targetBranch is an ancestor of sourceBranch (fast-forward possible).
+// Returns (merged bool, error) where merged indicates if the merge was performed.
+func MergeBranchFastForward(ctx context.Context, repoPath, sourceBranch, targetBranch string) (bool, error) {
+	// Get source and target commit IDs
+	sourceCommit, err := GetBranchCommitID(ctx, repoPath, sourceBranch)
+	if err != nil {
+		return false, fmt.Errorf("source branch %s not found: %w", sourceBranch, err)
+	}
+
+	targetCommit, err := GetBranchCommitID(ctx, repoPath, targetBranch)
+	if err != nil {
+		return false, fmt.Errorf("target branch %s not found: %w", targetBranch, err)
+	}
+
+	// Check if already merged (same commit)
+	if sourceCommit == targetCommit {
+		log.Debug().
+			Str("source_branch", sourceBranch).
+			Str("target_branch", targetBranch).
+			Msg("Branches already at same commit, nothing to merge")
+		return true, nil
+	}
+
+	// Check if target is ancestor of source (fast-forward possible)
+	_, _, err = gitcmd.NewCommand("merge-base", "--is-ancestor").
+		AddDynamicArguments(targetCommit, sourceCommit).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		// Not a fast-forward - would need a real merge
+		return false, fmt.Errorf("cannot fast-forward: %s is not an ancestor of %s (merge conflict possible)", targetBranch, sourceBranch)
+	}
+
+	// Fast-forward: update target branch ref to point to source commit
+	err = UpdateBranchRef(ctx, repoPath, targetBranch, sourceCommit)
+	if err != nil {
+		return false, fmt.Errorf("failed to update %s ref: %w", targetBranch, err)
+	}
+
+	log.Info().
+		Str("source_branch", sourceBranch).
+		Str("target_branch", targetBranch).
+		Str("new_commit", ShortHash(sourceCommit)).
+		Msg("Fast-forward merged branch")
+
+	return true, nil
+}
+
 // WriteBlob writes content to the git object store and returns the blob SHA.
 // Equivalent to: echo "content" | git hash-object -w --stdin
 func WriteBlob(ctx context.Context, repoPath string, content []byte) (string, error) {

@@ -133,6 +133,7 @@ type SpecTask struct {
 	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
 	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
 	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
+	MergeConflict      bool       `json:"merge_conflict" gorm:"default:false"` // True when fast-forward merge failed, agent needs to rebase
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
