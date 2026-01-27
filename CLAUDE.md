@@ -257,6 +257,27 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
 
+## Database Access
+
+The Helix database is PostgreSQL running in the `helix-postgres-1` container:
+
+```bash
+# Query the database
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT * FROM git_repositories LIMIT 5;"
+
+# Interactive psql session
+docker exec -it helix-postgres-1 psql -U postgres -d postgres
+
+# Common queries:
+# - List git repos for a project:
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name, local_path FROM git_repositories WHERE project_id = 'prj_xxx';"
+
+# - List projects:
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FROM projects LIMIT 10;"
+```
+
+**Note**: The database name is `postgres`, user is `postgres`. Git repositories are stored at `/filestore/git-repositories/` inside the API container.
+
 ## Testing CLI Commands
 
 ### Helix CLI (spectask subcommand)

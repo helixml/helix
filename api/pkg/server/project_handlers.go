@@ -405,12 +405,18 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.StartupScript != nil && project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			if err := s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email); err != nil {
+			changed, saveErr := s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email)
+			if saveErr != nil {
 				log.Warn().
-					Err(err).
+					Err(saveErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to save startup script to helix-specs branch")
+			} else if !changed {
+				log.Debug().
+					Str("project_id", projectID).
+					Str("primary_repo_id", project.DefaultRepoID).
+					Msg("Startup script unchanged, skipping push to external")
 			} else {
 				log.Info().
 					Str("project_id", projectID).
