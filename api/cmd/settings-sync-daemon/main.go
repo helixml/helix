@@ -44,12 +44,14 @@ type SettingsDaemon struct {
 
 // CodeAgentConfig mirrors the API response structure for code agent configuration
 type CodeAgentConfig struct {
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
-	AgentName string `json:"agent_name"`
-	BaseURL   string `json:"base_url"`
-	APIType   string `json:"api_type"`
-	Runtime   string `json:"runtime"` // "zed_agent" or "qwen_code"
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	AgentName       string `json:"agent_name"`
+	BaseURL         string `json:"base_url"`
+	APIType         string `json:"api_type"`
+	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code"
+	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
+	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
 }
 
 // AvailableModel represents a model entry for IDE model configuration.
@@ -59,7 +61,7 @@ type AvailableModel struct {
 	Name            string `json:"name"`
 	DisplayName     string `json:"display_name"`
 	MaxTokens       int    `json:"max_tokens"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -223,11 +225,17 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	}
 
 	// Create available_models entry with our custom model
+	// Use token limits from model_info.json if available, otherwise use sensible defaults
+	maxTokens := d.codeAgentConfig.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 128000 // Default context window if not found in model_info
+	}
+
 	modelEntry := AvailableModel{
 		Name:            d.codeAgentConfig.Model,
-		DisplayName:     d.codeAgentConfig.Model, // Use model name as display name
-		MaxTokens:       131072,                  // Default to 128K context
-		MaxOutputTokens: 16384,                   // Default output limit
+		DisplayName:     d.codeAgentConfig.Model,
+		MaxTokens:       maxTokens,
+		MaxOutputTokens: d.codeAgentConfig.MaxOutputTokens, // 0 = omitted (uses model default)
 	}
 
 	// Get existing available_models or create new slice
@@ -493,10 +501,11 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 
 	// Inject code agent configuration (if using qwen custom agent)
 	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
+	// Note: We don't set "default_agent" because Zed doesn't have that setting (deprecated).
+	// Thread_service.rs dynamically selects the agent based on agent_name from Helix.
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		merged["agent_servers"] = agentServers
-		merged["default_agent"] = "qwen"
 	}
 
 	return merged

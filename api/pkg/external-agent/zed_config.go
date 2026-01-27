@@ -34,6 +34,9 @@ type WebsocketSyncConfig struct {
 
 type AgentConfig struct {
 	DefaultModel           *ModelConfig `json:"default_model,omitempty"`
+	InlineAssistantModel   *ModelConfig `json:"inline_assistant_model,omitempty"`
+	CommitMessageModel     *ModelConfig `json:"commit_message_model,omitempty"`
+	ThreadSummaryModel     *ModelConfig `json:"thread_summary_model,omitempty"`
 	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"`
 	ShowOnboarding         bool         `json:"show_onboarding"`
 	AutoOpenPanel          bool         `json:"auto_open_panel"`
@@ -128,8 +131,23 @@ func GenerateZedMCPConfig(
 	zedProvider, zedModel := mapHelixToZedProvider(provider, model)
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
+	// Also set feature-specific models to prevent Zed from using its hardcoded gpt-4.1-mini
+	// default for "fast" operations (see zed-industries/zed#31420). If not set, these fall
+	// back to default_model, but we set them explicitly to ensure all LLM calls route through Helix.
 	config.Agent = &AgentConfig{
 		DefaultModel: &ModelConfig{
+			Provider: zedProvider,
+			Model:    zedModel,
+		},
+		InlineAssistantModel: &ModelConfig{
+			Provider: zedProvider,
+			Model:    zedModel,
+		},
+		CommitMessageModel: &ModelConfig{
+			Provider: zedProvider,
+			Model:    zedModel,
+		},
+		ThreadSummaryModel: &ModelConfig{
 			Provider: zedProvider,
 			Model:    zedModel,
 		},

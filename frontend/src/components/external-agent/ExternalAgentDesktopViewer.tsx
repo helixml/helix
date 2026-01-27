@@ -125,13 +125,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
   const uploadCountRef = useRef(0);
 
-  // Set current session ID in streaming context when session panel is open
-  // This enables WebSocket updates and proper query invalidation
-  useEffect(() => {
-    if (showSessionPanel && sessionPanelOpen && sessionId) {
-      setCurrentSessionId(sessionId);
-    }
-  }, [showSessionPanel, sessionPanelOpen, sessionId]);
+  // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
+  // based on whether the chat panel is visible. This component no longer subscribes directly
+  // to avoid duplicate subscriptions and to allow proper disconnect when chat is collapsed.
 
   // Handle file upload from drag/drop - append path to prompt input with a unique key
   const handleFileUploaded = useCallback((filePath: string) => {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -9,6 +10,10 @@ import (
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	helixURL := "http://localhost:8080"
+	ctx := context.Background()
+	// Create a minimal HelixAPIServer with nil modelInfoProvider
+	// (token limits will be 0 but the rest of the config will be correct)
+	apiServer := &HelixAPIServer{}
 
 	tests := []struct {
 		name      string
@@ -131,7 +136,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildCodeAgentConfigFromAssistant(tt.assistant, helixURL)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -139,6 +144,9 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 func TestBuildCodeAgentConfig(t *testing.T) {
 	helixURL := "http://localhost:8080"
+	ctx := context.Background()
+	// Create a minimal HelixAPIServer with nil modelInfoProvider
+	apiServer := &HelixAPIServer{}
 
 	tests := []struct {
 		name string
@@ -228,7 +236,7 @@ func TestBuildCodeAgentConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildCodeAgentConfig(tt.app, helixURL)
+			got := apiServer.buildCodeAgentConfig(ctx, tt.app, helixURL)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -2272,6 +2272,12 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// MaxTokens is the model's context window size (max input tokens)
+	// Looked up from model_info.json, 0 if not found
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// MaxOutputTokens is the model's max completion tokens
+	// Looked up from model_info.json, 0 if not found
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type RunnerLLMInferenceRequest struct {

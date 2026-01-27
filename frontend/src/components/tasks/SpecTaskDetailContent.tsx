@@ -260,6 +260,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = task?.planning_session_id
 
+  // Subscribe to WebSocket updates for the active session when chat is visible
+  // On big screens: chat is visible unless collapsed
+  // On mobile: chat is visible when currentView === 'chat'
+  const isChatVisible = isBigScreen ? !chatCollapsed : currentView === 'chat'
+
+  useEffect(() => {
+    if (activeSessionId && isChatVisible) {
+      streaming.setCurrentSessionId(activeSessionId)
+    } else {
+      // Clear subscription when chat is hidden to disconnect WebSocket
+      streaming.setCurrentSessionId(null)
+    }
+  }, [activeSessionId, isChatVisible])
+
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === 'details') {

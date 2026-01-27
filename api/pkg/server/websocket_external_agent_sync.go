@@ -2029,17 +2029,13 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 
 // sendQueuedPromptToSession sends a queued prompt to an external agent session
 // CRITICAL: Creates an interaction BEFORE sending so that agent responses have somewhere to go
+// NOTE: On the FIRST message, ZedThreadID will be empty - this triggers thread creation in Zed.
+// The thread_created event will come back with the new thread ID, which we store via requestToSessionMapping.
 func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, sessionID string, prompt *types.PromptHistoryEntry) error {
 	// Get the session to retrieve the ZedThreadID and owner
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
-	}
-
-	// Check if session has required metadata for queue processing
-	// External agent sessions need ZedThreadID to route messages
-	if session.Metadata.ZedThreadID == "" {
-		return fmt.Errorf("session %s has no ZedThreadID - cannot process queued prompt (is this an external agent session?)", sessionID)
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
@@ -2082,11 +2078,25 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// Use interaction ID as request ID for better tracing
 	requestID := createdInteraction.ID
 
+	// CRITICAL: Store request_id->session mapping so thread_created can find the right session
+	// This is needed for the FIRST message when ZedThreadID is empty and a new thread will be created
+	apiServer.contextMappingsMutex.Lock()
+	if apiServer.requestToSessionMapping == nil {
+		apiServer.requestToSessionMapping = make(map[string]string)
+	}
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	apiServer.contextMappingsMutex.Unlock()
+	log.Info().
+		Str("request_id", requestID).
+		Str("session_id", sessionID).
+		Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
+
 	// Create the command to send to the external agent
+	// NOTE: acp_thread_id can be empty on first message - this triggers thread creation in Zed
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"acp_thread_id": session.Metadata.ZedThreadID,
+			"acp_thread_id": session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
 			"message":       prompt.Content,
 			"request_id":    requestID,
 			"agent_name":    agentName,
@@ -2099,6 +2109,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Str("request_id", requestID).
 		Str("interaction_id", createdInteraction.ID).
 		Str("acp_thread_id", session.Metadata.ZedThreadID).
+		Bool("first_message", session.Metadata.ZedThreadID == "").
 		Str("content_preview", truncateString(prompt.Content, 30)).
 		Msg("📤 [QUEUE] Sending queued prompt via sendCommandToExternalAgent")
 
