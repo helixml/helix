@@ -273,6 +273,11 @@ gow_log "[start] Agent host type: \$AGENT_HOST_TYPE"
         # Use the VS Code startup script (handles workspace setup, Roo Code config, restart loop)
         /usr/local/bin/start-vscode-helix.sh
         ;;
+      claude_code)
+        gow_log "[start] Launching Claude Code..."
+        # Use the Claude Code startup script (handles workspace setup, tmux session, restart loop)
+        /usr/local/bin/start-claude-helix.sh
+        ;;
       headless)
         gow_log "[start] Headless mode - no editor launched (ACP client runs in desktop-bridge)"
         ;;

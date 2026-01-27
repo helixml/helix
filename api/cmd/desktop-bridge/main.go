@@ -145,11 +145,11 @@ func main() {
 			"api_url", apiURL)
 
 		agentClient, err := desktop.NewAgentClient(desktop.AgentClientConfig{
-			APIURL:           apiURL,
-			SessionID:        sessionID,
-			Token:            runnerToken,
-			HostType:         "vscode",
-			RooCodeSocketURL: "9879", // Port for RooCodeBridge Socket.IO server
+			APIURL:            apiURL,
+			SessionID:         sessionID,
+			Token:             runnerToken,
+			HostType:          "vscode",
+			RooCodeSocketPort: "9879", // Port for RooCodeBridge Socket.IO server
 		})
 		if err != nil {
 			logger.Error("failed to create AgentClient", "err", err)

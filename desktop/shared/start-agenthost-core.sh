@@ -390,9 +390,9 @@ start_claude_helix() {
         # In Helix proxy mode, we route through Helix's Anthropic proxy
         # The USER_API_TOKEN is already set by hydra_executor
         # ANTHROPIC_BASE_URL is the base URL - Claude Code appends /v1/messages
-        # Helix serves the Anthropic-compatible endpoint at /api/v1/messages
+        # Helix serves the Anthropic-compatible endpoint at /v1/messages (not /api/v1/messages)
         export ANTHROPIC_API_KEY="${USER_API_TOKEN}"
-        export ANTHROPIC_BASE_URL="${HELIX_API_URL}/api"
+        export ANTHROPIC_BASE_URL="${HELIX_API_URL}"
     fi
 
     # =========================================

@@ -1740,3 +1740,230 @@ func (apiServer *HelixAPIServer) getExternalAgentWorkspaces(res http.ResponseWri
 
 	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved workspaces from container")
 }
+
+// @Summary Inject prompt into Claude Code
+// @Description Sends a prompt to the Claude Code terminal running in the desktop container.
+// @Description Uses tmux paste-buffer for reliable delivery. Only available for claude_code agent host type.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param prompt body object true "Prompt to inject" Example({"prompt": "Fix the bug in main.go"})
+// @Success 200 {object} object "success response"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/claude/prompt [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyClaudePrompt(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for claude prompt")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for claude prompt")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Read request body
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read claude prompt request body")
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Connect to desktop container via RevDial
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to desktop container via RevDial for claude prompt")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send POST request to /claude/prompt over RevDial tunnel
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/claude/prompt", bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create claude prompt request")
+		http.Error(res, "Failed to create request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write claude prompt request to RevDial connection")
+		http.Error(res, "Failed to send request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	promptResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read claude prompt response from RevDial")
+		http.Error(res, "Failed to read response", http.StatusInternalServerError)
+		return
+	}
+	defer promptResp.Body.Close()
+
+	// Forward response to client
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(promptResp.StatusCode)
+	io.Copy(res, promptResp.Body)
+
+	log.Info().Str("session_id", sessionID).Int("prompt_size", len(bodyBytes)).Msg("Claude prompt forwarded to container")
+}
+
+// @Summary Stream Claude Code interactions
+// @Description Streams Claude Code interactions via Server-Sent Events (SSE).
+// @Description Each interaction is sent as an SSE event with type "interaction".
+// @Description Only available for claude_code agent host type.
+// @Tags ExternalAgents
+// @Produce text/event-stream
+// @Param sessionID path string true "Session ID"
+// @Success 200 {object} object "SSE stream of interactions"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/claude/interactions [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyClaudeInteractions(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for claude interactions")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership (or admin access)
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for claude interactions")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Connect to desktop container via RevDial
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to desktop container via RevDial for claude interactions")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send GET request to /claude/interactions over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/claude/interactions", nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create claude interactions request")
+		http.Error(res, "Failed to create request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write claude interactions request to RevDial connection")
+		http.Error(res, "Failed to send request", http.StatusInternalServerError)
+		return
+	}
+
+	// Read response from RevDial connection
+	interactionsResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read claude interactions response from RevDial")
+		http.Error(res, "Failed to read response", http.StatusInternalServerError)
+		return
+	}
+	defer interactionsResp.Body.Close()
+
+	// Check response status
+	if interactionsResp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(interactionsResp.Body)
+		log.Error().Int("status", interactionsResp.StatusCode).Str("error", string(errorBody)).Msg("Claude interactions server returned error")
+		http.Error(res, "Failed to connect to interaction stream", interactionsResp.StatusCode)
+		return
+	}
+
+	// Set SSE headers for the client
+	res.Header().Set("Content-Type", "text/event-stream")
+	res.Header().Set("Cache-Control", "no-cache")
+	res.Header().Set("Connection", "keep-alive")
+	res.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Get flusher for streaming
+	flusher, ok := res.(http.Flusher)
+	if !ok {
+		log.Error().Msg("ResponseWriter doesn't support Flusher for SSE")
+		http.Error(res, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Started streaming Claude interactions to client")
+
+	// Stream SSE events from container to client
+	// Use a buffered reader to handle partial lines
+	reader := bufio.NewReader(interactionsResp.Body)
+	for {
+		select {
+		case <-req.Context().Done():
+			log.Info().Str("session_id", sessionID).Msg("Client disconnected from claude interactions stream")
+			return
+		default:
+		}
+
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				log.Info().Str("session_id", sessionID).Msg("Claude interactions stream ended (EOF)")
+			} else {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("Error reading from claude interactions stream")
+			}
+			return
+		}
+
+		// Forward the line to the client
+		if _, err := res.Write(line); err != nil {
+			log.Debug().Err(err).Msg("Failed to write to client")
+			return
+		}
+		flusher.Flush()
+	}
+}

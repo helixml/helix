@@ -153,6 +153,7 @@ ARG CORE_PACKAGES=" \
     gpg-agent \
     sudo \
     bc \
+    tmux \
     "
 
 ARG DE_PACKAGES=" \
