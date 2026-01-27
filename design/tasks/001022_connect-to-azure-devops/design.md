@@ -4,9 +4,14 @@
 
 Fix the bug where Azure DevOps PAT connections are saved but not recognized when the user returns to the Connect to Azure DevOps dialog.
 
-## Key Finding
+## Key Findings
 
-**GitHub PAT reuse works correctly, but Azure DevOps does not.** This narrows the issue to something specific to Azure DevOps handling.
+1. **GitHub PAT reuse works correctly, but Azure DevOps does not.** This narrows the issue to something specific to Azure DevOps handling.
+
+2. **Important context**: GitHub has OAuth configured, Azure DevOps does not. This may be relevant because:
+   - GitHub users likely connected via OAuth first (so they have an `oauthConnection`)
+   - GitHub PAT reuse may not actually be tested if users are using OAuth instead
+   - Azure DevOps users MUST use PAT (no OAuth option), exposing the PAT save bug
 
 ## Current Architecture
 
@@ -27,7 +32,7 @@ Fix the bug where Azure DevOps PAT connections are saved but not recognized when
 
 ## Root Cause Analysis
 
-### Silent Error Swallowing (CRITICAL)
+### Silent Error Swallowing (MOST LIKELY)
 
 In `handlePatSubmit()` (lines 314-327), errors when saving the connection are silently caught:
 
@@ -44,7 +49,7 @@ if (saveConnection) {
 ```
 
 If the Azure DevOps validation fails on the backend, the user:
-1. Still gets to browse repos (because `fetchReposWithPat` succeeded)
+1. Still gets to browse repos (because `fetchReposWithPat` uses a different API endpoint)
 2. Never sees an error about the failed save
 3. Thinks the connection was saved, but it wasn't
 
@@ -64,7 +69,7 @@ case types.ExternalRepositoryTypeADO:
     }
 ```
 
-The `GetUserProfile` call may be failing for Azure DevOps tokens but succeeding for GitHub tokens, causing the save to fail silently.
+The `GetUserProfile` call may be failing (token scope, API compatibility, org URL format) causing the save to fail silently.
 
 ### Provider Type Matching (Verified Correct)
 
@@ -103,18 +108,26 @@ if (saveConnection) {
 
 ### Fix 2: Investigate Azure DevOps Token Validation
 
-Check why `GetUserProfile` might be failing:
-- Token scope issues (user may not have granted profile access)
-- Organization URL format issues
-- API endpoint compatibility
+If `GetUserProfile` is failing, determine why:
+- Token scope issues (PAT may not have profile read permission)
+- Organization URL format issues (trailing slash, etc.)
+- API endpoint compatibility (cloud vs on-prem)
+
+Consider making profile validation optional or catching the error gracefully.
 
 ## Testing
 
+### To Verify the Bug
 1. Open browser DevTools console before testing
 2. Enter Azure DevOps PAT and check "Save connection"
-3. Look for any console.error about "Failed to save connection"
-4. Check Network tab for failed API calls to `/api/v1/git-provider-connections`
-5. If 400 error, check response body for validation error message
+3. Look for any `console.error` about "Failed to save connection"
+4. Check Network tab for `POST /api/v1/git-provider-connections` - look for 400/500 errors
+5. If error found, check response body for specific validation failure
+
+### To Verify GitHub PAT (not OAuth)
+1. Disconnect any existing GitHub OAuth connection
+2. Try connecting to GitHub using PAT only
+3. Verify PAT is saved and reused on next dialog open
 
 ## Risk Assessment
 
