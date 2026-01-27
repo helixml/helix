@@ -1,36 +1,30 @@
 # Implementation Tasks
 
-## Phase 1: Zed Delta Tracking (Highest Impact)
+## Phase 1: Zed Boundary-Based Updates
 
-- [ ] Add `StreamingState` struct to track last-sent content length per entry in `thread_view.rs`
-- [ ] Modify `handle_thread_event` for `EntryUpdated` to compute delta instead of full content
-- [ ] Add new `SyncEvent::MessageDelta` variant with `delta` and `offset` fields
-- [ ] Send delta for streaming appends, full content for structure changes (new tool call, etc.)
-- [ ] Reset tracking state when new user message is sent
+- [ ] Add `last_tool_call_status: HashMap<usize, ToolCallStatus>` to `AcpThreadView` in `thread_view.rs`
+- [ ] Add `is_status_change()` helper to detect tool call status transitions (pending → completed)
+- [ ] Modify `handle_thread_event` for `NewEntry`: always send WebSocket update (this is a boundary)
+- [ ] Modify `handle_thread_event` for `EntryUpdated`: only send if `is_status_change()` returns true
+- [ ] Ensure `Stopped`, `Error`, `Refusal` events also trigger a final WebSocket update
+- [ ] Reset `last_tool_call_status` when new user message is sent (new turn)
 
-## Phase 2: Helix WebSocket Handler
+## Phase 2: Testing & Verification
 
-- [ ] Add handler for `message_delta` event type in `streaming.tsx`
-- [ ] Accumulate deltas into existing message content (simple string append)
-- [ ] Keep `message_added` handler for full-state syncs (reconnect, structure changes)
-- [ ] Add sequence number validation to detect missed deltas
+- [ ] Test with long agent response (10+ tool calls) - UI should remain responsive
+- [ ] Verify tool call status transitions are captured (pending → completed shows in Helix)
+- [ ] Verify final state is always sent when turn completes
+- [ ] Test reconnection scenario - full state should sync correctly
+- [ ] Measure WebSocket message count before/after (should be ~100x reduction)
 
-## Phase 3: Helix Frontend Optimization
+## Phase 3: Edge Cases (if needed)
 
-- [ ] Throttle `MessageProcessor.process()` during streaming (500ms debounce)
-- [ ] Skip expensive processing (citations, document IDs) during streaming
-- [ ] Only apply full processing when streaming completes
-- [ ] Profile and verify CPU usage is now O(n) not O(n²)
+- [ ] Consider periodic updates for long-running tool calls (e.g., every 5s)
+- [ ] Handle parallel tool calls - ensure all status changes are captured
+- [ ] Add logging to track boundary events for debugging
 
-## Phase 4: Robustness
+## Out of Scope (for now)
 
-- [ ] Send full-state checkpoint every 100 deltas (or 10 seconds)
-- [ ] Request full sync on WebSocket reconnect
-- [ ] Handle content replacement (agent modifies earlier content) with full sync
-
-## Verification
-
-- [ ] Test with 10,000 token response - UI should remain responsive
-- [ ] Measure WebSocket traffic before/after (should be ~100x reduction)
-- [ ] Verify no visual regression in streaming cursor, thinking widgets, markdown
-- [ ] Test reconnection scenario - should recover cleanly
+- No WebSocket protocol changes needed
+- No Helix frontend changes needed
+- No delta tracking or sequence numbers

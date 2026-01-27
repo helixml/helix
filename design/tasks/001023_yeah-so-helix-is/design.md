@@ -1,15 +1,25 @@
-# Design: Incremental Streaming Architecture
+# Design: Boundary-Based Update Architecture
 
 ## Overview
 
-Replace full-state updates with delta-based streaming to achieve O(n) complexity instead of O(n²).
+Replace per-token full-state updates with boundary-based updates to achieve O(n) complexity instead of O(n²).
+
+## Why Not Deltas?
+
+The original delta-based approach assumed append-only streaming. This is wrong because:
+
+1. **Parallel tool calls** - Zed can run multiple commands simultaneously with interleaved updates
+2. **Status transitions** - Tool calls change from "pending" → "completed", modifying rendered content
+3. **Non-monotonic updates** - Content can change anywhere in the message, not just at the end
+
+Delta tracking would be complex, error-prone, and hard to debug.
 
 ## Architecture
 
 ### Current Flow (O(n²))
 
 ```
-Token arrives in Zed
+Every token arrives in Zed
     ↓
 emit EntryUpdated(idx)
     ↓
@@ -17,7 +27,7 @@ Iterate ALL entries after last user message
     ↓
 Serialize cumulative content (grows with N)
     ↓
-WebSocket: send full content
+WebSocket: send full content (on EVERY token)
     ↓
 Helix: MessageProcessor.process(full text)
     ↓
@@ -29,149 +39,155 @@ Helix: react-markdown parses full text
 ```
 Token arrives in Zed
     ↓
-emit EntryUpdated(idx) with delta info
+Append to current entry (no WebSocket send)
     ↓
-Extract ONLY the new content (delta)
+... more tokens ...
     ↓
-WebSocket: send delta OR full state (based on message type)
+BOUNDARY EVENT (new entry, tool call status change, turn complete)
     ↓
-Helix: append delta to existing content
+Serialize current state
     ↓
-Helix: process only the delta for most operations
+WebSocket: send full content (only at boundaries)
     ↓
-Helix: incremental render (only re-parse when necessary)
+Helix: MessageProcessor.process(full text)
+    ↓
+Helix: react-markdown parses full text
 ```
+
+## Key Insight
+
+The conversation has natural **boundaries**:
+
+1. **User message sent** - new turn begins
+2. **Assistant text chunk complete** - LLM finished a text segment before tool call
+3. **Tool call starts** - new tool call entry created
+4. **Tool call completes** - status changes from pending to completed
+5. **Turn complete** - agent stops, ready for next user input
+
+Instead of sending updates on every token, send updates only at these boundaries.
 
 ## Key Changes
 
-### 1. Zed Side: Delta Extraction
+### 1. Zed Side: Boundary Detection
 
 **Location**: `zed/crates/agent_ui/src/acp/thread_view.rs`
 
-Track last sent position per entry. On `EntryUpdated`:
-- If entry is being appended to (streaming text), send only the new characters
-- If entry structure changed (new tool call), send full entry state
+Change `handle_thread_event` to only send WebSocket updates on boundary events:
 
 ```rust
-// Pseudocode
-struct StreamingState {
-    last_sent_length: HashMap<usize, usize>,
+fn handle_thread_event(&mut self, thread: &Entity<AcpThread>, event: &AcpThreadEvent, ...) {
+    match event {
+        // BOUNDARY: New entry (user message, new tool call, new assistant chunk)
+        AcpThreadEvent::NewEntry => {
+            self.sync_entry_view(...);
+            self.send_full_state_to_helix(thread, cx);  // Send update
+        }
+        
+        // NOT a boundary: streaming token within existing entry
+        AcpThreadEvent::EntryUpdated(index) => {
+            self.sync_entry_view(...);
+            
+            // Only send if this is a STATUS change (tool call completed)
+            // NOT for every streaming token
+            if self.is_status_change(thread, *index, cx) {
+                self.send_full_state_to_helix(thread, cx);
+            }
+        }
+        
+        // BOUNDARY: Turn complete
+        AcpThreadEvent::Stopped => {
+            self.send_full_state_to_helix(thread, cx);  // Final update
+        }
+        
+        // ... other events
+    }
 }
 
-fn on_entry_updated(index: usize, thread: &AcpThread) {
-    let content = get_entry_content(index);
-    let last_len = self.last_sent_length.get(&index).unwrap_or(&0);
+fn is_status_change(&self, thread: &Entity<AcpThread>, index: usize, cx: &App) -> bool {
+    // Check if tool call status changed (pending -> completed)
+    // This is a boundary worth sending
+    if let Some(AgentThreadEntry::ToolCall(tool_call)) = thread.read(cx).entries().get(index) {
+        let current_status = tool_call.status;
+        let previous_status = self.last_known_status.get(&index);
+        if Some(&current_status) != previous_status {
+            self.last_known_status.insert(index, current_status);
+            return true;
+        }
+    }
+    false
+}
+```
+
+### 2. Track Tool Call Status
+
+Add state to `AcpThreadView` to detect status transitions:
+
+```rust
+pub struct AcpThreadView {
+    // ... existing fields
     
-    if content.len() > *last_len {
-        // Streaming append - send delta
-        let delta = &content[*last_len..];
-        send_delta(index, delta);
-        self.last_sent_length.insert(index, content.len());
-    } else {
-        // Structure change - send full
-        send_full(index, content);
-        self.last_sent_length.insert(index, content.len());
-    }
+    /// Track last known tool call status to detect transitions
+    last_tool_call_status: HashMap<usize, ToolCallStatus>,
 }
 ```
 
-### 2. WebSocket Protocol: Add Delta Message Type
+### 3. No Protocol Changes Needed
 
-**New event type**: `MessageDelta`
+The existing `MessageAdded` event works fine - we're just sending it less frequently.
 
-```typescript
-// Existing (keep for full syncs)
-interface MessageAdded {
-    type: "message_added";
-    acp_thread_id: string;
-    message_id: string;
-    role: string;
-    content: string;  // Full content
-    timestamp: number;
-}
+## Boundary Events Summary
 
-// New (for incremental updates)
-interface MessageDelta {
-    type: "message_delta";
-    acp_thread_id: string;
-    message_id: string;
-    delta: string;     // Only new characters
-    offset: number;    // Position where delta starts
-    timestamp: number;
-}
-```
-
-### 3. Helix Frontend: Accumulate Deltas
-
-**Location**: `helix/frontend/src/hooks/useLiveInteraction.ts` (or similar)
-
-```typescript
-// Maintain accumulated content
-const [accumulatedContent, setAccumulatedContent] = useState('');
-
-function handleWebSocketMessage(event) {
-    if (event.type === 'message_delta') {
-        // O(1) append
-        setAccumulatedContent(prev => prev + event.delta);
-    } else if (event.type === 'message_added') {
-        // Full replacement (reconnect, structure change)
-        setAccumulatedContent(event.content);
-    }
-}
-```
-
-### 4. Helix Frontend: Optimize MessageProcessor
-
-**Location**: `helix/frontend/src/components/session/Markdown.tsx`
-
-Most processing only needs to happen on:
-- Final render (streaming complete)
-- Periodic intervals during streaming (e.g., every 500ms)
-- NOT on every delta
-
-```typescript
-// Throttle expensive processing
-const PROCESS_INTERVAL_MS = 500;
-
-const debouncedContent = useDebouncedValue(text, PROCESS_INTERVAL_MS);
-
-// Only run full MessageProcessor on debounced content
-const processedContent = useMemo(() => {
-    if (!isStreaming) {
-        // Final: full processing
-        return new MessageProcessor(text, options).process();
-    }
-    // Streaming: simplified processing (no citations, etc.)
-    return text + (showBlinker ? '┃' : '');
-}, [debouncedContent, isStreaming]);
-```
-
-## Fallback Strategy
-
-For robustness, keep the ability to do full-state sync:
-- On WebSocket reconnect
-- When delta sequence number mismatch is detected
-- Every N deltas (e.g., every 100) send a full sync as checkpoint
+| Event | Send Update? | Rationale |
+|-------|--------------|-----------|
+| `NewEntry` (user message) | ✅ Yes | New turn started |
+| `NewEntry` (assistant text) | ✅ Yes | New chunk of response |
+| `NewEntry` (tool call) | ✅ Yes | Tool call started |
+| `EntryUpdated` (streaming text) | ❌ No | Just more tokens |
+| `EntryUpdated` (tool status change) | ✅ Yes | Tool completed |
+| `Stopped` | ✅ Yes | Turn complete, final state |
 
 ## Performance Comparison
 
-| Scenario | Current | Proposed |
-|----------|---------|----------|
-| 100 token response | 5,050 chars sent | ~100 chars sent |
-| 1,000 token response | 500,500 chars sent | ~1,000 chars sent |
-| 10,000 token response | 50,005,000 chars sent | ~10,000 chars sent |
+For a response with 1000 tokens, 3 tool calls:
+
+| Metric | Current | Proposed |
+|--------|---------|----------|
+| WebSocket messages | 1000 | ~7 (user + 3 tool starts + 3 tool completes + stopped) |
+| Total chars sent | ~500,000 | ~7,000 (7 × ~1000 chars final state) |
+| React re-renders | 1000 | ~7 |
+
+## Trade-offs
+
+**Pros:**
+- Simple implementation - just add conditions around existing send logic
+- No protocol changes
+- Dramatic reduction in updates (100x fewer)
+- No complex delta tracking or sequence numbers
+
+**Cons:**
+- Less smooth streaming - user sees text appear in chunks, not character by character
+- Slight delay before seeing tool call output (until completion)
+
+**Why this is acceptable:**
+- For long agent sessions, responsiveness matters more than smoothness
+- Users care about seeing the structure (which tools ran, what happened) not individual characters
+- Current behavior is "unusable" - chunky but responsive is a huge improvement
 
 ## Risks
 
-1. **Out-of-order deltas**: WebSocket is ordered, but add sequence numbers for safety
-2. **Reconnection**: Must request full state on reconnect
-3. **Content modification**: If agent modifies earlier content (rare), need full sync
+1. **Missing final state**: If `Stopped` event is missed, UI might be stale
+   - Mitigation: Also send on `Error`, `Refusal`, etc.
+
+2. **Long-running tool calls**: User sees nothing until tool completes
+   - Mitigation: Could add periodic updates (every 5s) for long-running tools
+   - Or: Send update when tool output starts streaming, not just when complete
 
 ## Decision
 
-Start with **Zed-side optimization only** (cheapest fix):
-1. Track last-sent length per entry
-2. Send deltas for streaming appends
-3. Helix naturally handles this (appends to existing message)
+Implement boundary-based updates:
+1. Send on `NewEntry` (always)
+2. Send on `EntryUpdated` only if tool call status changed
+3. Send on `Stopped`, `Error`, `Refusal`
+4. Remove sends from pure streaming token updates
 
-This gives 90% of the benefit with minimal protocol changes.
+This is a minimal change to `thread_view.rs` that should fix the O(n²) problem.
