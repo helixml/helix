@@ -1251,6 +1251,11 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		// Handle sample projects with RequiredGitHubRepos (e.g., helix-in-helix)
 		// These require GitHub OAuth for authenticated cloning and push access
 
+		// Validate GitHubConnectionID is provided when required
+		if sampleProject.RequiresGitHubAuth && req.GitHubConnectionID == "" {
+			return nil, system.NewHTTPError400("GitHub connection required: this sample project requires GitHub OAuth for authenticated cloning and push access")
+		}
+
 		log.Info().
 			Str("project_id", createdProject.ID).
 			Int("required_repos", len(sampleProject.RequiredGitHubRepos)).
@@ -1284,26 +1289,29 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 			// Check if user decided to fork this repo
 			if decision, ok := req.RepositoryDecisions[reqRepo.GitHubURL]; ok && decision == "fork" {
-				// User wants to use a fork - check if one was created
-				for _, forkedRepo := range req.RepositoryDecisions {
-					if forkedRepo == "fork" {
-						// The fork should already exist (created by fork-repos endpoint)
-						// We need to find the fork owner (user's GitHub username or fork org)
-						if req.ForkToOrganization != "" {
-							finalOwner = req.ForkToOrganization
-						} else {
-							// Get user's GitHub username from the OAuth connection
-							if accessToken != "" {
-								ghClient := github.NewClientWithOAuth(accessToken)
-								ghUser, ghErr := ghClient.GetAuthenticatedUser(ctx)
-								if ghErr == nil {
-									finalOwner = ghUser.GetLogin()
-								}
-							}
-						}
+				// User wants to use a fork - the fork should already exist (created by fork-repos endpoint)
+				// We need to find the fork owner (user's GitHub username or fork org)
+				if req.ForkToOrganization != "" {
+					finalOwner = req.ForkToOrganization
+					isForked = true
+				} else if accessToken != "" {
+					// Get user's GitHub username from the OAuth connection
+					ghClient := github.NewClientWithOAuth(accessToken)
+					ghUser, ghErr := ghClient.GetAuthenticatedUser(ctx)
+					if ghErr == nil && ghUser.GetLogin() != "" {
+						finalOwner = ghUser.GetLogin()
 						isForked = true
-						break
+					} else {
+						log.Warn().
+							Err(ghErr).
+							Str("repo", reqRepo.GitHubURL).
+							Msg("Failed to get GitHub username for fork, falling back to original repo")
 					}
+				} else {
+					// No way to determine fork owner - this shouldn't happen if RequiresGitHubAuth validation passed
+					log.Warn().
+						Str("repo", reqRepo.GitHubURL).
+						Msg("Fork requested but no GitHub connection or organization provided, using original repo")
 				}
 			}
 
