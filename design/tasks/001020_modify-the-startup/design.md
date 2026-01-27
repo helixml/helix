@@ -68,11 +68,21 @@ This ensures:
 2. `helix-workspace-setup.sh` finds `~/work/zed-1/.git` on restart (via symlink)
 3. All paths work whether numbered or canonical
 
-## Known Limitation
+## Part 2: Resolve Symlinks in helix-workspace-setup.sh
 
-Zed's sidebar will still show the numbered names (e.g., `zed-1`) because `helix-workspace-setup.sh` adds folders using `$HELIX_PRIMARY_REPO_NAME` from the API. Fixing this would require modifying the built-in script to resolve symlinks to their canonical names - a larger change that can be done separately if desired.
+To show canonical names in Zed's sidebar (e.g., `zed` instead of `zed-1`), modify `helix-3/desktop/shared/helix-workspace-setup.sh` to resolve symlinks when building the Zed folders list.
 
-The symlinks solve the critical functional issue (no duplicate clones on restart).
+In the "Build list of folders for Zed" section (~line 483), change:
+
+```bash
+# Before: adds symlink path
+ZED_FOLDERS+=("$PRIMARY_REPO_DIR")
+
+# After: resolve symlink to canonical name
+ZED_FOLDERS+=("$(readlink -f "$PRIMARY_REPO_DIR")")
+```
+
+This way if `$PRIMARY_REPO_DIR` is `~/work/zed-1` (a symlink to `~/work/zed`), Zed will open `~/work/zed` and show "zed" in the sidebar.
 
 ## Verification
 
