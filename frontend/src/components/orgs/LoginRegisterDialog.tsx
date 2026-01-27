@@ -173,7 +173,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       onClose={handleClose}
       maxWidth="sm"
       fullWidth
-      disablePortal
       keepMounted
       disableEnforceFocus
       disableAutoFocus
