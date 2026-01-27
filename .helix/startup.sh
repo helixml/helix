@@ -4,7 +4,7 @@
 #
 # Prerequisites:
 # - Session must have UseHostDocker=true (HYDRA_PRIVILEGED_MODE_ENABLED=true)
-# - Repos already cloned to ~/code/{helix,zed,qwen-code} by project setup
+# - Repos already cloned to ~/work/{helix,zed,qwen-code} by project setup
 
 set -e
 
@@ -32,7 +32,7 @@ fi
 
 # Find the helix repo - check common locations
 HELIX_DIR=""
-for dir in ~/code/helix ~/helix-workspace/helix ~/helix; do
+for dir in ~/work/helix ~/code/helix ~/helix-workspace/helix ~/helix; do
     if [ -d "$dir" ]; then
         HELIX_DIR="$dir"
         break
@@ -41,7 +41,7 @@ done
 
 if [ -z "$HELIX_DIR" ]; then
     echo "Error: Could not find helix repository"
-    echo "Expected in one of: ~/code/helix, ~/helix-workspace/helix, ~/helix"
+    echo "Expected in one of: ~/work/helix, ~/code/helix, ~/helix-workspace/helix, ~/helix"
     exit 1
 fi
 
