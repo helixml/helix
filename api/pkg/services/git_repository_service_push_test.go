@@ -42,10 +42,9 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 	if suite.adoToken == "" || suite.adoRepo == "" {
 		suite.T().Skip("CI_ADO_TOKEN and CI_ADO_REPO environment variables are required")
 	}
-	// Skip if the URL doesn't look like a valid ADO URL (catches placeholder values)
-	if !strings.HasPrefix(suite.adoRepo, "https://dev.azure.com/") && !strings.Contains(suite.adoRepo, ".visualstudio.com/") {
-		suite.T().Skip("CI_ADO_REPO does not appear to be a valid Azure DevOps URL")
-	}
+
+	// Log URL format for debugging (without exposing credentials)
+	suite.T().Logf("CI_ADO_REPO starts with https://: %v", strings.HasPrefix(suite.adoRepo, "https://"))
 
 	ctx := context.Background()
 	repoID := "test-repo-push"

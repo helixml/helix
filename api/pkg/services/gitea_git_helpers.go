@@ -86,9 +86,15 @@ func BuildAuthenticatedURL(remoteURL, username, password string) (string, error)
 		return remoteURL, err
 	}
 
-	// Only modify HTTP(S) URLs
+	// Only modify HTTP(S) URLs - if scheme is empty or not http(s), return unchanged
+	// This prevents malformed URLs like "//user:pass@hostname" when scheme is missing
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return remoteURL, nil
+	}
+
+	// Verify we have a valid host (url.Parse succeeds but sets Host="" for schemeless URLs)
+	if u.Host == "" {
+		return remoteURL, fmt.Errorf("URL has no host: %s", remoteURL)
 	}
 
 	// Set user info (username:password)
