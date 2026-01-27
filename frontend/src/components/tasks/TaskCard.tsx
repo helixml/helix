@@ -426,7 +426,7 @@ const LiveAgentScreenshot: React.FC<{
           overflow: 'hidden',
           border: '1px solid',
           borderColor: 'rgba(0, 0, 0, 0.08)',
-          minHeight: 80,
+          aspectRatio: '16 / 9', // 16:9 aspect ratio based on card width
           cursor: 'pointer',
           transition: 'all 0.15s ease',
           '&:hover': {
@@ -435,8 +435,8 @@ const LiveAgentScreenshot: React.FC<{
           },
         }}
       >
-        <Box sx={{ position: 'relative', height: 138 }}>
-          <ExternalAgentDesktopViewer sessionId={sessionId} height={138} mode="screenshot" />
+        <Box sx={{ position: 'relative', height: '100%' }}>
+          <ExternalAgentDesktopViewer sessionId={sessionId} mode="screenshot" />
         </Box>
         <Box
           sx={{
@@ -671,7 +671,7 @@ export default function TaskCard({
                 <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
               </MenuItem>
             )}
-            {!hideCloneOption && (
+            {!hideCloneOption && task.design_docs_pushed_at && (
               <MenuItem
                 onClick={() => {
                   setMenuAnchorEl(null)
@@ -1059,6 +1059,8 @@ export default function TaskCard({
           onClose={() => setShowCloneBatchProgress(false)}
           maxWidth="md"
           fullWidth
+          onClick={(e) => e.stopPropagation()}
+          sx={{ '& .MuiDialog-paper': { zIndex: 1300 } }}
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             Clone Batch Progress
@@ -1066,7 +1068,7 @@ export default function TaskCard({
               <CloseIcon />
             </IconButton>
           </DialogTitle>
-          <DialogContent>
+          <DialogContent onClick={(e) => e.stopPropagation()}>
             <CloneGroupProgressFull
               groupId={task.clone_group_id}
               onTaskClick={(taskId, projectId) => {

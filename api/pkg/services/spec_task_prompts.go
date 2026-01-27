@@ -9,12 +9,13 @@ import (
 
 // PlanningPromptData contains all data needed for the planning prompt template
 type PlanningPromptData struct {
-	Guidelines  string // Formatted guidelines section (includes header if non-empty)
-	TaskDirName string // Directory name for task (e.g., "0042-add-dark-mode")
-	ProjectID   string
-	TaskType    string
-	Priority    string
-	TaskName    string // Human-readable task name for commit message
+	Guidelines         string // Formatted guidelines section (includes header if non-empty)
+	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
+	ProjectID          string
+	TaskType           string
+	Priority           string
+	TaskName           string // Human-readable task name for commit message
+	ClonedTaskPreamble string // Special instructions for cloned tasks (non-empty if task was cloned)
 }
 
 // planningPromptTemplate is the compiled template for planning prompts
@@ -26,7 +27,7 @@ You are in the PLANNING phase. You are NOT in the implementation phase.
 - Implementation begins LATER, after this phase is complete and the user approves your plan
 
 ---
-
+{{.ClonedTaskPreamble}}
 You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
 
 Speak English.
@@ -116,13 +117,62 @@ Follow these guidelines when creating specifications:
 `
 	}
 
+	// Build cloned task preamble if this task was cloned from another
+	clonedTaskPreamble := ""
+	if task.ClonedFromID != "" {
+		clonedTaskPreamble = `
+## CLONED TASK - Adapt Existing Specs
+
+This task was cloned from a completed task in another project. Design docs already exist.
+
+**CRITICAL: User-Provided Values Transfer - Don't Re-Ask**
+
+The original task may have discovered information through user interaction. Look for phrases like:
+- "User specified...", "User confirmed...", "User chose..."
+- Specific values like hex codes, URLs, API keys, version numbers
+- Decisions marked as "confirmed" or "approved"
+
+**These discovered values override generic instructions in the task description.** For example:
+- If the task says "ask the user for X" but design.md already has "User specified X = Y" → use Y directly
+- If the task says "determine the API endpoint" but design.md has "Using endpoint: https://..." → use that endpoint
+- The whole point of cloning is to SKIP the discovery process that already happened
+
+**BEFORE creating new specs, you MUST:**
+
+1. **Read the existing design docs** at /home/retro/work/helix-specs/design/tasks/` + taskDirName + `/
+   - requirements.md, design.md, and tasks.md are already populated
+   - They contain learnings from the original implementation
+   - **Preserve all user-specified values** - copy them exactly to your adapted specs
+
+2. **Adapt for this repository:**
+   - Update file paths and structure for the target codebase
+   - Verify naming conventions match this project
+   - Update repo-specific references
+   - **Keep user-specified values unchanged** (they apply to all cloned tasks)
+
+3. **Reset tasks.md:**
+   - All checkboxes may be marked [x] complete from the original task
+   - Change [x] back to [ ] (unchecked) for tasks that need to be done
+   - REMOVE tasks that don't apply to this repository
+   - ADD new tasks if this repo needs different work
+
+4. **Push the adapted specs:**
+   - Even if you make minimal changes, you MUST git add, commit, and push
+   - The push is what signals to Helix that specs are ready for review
+
+---
+
+`
+	}
+
 	data := PlanningPromptData{
-		Guidelines:  guidelinesSection,
-		TaskDirName: taskDirName,
-		ProjectID:   task.ProjectID,
-		TaskType:    string(task.Type),
-		Priority:    string(task.Priority),
-		TaskName:    task.Name,
+		Guidelines:         guidelinesSection,
+		ClonedTaskPreamble: clonedTaskPreamble,
+		TaskDirName:        taskDirName,
+		ProjectID:          task.ProjectID,
+		TaskType:           string(task.Type),
+		Priority:           string(task.Priority),
+		TaskName:           task.Name,
 	}
 
 	var buf bytes.Buffer

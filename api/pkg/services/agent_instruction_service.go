@@ -41,14 +41,14 @@ func getTaskDirName(task *types.SpecTask) string {
 
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
-	Guidelines         string // Formatted guidelines section
-	PrimaryRepoName    string // Name of the primary repository (e.g., "my-app")
-	TaskDirName        string // Design doc directory name
-	BranchName         string // Feature branch name
-	BaseBranch         string // Base branch (e.g., "main")
-	TaskName           string // Human-readable task name
-	OriginalPrompt     string // Original user request
-	ClonedTaskPreamble string // Extra instructions for cloned tasks (empty if not cloned)
+	Guidelines            string // Formatted guidelines section
+	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
+	TaskDirName           string // Design doc directory name
+	BranchName            string // Feature branch name
+	BaseBranch            string // Base branch (e.g., "main")
+	TaskName              string // Human-readable task name
+	OriginalPromptSection string // Formatted original request section (different for cloned vs normal)
+	ClonedTaskPreamble    string // Extra instructions for cloned tasks (empty if not cloned)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -180,8 +180,7 @@ Don't treat the original plan as fixed - update it based on what you learn durin
 **Feature Branch:** {{.BranchName}} (base: {{.BaseBranch}})
 **Design Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 
-**Original Request:**
-{{.OriginalPrompt}}
+{{.OriginalPromptSection}}
 
 **Primary Project Directory:** /home/retro/work/{{.PrimaryRepoName}}/
 `))
@@ -277,40 +276,44 @@ Follow these guidelines when implementing:
 	if task.ClonedFromID != "" {
 		clonedTaskPreamble = `
 
-## CLONED TASK - Read Specs First
+## CLONED TASK - User-Provided Values Already Known
 
-This task was cloned from a completed task in another project. The specs contain learnings from the original implementation.
+This task was cloned from a completed task. The specs contain values discovered through user interaction.
 
-**Before you start implementing, you MUST:**
+**CRITICAL: Use Discovered Values Directly**
 
-1. **Read design.md and requirements.md carefully** - They may contain information that was discovered during the original implementation (decisions made, values confirmed with user, approaches that worked). Use this information instead of re-asking or re-discovering it.
+Look in design.md for phrases like "User specified...", "User confirmed...", or specific values
+(hex codes, URLs, etc.). These values override any generic instructions in the task description.
 
-2. **Reset and adapt tasks.md:**
-   - All checkboxes are currently marked [x] complete from the original task
-   - Change all [x] back to [ ] (unchecked)
-   - REMOVE any tasks that are no longer needed based on what you learned from reading the specs
-   - ADD any new tasks specific to this repository if needed
-   - Push the updated tasks.md to helix-specs BEFORE doing any implementation work
+If the task says "ask the user for X" but design.md already has "User specified X = Y" → use Y directly.
+The whole point of cloning is to SKIP re-asking questions that were already answered.
 
-3. **Adapt to this repository** - The target repo may differ from the original:
-   - Check file paths and structure
-   - Verify naming conventions match
-   - Look for existing code that might change the approach
+**Before implementing:**
 
-The clone feature's value is that learnings transfer - you should NOT need to re-ask questions or re-discover things the original agent already figured out.
+1. **Read design.md carefully** - Extract all user-specified values and use them directly
+2. **Reset tasks.md** - Change [x] back to [ ], remove/add tasks as needed for this repo
+3. **Adapt paths for this repository** - File paths may differ, but user-specified values stay the same
 
 `
 	}
 
+	// Format original prompt section - for cloned tasks, reframe as historical context
+	var originalPromptSection string
+	if task.ClonedFromID != "" {
+		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
+	} else {
+		originalPromptSection = "**Original Request:**\n" + task.OriginalPrompt
+	}
+
 	data := ApprovalPromptData{
-		Guidelines:         guidelinesSection,
-		PrimaryRepoName:    primaryRepoName,
-		TaskDirName:        taskDirName,
-		BranchName:         branchName,
-		BaseBranch:         baseBranch,
-		TaskName:           task.Name,
-		OriginalPrompt:     task.OriginalPrompt,
-		ClonedTaskPreamble: clonedTaskPreamble,
+		Guidelines:            guidelinesSection,
+		PrimaryRepoName:       primaryRepoName,
+		TaskDirName:           taskDirName,
+		BranchName:            branchName,
+		BaseBranch:            baseBranch,
+		TaskName:              task.Name,
+		OriginalPromptSection: originalPromptSection,
+		ClonedTaskPreamble:    clonedTaskPreamble,
 	}
 
 	var buf bytes.Buffer

@@ -99,16 +99,40 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
       const connectionsResp = await apiClient.v1OauthConnectionsList()
       const connections = connectionsResp.data || []
 
-      // Filter for GitHub connections
-      const ghConnections = connections.filter(
-        (conn: any) => conn.provider?.type === 'github'
-      )
+      // Get required scopes for this sample project (at minimum need 'repo')
+      const requiredScopes = sampleProject?.required_scopes || ['repo']
+
+      // Filter for GitHub connections that have the required scopes
+      const ghConnections = connections.filter((conn: any) => {
+        if (conn.provider?.type !== 'github') return false
+
+        // Check if connection has all required scopes
+        const connectionScopes = conn.scopes || []
+        const hasRequiredScopes = requiredScopes.every((scope: string) =>
+          connectionScopes.includes(scope)
+        )
+
+        return hasRequiredScopes
+      })
+
+      // Also track GitHub connections without required scopes (for UI messaging)
+      const ghConnectionsWithoutScopes = connections.filter((conn: any) => {
+        if (conn.provider?.type !== 'github') return false
+        const connectionScopes = conn.scopes || []
+        return !requiredScopes.every((scope: string) => connectionScopes.includes(scope))
+      })
+
       setGitHubConnections(ghConnections)
 
       if (ghConnections.length > 0) {
         setSelectedConnectionId(ghConnections[0].id)
         // Check repo access
         await checkRepoAccess(ghConnections[0].id)
+      } else if (ghConnectionsWithoutScopes.length > 0) {
+        // User has GitHub connection but missing required scopes
+        setIsLoading(false)
+        setCurrentStep('github-check')
+        setError(`Your GitHub connection needs additional permissions. Please reconnect to grant the required scopes: ${requiredScopes.join(', ')}`)
       } else {
         setIsLoading(false)
         setCurrentStep('github-check')

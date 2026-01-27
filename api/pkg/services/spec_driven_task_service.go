@@ -295,6 +295,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			Msg("Assigned task number and design doc path")
 	}
 
+	// For cloned tasks, pre-populate the design docs in helix-specs so the agent can read them
+	if task.ClonedFromID != "" && project != nil && project.DefaultRepoID != "" {
+		if err := s.prepopulateClonedSpecs(ctx, task, project); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to pre-populate cloned specs (agent will need to create from scratch)")
+		}
+	}
+
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
 		delete(task.Metadata, "error")
@@ -385,7 +392,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Create initial interaction combining planning instructions with user's request
 	// The planning prompt tells Zed how to create design documents
 	// The user's prompt is what they want designed
-	fullMessage := planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+	var fullMessage string
+	if task.ClonedFromID != "" {
+		// For cloned tasks, reframe original prompt as historical context (not active instructions)
+		// Wrap in quotes to emphasize it's a reference, not commands to follow
+		fullMessage = planningPrompt + "\n\n**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
+	} else {
+		fullMessage = planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+	}
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1606,6 +1620,100 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Successfully resumed session with new container")
+
+	return nil
+}
+
+// prepopulateClonedSpecs writes the cloned specs from DB to the helix-specs branch
+// so the agent can read and adapt them. This is needed because cloned tasks have
+// specs in DB fields but the target project's helix-specs doesn't have them yet.
+func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task *types.SpecTask, project *types.Project) error {
+	// Get the repo to find the local path
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return fmt.Errorf("failed to get default repository: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return fmt.Errorf("repository has no local path")
+	}
+
+	// Get user info for the commit
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.CreatedBy})
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	authorName := user.FullName
+	if authorName == "" {
+		authorName = "Helix"
+	}
+	authorEmail := user.Email
+	if authorEmail == "" {
+		authorEmail = "helix@helix.ml"
+	}
+
+	// Base path for design docs
+	basePath := fmt.Sprintf("design/tasks/%s", task.DesignDocPath)
+
+	// Write requirements.md
+	if task.RequirementsSpec != "" {
+		filePath := basePath + "/requirements.md"
+		_, _, err := CommitFileToBareBranch(
+			ctx,
+			repo.LocalPath,
+			SpecsBranchName,
+			filePath,
+			[]byte(task.RequirementsSpec),
+			authorName,
+			authorEmail,
+			fmt.Sprintf("Pre-populate cloned specs: requirements.md for %s", task.Name),
+		)
+		if err != nil {
+			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned requirements.md")
+		}
+	}
+
+	// Write design.md
+	if task.TechnicalDesign != "" {
+		filePath := basePath + "/design.md"
+		_, _, err := CommitFileToBareBranch(
+			ctx,
+			repo.LocalPath,
+			SpecsBranchName,
+			filePath,
+			[]byte(task.TechnicalDesign),
+			authorName,
+			authorEmail,
+			fmt.Sprintf("Pre-populate cloned specs: design.md for %s", task.Name),
+		)
+		if err != nil {
+			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned design.md")
+		}
+	}
+
+	// Write tasks.md
+	if task.ImplementationPlan != "" {
+		filePath := basePath + "/tasks.md"
+		_, _, err := CommitFileToBareBranch(
+			ctx,
+			repo.LocalPath,
+			SpecsBranchName,
+			filePath,
+			[]byte(task.ImplementationPlan),
+			authorName,
+			authorEmail,
+			fmt.Sprintf("Pre-populate cloned specs: tasks.md for %s", task.Name),
+		)
+		if err != nil {
+			log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned tasks.md")
+		}
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("cloned_from", task.ClonedFromID).
+		Str("design_doc_path", task.DesignDocPath).
+		Msg("Pre-populated cloned specs in helix-specs branch")
 
 	return nil
 }

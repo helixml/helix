@@ -696,33 +696,55 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Clone Info
           </Typography>
 
-          {/* Link to source task if this was cloned */}
+          {/* Link to source task and batch progress if this was cloned */}
           {task?.cloned_from_id && (
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                p: 1,
-                bgcolor: 'action.hover',
-                borderRadius: 1,
-                cursor: 'pointer',
-                mb: 1,
-                '&:hover': { bgcolor: 'action.selected' },
-              }}
-              onClick={() => {
-                if (task.cloned_from_project_id && task.cloned_from_id) {
-                  account.orgNavigate('project-task-detail', {
-                    id: task.cloned_from_project_id,
-                    taskId: task.cloned_from_id,
-                  })
-                }
-              }}
-            >
-              <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary">
-                Cloned from another task
-              </Typography>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+              <Box
+                sx={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  p: 1,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'action.selected' },
+                }}
+                onClick={() => {
+                  if (task.cloned_from_project_id && task.cloned_from_id) {
+                    account.orgNavigate('project-task-detail', {
+                      id: task.cloned_from_project_id,
+                      taskId: task.cloned_from_id,
+                    })
+                  }
+                }}
+              >
+                <LinkIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                <Typography variant="caption" color="text.secondary">
+                  Cloned from another task
+                </Typography>
+              </Box>
+              {task.clone_group_id && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    bgcolor: 'action.hover',
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.selected' },
+                  }}
+                  onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                >
+                  <Wand2 size={16} style={{ color: 'inherit', opacity: 0.7 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Batch Progress
+                  </Typography>
+                </Box>
+              )}
             </Box>
           )}
 
