@@ -24,7 +24,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 ### BUILD
 
-FROM golang:1.25-bullseye AS go-build-env
+FROM golang:1.25-bookworm AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
