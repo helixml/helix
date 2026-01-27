@@ -17,6 +17,7 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -897,17 +898,384 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 // Placeholder methods that will be filled in from the existing implementation
 // These handle the business logic for spec tasks, design docs, etc.
 
+// handleFeatureBranchPush transitions task from implementation → implementation_review
 func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types.GitRepository, branchName, commitHash, repoPath string, gitRepo *GitRepo) {
-	// TODO: Copy from existing implementation
-	log.Info().Str("repo_id", repo.ID).Str("branch", branchName).Msg("Feature branch push detected")
+	log.Info().Str("repo_id", repo.ID).Str("branch", branchName).Str("commit", commitHash).Msg("Detected feature branch push")
+
+	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
+	if err != nil || len(projectIDs) == 0 {
+		return
+	}
+
+	var allTasks []*types.SpecTask
+	for _, projectID := range projectIDs {
+		tasks, _ := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID})
+		allTasks = append(allTasks, tasks...)
+	}
+
+	for _, task := range allTasks {
+		if task.BranchName != branchName {
+			continue
+		}
+
+		switch task.Status {
+		case types.TaskStatusImplementation:
+			log.Info().Str("task_id", task.ID).Str("branch", branchName).Msg("Recording push to implementation branch")
+
+			// Record the push but don't transition status or send prompt automatically
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
+			}
+		case types.TaskStatusPullRequest:
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to ensure pull request")
+					return
+				}
+				if s.triggerManager != nil {
+					s.wg.Add(1)
+					go func() {
+						defer s.wg.Done()
+						if err := s.triggerManager.ProcessGitPushEvent(context.Background(), t, r, commit); err != nil {
+							log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to process code review")
+						}
+					}()
+				}
+			}(task, repo, commitHash)
+		default:
+			continue
+		}
+	}
 }
 
+// handleMainBranchPush transitions task from implementation_review → done
 func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash, repoPath string, gitRepo *GitRepo) {
-	// TODO: Copy from existing implementation
-	log.Info().Str("repo_id", repo.ID).Str("commit", commitHash).Msg("Main branch push detected")
+	log.Info().Str("repo_id", repo.ID).Str("commit", commitHash).Msg("Detected push to main branch")
+
+	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
+	if err != nil || len(projectIDs) == 0 {
+		return
+	}
+
+	var allTasks []*types.SpecTask
+	for _, projectID := range projectIDs {
+		tasks, _ := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID})
+		allTasks = append(allTasks, tasks...)
+	}
+
+	for _, task := range allTasks {
+		if task == nil || task.BranchName == "" || task.Status != types.TaskStatusImplementationReview {
+			continue
+		}
+
+		// Check if branch is merged
+		merged, err := gitRepo.IsBranchMergedInto(task.BranchName, repo.DefaultBranch)
+		if err != nil {
+			log.Debug().Err(err).Str("branch", task.BranchName).Msg("Could not check merge status")
+			continue
+		}
+
+		if merged {
+			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Branch merged to main - transitioning to done")
+
+			now := time.Now()
+			task.Status = types.TaskStatusDone
+			task.MergedToMain = true
+			task.MergedAt = &now
+			task.MergeCommitHash = commitHash
+			task.CompletedAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+			}
+		}
+	}
 }
 
+// ensurePullRequest creates a PR if one doesn't exist
+func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
+	if repo.ExternalURL == "" {
+		return nil
+	}
+
+	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
+
+	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false); err != nil {
+		return fmt.Errorf("failed to push branch: %w", err)
+	}
+
+	prs, err := s.gitRepoService.ListPullRequests(ctx, repo.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list PRs: %w", err)
+	}
+
+	sourceBranchRef := "refs/heads/" + branch
+	for _, pr := range prs {
+		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
+			if task.PullRequestID != pr.ID {
+				task.PullRequestID = pr.ID
+				task.UpdatedAt = time.Now()
+				s.store.UpdateSpecTask(ctx, task)
+			}
+			return nil
+		}
+	}
+
+	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	if err != nil {
+		return fmt.Errorf("failed to create PR: %w", err)
+	}
+
+	task.PullRequestID = prID
+	task.UpdatedAt = time.Now()
+	s.store.UpdateSpecTask(ctx, task)
+	log.Info().Str("pr_id", prID).Str("branch", branch).Msg("Created pull request")
+	return nil
+}
+
+// processDesignDocsForBranch handles design doc detection and spec task processing
 func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *types.GitRepository, repoPath, pushedBranch, commitHash string, gitRepo *GitRepo) {
-	// TODO: Copy from existing implementation
-	log.Info().Str("repo_id", repo.ID).Str("branch", pushedBranch).Msg("Processing design docs")
+	repoID := repo.ID
+
+	// Get task IDs from pushed design docs
+	pushedTaskIDs, dirNamesNeedingLookup, err := s.getTaskIDsFromPushedDesignDocs(ctx, gitRepo)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
+		return
+	}
+
+	// Look up tasks by DesignDocPath for new-format directories
+	for _, dirName := range dirNamesNeedingLookup {
+		tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			DesignDocPath:   dirName,
+			IncludeArchived: true,
+		})
+		if err != nil || len(tasks) == 0 {
+			continue
+		}
+		pushedTaskIDs = append(pushedTaskIDs, tasks[0].ID)
+	}
+
+	if len(pushedTaskIDs) == 0 {
+		log.Debug().Str("repo_id", repoID).Msg("No design docs found in push")
+		return
+	}
+
+	log.Info().Str("repo_id", repoID).Strs("task_ids", pushedTaskIDs).Msg("Design docs detected in push")
+
+	for _, taskID := range pushedTaskIDs {
+		task, err := s.store.GetSpecTask(ctx, taskID)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get spec task")
+			continue
+		}
+
+		log.Info().Str("task_id", task.ID).Str("status", task.Status.String()).Str("commit", commitHash).Msg("Processing SpecTask for design doc push")
+
+		switch task.Status {
+		case types.TaskStatusSpecGeneration:
+			now := time.Now()
+			task.DesignDocsPushedAt = &now
+			task.Status = types.TaskStatusSpecReview
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update spec task status")
+			}
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
+
+		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision:
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
+
+		case types.TaskStatusImplementation:
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), t.ID, branch, commitHash, repoPath, gitRepo)
+			}(task, pushedBranch)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, branch string) {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), t.ID, repoPath, branch, gitRepo)
+			}(task, pushedBranch)
+
+		case types.TaskStatusPullRequest:
+			log.Info().Str("spec_task_id", task.ID).Str("branch", pushedBranch).Str("commit", commitHash).Msg("Processing pull request")
+
+			s.wg.Add(1)
+			go func(t *types.SpecTask) {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
+			}(task)
+		}
+	}
+}
+
+// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs
+func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitRepo *GitRepo) ([]string, []string, error) {
+	files, err := gitRepo.GetChangedFilesInBranch("helix-specs")
+	if err != nil {
+		return nil, nil, nil // Branch doesn't exist
+	}
+
+	taskIDs, dirNamesNeedingLookup := ParseDesignDocTaskIDs(files)
+	return taskIDs, dirNamesNeedingLookup, nil
+}
+
+// createDesignReviewForPush creates or updates design review records
+func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string, gitRepo *GitRepo) {
+	log.Info().Str("spec_task_id", specTaskID).Str("branch", branch).Str("commit", commitHash).Msg("Creating/updating design review")
+
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get task")
+		return
+	}
+
+	taskDir, err := gitRepo.FindTaskDirInBranch("helix-specs", task.DesignDocPath, specTaskID)
+	if err != nil {
+		log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("No task directory found")
+		return
+	}
+
+	docs, err := gitRepo.ReadDesignDocs("helix-specs", taskDir)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to read design docs")
+		return
+	}
+
+	existingReviews, _ := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)
+	var activeReview *types.SpecTaskDesignReview
+	for i := range existingReviews {
+		if existingReviews[i].Status != types.SpecTaskDesignReviewStatusSuperseded {
+			activeReview = &existingReviews[i]
+			break
+		}
+	}
+
+	now := time.Now()
+	if activeReview != nil {
+		activeReview.RequirementsSpec = docs["requirements.md"]
+		activeReview.TechnicalDesign = docs["design.md"]
+		activeReview.ImplementationPlan = docs["tasks.md"]
+		activeReview.GitBranch = branch
+		activeReview.GitCommitHash = commitHash
+		activeReview.GitPushedAt = now
+		activeReview.UpdatedAt = now
+		if err := s.store.UpdateSpecTaskDesignReview(ctx, activeReview); err != nil {
+			log.Error().Err(err).Str("review_id", activeReview.ID).Msg("Failed to update review")
+		} else {
+			log.Info().Str("review_id", activeReview.ID).Msg("Design review updated")
+		}
+	} else {
+		review := &types.SpecTaskDesignReview{
+			ID:                 system.GenerateUUID(),
+			SpecTaskID:         specTaskID,
+			Status:             types.SpecTaskDesignReviewStatusPending,
+			RequirementsSpec:   docs["requirements.md"],
+			TechnicalDesign:    docs["design.md"],
+			ImplementationPlan: docs["tasks.md"],
+			GitBranch:          branch,
+			GitCommitHash:      commitHash,
+			GitPushedAt:        now,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		if err := s.store.CreateSpecTaskDesignReview(ctx, review); err != nil {
+			log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to create review")
+		} else {
+			log.Info().Str("review_id", review.ID).Msg("Design review created")
+		}
+	}
+}
+
+// checkCommentResolution checks if design review comments should be auto-resolved
+// because the quoted text was removed/updated in the design documents
+func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath, branch string, gitRepo *GitRepo) {
+	comments, err := s.store.GetUnresolvedCommentsForTask(ctx, specTaskID)
+	if err != nil || len(comments) == 0 {
+		return
+	}
+
+	log.Info().Str("spec_task_id", specTaskID).Str("branch", branch).Int("count", len(comments)).Msg("Checking comments for auto-resolution")
+
+	// Get task to find the design doc path
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get task for comment resolution")
+		return
+	}
+
+	// Find task directory in the pushed branch
+	taskDir, err := gitRepo.FindTaskDirInBranch(branch, task.DesignDocPath, specTaskID)
+	if err != nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("branch", branch).Msg("Task directory not found in branch")
+		return
+	}
+
+	// Read design docs from the task directory
+	docContents := make(map[string]string)
+	docTypes := map[string]string{
+		"requirements":        "requirements.md",
+		"technical_design":    "design.md",
+		"implementation_plan": "tasks.md",
+	}
+
+	for docType, filename := range docTypes {
+		filePath := taskDir + "/" + filename
+		content, err := gitRepo.ReadFileFromBranch(branch, filePath)
+		if err == nil {
+			docContents[docType] = string(content)
+		}
+	}
+
+	now := time.Now()
+	resolvedCount := 0
+	for _, comment := range comments {
+		if comment.QuotedText == "" {
+			continue
+		}
+		content, exists := docContents[comment.DocumentType]
+		if !exists {
+			continue
+		}
+		if !strings.Contains(content, comment.QuotedText) {
+			log.Info().Str("comment_id", comment.ID).Str("document_type", comment.DocumentType).Msg("Auto-resolving comment - quoted text removed")
+			// Use targeted update that only modifies resolution fields
+			if err := s.store.UpdateCommentResolved(ctx, comment.ID, true, &now, "system", "auto_text_removed"); err != nil {
+				log.Error().Err(err).Str("comment_id", comment.ID).Msg("Failed to auto-resolve comment")
+				continue
+			}
+			resolvedCount++
+		}
+	}
+
+	if resolvedCount > 0 {
+		log.Info().Str("spec_task_id", specTaskID).Int("resolved_count", resolvedCount).Msg("Auto-resolved design review comments")
+	}
 }
