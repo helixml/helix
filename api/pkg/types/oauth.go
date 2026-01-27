@@ -49,8 +49,7 @@ type OAuthProvider struct {
 	CreatorType OwnerType `json:"creator_type" gorm:"not null;type:text"`
 
 	// Misc configuration
-	Scopes  []string `json:"scopes" gorm:"type:text;serializer:json"`
-	Enabled bool     `json:"enabled" gorm:"not null;default:true"`
+	Enabled bool `json:"enabled" gorm:"not null;default:true"`
 }
 
 // OAuthConnection represents a user's connection to an OAuth provider
@@ -95,7 +94,8 @@ type OAuthRequestToken struct {
 	Token       string    `json:"token"` // For compatibility with existing records
 	State       string    `json:"state" gorm:"index"`
 	RedirectURL string    `json:"redirect_url" gorm:"type:text"`
-	Metadata    string    `json:"metadata" gorm:"type:text"` // JSON metadata (e.g., organization_url for ADO)
+	Metadata    string    `json:"metadata" gorm:"type:text"`             // JSON metadata (e.g., organization_url for ADO)
+	Scopes      []string  `json:"scopes" gorm:"type:text;serializer:json"` // Scopes requested during this OAuth flow
 	ExpiresAt   time.Time `json:"expires_at" gorm:"not null;index"`
 }
 

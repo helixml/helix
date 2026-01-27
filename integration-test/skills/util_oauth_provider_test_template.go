@@ -118,6 +118,7 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 	log.Info().Str("provider_name", template.config.ProviderName).Msg("Setting up OAuth provider")
 
 	// Create OAuth provider with all required fields
+	// Note: Scopes are not stored on the provider - they're specified per-flow by the consumer
 	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
 	provider := &types.OAuthProvider{
 		Name:         template.config.ProviderName,
@@ -129,7 +130,6 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 		TokenURL:     template.config.TokenURL,
 		UserInfoURL:  template.config.UserInfoURL,
 		CallbackURL:  callbackURL,
-		Scopes:       template.config.Scopes,
 		CreatorID:    template.baseSuite.testUser.ID,
 		CreatorType:  types.OwnerTypeUser,
 	}

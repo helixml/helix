@@ -43,7 +43,6 @@ type ProviderConfig struct {
 	ClientID        string
 	ClientSecret    string
 	RedirectURL     string
-	Scopes          []string
 	CallbackURL     string
 	AuthorizeURL    string
 	TokenURL        string
