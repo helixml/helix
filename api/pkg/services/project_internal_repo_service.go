@@ -470,12 +470,12 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 	return repoPath, nil
 }
 
-// SaveStartupScriptToHelixSpecs saves the startup script to the helix-specs branch
-// This avoids modifying main branch which may be protected on external repos
-// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
-// Returns (changed bool, err error) where changed indicates if a commit was made
+// SaveStartupScriptToHelixSpecs saves the startup script to the helix-specs branch.
+// This avoids modifying main branch which may be protected on external repos.
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments.
+// Returns (changed bool, err error) where changed indicates if a commit was made.
 //
-// This uses a temporary working copy to make the commit.
+// This commits directly to the bare repo without creating a working copy (fast path).
 func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, script string, userName string, userEmail string) (bool, error) {
 	if userName == "" || userEmail == "" {
 		return false, fmt.Errorf("userName and userEmail are required for commits")
@@ -508,84 +508,32 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 		}
 	}
 
-	// Check if script already exists and is unchanged
-	existingScript, _ := s.LoadStartupScriptFromHelixSpecs(codeRepoPath)
-	if existingScript == script {
+	// Commit directly to the bare repo (no temp working copy needed)
+	now := time.Now()
+	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", now.Format(time.RFC3339))
+
+	commitSHA, changed, err := CommitFileToBareBranch(
+		ctx,
+		codeRepoPath,
+		SpecsBranchName,
+		".helix/startup.sh",
+		[]byte(script),
+		userName,
+		userEmail,
+		commitMsg,
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to commit startup script: %w", err)
+	}
+
+	if !changed {
 		log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
 		return false, nil
 	}
 
-	// Create temp working copy of helix-specs branch
-	tempDir, err := os.MkdirTemp("", "helix-specs-save-*")
-	if err != nil {
-		return false, fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Clone the bare repo
-	if err := giteagit.Clone(ctx, codeRepoPath, tempDir, giteagit.CloneRepoOptions{
-		Branch: "helix-specs",
-	}); err != nil {
-		return false, fmt.Errorf("failed to clone bare repo: %w", err)
-	}
-
-	// Checkout helix-specs branch
-	if err := GitCheckout(ctx, tempDir, "helix-specs", false); err != nil {
-		return false, fmt.Errorf("failed to checkout helix-specs: %w", err)
-	}
-
-	// Write the script file
-	helixDir := filepath.Join(tempDir, ".helix")
-	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		return false, fmt.Errorf("failed to create .helix directory: %w", err)
-	}
-
-	scriptPath := filepath.Join(helixDir, "startup.sh")
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return false, fmt.Errorf("failed to write startup script: %w", err)
-	}
-
-	// Add and commit
-	if err := giteagit.AddChanges(ctx, tempDir, true); err != nil {
-		return false, fmt.Errorf("failed to add changes: %w", err)
-	}
-
-	now := time.Now()
-	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", now.Format(time.RFC3339))
-	if err := giteagit.CommitChanges(ctx, tempDir, giteagit.CommitChangesOptions{
-		Author: &giteagit.Signature{
-			Name:  userName,
-			Email: userEmail,
-			When:  now,
-		},
-		Committer: &giteagit.Signature{
-			Name:  userName,
-			Email: userEmail,
-			When:  now,
-		},
-		Message: commitMsg,
-	}); err != nil {
-		return false, fmt.Errorf("failed to commit: %w", err)
-	}
-
-	// Push to bare repo
-	if err := giteagit.Push(ctx, tempDir, giteagit.PushOptions{
-		Remote: "origin",
-		Branch: "refs/heads/helix-specs:refs/heads/helix-specs",
-	}); err != nil {
-		return false, fmt.Errorf("failed to push: %w", err)
-	}
-
-	// Get commit hash
-	commitHash, err := GetBranchCommitID(ctx, tempDir, "helix-specs")
-	if err != nil {
-		log.Warn().Err(err).Str("code_repo_path", codeRepoPath).Msg("Failed to get commit hash after saving startup script")
-		commitHash = "(unknown)"
-	}
-
 	log.Info().
 		Str("code_repo_path", codeRepoPath).
-		Str("commit", ShortHash(commitHash)).
+		Str("commit", ShortHash(commitSHA)).
 		Msg("Startup script saved to helix-specs branch")
 
 	return true, nil
