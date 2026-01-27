@@ -50,8 +50,6 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	fmt.Println("XX PSEC TASK ID", user.SpecTaskID)
-
 	logger := log.With().
 		Str("user_id", user.ID).
 		Str("project_id", user.ProjectID).

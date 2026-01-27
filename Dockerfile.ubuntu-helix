@@ -618,6 +618,7 @@ RUN chmod +x /opt/gow/startup.sh
 # Helix helper scripts
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/ubuntu-config/start-vscode-helix.sh /usr/local/bin/start-vscode-helix.sh
+ADD desktop/ubuntu-config/start-claude-helix.sh /usr/local/bin/start-claude-helix.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 # Shared scripts (used by both Sway and Ubuntu)
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
@@ -629,7 +630,7 @@ ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-s
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-agenthost-core.sh /usr/local/bin/start-agenthost-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-vscode-helix.sh \
-    /usr/local/bin/start-gnome-bridge.sh \
+    /usr/local/bin/start-claude-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
@@ -667,6 +668,10 @@ RUN mkdir -p /home/retro/.gemini && \
 
 RUN mkdir -p /home/retro/.claude && \
     echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
+
+# Claude Code CLI - AI coding assistant from Anthropic
+# Install globally so it's available in PATH for all users
+RUN npm install -g @anthropic-ai/claude-code@latest
 
 RUN mkdir -p /home/retro/.config/zed && \
     echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
