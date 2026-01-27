@@ -253,7 +253,11 @@ func (s *HelixAPIServer) forkSampleProjectRepositories(_ http.ResponseWriter, r 
 	}, nil
 }
 
+// GitHubRepoScopes are the scopes required for GitHub repository operations
+var GitHubRepoScopes = []string{"repo"}
+
 // getGitHubAccessToken retrieves a GitHub OAuth access token for the user
+// Validates that the connection has the required scopes for repo operations
 func (s *HelixAPIServer) getGitHubAccessToken(ctx context.Context, userID, connectionID string) (string, error) {
 	if connectionID != "" {
 		// Use specified connection
@@ -264,10 +268,14 @@ func (s *HelixAPIServer) getGitHubAccessToken(ctx context.Context, userID, conne
 		if connection.UserID != userID {
 			return "", fmt.Errorf("not authorized to use this connection")
 		}
+		// Validate scopes
+		if missing := getMissingScopes(connection.Scopes, GitHubRepoScopes); len(missing) > 0 {
+			return "", fmt.Errorf("connection missing required scopes: %v (have: %v)", missing, connection.Scopes)
+		}
 		return connection.AccessToken, nil
 	}
 
-	// Try to find user's GitHub OAuth connection
+	// Try to find user's GitHub OAuth connection with required scopes
 	connections, err := s.Store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 		UserID: userID,
 	})
@@ -277,11 +285,33 @@ func (s *HelixAPIServer) getGitHubAccessToken(ctx context.Context, userID, conne
 
 	for _, conn := range connections {
 		if conn.Provider.Type == types.OAuthProviderTypeGitHub {
+			// Check if connection has required scopes
+			if missing := getMissingScopes(conn.Scopes, GitHubRepoScopes); len(missing) > 0 {
+				continue // Try next connection
+			}
 			return conn.AccessToken, nil
 		}
 	}
 
-	return "", fmt.Errorf("no GitHub connection found")
+	return "", fmt.Errorf("no GitHub connection found with required scopes (need: %v)", GitHubRepoScopes)
+}
+
+// getMissingScopes returns scopes that are required but not present in existing scopes
+func getMissingScopes(existingScopes, requiredScopes []string) []string {
+	var missing []string
+	for _, required := range requiredScopes {
+		found := false
+		for _, existing := range existingScopes {
+			if existing == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, required)
+		}
+	}
+	return missing
 }
 
 // parseGitHubURLSimple parses a GitHub URL and returns owner and repo
