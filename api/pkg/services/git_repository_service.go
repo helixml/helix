@@ -80,6 +80,12 @@ func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
 }
 
+// GetGitHomePath returns the path where git stores its global config (.gitconfig).
+// This is separate from where git repositories are stored.
+func (s *GitRepositoryService) GetGitHomePath() string {
+	return filepath.Join(s.filestoreBase, "git-home")
+}
+
 // Initialize creates the git repository base directory and sets up git server
 func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Create git repositories base directory
@@ -88,8 +94,17 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create git repositories directory: %w", err)
 	}
 
+	// Create git home directory for git global config (.gitconfig)
+	// This is used by gitea's gitcmd module as the HOME for git commands
+	gitHomePath := s.GetGitHomePath()
+	err = os.MkdirAll(gitHomePath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create git home directory: %w", err)
+	}
+
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
+		Str("git_home", gitHomePath).
 		Str("server_base_url", s.serverBaseURL).
 		Msg("Initialized git repository service")
 

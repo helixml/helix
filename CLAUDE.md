@@ -199,15 +199,27 @@ cd frontend && yarn test && yarn build && cd ..
 This runs the same checks as Drone CI. Fix any errors before committing.
 
 ### Quick Checks
+
+**IMPORTANT: Investigate logs yourself - don't tell the user to look at logs.**
+**Exception: Ask user to verify frontend UI works (you can't easily check that yet).**
+
 After frontend changes (dev mode):
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 50 frontend | grep -i error
-# Then ask user to verify page loads
 ```
 
 After API changes:
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 30 api | grep -E "building|running|failed"
+```
+
+For debugging issues, check logs directly:
+```bash
+# API logs
+docker compose logs --tail 100 api 2>&1 | grep -E "error|failed|timeout"
+
+# Sandbox logs
+docker compose logs --tail 100 sandbox-nvidia 2>&1 | grep -E "error|failed"
 ```
 
 ## API Authentication

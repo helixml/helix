@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
@@ -30,23 +30,7 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("failed to list organizations: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"ID", "Name", "Created"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		// table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Name", "Created"})
 
 		for _, o := range organizations {
 			created := o.CreatedAt.Format(time.RFC3339)
@@ -60,10 +44,10 @@ var listCmd = &cobra.Command{
 				created,
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

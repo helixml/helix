@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -86,92 +86,6 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 	}
 
 	return content, nil
-}
-
-// SaveStartupScriptToCodeRepo saves the startup script to a code repository
-// Commits to the default branch (main/master)
-// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
-func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, script string, userName string, userEmail string) error {
-	if userName == "" || userEmail == "" {
-		return fmt.Errorf("userName and userEmail are required for commits")
-	}
-	if codeRepoPath == "" {
-		return fmt.Errorf("code repo path not set")
-	}
-
-	// Create temporary clone of bare repo
-	tempClone, err := os.MkdirTemp("", "helix-startup-script-code-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tempClone) // Cleanup
-
-	repo, err := git.PlainClone(tempClone, &git.CloneOptions{
-		URL: codeRepoPath, // Clone from bare repo
-	})
-	if err != nil {
-		return fmt.Errorf("failed to clone code repo: %w", err)
-	}
-
-	// Ensure .helix directory exists
-	helixDir := filepath.Join(tempClone, ".helix")
-	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .helix directory: %w", err)
-	}
-
-	// Write the script
-	scriptPath := filepath.Join(helixDir, "startup.sh")
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return fmt.Errorf("failed to write startup script: %w", err)
-	}
-
-	// Commit the change
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Add the file
-	if _, err := worktree.Add(".helix/startup.sh"); err != nil {
-		return fmt.Errorf("failed to add startup script to git: %w", err)
-	}
-
-	// Check if there are changes to commit
-	status, err := worktree.Status()
-	if err != nil {
-		return fmt.Errorf("failed to get git status: %w", err)
-	}
-
-	if status.IsClean() {
-		// No changes - script is identical to what's already committed
-		log.Debug().Msg("Startup script unchanged, skipping commit")
-		return nil
-	}
-
-	// Commit the changes
-	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", time.Now().Format(time.RFC3339))
-	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  userName,
-			Email: userEmail,
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to commit startup script: %w", err)
-	}
-
-	// Push to bare repo
-	err = repo.Push(&git.PushOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to push to bare repo: %w", err)
-	}
-
-	log.Info().
-		Str("code_repo_path", codeRepoPath).
-		Msg("Startup script saved to code repo")
-
-	return nil
 }
 
 // GetStartupScriptHistoryFromCodeRepo returns git commit history for the startup script in a code repo
@@ -610,6 +524,9 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 // This avoids modifying main branch which may be protected on external repos
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 // Returns (changed bool, err error) where changed indicates if a commit was made
+//
+// This uses direct bare repo manipulation via go-git plumbing APIs - no clone needed.
+// Much faster than cloning, especially for repos with many branches.
 func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, script string, userName string, userEmail string) (bool, error) {
 	if userName == "" || userEmail == "" {
 		return false, fmt.Errorf("userName and userEmail are required for commits")
@@ -626,96 +543,144 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 
 	// Check if helix-specs branch exists
 	helixSpecsRef := plumbing.NewBranchReferenceName("helix-specs")
-	_, err = bareRepo.Reference(helixSpecsRef, true)
+	ref, err := bareRepo.Reference(helixSpecsRef, true)
 	if err != nil {
 		// Branch doesn't exist - we need to create it as orphan
 		log.Info().Str("repo_path", codeRepoPath).Msg("helix-specs branch doesn't exist, creating orphan branch")
 		if err := s.createHelixSpecsBranch(bareRepo, userName, userEmail); err != nil {
 			return false, fmt.Errorf("failed to create helix-specs branch: %w", err)
 		}
+		// Re-get the reference after creating
+		ref, err = bareRepo.Reference(helixSpecsRef, true)
+		if err != nil {
+			return false, fmt.Errorf("failed to get helix-specs ref after creation: %w", err)
+		}
 	}
 
-	// Create temporary clone of bare repo, checking out helix-specs branch
-	// NOTE: We use native git with --depth 1 to avoid go-git deadlock on repos with many branches.
-	// go-git's PlainClone has a pipe deadlock when the "have" list is large (many branches/refs).
-	tempClone, err := os.MkdirTemp("", "helix-startup-script-specs-*")
+	// Get current commit
+	currentCommit, err := bareRepo.CommitObject(ref.Hash())
 	if err != nil {
-		return false, fmt.Errorf("failed to create temp directory: %w", err)
+		return false, fmt.Errorf("failed to get current commit: %w", err)
 	}
-	defer os.RemoveAll(tempClone) // Cleanup
 
-	// Use native git clone with --depth 1 to avoid go-git deadlock on large repos
-	cloneCmd := exec.Command("git", "clone",
-		"--depth", "1",
-		"--single-branch",
-		"-b", "helix-specs",
-		codeRepoPath,
-		tempClone,
-	)
-	cloneOutput, err := cloneCmd.CombinedOutput()
+	// Get current tree
+	currentTree, err := currentCommit.Tree()
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("output", string(cloneOutput)).
-			Str("bare_repo", codeRepoPath).
-			Msg("Failed to clone helix-specs branch with native git")
-		return false, fmt.Errorf("failed to clone helix-specs branch: %w (output: %s)", err, string(cloneOutput))
+		return false, fmt.Errorf("failed to get current tree: %w", err)
 	}
 
-	// Ensure .helix directory exists
-	helixDir := filepath.Join(tempClone, ".helix")
-	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		return false, fmt.Errorf("failed to create .helix directory: %w", err)
+	// Check if script already exists and is unchanged
+	existingFile, err := currentTree.File(".helix/startup.sh")
+	if err == nil {
+		existingContent, err := existingFile.Contents()
+		if err == nil && existingContent == script {
+			log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
+			return false, nil
+		}
 	}
 
-	// Write the script
-	scriptPath := filepath.Join(helixDir, "startup.sh")
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return false, fmt.Errorf("failed to write startup script: %w", err)
+	// Create blob for the script
+	blob := bareRepo.Storer.NewEncodedObject()
+	blob.SetType(plumbing.BlobObject)
+	writer, err := blob.Writer()
+	if err != nil {
+		return false, fmt.Errorf("failed to create blob writer: %w", err)
+	}
+	if _, err := writer.Write([]byte(script)); err != nil {
+		writer.Close()
+		return false, fmt.Errorf("failed to write script to blob: %w", err)
+	}
+	writer.Close()
+
+	blobHash, err := bareRepo.Storer.SetEncodedObject(blob)
+	if err != nil {
+		return false, fmt.Errorf("failed to store blob: %w", err)
 	}
 
-	// Check if there are changes (git diff --quiet returns 1 if there are changes)
-	diffCmd := exec.Command("git", "-C", tempClone, "diff", "--quiet", "--", ".helix/startup.sh")
-	if err := diffCmd.Run(); err == nil {
-		// No changes - script is identical to what's already committed
-		log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
-		return false, nil
+	// Build new tree with .helix/startup.sh
+	// First, collect existing entries (excluding .helix directory)
+	var entries []object.TreeEntry
+	for _, entry := range currentTree.Entries {
+		if entry.Name != ".helix" {
+			entries = append(entries, entry)
+		}
 	}
 
-	// Stage the file
-	addCmd := exec.Command("git", "-C", tempClone, "add", ".helix/startup.sh")
-	if output, err := addCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("failed to add startup script to git: %w (output: %s)", err, string(output))
+	// Create .helix subtree with startup.sh
+	helixTree := &object.Tree{
+		Entries: []object.TreeEntry{
+			{
+				Name: "startup.sh",
+				Mode: filemode.Executable, // 0755
+				Hash: blobHash,
+			},
+		},
+	}
+	helixTreeObj := bareRepo.Storer.NewEncodedObject()
+	if err := helixTree.Encode(helixTreeObj); err != nil {
+		return false, fmt.Errorf("failed to encode .helix tree: %w", err)
+	}
+	helixTreeHash, err := bareRepo.Storer.SetEncodedObject(helixTreeObj)
+	if err != nil {
+		return false, fmt.Errorf("failed to store .helix tree: %w", err)
 	}
 
-	// Check if there are staged changes
-	diffStagedCmd := exec.Command("git", "-C", tempClone, "diff", "--cached", "--quiet")
-	if err := diffStagedCmd.Run(); err == nil {
-		// No staged changes
-		log.Debug().Msg("No staged changes in helix-specs, skipping commit")
-		return false, nil
+	// Add .helix directory to root tree
+	entries = append(entries, object.TreeEntry{
+		Name: ".helix",
+		Mode: filemode.Dir,
+		Hash: helixTreeHash,
+	})
+
+	// Create new root tree
+	newTree := &object.Tree{Entries: entries}
+	newTreeObj := bareRepo.Storer.NewEncodedObject()
+	if err := newTree.Encode(newTreeObj); err != nil {
+		return false, fmt.Errorf("failed to encode new tree: %w", err)
+	}
+	newTreeHash, err := bareRepo.Storer.SetEncodedObject(newTreeObj)
+	if err != nil {
+		return false, fmt.Errorf("failed to store new tree: %w", err)
 	}
 
-	// Commit the changes
-	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", time.Now().Format(time.RFC3339))
-	commitCmd := exec.Command("git", "-C", tempClone,
-		"-c", fmt.Sprintf("user.name=%s", userName),
-		"-c", fmt.Sprintf("user.email=%s", userEmail),
-		"commit", "-m", commitMsg,
-	)
-	if output, err := commitCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("failed to commit startup script: %w (output: %s)", err, string(output))
+	// Create new commit
+	now := time.Now()
+	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", now.Format(time.RFC3339))
+	newCommit := &object.Commit{
+		Author: object.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  now,
+		},
+		Committer: object.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  now,
+		},
+		Message:      commitMsg,
+		TreeHash:     newTreeHash,
+		ParentHashes: []plumbing.Hash{currentCommit.Hash},
 	}
 
-	// Push to bare repo
-	pushCmd := exec.Command("git", "-C", tempClone, "push", "origin", "helix-specs")
-	if output, err := pushCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("failed to push to bare repo: %w (output: %s)", err, string(output))
+	commitObj := bareRepo.Storer.NewEncodedObject()
+	if err := newCommit.Encode(commitObj); err != nil {
+		return false, fmt.Errorf("failed to encode commit: %w", err)
+	}
+	commitHash, err := bareRepo.Storer.SetEncodedObject(commitObj)
+	if err != nil {
+		return false, fmt.Errorf("failed to store commit: %w", err)
+	}
+
+	// Update branch reference
+	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(helixSpecsRef, commitHash))
+	if err != nil {
+		return false, fmt.Errorf("failed to update helix-specs branch: %w", err)
 	}
 
 	log.Info().
 		Str("code_repo_path", codeRepoPath).
-		Msg("Startup script saved to helix-specs branch")
+		Str("commit", commitHash.String()[:8]).
+		Msg("Startup script saved to helix-specs branch (direct commit)")
 
 	return true, nil
 }

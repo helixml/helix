@@ -354,11 +354,11 @@ func NewServer(
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
 		apiServer.gitRepositoryService,
-		gitHTTPConfig,
+		*gitHTTPConfig, // Dereference the pointer
 		apiServer.authorizeUserToResource,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server (go-git implementation)")
+	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
 
 	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
 	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)

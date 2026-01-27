@@ -34,7 +34,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # ====================================================================
 # Go build stage for desktop-bridge and settings-sync-daemon
 # ====================================================================
-FROM golang:1.24 AS go-build-env
+FROM golang:1.25 AS go-build-env
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
