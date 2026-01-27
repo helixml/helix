@@ -624,36 +624,6 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 	}, nil
 }
 
-// GetTokenForApp retrieves an OAuth token for a specific user's connection to a provider
-// This is used during app execution to inject OAuth tokens
-func (m *Manager) GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error) {
-	provider, err := m.GetProviderByName(ctx, providerName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
-	}
-
-	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
-		UserID:     userID,
-		ProviderID: provider.ID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to list user connections: %w", err)
-	}
-
-	for _, connection := range connections {
-		// Refresh the token if needed
-		if err := m.RefreshConnection(ctx, connection); err != nil {
-			log.Warn().Err(err).Str("connection_id", connection.ID).Msg("Failed to refresh token, trying next connection")
-			continue
-		}
-
-		// Found a valid connection with a refreshed token
-		return connection.AccessToken, nil
-	}
-
-	return "", fmt.Errorf("no active connection found for provider %s", providerName)
-}
-
 // GetTokenForTool retrieves an OAuth token for a tool's OAuth provider and required scopes
 // This is used during tool execution to inject OAuth tokens
 func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerName string, requiredScopes []string) (string, error) {
