@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Modify `helix-specs/.helix/startup.sh` to add renaming logic at the start
+- [~] Modify `helix-specs/.helix/startup.sh` to add renaming logic at the start
   - Rename `helix-[0-9]*` directories to `helix`
   - Rename `zed-[0-9]*` directories to `zed`
   - Rename `qwen-code-[0-9]*` directories to `qwen-code`
