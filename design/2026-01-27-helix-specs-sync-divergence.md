@@ -587,81 +587,168 @@ When testing manually (cloning repo twice, making changes from same base, pushin
 
 **Question:** If git natively rejects diverged pushes, why did the agents' pushes succeed?
 
-### Phase 3b - Continued Investigation
+### Phase 3b - ROOT CAUSE FOUND
 
-**Agent push logs showing the problem:**
+**The Problem:**
+Both agents pushed to helix-specs, both saw success from their perspective, but one agent's specs never showed up!
 
+**Agent push logs (from agent tool call history):**
+
+| Task # | Task ID | Commit Range | Agent Status | Specs Detected? |
+|--------|---------|--------------|--------------|-----------------|
+| 001021 | ? | `f58d34187..4fca338ce` | Completed | ? |
+| 001022 | ? | `4fca338ce..362140a75` | Completed | ? |
+| 001023 | spt_01kg04dv3zfec3t9zap8wmnmn3 | `362140a75..1a8a3cdb8` | Completed | **NO - LOST!** |
+| 001024 | spt_01kg04npzjy912y5jnjp3nc59j | `362140a75..04e15b55d` | Completed | Yes |
+
+**Raw agent logs:**
 ```
-Agent 001022: 4fca338ce..362140a75 (succeeded)
-Agent 001023: 362140a75..1a8a3cdb8 (agent thought it succeeded)
-Agent 001024: 362140a75..04e15b55d (agent thought it succeeded, push handler picked it up)
-```
+# Task 001021
+[helix-specs 4fca338ce] Design docs for In api/pkg/services/git_http_server.go...
+To http://api:8080/git/prj_01kg02vqqyg178c1n2ydscn5fb-helix-4
+   f58d34187..4fca338ce  helix-specs -> helix-specs
 
-**Critical observation:** Agent 001024's push had parent `362140a75`, NOT `1a8a3cdb8`.
-This means Agent 001023's commit was already gone when 001024 pushed.
+# Task 001022
+[helix-specs 362140a75] Design docs for Connect to Azure DevOps...
+To http://api:8080/git/prj_01kg02vqqyg178c1n2ydscn5fb-helix-4
+   4fca338ce..362140a75  helix-specs -> helix-specs
 
-**Difference between manual testing and agent pushes:**
+# Task 001023 - SPECS NEVER SHOWED UP!
+[helix-specs 1a8a3cdb8] Design docs for chat widget O(n²) streaming performance fix
+To http://api:8080/git/prj_01kg02vqqyg178c1n2ydscn5fb-helix-4
+   362140a75..1a8a3cdb8  helix-specs -> helix-specs
 
-| Aspect | Manual Testing | Agent Pushes |
-|--------|---------------|--------------|
-| Pre-push sync | None | Yes - `SyncAllBranches(force=false)` |
-| Branch | Tested on main? | helix-specs (orphan branch) |
-| Timing | Sequential | Possibly concurrent |
-| Git client | Standard git CLI | Agent's embedded git |
-
-**Hypotheses to test:**
-
-1. **Pre-push sync overwrites local**: Even with `force=false`, does the pre-push sync somehow reset local refs?
-
-2. **Concurrent pre-push syncs**: If Agent B's pre-push sync runs BEFORE Agent A's receive-pack completes, both might see the same starting state.
-
-3. **Orphan branch behavior**: Does helix-specs being an orphan branch change how git validates pushes?
-
-4. **Rollback timing**: If Agent A's push to GitHub failed and triggered rollback BEFORE Agent B's push, local would be back at old state.
-
-### Reproduction Test Plan
-
-**Setup:**
-1. Create a test repo with helix-specs branch
-2. Clone it to two working copies (simulating two agents)
-3. Make changes in both from the same base commit
-4. Push sequentially through the Helix git HTTP server
-
-**Test 1: Manual git push (no Helix server)**
-```bash
-# Clone 1
-cd /tmp/clone1
-git checkout helix-specs
-echo "change A" >> test.txt && git commit -am "Agent A"
-
-# Clone 2
-cd /tmp/clone2
-git checkout helix-specs
-echo "change B" >> test.txt && git commit -am "Agent B"
-
-# Push sequentially to origin
-cd /tmp/clone1 && git push origin helix-specs  # Should succeed
-cd /tmp/clone2 && git push origin helix-specs  # Should FAIL with non-fast-forward
+# Task 001024 - NOTE: Same parent as 001023!
+[helix-specs 04e15b55d] Design docs for install go in the helix startup script...
+To http://api:8080/git/prj_01kg02vqqyg178c1n2ydscn5fb-helix-4
+   362140a75..04e15b55d  helix-specs -> helix-specs
 ```
 
-**Test 2: Through Helix git server (with pre-push sync)**
-Same as above, but push to Helix's git server URL instead of origin.
-Expected: Second push should still fail (git atomic check).
-Actual: TBD
+**Task creation times (from API logs):**
+```
+16:23:45Z - spt_01kg049a7rv74y916vxn0y8fpk (also failed - specs not detected)
+16:26:14Z - spt_01kg04dv3zfec3t9zap8wmnmn3 (001023 - specs not detected)
+16:30:31Z - spt_01kg04npzjy912y5jnjp3nc59j (001024 - specs detected)
+```
 
-**Test 3: Concurrent pushes**
-Use two terminals to push simultaneously.
-Check: Does the pre-push sync create a race window?
+**SMOKING GUN: Both 001023 and 001024 have the same parent `362140a75`**
 
-### Log analysis needed
+This is impossible under normal git operation:
+- 001023 pushed `362140a75..1a8a3cdb8` and agent saw success
+- 001024 pushed `362140a75..04e15b55d` and succeeded
+- If 001023's push truly succeeded, 001024's parent should be `1a8a3cdb8`
+- The fact that 001024's parent is `362140a75` proves the bare repo was rolled back
 
-To understand what happened with the original bug, we need:
+**Root Cause: Rollback after GitHub push failure creates a silent data loss window**
 
-1. **Exact timestamps** for each agent's push request
-2. **Pre-push sync logs** - did each agent's sync succeed? What refs were updated?
-3. **receive-pack output** - did it accept or reject each push?
-4. **Post-push logs** - did push to GitHub succeed or fail for each?
-5. **Rollback logs** - was `rollbackBranchRefs` called?
+The sequence that causes lost commits:
+
+```
+Timeline:
+
+Agent A                    Helix Bare Repo              GitHub
+   │                            │                          │
+   │ git push (base..A)         │                          │
+   │ ─────────────────────────> │                          │
+   │                            │ receive-pack succeeds    │
+   │                            │ (bare repo: base → A)    │
+   │ <───────────────────────── │                          │
+   │ (Agent A sees SUCCESS)     │                          │
+   │                            │ post-push to GitHub...   │
+   │                            │ ─────────────────────────>│
+   │                            │                  FAILS!   │
+   │                            │ <─────────────────────────│
+   │                            │ ROLLBACK!                 │
+   │                            │ (bare repo: A → base)     │
+   │                            │                          │
+   │        AGENT A's COMMIT IS NOW GONE!                  │
+   │        (but agent thinks it succeeded)                │
+   │                            │                          │
+Agent B                         │                          │
+   │ git push (base..B)         │                          │
+   │ ─────────────────────────> │                          │
+   │                            │ old value = base ✓        │
+   │                            │ receive-pack succeeds    │
+   │                            │ (bare repo: base → B)    │
+   │ <───────────────────────── │                          │
+   │ (Agent B sees SUCCESS)     │                          │
+   │                            │ post-push to GitHub...   │
+   │                            │ ─────────────────────────>│
+   │                            │                  SUCCESS  │
+   │                            │ <─────────────────────────│
+   │                            │                          │
+   │        AGENT B's COMMIT PERSISTS                      │
+   │        AGENT A's COMMIT IS LOST FOREVER               │
+```
+
+**Why this happens:**
+1. The HTTP response is streamed during `receive-pack` - agent sees success immediately
+2. Post-push to GitHub happens AFTER the response is sent
+3. If GitHub push fails, we rollback bare repo refs
+4. Agent never knows their commit was rolled back
+5. Next agent's push succeeds because `old_value` matches the rolled-back state
+
+### Reproduction Test Results (2026-01-27)
+
+**Test repo:** `code-test1-2-1769535450` (connected to GitHub)
+
+**Test 1: Sequential pushes - Git correctly rejects diverged push**
+```
+=== Push from Clone 1 (Agent A) ===
+To http://localhost:8080/git/code-test1-2-1769535450
+   a028729..cec29f2  helix-specs -> helix-specs
+Exit: 0
+
+=== Push from Clone 2 (Agent B) - SHOULD FAIL ===
+To http://localhost:8080/git/code-test1-2-1769535450
+ ! [rejected]        helix-specs -> helix-specs (non-fast-forward)
+error: failed to push some refs
+Exit: 1
+```
+✅ Git correctly rejects the diverged push.
+
+**Test 2: Concurrent pushes - Git correctly rejects with atomic check**
+```
+=== Concurrent pushes ===
+Push 1: Exit: 0 (succeeded)
+Push 2: ! [remote rejected] helix-specs -> helix-specs (incorrect old value provided)
+         Exit: 1
+```
+✅ Git atomic check prevents concurrent overwrites.
+
+**Conclusion:** The git server is working correctly. The issue is the **rollback after GitHub push failure**.
+
+### Proposed Fixes
+
+**Option A: Don't rollback on GitHub push failure (keep local, retry async)**
+- Accept the push locally (agent sees success)
+- If GitHub push fails, keep the local commit and queue async retry
+- Pros: No silent data loss
+- Cons: Local and GitHub can diverge temporarily
+
+**Option B: Validate before receive-pack (pre-push GitHub check)**
+- Before running receive-pack, check if GitHub has the expected parent
+- If not, reject the push immediately with clear error
+- Pros: Agent sees failure before committing
+- Cons: Adds latency, GitHub could change between check and push
+
+**Option C: Lock helix-specs during push (serialize pushes)**
+- Use a distributed lock on helix-specs branch during push operation
+- Only one agent can push at a time
+- Pros: Eliminates race conditions
+- Cons: Limits concurrency, adds complexity
+
+**Option D: Merge-based helix-specs (auto-merge non-conflicting)**
+- Instead of rejecting diverged pushes, auto-merge if no conflicts
+- Each task writes to its own directory, so conflicts are rare
+- Pros: Best UX, maximizes concurrency
+- Cons: Complex to implement, edge cases with same-file edits
+
+**Recommended approach: Option A (no rollback)**
+- Simplest fix with lowest risk
+- The local commit is valid; GitHub sync is a secondary concern
+- Add logging/alerting for failed GitHub syncs
+- Implement async retry queue for failed pushes
 
 ### Proposed Future Work (Phase 3c)
 
