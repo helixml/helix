@@ -1118,6 +1118,11 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				desktopType = "ubuntu"
 			}
 
+			// Check admin access for privileged mode (UseHostDocker)
+			if project.UseHostDocker && !user.Admin {
+				return nil, system.NewHTTPError403("UseHostDocker requires admin access")
+			}
+
 			// Restart Zed agent with existing session
 			zedAgent := &types.DesktopAgent{
 				SessionID:           existingSession.ID,
@@ -1134,6 +1139,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Resolution:          resolution,
 				ZoomLevel:           zoomLevel,
 				DesktopType:         desktopType,
+				UseHostDocker:       project.UseHostDocker,
 			}
 
 			// Add user's API token for git operations
@@ -1272,6 +1278,11 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		desktopType = "ubuntu"
 	}
 
+	// Check admin access for privileged mode (UseHostDocker)
+	if project.UseHostDocker && !user.Admin {
+		return nil, system.NewHTTPError403("UseHostDocker requires admin access")
+	}
+
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.DesktopAgent{
 		SessionID: createdSession.ID,
@@ -1288,6 +1299,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
+		UseHostDocker:       project.UseHostDocker,
 	}
 
 	// Add user's API token for git operations (RBAC enforced)

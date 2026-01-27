@@ -125,7 +125,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
 		// Find an available sandbox with the required desktop image
-		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
+		// If UseHostDocker is set, we need a sandbox with PrivilegedMode enabled
+		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType, agent.UseHostDocker)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -134,8 +135,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
+				Bool("use_host_docker", agent.UseHostDocker).
 				Msg("Auto-selected available sandbox")
 		} else {
+			if agent.UseHostDocker {
+				return nil, fmt.Errorf("no privileged sandbox available (UseHostDocker requires HYDRA_PRIVILEGED_MODE_ENABLED=true on sandbox)")
+			}
 			// Fallback to "local" if no sandbox found (for backwards compatibility)
 			sandboxID = "local"
 			log.Warn().

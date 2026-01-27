@@ -282,7 +282,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -369,7 +369,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -454,7 +454,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3

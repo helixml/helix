@@ -747,6 +747,21 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 	// Check if we should include disabled projects (for testing)
 	includeDisabled := r.URL.Query().Get("include_disabled") == "true"
 
+	// Check if privileged sandbox is available (for UseHostDocker projects)
+	// Only check this once since it's a DB query
+	var hasPrivilegedSandbox *bool
+	checkPrivilegedSandbox := func() bool {
+		if hasPrivilegedSandbox == nil {
+			available, err := s.Store.HasPrivilegedSandbox(r.Context())
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to check for privileged sandbox")
+				available = false
+			}
+			hasPrivilegedSandbox = &available
+		}
+		return *hasPrivilegedSandbox
+	}
+
 	var filteredProjects []SimpleSampleProject
 	for _, project := range SIMPLE_SAMPLE_PROJECTS {
 		// Filter by enabled status (unless include_disabled is set)
@@ -759,6 +774,17 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 		if difficulty != "" && project.Difficulty != difficulty {
 			continue
 		}
+
+		// Filter UseHostDocker projects: only show to admins with available privileged sandbox
+		if project.UseHostDocker {
+			if !user.Admin {
+				continue // Non-admin users can't use UseHostDocker projects
+			}
+			if !checkPrivilegedSandbox() {
+				continue // No privileged sandbox available
+			}
+		}
+
 		filteredProjects = append(filteredProjects, project)
 	}
 
@@ -796,6 +822,22 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 	if sampleProject == nil {
 		return nil, system.NewHTTPError404("sample project not found")
+	}
+
+	// Check admin access for UseHostDocker projects
+	if sampleProject.UseHostDocker {
+		if !user.Admin {
+			return nil, system.NewHTTPError403("UseHostDocker projects require admin access")
+		}
+		// Verify privileged sandbox is available
+		hasPrivileged, err := s.Store.HasPrivilegedSandbox(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to check for privileged sandbox")
+			return nil, system.NewHTTPError500("failed to check for privileged sandbox")
+		}
+		if !hasPrivileged {
+			return nil, system.NewHTTPError500("no privileged sandbox available for UseHostDocker project (requires sandbox with HYDRA_PRIVILEGED_MODE_ENABLED=true)")
+		}
 	}
 
 	// Create project name
@@ -1390,13 +1432,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Set UseHostDocker if needed for this sample project
-		if sampleProject.UseHostDocker {
-			if createdProject.Metadata.BoardSettings == nil {
-				createdProject.Metadata.BoardSettings = &types.BoardSettings{}
-			}
-			// Store UseHostDocker flag in project metadata
-			// This will be used when starting sessions for this project
-		}
+		// This requires sessions to be scheduled on privileged sandboxes
+		createdProject.UseHostDocker = sampleProject.UseHostDocker
 
 		if updateErr := s.Store.UpdateProject(ctx, createdProject); updateErr != nil {
 			log.Warn().Err(updateErr).Msg("Failed to update project with default repo")
