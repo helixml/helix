@@ -6,7 +6,7 @@
 # - Session must have UseHostDocker=true (HYDRA_PRIVILEGED_MODE_ENABLED=true)
 # - Repos already cloned to ~/work/{helix,zed,qwen-code} by project setup
 
-set -e
+set -xeuo pipefail
 
 echo "========================================"
 echo "  Helix-in-Helix Development Setup"
