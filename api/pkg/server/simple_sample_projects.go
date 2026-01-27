@@ -1439,8 +1439,37 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		// This requires sessions to be scheduled on privileged sandboxes
 		createdProject.UseHostDocker = sampleProject.UseHostDocker
 
+		// Set default agent for the project
+		// Use explicitly provided app ID, or fall back to user's default
+		var agentApp *types.App
+		if req.HelixAppID != "" {
+			agentApp, err = s.Store.GetApp(ctx, req.HelixAppID)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("user_id", user.ID).
+					Str("helix_app_id", req.HelixAppID).
+					Msg("Failed to get specified agent app, falling back to default")
+				agentApp = nil
+			}
+		}
+		if agentApp == nil {
+			agentApp, err = s.getUserDefaultExternalAgentApp(ctx, user.ID)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("user_id", user.ID).
+					Msg("Failed to get default external agent app")
+			}
+		}
+		if agentApp != nil {
+			createdProject.DefaultHelixAppID = agentApp.ID
+			log.Info().
+				Str("project_id", createdProject.ID).
+				Str("default_helix_app_id", agentApp.ID).
+				Msg("Set project's default agent for GitHub-based sample project")
+		}
+
 		if updateErr := s.Store.UpdateProject(ctx, createdProject); updateErr != nil {
-			log.Warn().Err(updateErr).Msg("Failed to update project with default repo")
+			log.Warn().Err(updateErr).Msg("Failed to update project with default repo and agent")
 		}
 
 		// Skip tasks for helix-in-helix (developer-focused, tasks are examples)
