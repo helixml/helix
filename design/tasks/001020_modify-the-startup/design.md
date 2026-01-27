@@ -4,15 +4,30 @@
 
 Modify the helix-specs startup script to rename numbered repo directories to their canonical names so the `./stack` script works correctly.
 
-## Current State
+## Root Cause
 
-The startup script at `helix-specs/.helix/startup.sh` currently:
-1. Looks for helix in `~/work/helix`, `~/code/helix`, etc.
-2. Runs `./stack build` and `./stack start`
+The API's `CreateRepository` function in `api/pkg/services/git_repository_service.go` (lines 135-143) auto-increments repository names when a user already has a repo with that name:
+
+```go
+// Auto-increment name if it already exists
+baseName := request.Name
+uniqueName := baseName
+suffix := 1
+for existingNames[uniqueName] {
+    uniqueName = fmt.Sprintf("%s-%d", baseName, suffix)
+    suffix++
+}
+```
+
+So if you already have `helix`, `zed`, `qwen-code` repos, new ones become `helix-1`, `zed-1`, `qwen-code-1`.
+
+## Why This Matters
 
 The `./stack` script uses `$PROJECTS_ROOT` (parent of helix) and expects:
 - `$PROJECTS_ROOT/zed`
 - `$PROJECTS_ROOT/qwen-code`
+
+When repos are cloned with numbered names, `./stack build-zed` and other commands fail.
 
 ## Solution
 
