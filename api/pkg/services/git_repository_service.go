@@ -13,6 +13,7 @@ import (
 	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -130,6 +131,20 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create git home directory: %w", err)
 	}
 
+	// Install/update pre-receive hooks on all existing repositories.
+	// This ensures force-push protection for helix-specs is always active,
+	// even for repos created before this feature was added.
+	if err := InstallPreReceiveHooksForAllRepos(s.gitRepoBase); err != nil {
+		log.Warn().Err(err).Msg("Failed to install pre-receive hooks on existing repos")
+	} else {
+		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
+	}
+
+	// Recover incomplete pushes from before a crash.
+	// If we crashed between receive-pack and upstream push, the commit is in the
+	// middle repo but not upstream. Push any such commits now to prevent data loss.
+	s.recoverIncompletePushes(ctx)
+
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
 		Str("git_home", gitHomePath).
@@ -137,6 +152,118 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		Msg("Initialized git repository service")
 
 	return nil
+}
+
+// recoverIncompletePushes checks all external repos for commits that are in the
+// middle repo but not pushed to upstream. This can happen if we crash between
+// receive-pack completing and the upstream push completing.
+func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	// List all repos from database
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list repos for crash recovery")
+		return
+	}
+
+	recoveredCount := 0
+	for _, repo := range repos {
+		// Only check external repos
+		if repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check if repo directory exists
+		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Check for unpushed commits on each branch
+		branches, err := s.listLocalBranches(ctx, repo.LocalPath)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list branches for recovery check")
+			continue
+		}
+
+		for _, branch := range branches {
+			ahead, err := s.isBranchAheadOfRemote(ctx, repo.LocalPath, branch)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Str("branch", branch).Msg("Failed to check if branch is ahead")
+				continue
+			}
+
+			if ahead {
+				log.Info().
+					Str("repo_id", repo.ID).
+					Str("branch", branch).
+					Msg("Found unpushed commits from before crash - pushing to upstream")
+
+				// Acquire lock and push
+				if err := s.WithRepoLock(repo.ID, func() error {
+					return s.PushBranchToRemote(ctx, repo.ID, branch, false)
+				}); err != nil {
+					log.Error().Err(err).
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Failed to recover unpushed commits")
+				} else {
+					recoveredCount++
+					log.Info().
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Successfully recovered unpushed commits")
+				}
+			}
+		}
+	}
+
+	if recoveredCount > 0 {
+		log.Info().Int("count", recoveredCount).Msg("Recovered incomplete pushes from before crash")
+	}
+}
+
+// listLocalBranches returns all local branch names in a repository
+func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath string) ([]string, error) {
+	stdout, _, err := gitcmd.NewCommand("for-each-ref").
+		AddArguments("--format=%(refname:short)").
+		AddDynamicArguments("refs/heads/").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return nil, err
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// isBranchAheadOfRemote checks if a local branch has commits not in the remote
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Check if remote tracking ref exists
+	remoteRef := "refs/remotes/origin/" + branch
+	_, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments(remoteRef).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		// Remote ref doesn't exist - could be a new branch, check if local has commits
+		return false, nil
+	}
+
+	// Count commits in local that aren't in remote
+	// git rev-list origin/branch..branch --count
+	stdout, _, err := gitcmd.NewCommand("rev-list").
+		AddArguments("--count").
+		AddDynamicArguments("origin/"+branch+".."+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, err
+	}
+
+	count := strings.TrimSpace(stdout)
+	return count != "0", nil
 }
 
 // CreateRepository creates a new git repository
@@ -998,6 +1125,11 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
 		log.Info().
 			Str("repo_path", repoPath).
 			Str("default_branch", defaultBranch).
@@ -1015,6 +1147,11 @@ func (s *GitRepositoryService) initializeGitRepository(
 	if isBare {
 		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
 			log.Warn().Err(err).Msg("Failed to set HEAD to default branch")
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
 		}
 
 		log.Info().
@@ -1105,6 +1242,12 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 		if err != nil {
 			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("external_url", gitRepo.ExternalURL).

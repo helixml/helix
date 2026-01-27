@@ -216,3 +216,75 @@ Integration tests in `api/pkg/services/git_integration_test.go`:
 | `TestHTTPServer_InfoRefs` | HTTP git protocol works |
 
 All tests pass with `-race` flag.
+
+## Force Push Protection for helix-specs
+
+In addition to serialization, we protect the `helix-specs` branch from force pushes.
+This is a forward-only branch for design documents, and force pushes could destroy
+agent-generated content.
+
+### Implementation
+
+A pre-receive hook is installed in each bare repository that:
+1. Reads ref updates from git on stdin (`<old> <new> <ref>` format)
+2. Checks if `helix-specs` is being pushed
+3. If old commit exists (not new branch) and is NOT an ancestor of new commit → reject
+
+### Hook Installation
+
+- **New repos**: Hook is installed at creation time (all code paths that create bare repos)
+- **Existing repos**: Hook is installed/updated on API startup via `InstallPreReceiveHooksForAllRepos()`
+- **Versioning**: Hook script includes version string; updates are applied if version differs
+
+### Files Modified
+
+- `api/pkg/services/gitea_git_helpers.go` - Added `InstallPreReceiveHook()` and `InstallPreReceiveHooksForAllRepos()`
+- `api/pkg/services/git_repository_service.go` - Install hook after bare repo init, call bulk install on `Initialize()`
+- `api/pkg/services/project_internal_repo_service.go` - Install hook after bare repo creation
+
+### Error Message
+
+When force push is rejected, the agent sees:
+```
+error: refusing to force-push to protected branch 'helix-specs'
+hint: helix-specs is a forward-only branch to protect design documents.
+hint: If you need to revert changes, create a new commit instead.
+```
+
+This message is intentionally similar to GitHub's protected branch error to train agents
+to understand the constraint.
+
+## Crash Recovery for External Repos
+
+For external repos, there's a dangerous window between receive-pack completing (commit in
+middle repo) and upstream push completing (commit in both places). If we crash in this
+window, the commit could be lost on next sync.
+
+### Solution
+
+On startup, `recoverIncompletePushes()` checks all external repos for commits that exist
+locally but haven't been pushed to upstream:
+
+1. List all repos with `ExternalURL` set
+2. For each repo, list all local branches
+3. For each branch, check if local is ahead of `origin/<branch>`
+4. If ahead, push to upstream
+
+### Implementation
+
+```go
+// In GitRepositoryService.Initialize():
+s.recoverIncompletePushes(ctx)
+
+// Checks if local branch has commits not in origin:
+// git rev-list --count origin/branch..branch
+// If count > 0, push to upstream
+```
+
+### Files Modified
+
+- `api/pkg/services/git_repository_service.go`:
+  - Added `recoverIncompletePushes()` - scans repos on startup
+  - Added `listLocalBranches()` - lists local branch names
+  - Added `isBranchAheadOfRemote()` - checks if local is ahead of origin
+  - Call `recoverIncompletePushes()` from `Initialize()`

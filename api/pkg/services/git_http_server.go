@@ -594,9 +594,6 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
-	// Note: Non-fast-forward pushes are rejected BEFORE receive-pack runs (see pre-validation above)
-	// This ensures the agent sees a clear error message rather than a silent rollback
-
 	// Check branch restrictions for agent API keys
 	if len(pushedBranches) > 0 {
 		apiKey := s.extractAPIKey(r)
