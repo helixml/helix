@@ -4,7 +4,7 @@
 -- Screen layout at 1920x1080:
 --   Column 1 (Left):   Terminal    - x=0,    width=640
 --   Column 2 (Middle): Zed Editor  - x=640,  width=640
---   Column 3 (Right):  Firefox     - x=1280, width=640
+--   Column 3 (Right):  Chrome      - x=1280, width=640
 --
 -- Using vanilla Ubuntu with no custom scaling.
 
@@ -24,9 +24,9 @@ local win_name = get_window_name()
 -- Debug logging (check ~/.local/share/devilspie2/debug.log or /tmp/devilspie2.log)
 debug_print("Window opened: class=" .. tostring(win_class) .. ", name=" .. tostring(win_name))
 
--- Firefox browser -> Right column (column 3)
-if win_class == "firefox" or win_class == "Firefox" or win_class == "Navigator" then
-    debug_print("Positioning Firefox in right column")
+-- Chrome browser -> Right column (column 3)
+if win_class == "Google-chrome" or win_class == "google-chrome" or win_class == "Chromium" then
+    debug_print("Positioning Chrome in right column")
     set_window_position(COLUMN_WIDTH * 2, PANEL_HEIGHT)  -- x=1280
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
 

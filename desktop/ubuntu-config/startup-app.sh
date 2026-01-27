@@ -178,15 +178,14 @@ if [ -f /opt/gow/dconf-settings.ini ]; then
     dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
 fi
 
-# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
+# Set Chrome as default browser for xdg-open to work with HTTP/HTTPS URLs
 # This is needed because GNOME requires explicit default handler configuration.
 # Without this, clicking URLs in Zed/agent output or calling xdg-open silently fails.
-# See: design/2025-12-08-ubuntu-launch-firefox.md
-gow_log "[start] Setting Firefox as default browser..."
-xdg-mime default firefox.desktop x-scheme-handler/http
-xdg-mime default firefox.desktop x-scheme-handler/https
-xdg-mime default firefox.desktop text/html
-gow_log "[start] Firefox set as default browser for HTTP/HTTPS URLs"
+gow_log "[start] Setting Chrome as default browser..."
+xdg-mime default google-chrome.desktop x-scheme-handler/http
+xdg-mime default google-chrome.desktop x-scheme-handler/https
+xdg-mime default google-chrome.desktop text/html
+gow_log "[start] Chrome set as default browser for HTTP/HTTPS URLs"
 
 # Enable extensions before gnome-shell starts so they are loaded:
 # - Just Perfection: Hides the ScreenCast "stop" button that would crash Wolf if clicked
