@@ -202,7 +202,7 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 	}
 
 	// Get optional scopes - consumer specifies exactly what scopes they need
-	// If not provided, falls back to provider's default scopes
+	// Scopes should be provided by the caller (from skill YAML, app config, etc.)
 	scopesParam := r.URL.Query().Get("scopes")
 	var scopes []string
 	if scopesParam != "" {

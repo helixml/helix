@@ -247,8 +247,11 @@ func (template *OAuthProviderTestTemplate) TestPerformOAuthFlow(t *testing.T) {
 	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("Testing Helix OAuth flow")
 
 	// Step 1: Start OAuth flow using Helix's endpoint
+	// Use scopes from the skill YAML - these are the scopes the skill needs to function
 	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
-	authURL, state, err := template.baseSuite.StartOAuthFlow(template.oauthProvider.ID, callbackURL)
+	scopes := template.skillConfig.OAuthScopes
+	template.baseSuite.logger.Info().Strs("scopes", scopes).Msg("Using scopes from skill YAML")
+	authURL, state, err := template.baseSuite.StartOAuthFlow(template.oauthProvider.ID, callbackURL, scopes)
 	require.NoError(t, err, "Failed to start Helix OAuth flow")
 
 	template.baseSuite.logger.Info().
