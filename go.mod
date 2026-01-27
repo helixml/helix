@@ -6,8 +6,10 @@ toolchain go1.24.5
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
-// Fix for stack overflow in fixAndBreakChainsOne (PR: https://github.com/go-git/go-git/pull/1823)
-replace github.com/go-git/go-git/v6 => github.com/lukemarsden/go-git/v6 v6.0.0-20260124091941-c7e7d492e30f
+// Fixes for go-git v6:
+// - Stack overflow in fixAndBreakChainsOne (PR: https://github.com/go-git/go-git/pull/1823)
+// - File transport deadlock during pack negotiation (PR: https://github.com/go-git/go-git/pull/1826)
+replace github.com/go-git/go-git/v6 => github.com/lukemarsden/go-git/v6 v6.0.0-20260127034524-a9b5c72fa1c2
 
 require (
 	cloud.google.com/go/storage v1.51.0
