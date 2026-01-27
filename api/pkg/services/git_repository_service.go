@@ -14,10 +14,41 @@ import (
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+var gitCmdInitialized bool
+var gitCmdInitMu sync.Mutex
+
+// initGitCmd initializes gitea's gitcmd module once.
+// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
+// This is separate from where the actual git repositories are stored.
+func initGitCmd(gitHomePath string) error {
+	gitCmdInitMu.Lock()
+	defer gitCmdInitMu.Unlock()
+
+	if gitCmdInitialized {
+		return nil
+	}
+
+	// Set the git home path for gitea's setting module.
+	// This is where git will store its global config (not where repos are stored).
+	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
+	setting.Git.HomePath = gitHomePath
+	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
+
+	// Find and set the git executable path
+	if err := gitcmd.SetExecutablePath(""); err != nil {
+		return fmt.Errorf("failed to find git executable: %w", err)
+	}
+
+	gitCmdInitialized = true
+	log.Info().Msg("Initialized gitea gitcmd module")
+	return nil
+}
 
 // GitRepositoryService manages git repositories hosted on the Helix server
 // Uses the filestore mount for persistent storage of git repositories
@@ -129,6 +160,12 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	err = os.MkdirAll(gitHomePath, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create git home directory: %w", err)
+	}
+
+	// Initialize gitea's gitcmd module BEFORE any git commands are used.
+	// This must happen before recoverIncompletePushes() which uses gitcmd.
+	if err := initGitCmd(gitHomePath); err != nil {
+		return fmt.Errorf("failed to initialize gitcmd: %w", err)
 	}
 
 	// Install/update pre-receive hooks on all existing repositories.

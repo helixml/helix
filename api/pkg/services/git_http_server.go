@@ -14,7 +14,6 @@ import (
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
-	"code.gitea.io/gitea/modules/setting"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -92,36 +91,6 @@ type GitHTTPServerConfig struct {
 	RequestTimeout  time.Duration `json:"request_timeout"`
 }
 
-var gitCmdInitialized bool
-var gitCmdInitMu sync.Mutex
-
-// initGitCmd initializes gitea's gitcmd module once.
-// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
-// This is separate from where the actual git repositories are stored.
-func initGitCmd(gitHomePath string) error {
-	gitCmdInitMu.Lock()
-	defer gitCmdInitMu.Unlock()
-
-	if gitCmdInitialized {
-		return nil
-	}
-
-	// Set the git home path for gitea's setting module.
-	// This is where git will store its global config (not where repos are stored).
-	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
-	setting.Git.HomePath = gitHomePath
-	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
-
-	// Find and set the git executable path
-	if err := gitcmd.SetExecutablePath(""); err != nil {
-		return fmt.Errorf("failed to find git executable: %w", err)
-	}
-
-	gitCmdInitialized = true
-	log.Info().Msg("Initialized gitea gitcmd module")
-	return nil
-}
-
 // NewGitHTTPServer creates a new native git HTTP server
 func NewGitHTTPServer(
 	store store.Store,
@@ -130,11 +99,9 @@ func NewGitHTTPServer(
 	authorizeFn AuthorizationFunc,
 	triggerManager *trigger.Manager,
 ) *GitHTTPServer {
-	// Initialize gitcmd with the git home path from the git repo service.
-	// This sets up gitea's setting module with the HOME path for git config.
-	if err := initGitCmd(gitRepoService.GetGitHomePath()); err != nil {
-		log.Error().Err(err).Msg("Failed to initialize gitcmd")
-	}
+	// Note: gitcmd is already initialized by GitRepositoryService.Initialize()
+	// which is called before NewGitHTTPServer. The initGitCmd function in
+	// git_repository_service.go handles the initialization idempotently.
 	return &GitHTTPServer{
 		store:           store,
 		gitRepoService:  gitRepoService,
