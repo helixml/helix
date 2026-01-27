@@ -2,7 +2,7 @@
 
 ## Overview
 
-Modify the helix-specs startup script to rename numbered repo directories to their canonical names so the `./stack` script works correctly.
+Modify the helix-specs startup script to rename numbered repo directories to their canonical names so the `./stack` script works correctly, while maintaining compatibility with container restarts.
 
 ## Root Cause
 
@@ -29,38 +29,49 @@ The `./stack` script uses `$PROJECTS_ROOT` (parent of helix) and expects:
 
 When repos are cloned with numbered names, `./stack build-zed` and other commands fail.
 
+## Critical: Container Restart Behavior
+
+The `helix-workspace-setup.sh` script receives `HELIX_REPOSITORIES` and `HELIX_PRIMARY_REPO_NAME` from the API with the **DB repo names** (e.g., `zed-1`). These are used for:
+
+1. **Clone skip check**: `if [ -d "$WORK_DIR/$REPO_NAME/.git" ]`
+2. **Branch checkout**: `PRIMARY_REPO_PATH="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"`
+3. **Worktree setup**: Uses `PRIMARY_REPO_PATH`
+4. **Git hooks**: References `$WORK_DIR/$PRIMARY_REPO_NAME`
+5. **Zed folders**: Adds paths based on repo names
+
+If we simply rename `zed-1` → `zed`, on container restart the script won't find `~/work/zed-1/.git` and will re-clone, creating duplicate directories.
+
 ## Solution
 
-Add a renaming step to `helix-specs/.helix/startup.sh` that:
-1. Detects numbered directories (e.g., `helix-1`, `zed-2`, `qwen-code-3`)
-2. Renames them to canonical names (`helix`, `zed`, `qwen-code`)
-3. Handles edge cases (already correct, target exists, etc.)
-
-## Implementation
+Rename directories AND create symlinks for backward compatibility:
 
 ```bash
 # Add to startup.sh before finding HELIX_DIR
 cd ~/work
 
-# Rename numbered repos to canonical names
+# Rename numbered repos to canonical names, with symlinks for API compatibility
 for pattern in "helix-" "zed-" "qwen-code-"; do
-    canonical="${pattern%-}"  # Remove trailing dash
+    canonical="${pattern%-}"  # Remove trailing dash (e.g., "helix-" -> "helix")
     for numbered in ${pattern}[0-9]*; do
         [ -d "$numbered" ] || continue
         if [ ! -e "$canonical" ]; then
             mv "$numbered" "$canonical"
-            echo "Renamed $numbered → $canonical"
+            ln -s "$canonical" "$numbered"  # Symlink so API still finds it
+            echo "Renamed $numbered → $canonical (with symlink)"
         fi
     done
 done
 ```
 
-## Verification (Already Done)
+This ensures:
+1. `./stack` finds `../zed`, `../qwen-code` (real directories)
+2. `helix-workspace-setup.sh` finds `~/work/zed-1/.git` on restart (via symlink)
+3. All paths work whether numbered or canonical
 
-Checked helix codebase for numbered repo assumptions:
-- **Prompts**: All use `/home/retro/work/helix-specs/` (correct)
-- **sample_project_code_service.go**: Clones as `helix`, `zed`, `qwen-code` (correct)
-- **helix-dev-setup.sh**: Clones as `helix`, `zed`, `qwen-code` (correct)
-- **stack script**: Uses `$PROJECTS_ROOT/zed`, `$PROJECTS_ROOT/qwen-code` (correct)
+## Verification
 
-No code assumes numbered names. The `zed-1`, `zed-2` in server.go are agent IDs, not repo names.
+Verified helix codebase - no code assumes numbered names are actual directories (not symlinks):
+- Prompts use `/home/retro/work/helix-specs/`
+- `sample_project_code_service.go` clones as `helix`, `zed`, `qwen-code`
+- `helix-dev-setup.sh` uses canonical names
+- `stack` script uses `$PROJECTS_ROOT/zed`, `$PROJECTS_ROOT/qwen-code`
