@@ -244,6 +244,12 @@ func (c *Client) ForkRepository(ctx context.Context, owner, repo, organization s
 		}
 	}
 
+	// Ensure we have valid repo data - this can happen if GitHub returns 202
+	// but the response body doesn't contain the forked repo details
+	if forkedRepo == nil {
+		return nil, fmt.Errorf("fork request accepted but no repository data returned for %s/%s", owner, repo)
+	}
+
 	return forkedRepo, nil
 }
 
