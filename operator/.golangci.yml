@@ -12,7 +12,6 @@ linters:
     - ginkgolinter
     - goconst
     - gocyclo
-    - gosimple
     - govet
     - ineffassign
     - lll
