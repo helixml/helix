@@ -1223,14 +1223,15 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		return
 	}
 
-	// Find task directory in the pushed branch
-	taskDir, err := gitRepo.FindTaskDirInBranch(branch, task.DesignDocPath, specTaskID)
+	// Find task directory in helix-specs branch (design docs are always stored there)
+	// Note: branch parameter is the pushed branch, but design docs live in helix-specs
+	taskDir, err := gitRepo.FindTaskDirInBranch(SpecsBranchName, task.DesignDocPath, specTaskID)
 	if err != nil {
-		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("branch", branch).Msg("Task directory not found in branch")
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("branch", SpecsBranchName).Msg("Task directory not found in helix-specs branch")
 		return
 	}
 
-	// Read design docs from the task directory
+	// Read design docs from the task directory in helix-specs
 	docContents := make(map[string]string)
 	docTypes := map[string]string{
 		"requirements":        "requirements.md",
@@ -1240,7 +1241,7 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 
 	for docType, filename := range docTypes {
 		filePath := taskDir + "/" + filename
-		content, err := gitRepo.ReadFileFromBranch(branch, filePath)
+		content, err := gitRepo.ReadFileFromBranch(SpecsBranchName, filePath)
 		if err == nil {
 			docContents[docType] = string(content)
 		}
