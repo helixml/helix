@@ -143,6 +143,9 @@ func TestSanitizeForBranchName(t *testing.T) {
 		{"UPPERCASE TEXT", "uppercase-text"},
 		{"Multiple   Spaces", "multiple-spaces"},
 		{"Special!@#$%Characters", "specialcharacters"},
+		{"Task with\nnewline", "task-with-newline"},                          // Newlines become hyphens
+		{"Task with\ttab", "task-with-tab"},                                  // Tabs become hyphens
+		{"Connect to Azure DevOps\n^ in dialog", "connect-to-azure-devops"}, // Regression test
 	}
 
 	for _, tt := range tests {
