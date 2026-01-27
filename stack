@@ -13,6 +13,202 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
+# Helix-in-Helix mode detection
+# When running inside a Helix desktop with privileged mode, we have access to the host Docker
+# In this mode:
+# - Control plane (api, postgres, frontend) runs on inner Docker (Hydra's DinD)
+# - Sandbox runs on host Docker (because DinD-in-DinD-in-DinD doesn't work)
+export HELIX_IN_HELIX=${HELIX_IN_HELIX:=""}
+export DOCKER_HOST_INNER=${DOCKER_HOST_INNER:=""}
+export DOCKER_HOST_OUTER=${DOCKER_HOST_OUTER:=""}
+
+# Detect Helix-in-Helix mode by checking for host Docker socket
+function detect_helix_in_helix() {
+  # Allow manual override
+  if [[ -n "$HELIX_IN_HELIX" ]]; then
+    if [[ "$HELIX_IN_HELIX" == "true" || "$HELIX_IN_HELIX" == "1" ]]; then
+      echo "🔄 Helix-in-Helix mode enabled (via environment variable)"
+      export HELIX_IN_HELIX="true"
+    else
+      echo "🔄 Helix-in-Helix mode disabled (via environment variable)"
+      export HELIX_IN_HELIX="false"
+      return
+    fi
+  elif [ -S /var/run/host-docker.sock ]; then
+    # Auto-detect: host Docker socket available = we're inside a Helix desktop
+    echo "🔄 Helix-in-Helix mode detected (host Docker socket available)"
+    export HELIX_IN_HELIX="true"
+  else
+    export HELIX_IN_HELIX="false"
+    return
+  fi
+
+  # Set up Docker endpoints for Helix-in-Helix mode
+  export DOCKER_HOST_INNER="unix:///var/run/docker.sock"
+  export DOCKER_HOST_OUTER="unix:///var/run/host-docker.sock"
+
+  echo "  📦 Inner Docker (control plane): $DOCKER_HOST_INNER"
+  echo "  📦 Outer Docker (sandbox): $DOCKER_HOST_OUTER"
+}
+
+# Start sandbox on host Docker for Helix-in-Helix mode
+# The sandbox can't run inside Hydra's DinD (DinD-in-DinD-in-DinD doesn't work)
+# It must run on host Docker and connect via the EXPOSED inner API URL
+#
+# Network architecture:
+#   Inner Sandbox (host Docker) → Exposed URL → Outer Helix API → RevDial →
+#   → Hydra proxy → Inner API (Hydra's DinD)
+#
+# The inner API's container IP is NOT reachable from host Docker because it's
+# inside Hydra's DinD (different network namespace). We must use port exposure.
+function start_outer_sandbox() {
+  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
+    return
+  fi
+
+  echo ""
+  echo "🔄 Helix-in-Helix: Starting sandbox on host Docker..."
+
+  local SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
+
+  # Check if sandbox is already running on host Docker
+  if DOCKER_HOST="$DOCKER_HOST_OUTER" docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_NAME}$"; then
+    echo "  ✅ Sandbox already running on host Docker: $SANDBOX_NAME"
+    return
+  fi
+
+  # Check if sandbox image exists on host Docker
+  if ! DOCKER_HOST="$DOCKER_HOST_OUTER" docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "helix-sandbox:"; then
+    echo "  ⚠️  helix-sandbox image not found on host Docker"
+    echo "     Transfer with: docker save helix-sandbox:latest | docker -H $DOCKER_HOST_OUTER load"
+    echo ""
+    return
+  fi
+
+  # Expose the inner API through the outer Helix
+  # The desktop container should have HELIX_API_URL, HELIX_SESSION_ID, and USER_API_TOKEN set
+  local OUTER_API_URL="${HELIX_API_URL:-}"
+  local OUTER_SESSION_ID="${HELIX_SESSION_ID:-}"
+  local OUTER_API_TOKEN="${USER_API_TOKEN:-${HELIX_API_KEY:-}}"
+
+  if [[ -z "$OUTER_API_URL" || -z "$OUTER_SESSION_ID" || -z "$OUTER_API_TOKEN" ]]; then
+    echo "  ⚠️  Cannot auto-expose inner API (missing outer Helix context)"
+    echo "     HELIX_API_URL=$OUTER_API_URL"
+    echo "     HELIX_SESSION_ID=$OUTER_SESSION_ID"
+    echo "     USER_API_TOKEN=${OUTER_API_TOKEN:+<set>}"
+    echo ""
+    echo "  Manual steps required:"
+    echo "  1. Expose inner API: curl -X POST \"\$HELIX_API_URL/api/v1/sessions/\$HELIX_SESSION_ID/expose\" ..."
+    echo "  2. Start sandbox with exposed URL"
+    echo ""
+    return
+  fi
+
+  # Wait for inner API to be ready
+  echo "  ⏳ Waiting for inner API to start..."
+  local INNER_API_CONTAINER=""
+  local wait_count=0
+  while [[ -z "$INNER_API_CONTAINER" && $wait_count -lt 60 ]]; do
+    INNER_API_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E "^helix.*api" | head -1 || echo "")
+    if [[ -z "$INNER_API_CONTAINER" ]]; then
+      sleep 1
+      wait_count=$((wait_count + 1))
+    fi
+  done
+
+  if [[ -z "$INNER_API_CONTAINER" ]]; then
+    echo "  ⚠️  Inner API container not found after 60s"
+    echo "     Start sandbox manually once API is up"
+    return
+  fi
+
+  # Get the inner API container's IP on the docker network
+  local INNER_API_IP
+  INNER_API_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$INNER_API_CONTAINER" 2>/dev/null || echo "")
+
+  if [[ -z "$INNER_API_IP" ]]; then
+    echo "  ⚠️  Could not get inner API container IP"
+    return
+  fi
+
+  # Set up port forwarding from desktop localhost:8080 to inner API
+  # This is needed because the inner API is inside Hydra's DinD network
+  echo "  🔌 Setting up port forward: localhost:8080 → ${INNER_API_CONTAINER}:8080"
+
+  # Kill any existing socat on port 8080
+  pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
+
+  # Start socat in background to forward port 8080
+  if command -v socat &>/dev/null; then
+    nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:${INNER_API_IP}:8080 >/dev/null 2>&1 &
+    echo "  ✅ Port forward established via socat"
+  else
+    echo "  ⚠️  socat not found - port forwarding may not work"
+    echo "     Install with: apt-get install socat"
+  fi
+
+  # Expose port 8080 (inner API) through outer Helix
+  echo "  📡 Exposing inner API through outer Helix..."
+  local EXPOSE_RESPONSE
+  EXPOSE_RESPONSE=$(curl -s -X POST "${OUTER_API_URL}/api/v1/sessions/${OUTER_SESSION_ID}/expose" \
+    -H "Authorization: Bearer ${OUTER_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"port": 8080, "protocol": "http", "name": "inner-api"}' 2>/dev/null || echo "")
+
+  if [[ -z "$EXPOSE_RESPONSE" ]]; then
+    echo "  ❌ Failed to expose inner API (no response from outer Helix)"
+    return
+  fi
+
+  # Extract the proxy URL from the response
+  # Response format: {"urls":["http://..."],...}
+  local INNER_API_URL
+  INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | grep -o '"urls":\s*\[[^]]*\]' | grep -o 'http://[^"]*' | head -1 || echo "")
+
+  if [[ -z "$INNER_API_URL" ]]; then
+    echo "  ❌ Failed to parse exposed URL from response"
+    echo "     Response: $EXPOSE_RESPONSE"
+    return
+  fi
+
+  echo "  ✅ Inner API exposed at: $INNER_API_URL"
+
+  # Remove any stopped container with the same name
+  DOCKER_HOST="$DOCKER_HOST_OUTER" docker rm -f "$SANDBOX_NAME" 2>/dev/null || true
+
+  # Determine GPU runtime for host Docker
+  local GPU_ARGS=""
+  if DOCKER_HOST="$DOCKER_HOST_OUTER" docker info 2>/dev/null | grep -q "nvidia"; then
+    GPU_ARGS="--runtime=nvidia --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
+    echo "  🎮 Using NVIDIA GPU runtime"
+  fi
+
+  # Start sandbox on host Docker
+  echo "  🚀 Starting sandbox: $SANDBOX_NAME"
+  # shellcheck disable=SC2086
+  DOCKER_HOST="$DOCKER_HOST_OUTER" docker run -d \
+    --name "$SANDBOX_NAME" \
+    --privileged \
+    $GPU_ARGS \
+    -e HELIX_API_URL="$INNER_API_URL" \
+    -e HELIX_API_BASE_URL="$INNER_API_URL" \
+    -e RUNNER_TOKEN="oh-hallo-insecure-token" \
+    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
+    -e HYDRA_ENABLED=true \
+    -e GPU_VENDOR="${GPU_VENDOR:-nvidia}" \
+    helix-sandbox:latest
+
+  if [[ $? -eq 0 ]]; then
+    echo "  ✅ Sandbox started on host Docker"
+    echo ""
+    echo "  View logs: DOCKER_HOST=$DOCKER_HOST_OUTER docker logs -f $SANDBOX_NAME"
+  else
+    echo "  ❌ Failed to start sandbox"
+    echo "     Check: DOCKER_HOST=$DOCKER_HOST_OUTER docker logs $SANDBOX_NAME"
+  fi
+  echo ""
+}
+
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
@@ -115,7 +311,19 @@ function get_sandbox_names() {
 
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
+# In Helix-in-Helix mode, sandbox is started separately on host Docker, not via compose profiles
 function setup_sandbox_profile() {
+  # In Helix-in-Helix mode, skip sandbox profile setup entirely
+  # Sandbox will be started separately on host Docker
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    echo "🎮 Helix-in-Helix mode: Sandbox will run on host Docker (not via compose profiles)"
+    # Still set the sandbox names for reference
+    get_sandbox_names
+    # Clear any sandbox-related profiles to ensure sandbox doesn't start on inner Docker
+    export COMPOSE_PROFILES=""
+    return
+  fi
+
   # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
   # (empty string triggers auto-detection, non-empty respects user's choice)
   local env_was_set=""
@@ -513,12 +721,16 @@ function start() {
   # Configure host networking for Docker-in-Docker
   setup_dev_networking
 
+  # Detect if we're running in Helix-in-Helix mode
+  detect_helix_in_helix
+
   echo "🐳 Starting docker compose"
 
   # Setup runner profiles first
   setup_runner_profile
 
   # Setup sandbox profile based on GPU detection
+  # (in Helix-in-Helix mode, this skips sandbox profile and we start it on host Docker later)
   setup_sandbox_profile
 
   # Stop sandbox if running to ensure fresh start
@@ -568,6 +780,10 @@ function start() {
     fi
   fi
 
+  # In Helix-in-Helix mode, start sandbox on host Docker
+  # This is done after the API is up so the sandbox can connect via RevDial
+  start_outer_sandbox
+
   echo "📺 Creating tmux session $TMUX_SESSION with 3x2 grid layout + full-width hacking terminal..."
   tmux -2 new-session -d -s "$TMUX_SESSION"
 
@@ -603,11 +819,22 @@ function start() {
   tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
   tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
+  # Determine sandbox logs command based on Helix-in-Helix mode
+  local SANDBOX_LOGS_CMD
+  local SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, sandbox runs on host Docker
+    SANDBOX_LOGS_CMD="DOCKER_HOST=$DOCKER_HOST_OUTER docker logs -f $SANDBOX_NAME"
+  else
+    # Normal mode - sandbox runs via docker compose
+    SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
+  fi
+
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
     # WITH_RUNNER mode: Sandbox logs in pane 3
     tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
-    tmux send-keys -t "$TMUX_SESSION:0.3" "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
+    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
     if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
@@ -624,7 +851,7 @@ function start() {
   else
     # WITHOUT_RUNNER mode: Sandbox logs
     tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
-    tmux send-keys -t "$TMUX_SESSION:0.3" "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
+    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
 
     # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
     if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
