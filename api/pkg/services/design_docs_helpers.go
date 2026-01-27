@@ -25,8 +25,12 @@ func sanitizeForBranchName(taskName string) string {
 	// Convert to lowercase
 	name := strings.ToLower(taskName)
 
-	// Remove special characters except hyphens and alphanumeric
-	reg := regexp.MustCompile(`[^a-z0-9-\s]`)
+	// Replace all whitespace (including newlines, tabs) with spaces first
+	reg := regexp.MustCompile(`\s+`)
+	name = reg.ReplaceAllString(name, " ")
+
+	// Remove special characters except hyphens, spaces, and alphanumeric
+	reg = regexp.MustCompile(`[^a-z0-9- ]`)
 	name = reg.ReplaceAllString(name, "")
 
 	// Replace spaces with hyphens
