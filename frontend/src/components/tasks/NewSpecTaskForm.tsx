@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Box,
   Button,
@@ -75,6 +75,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const apps = useApps()
+  const queryClient = useQueryClient()
 
   // Fetch project data
   const { data: project } = useGetProject(projectId, !!projectId)
@@ -318,6 +319,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
       if (response.data) {
         snackbar.success('SpecTask created! Planning agent will generate specifications.')
+        // Invalidate task list to update kanban board immediately
+        queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
         resetForm()
         onTaskCreated(response.data)
       }
