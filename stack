@@ -173,38 +173,36 @@ function start_outer_sandbox() {
 
   echo "  ✅ Inner API exposed at: $INNER_API_URL"
 
-  # Remove any stopped container with the same name
-  DOCKER_HOST="$DOCKER_HOST_OUTER" docker rm -f "$SANDBOX_NAME" 2>/dev/null || true
-
-  # Determine GPU runtime for host Docker
-  local GPU_ARGS=""
+  # Detect GPU type on host Docker and set appropriate profile
+  local OUTER_PROFILE=""
   if DOCKER_HOST="$DOCKER_HOST_OUTER" docker info 2>/dev/null | grep -q "nvidia"; then
-    GPU_ARGS="--runtime=nvidia --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
-    echo "  🎮 Using NVIDIA GPU runtime"
+    OUTER_PROFILE="code-nvidia"
+    echo "  🎮 NVIDIA GPU detected on host Docker"
+  elif DOCKER_HOST="$DOCKER_HOST_OUTER" docker info 2>/dev/null | grep -qE "amdgpu|intel"; then
+    OUTER_PROFILE="code-amd-intel"
+    echo "  🎮 AMD/Intel GPU detected on host Docker"
+  else
+    OUTER_PROFILE="code-nvidia"
+    echo "  🎮 No GPU detected, defaulting to code-nvidia profile"
   fi
 
-  # Start sandbox on host Docker
-  echo "  🚀 Starting sandbox: $SANDBOX_NAME"
-  # shellcheck disable=SC2086
-  DOCKER_HOST="$DOCKER_HOST_OUTER" docker run -d \
-    --name "$SANDBOX_NAME" \
-    --privileged \
-    $GPU_ARGS \
-    -e HELIX_API_URL="$INNER_API_URL" \
-    -e HELIX_API_BASE_URL="$INNER_API_URL" \
-    -e RUNNER_TOKEN="oh-hallo-insecure-token" \
-    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
-    -e HYDRA_ENABLED=true \
-    -e GPU_VENDOR="${GPU_VENDOR:-nvidia}" \
-    helix-sandbox:latest
+  # Start sandbox via docker-compose on host Docker
+  # Override HELIX_API_URL to point to the exposed inner API
+  echo "  🚀 Starting sandbox via docker-compose (profile: $OUTER_PROFILE)..."
+
+  DOCKER_HOST="$DOCKER_HOST_OUTER" \
+  COMPOSE_PROFILES="$OUTER_PROFILE" \
+  HELIX_API_URL="$INNER_API_URL" \
+  HELIX_API_BASE_URL="$INNER_API_URL" \
+  docker compose -f docker-compose.dev.yaml up -d
 
   if [[ $? -eq 0 ]]; then
     echo "  ✅ Sandbox started on host Docker"
     echo ""
-    echo "  View logs: DOCKER_HOST=$DOCKER_HOST_OUTER docker logs -f $SANDBOX_NAME"
+    echo "  View logs: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs -f"
   else
     echo "  ❌ Failed to start sandbox"
-    echo "     Check: DOCKER_HOST=$DOCKER_HOST_OUTER docker logs $SANDBOX_NAME"
+    echo "     Check: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs"
   fi
   echo ""
 }
@@ -821,10 +819,9 @@ function start() {
 
   # Determine sandbox logs command based on Helix-in-Helix mode
   local SANDBOX_LOGS_CMD
-  local SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, sandbox runs on host Docker
-    SANDBOX_LOGS_CMD="DOCKER_HOST=$DOCKER_HOST_OUTER docker logs -f $SANDBOX_NAME"
+    # In Helix-in-Helix mode, sandbox runs on host Docker via docker-compose
+    SANDBOX_LOGS_CMD="DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs -f"
   else
     # Normal mode - sandbox runs via docker compose
     SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
