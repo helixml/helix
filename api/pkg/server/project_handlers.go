@@ -1036,7 +1036,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		// - If we have container ID, check if it still exists
 		needsRestart := containerID == ""
 		if containerID != "" && sandboxID != "" {
-			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), containerID, sandboxID)
+			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), existingSession.ID, sandboxID)
 			if checkErr != nil {
 				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status, assuming restart needed")
 				needsRestart = true
