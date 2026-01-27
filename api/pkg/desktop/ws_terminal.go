@@ -284,6 +284,13 @@ func (s *Server) handleClaudePrompt(w http.ResponseWriter, r *http.Request) {
 // Protocol:
 // - GET request with Accept: text/event-stream
 // - Streams SSE events with type "interaction" and JSON data
+// - Each event includes helixSessionId for correlation with Helix sessions
+//
+// Session Mapping:
+// Claude's sessionId (in the JSONL) is Claude's own UUID. We enrich each
+// interaction with helixSessionId so the Helix API can store the mapping.
+// To support session resume, the API should save the Claude sessionId from
+// the first interaction and pass it back via HELIX_CLAUDE_SESSION_ID env var.
 func (s *Server) handleClaudeInteractions(w http.ResponseWriter, r *http.Request) {
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -361,7 +368,16 @@ func (s *Server) handleClaudeInteractions(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 
 		case interaction := <-interactionCh:
-			data, err := json.Marshal(interaction)
+			// Add Helix session ID to the interaction for correlation
+			// This allows Helix to map Claude sessions to Helix sessions
+			enrichedInteraction := struct {
+				*ClaudeInteraction
+				HelixSessionID string `json:"helixSessionId,omitempty"`
+			}{
+				ClaudeInteraction: interaction,
+				HelixSessionID:    s.config.SessionID,
+			}
+			data, err := json.Marshal(enrichedInteraction)
 			if err != nil {
 				s.logger.Warn("failed to marshal interaction", "error", err)
 				continue
