@@ -160,7 +160,17 @@ func (b *ClaudeCodeBridge) Start() error {
 			case <-time.After(time.Second):
 			}
 		}
-		log.Warn().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Timeout waiting for Claude Code tmux session")
+
+		// CRITICAL: Signal agent ready even on timeout to prevent frontend from hanging
+		// The tmux session may still become available later, and sending messages will
+		// fail gracefully if it's not. Better to be in degraded state than hang forever.
+		log.Warn().Str("session_id", b.sessionID).Msg("[ClaudeCodeBridge] Timeout waiting for Claude Code tmux session, signaling ready anyway")
+		if b.onAgentReady != nil {
+			b.onAgentReady()
+		}
+		if b.onError != nil {
+			b.onError(fmt.Errorf("tmux session %s not ready after 60s timeout", b.tmuxSession))
+		}
 	}()
 
 	return nil

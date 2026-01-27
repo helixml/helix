@@ -470,6 +470,15 @@ func (c *AgentClient) sendMessageAdded(content string, isComplete bool) {
 	requestID := c.currentRequestID
 	c.requestMu.RUnlock()
 
+	// If no request_id, this might be from a continued session or unsolicited response
+	// Log a warning but still send - the API will handle the missing request_id gracefully
+	if requestID == "" {
+		log.Warn().
+			Str("session_id", c.sessionID).
+			Int("content_len", len(content)).
+			Msg("[AgentClient] Sending chat_response with empty request_id (possibly from continued session)")
+	}
+
 	// Use chat_response for proper routing via request_id
 	// This works uniformly for all agent types (Roo Code, Claude Code)
 	// Note: handleChatResponse already sends to doneChan, so no separate done event needed

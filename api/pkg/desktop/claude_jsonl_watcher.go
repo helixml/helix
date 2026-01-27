@@ -131,6 +131,10 @@ func (w *ClaudeJSONLWatcher) Start() error {
 		log.Warn().Err(err).Str("path", w.projectDir).Msg("[ClaudeJSONL] Failed to create project dir")
 	}
 
+	// CRITICAL: Initialize file positions to current sizes to avoid replaying old interactions
+	// This prevents spurious responses on restart/reconnection
+	w.initializeFilePositions()
+
 	// Watch the project directory
 	if err := watcher.Add(w.projectDir); err != nil {
 		log.Warn().Err(err).Str("path", w.projectDir).Msg("[ClaudeJSONL] Failed to watch project dir")
@@ -145,6 +149,38 @@ func (w *ClaudeJSONLWatcher) Start() error {
 	go w.watchLoop()
 
 	return nil
+}
+
+// initializeFilePositions sets initial positions to end of existing files
+// This prevents replaying old interactions on startup
+func (w *ClaudeJSONLWatcher) initializeFilePositions() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	entries, err := os.ReadDir(w.projectDir)
+	if err != nil {
+		log.Debug().Err(err).Str("path", w.projectDir).Msg("[ClaudeJSONL] Could not read project dir for initialization")
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		path := filepath.Join(w.projectDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Set position to end of file so we only see NEW lines
+		w.filePositions[path] = info.Size()
+		log.Debug().
+			Str("file", entry.Name()).
+			Int64("size", info.Size()).
+			Msg("[ClaudeJSONL] Initialized file position to skip existing content")
+	}
 }
 
 // watchLoop is the main event loop for file watching
