@@ -573,8 +573,8 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	fw := newFlushingWriter(w)
 
 	// Run git receive-pack with stdin/stdout piped to HTTP
-	// Note: Non-fast-forward pushes are rejected by git's receive.denyNonFastForwards config
-	// which is set on all repos at startup (see EnsureNonFastForwardDenied)
+	// Note: We sync from upstream before receive-pack (above), so the agent's push
+	// should be fast-forward. Non-fast-forward pushes will be rejected by git.
 	err = cmd.Run(r.Context(), &gitcmd.RunOpts{
 		Dir:    repoPath,
 		Env:    environ,
