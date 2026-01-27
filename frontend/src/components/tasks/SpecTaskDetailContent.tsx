@@ -1067,6 +1067,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             </IconButton>
                           </Tooltip>
                         )}
+                        {task.clone_group_id && (
+                          <Tooltip title="View batch clone progress">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                              sx={{ color: 'primary.main' }}
+                            >
+                              <Wand2 size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <Tooltip title="Restart agent session">
                           <IconButton
                             size="small"
@@ -1296,6 +1307,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton size="small" onClick={() => setShowCloneDialog(true)}>
+                          <Wand2 size={18} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.clone_group_id && (
+                      <Tooltip title="View batch clone progress">
+                        <IconButton
+                          size="small"
+                          onClick={() => setSelectedCloneGroupId(task.clone_group_id || null)}
+                          sx={{ color: 'primary.main' }}
+                        >
                           <Wand2 size={18} />
                         </IconButton>
                       </Tooltip>
