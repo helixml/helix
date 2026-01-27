@@ -115,7 +115,9 @@ steps:
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev git
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
       - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
@@ -178,7 +180,9 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev git
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
       - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
@@ -397,6 +401,9 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
+      - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x scripts/run-oauth-integration-test.sh
       - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
     when:
