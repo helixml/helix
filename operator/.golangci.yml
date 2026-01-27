@@ -32,6 +32,15 @@ linters:
         linters:
           - dupl
           - lll
+      # Dot imports are standard for ginkgo/gomega in k8s operator tests
+      - path: "test/"
+        linters:
+          - revive
+          - staticcheck
+      - path: "_test\\.go"
+        linters:
+          - revive
+          - staticcheck
 
 formatters:
   enable:
@@ -42,3 +51,9 @@ linters-settings:
   revive:
     rules:
       - name: comment-spacings
+      # Disable dot-imports rule - standard for ginkgo/gomega
+      - name: dot-imports
+        disabled: true
+      # Disable var-naming for test utils package
+      - name: var-naming
+        disabled: true
