@@ -4,9 +4,10 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/helixml/helix/api/pkg/client"
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func init() {
@@ -34,23 +35,7 @@ var lsCmd = &cobra.Command{
 			return err
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"Created", "Name", "Size"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"Created", "Name", "Size"})
 
 		for _, file := range files {
 			row := []string{
@@ -59,10 +44,10 @@ var lsCmd = &cobra.Command{
 				humanize.Bytes(uint64(file.Size)),
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

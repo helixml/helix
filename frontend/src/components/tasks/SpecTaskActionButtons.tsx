@@ -187,7 +187,7 @@ export default function SpecTaskActionButtons({
                 sx={buttonSx}
               >
                 {approveImplementationMutation.isPending
-                  ? (isDirectPush ? 'Accepting...' : 'Opening PR...')
+                  ? (isDirectPush ? 'Merging...' : 'Opening PR...')
                   : (isDirectPush ? 'Accept' : 'Open PR')}
               </Button>
             </span>

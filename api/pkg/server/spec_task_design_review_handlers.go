@@ -120,7 +120,7 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
 				// Create review from git asynchronously (don't block response)
-				go s.backfillDesignReviewFromGit(context.Background(), specTaskID, repo.LocalPath)
+				go s.backfillDesignReviewFromGit(context.Background(), specTaskID, repo)
 			}
 		}
 	}
@@ -1027,10 +1027,20 @@ func (s *HelixAPIServer) linkAgentResponseToCommentByRequestID(
 
 // backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch
 // Used for self-healing when a task is in spec_review but has no review record
-func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTaskID, repoPath string) {
+func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTaskID string, repo *types.GitRepository) {
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Msg("Backfilling design review from git")
+
+	// Sync from upstream first for external repos
+	if err := s.gitRepositoryService.WithExternalRepoRead(ctx, repo, func() error { return nil }); err != nil {
+		log.Warn().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to sync from upstream before backfill - continuing with local data")
+	}
+
+	repoPath := repo.LocalPath
 
 	// Get task to find DesignDocPath for directory lookup
 	task, err := s.Store.GetSpecTask(ctx, specTaskID)

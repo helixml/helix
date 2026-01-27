@@ -354,14 +354,11 @@ func NewServer(
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
 		apiServer.gitRepositoryService,
-		gitHTTPConfig,
+		*gitHTTPConfig, // Dereference the pointer
 		apiServer.authorizeUserToResource,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server (go-git implementation)")
-
-	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
-	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
+	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
 
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -999,6 +996,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Sample project routes (simple in-memory)
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sample-projects/simple/check-access", system.Wrapper(apiServer.checkSampleProjectAccess)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sample-projects/simple/fork-repos", system.Wrapper(apiServer.forkSampleProjectRepositories)).Methods(http.MethodPost)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)

@@ -201,6 +201,18 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 		log.Debug().Str("redirect_url", redirectURL).Msg("Using provided redirect URL")
 	}
 
+	// Get optional scopes - consumer specifies exactly what scopes they need
+	// Scopes should be provided by the caller (from skill YAML, app config, etc.)
+	scopesParam := r.URL.Query().Get("scopes")
+	var scopes []string
+	if scopesParam != "" {
+		scopes = strings.Split(scopesParam, ",")
+		for i, s := range scopes {
+			scopes[i] = strings.TrimSpace(s)
+		}
+		log.Debug().Strs("scopes", scopes).Msg("Using consumer-specified scopes")
+	}
+
 	// Get optional metadata for provider-specific data (e.g., organization_url for Azure DevOps)
 	organizationURL := r.URL.Query().Get("organization_url")
 	var metadata string
@@ -212,7 +224,7 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 	}
 
 	// Start the OAuth flow
-	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL, metadata)
+	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL, metadata, scopes)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", user.ID).Msg("Failed to start OAuth flow")
 		return nil, fmt.Errorf("error starting OAuth flow: %w", err)

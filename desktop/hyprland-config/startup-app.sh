@@ -165,7 +165,7 @@ dwindle {
 windowrulev2 = workspace 1, class:^(dev.zed.Zed-Dev)$
 windowrulev2 = workspace 2, class:^(kitty)$
 windowrulev2 = workspace 2, class:^(ghostty)$
-windowrulev2 = workspace 3, class:^(firefox)$
+windowrulev2 = workspace 3, class:^(Google-chrome)$
 
 # Keybindings (Alt as modifier)
 \$mod = ALT
@@ -177,7 +177,7 @@ bind = \$mod SHIFT, E, exit
 bind = \$mod, V, togglefloating
 bind = \$mod, D, exec, fuzzel
 bind = \$mod, F, fullscreen
-bind = \$mod SHIFT, F, exec, firefox
+bind = \$mod SHIFT, F, exec, google-chrome-stable
 
 # Workspace switching
 bind = \$mod, 1, workspace, 1

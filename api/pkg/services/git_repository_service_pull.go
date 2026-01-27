@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/config"
-	"github.com/go-git/go-git/v6/plumbing"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -36,6 +35,8 @@ func (e *BranchDivergenceError) Error() string {
 // 4. If diverged: returns BranchDivergenceError with details
 //
 // If branchName is empty, uses the repository's DefaultBranch.
+//
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branchName string) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -60,43 +61,35 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		return fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open bare repository: %w", err)
-	}
-
-	auth := s.GetAuthConfig(gitRepo)
+	// Build authenticated URL for fetch
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
 	// First, fetch the branch to a remote-tracking ref for comparison
 	// Use refs/remotes/origin/<branch> so we can compare before updating local
-	fetchRefSpec := config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName))
-	fetchOpts := &git.FetchOptions{
-		RemoteName: "origin",
-		RefSpecs:   []config.RefSpec{fetchRefSpec},
-		Force:      true, // Always update remote-tracking ref
-	}
-	if auth != nil {
-		fetchOpts.Auth = auth
-	}
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
 		Msg("Fetching base branch from upstream for sync check")
 
-	err = repo.Fetch(fetchOpts)
-	if err != nil && err != git.NoErrAlreadyUpToDate {
+	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		Remote:   fetchURL, // Use URL directly instead of remote name
+		RefSpecs: []string{refSpec},
+		Force:    true, // Always update remote-tracking ref
+		Timeout:  5 * time.Minute,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
 	log.Debug().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Bool("already_up_to_date", err == git.NoErrAlreadyUpToDate).
 		Msg("Fetch completed for base branch sync")
 
-	// Get local branch ref
-	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	// Get local branch commit
+	localCommit, err := GetBranchCommitID(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
 		// Local branch doesn't exist - this is OK, we'll create it
 		log.Info().
@@ -104,36 +97,34 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 			Str("branch", branchName).
 			Msg("Local branch doesn't exist, will create from upstream")
 
-		// Get remote ref and create local branch pointing to same commit
-		remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
+		// Get remote ref commit
+		remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to get remote branch reference: %w", err)
 		}
 
-		// Create local branch
-		newLocalRef := plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), remoteRef.Hash())
-		if err := repo.Storer.SetReference(newLocalRef); err != nil {
+		// Create local branch pointing to same commit
+		err = CreateBranchFromRef(ctx, gitRepo.LocalPath, branchName, remoteCommit)
+		if err != nil {
 			return fmt.Errorf("failed to create local branch: %w", err)
 		}
 
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
-			Str("commit", remoteRef.Hash().String()[:8]).
+			Str("commit", ShortHash(remoteCommit)).
 			Msg("Created local branch from upstream")
 		return nil
 	}
-	localHash := localRef.Hash()
 
-	// Get remote ref
-	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
+	// Get remote ref commit
+	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
-	remoteHash := remoteRef.Hash()
 
 	// If they're the same, nothing to do
-	if localHash == remoteHash {
+	if localCommit == remoteCommit {
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
@@ -141,8 +132,8 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		return nil
 	}
 
-	// Check for divergence using the existing helper
-	ahead, behind, err := s.countCommitsDiff(repo, localHash, remoteHash)
+	// Check for divergence
+	ahead, behind, err := GetDivergence(ctx, gitRepo.LocalPath, "refs/heads/"+branchName, "refs/remotes/origin/"+branchName)
 	if err != nil {
 		return fmt.Errorf("failed to check divergence: %w", err)
 	}
@@ -152,8 +143,8 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Str("branch", branchName).
 		Int("ahead", ahead).
 		Int("behind", behind).
-		Str("local", localHash.String()[:8]).
-		Str("remote", remoteHash.String()[:8]).
+		Str("local", ShortHash(localCommit)).
+		Str("remote", ShortHash(remoteCommit)).
 		Msg("Comparing local and upstream branches")
 
 	// If local has commits not in remote, we have divergence
@@ -162,15 +153,15 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 			BranchName:   branchName,
 			LocalAhead:   ahead,
 			LocalBehind:  behind,
-			LocalCommit:  localHash.String(),
-			RemoteCommit: remoteHash.String(),
+			LocalCommit:  localCommit,
+			RemoteCommit: remoteCommit,
 		}
 	}
 
 	// Fast-forward: local is behind, no local-only commits
 	// Update local branch to point to remote commit
-	newLocalRef := plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), remoteHash)
-	if err := repo.Storer.SetReference(newLocalRef); err != nil {
+	err = updateBranchRef(ctx, gitRepo.LocalPath, branchName, remoteCommit)
+	if err != nil {
 		return fmt.Errorf("failed to fast-forward local branch: %w", err)
 	}
 
@@ -178,10 +169,37 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
 		Int("commits_synced", behind).
-		Str("old_commit", localHash.String()[:8]).
-		Str("new_commit", remoteHash.String()[:8]).
+		Str("old_commit", ShortHash(localCommit)).
+		Str("new_commit", ShortHash(remoteCommit)).
 		Msg("Fast-forwarded base branch to upstream")
 
+	return nil
+}
+
+// getRemoteTrackingCommit gets the commit ID for a remote-tracking ref
+func getRemoteTrackingCommit(ctx context.Context, repoPath, branchName string) (string, error) {
+	// Use gitea's high-level API to get the ref commit ID
+	repo, err := giteagit.OpenRepository(ctx, repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+	defer repo.Close()
+
+	commitID, err := repo.GetRefCommitID("refs/remotes/origin/" + branchName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get remote tracking commit: %w", err)
+	}
+	return commitID, nil
+}
+
+// updateBranchRef updates a branch reference to point to a new commit
+func updateBranchRef(ctx context.Context, repoPath, branchName, commitHash string) error {
+	_, stderr, err := gitcmd.NewCommand("update-ref").
+		AddDynamicArguments("refs/heads/"+branchName, commitHash).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return fmt.Errorf("failed to update branch ref: %w - %s", err, stderr)
+	}
 	return nil
 }
 
@@ -224,8 +242,8 @@ Upstream commit: %s`,
 		err.LocalBehind,
 		repoName,
 		err.BranchName,
-		err.LocalCommit[:8],
-		err.RemoteCommit[:8],
+		ShortHash(err.LocalCommit),
+		ShortHash(err.RemoteCommit),
 	)
 }
 
@@ -309,6 +327,8 @@ func (s *GitRepositoryService) SyncBaseBranchForTask(ctx context.Context, task *
 //
 // If branchName is empty, uses the repository's DefaultBranch.
 // If DefaultBranch is also empty, returns an error - use SyncAllBranches instead.
+//
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -333,25 +353,12 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 		return fmt.Errorf("no branch specified and repository has no default branch set - use SyncAllBranches to fetch all branches")
 	}
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open bare repository: %w", err)
-	}
+	// Build authenticated URL for fetch
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
-	auth := s.GetAuthConfig(gitRepo)
-
-	refSpec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName))
+	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)
 	if force {
-		refSpec = config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName))
-	}
-
-	fetchOpts := &git.FetchOptions{
-		RemoteName: "origin",
-		RefSpecs:   []config.RefSpec{refSpec},
-		Force:      force,
-	}
-	if auth != nil {
-		fetchOpts.Auth = auth
+		refSpec = "+" + refSpec
 	}
 
 	log.Info().
@@ -361,8 +368,13 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 		Bool("force", force).
 		Msg("Fetching changes from external repository")
 
-	err = repo.Fetch(fetchOpts)
-	if err != nil && err != git.NoErrAlreadyUpToDate {
+	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		RefSpecs: []string{refSpec},
+		Force:    force,
+		Timeout:  5 * time.Minute,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
@@ -382,6 +394,8 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 // 1. Opens the local bare repository
 // 2. Fetches ALL branches from the "origin" remote
 // 3. Updates local refs to match the remote (including new and deleted branches if prune=true)
+//
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -396,28 +410,13 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		return fmt.Errorf("external URL is not configured")
 	}
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open bare repository: %w", err)
-	}
-
-	auth := s.GetAuthConfig(gitRepo)
+	// Build authenticated URL for fetch
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
 	// Fetch ALL branches using wildcard refspec
-	refSpec := config.RefSpec("refs/heads/*:refs/heads/*")
+	refSpec := "refs/heads/*:refs/heads/*"
 	if force {
-		refSpec = config.RefSpec("+refs/heads/*:refs/heads/*")
-	}
-
-	fetchOpts := &git.FetchOptions{
-		RemoteName: "origin",
-		RefSpecs:   []config.RefSpec{refSpec},
-		Force:      force,
-		// Prune removes local branches that no longer exist on remote
-		Prune: true,
-	}
-	if auth != nil {
-		fetchOpts.Auth = auth
+		refSpec = "+" + refSpec
 	}
 
 	log.Info().
@@ -426,41 +425,46 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Bool("force", force).
 		Msg("Syncing ALL branches from external repository")
 
-	err = repo.Fetch(fetchOpts)
-	if err != nil && err != git.NoErrAlreadyUpToDate && err != git.ErrNonFastForwardUpdate {
+	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		RefSpecs: []string{refSpec},
+		Force:    force,
+		Prune:    true, // Remove local branches that no longer exist on remote
+		Timeout:  5 * time.Minute,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
-	if err == git.ErrNonFastForwardUpdate {
-		log.Warn().
-			Str("repo_id", gitRepo.ID).
-			Msg("Some refs were not updated (non-fast-forward), consider using force=true")
-	}
-
-	// Update the repository's branch list
-	refs, err := repo.References()
+	// Update the repository's branch list using gitea's git module
+	repo, err := giteagit.OpenRepository(ctx, gitRepo.LocalPath)
 	if err == nil {
-		branches := []string{}
-		refs.ForEach(func(ref *plumbing.Reference) error {
-			if ref.Name().IsBranch() {
-				branches = append(branches, ref.Name().Short())
+		defer repo.Close()
+		branches, _, err := repo.GetBranchNames(0, 0)
+		if err == nil {
+			gitRepo.Branches = branches
+			gitRepo.UpdatedAt = time.Now()
+
+			// Persist updated branch list
+			if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to update repository branch list in database")
 			}
-			return nil
-		})
-		gitRepo.Branches = branches
-		gitRepo.UpdatedAt = time.Now()
 
-		// Persist updated branch list
-		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
-			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to update repository branch list in database")
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Int("branch_count", len(branches)).
+				Strs("branches", branches).
+				Msg("Successfully synced all branches from external repository")
 		}
-
-		log.Info().
-			Str("repo_id", gitRepo.ID).
-			Int("branch_count", len(branches)).
-			Strs("branches", branches).
-			Msg("Successfully synced all branches from external repository")
 	}
 
 	return nil
+}
+
+// trimString trims whitespace from a string (helper for git command output)
+func trimString(s string) string {
+	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r' || s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
+		s = s[:len(s)-1]
+	}
+	return s
 }

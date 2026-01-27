@@ -15,7 +15,13 @@ export function useApproveImplementation(specTaskId: string) {
       return response.data
     },
     onSuccess: (response: TypesSpecTask) => {
-      if (response.pull_request_url) {
+      if (response.status === 'done') {
+        // Internal repo - merge succeeded
+        snackbar.success('Implementation approved and merged!')
+      } else if (response.status === 'implementation_review') {
+        // Merge failed - agent needs to rebase
+        snackbar.warning('Branch has diverged - agent is rebasing. Click Accept again after rebase completes.')
+      } else if (response.pull_request_url) {
         // External repo (ADO) - show link to PR
         snackbar.success(`Pull request opened! View PR: ${response.pull_request_url}`)
       } else if (response.pull_request_id) {
@@ -25,8 +31,8 @@ export function useApproveImplementation(specTaskId: string) {
         // External repo - task moved to pull_request status, waiting for agent to push
         snackbar.success('Agent will push changes to open a pull request...')
       } else {
-        // Internal repo - agent will merge
-        snackbar.success('Implementation approved! Agent will merge to your primary branch...')
+        // Fallback
+        snackbar.success('Implementation approved!')
       }
       // Invalidate queries to refetch task
       queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })

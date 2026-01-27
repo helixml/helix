@@ -109,8 +109,9 @@ services:
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
-      # Sandbox socket - API uses RevDial to communicate with sandbox
-      # (sandbox runs in separate container, socket not accessible from API)
+      # Go caches for faster air rebuilds (shared with runner config)
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
     depends_on:
       - postgres
       - postgres-mcp
@@ -281,7 +282,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -368,7 +369,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -453,7 +454,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3

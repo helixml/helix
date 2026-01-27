@@ -108,10 +108,16 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			startupScript, err := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
-			if err != nil {
+			// Sync from upstream before reading for external repos
+			var startupScript string
+			readErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+				var loadErr error
+				startupScript, loadErr = s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
+				return loadErr
+			})
+			if readErr != nil {
 				log.Warn().
-					Err(err).
+					Err(readErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")
@@ -245,16 +251,29 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 			Msg("failed to get primary repository")
 		// Don't fail project creation - startup script can be added later
 	} else if primaryRepo.LocalPath != "" {
-		err = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
-			primaryRepo.LocalPath,
-			created.Name,
-			req.StartupScript,
-			user.FullName,
-			user.Email,
+		// Use WithExternalRepoWrite with lenient options - don't fail project creation
+		// if startup script sync/push fails. The utility still handles rollback on push failure.
+		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+			r.Context(),
+			primaryRepo,
+			services.ExternalRepoWriteOptions{
+				Branch:          "helix-specs",
+				FailOnSyncError: false, // Don't fail project creation on sync error
+				FailOnPushError: false, // Don't fail project creation on push error (but still rollback)
+			},
+			func() error {
+				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+					primaryRepo.LocalPath,
+					created.Name,
+					req.StartupScript,
+					user.FullName,
+					user.Email,
+				)
+			},
 		)
-		if err != nil {
+		if writeErr != nil {
 			log.Warn().
-				Err(err).
+				Err(writeErr).
 				Str("project_id", created.ID).
 				Str("primary_repo_id", req.DefaultRepoID).
 				Msg("failed to initialize startup script in primary code repo (continuing)")
@@ -405,35 +424,48 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.StartupScript != nil && project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			if err := s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email); err != nil {
-				log.Warn().
-					Err(err).
+			var changed bool
+			writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+				r.Context(),
+				primaryRepo,
+				services.ExternalRepoWriteOptions{
+					Branch:          "helix-specs",
+					FailOnSyncError: true,
+					FailOnPushError: true,
+				},
+				func() error {
+					var saveErr error
+					changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
+						primaryRepo.LocalPath,
+						*req.StartupScript,
+						user.FullName,
+						user.Email,
+					)
+					if saveErr != nil {
+						return saveErr
+					}
+					if !changed {
+						log.Debug().
+							Str("project_id", projectID).
+							Str("primary_repo_id", project.DefaultRepoID).
+							Msg("Startup script unchanged")
+					}
+					return nil
+				},
+			)
+			if writeErr != nil {
+				log.Error().
+					Err(writeErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("failed to save startup script to helix-specs branch")
-			} else {
+					Msg("Failed to save startup script")
+				return nil, system.NewHTTPError500(fmt.Sprintf("Failed to save startup script: %s", writeErr.Error()))
+			}
+			if changed {
 				log.Info().
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("Startup script saved to helix-specs branch")
-
-				// Push helix-specs branch to external upstream (if external repo)
-				// helix-specs is PUSH-ONLY: Helix is source of truth, always push to upstream
-				if primaryRepo.IsExternal && primaryRepo.ExternalURL != "" {
-					if err := s.gitRepositoryService.PushBranchToRemote(r.Context(), primaryRepo.ID, "helix-specs", false); err != nil {
-						log.Warn().
-							Err(err).
-							Str("project_id", projectID).
-							Str("primary_repo_id", project.DefaultRepoID).
-							Str("external_url", primaryRepo.ExternalURL).
-							Msg("failed to push helix-specs to external upstream (startup script saved locally)")
-					} else {
-						log.Info().
-							Str("project_id", projectID).
-							Str("primary_repo_id", project.DefaultRepoID).
-							Msg("Startup script pushed to external upstream (helix-specs branch)")
-					}
-				}
+					Msg("Startup script saved and pushed to upstream")
 			}
 		}
 	}
@@ -1012,134 +1044,150 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	existingSession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
 	if err == nil && existingSession != nil {
 		// Session exists - check if sandbox container is still running
-		// If container stopped, restart it with fresh startup script
+		// If container stopped or never started, restart it with fresh startup script
 		containerID := existingSession.Metadata.DevContainerID
 		sandboxID := existingSession.SandboxID
+
+		// Determine if container needs restart:
+		// - No container ID means container was never started or was cleared
+		// - If we have container ID, check if it still exists
+		needsRestart := containerID == ""
 		if containerID != "" && sandboxID != "" {
-			// Check if container exists
-			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), containerID, sandboxID)
+			containerExists, checkErr := s.checkSandboxContainerExists(r.Context(), existingSession.ID, sandboxID)
 			if checkErr != nil {
-				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status")
+				log.Warn().Err(checkErr).Str("container_id", containerID).Msg("Failed to check container status, assuming restart needed")
+				needsRestart = true
+			} else if !containerExists {
+				needsRestart = true
+			}
+		} else if containerID == "" && sandboxID != "" {
+			// Container ID is empty but sandbox exists - need restart
+			needsRestart = true
+		}
+
+		if needsRestart {
+			// Container stopped or never started - restart it
+			log.Info().
+				Str("session_id", existingSession.ID).
+				Str("project_id", projectID).
+				Str("container_id", containerID).
+				Msg("Exploratory session exists but container stopped - restarting with fresh startup script")
+
+			// Get project repositories for restarting
+			projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+				ProjectID: projectID,
+			})
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
+				projectRepos = nil
 			}
 
-			if !containerExists {
-				// Container stopped - restart it
-				log.Info().
-					Str("session_id", existingSession.ID).
-					Str("project_id", projectID).
-					Str("container_id", containerID).
-					Msg("Exploratory session exists but container stopped - restarting with fresh startup script")
-
-				// Get project repositories for restarting
-				projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
-					ProjectID: projectID,
-				})
-				if err != nil {
-					log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
-					projectRepos = nil
+			// Build repository IDs
+			repositoryIDs := []string{}
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					repositoryIDs = append(repositoryIDs, repo.ID)
 				}
-
-				// Build repository IDs
-				repositoryIDs := []string{}
-				for _, repo := range projectRepos {
-					if repo.ID != "" {
-						repositoryIDs = append(repositoryIDs, repo.ID)
-					}
-				}
-
-				// Determine primary repository
-				primaryRepoID := project.DefaultRepoID
-				if primaryRepoID == "" && len(projectRepos) > 0 {
-					primaryRepoID = projectRepos[0].ID
-				}
-
-				// Get display settings from project's default agent app
-				displayWidth := 1920
-				displayHeight := 1080
-				displayRefreshRate := 60
-				resolution := ""
-				zoomLevel := 0
-				desktopType := ""
-				if project.DefaultHelixAppID != "" {
-					app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
-					if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
-						w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
-						displayWidth = w
-						displayHeight = h
-						if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
-							displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
-						}
-						// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
-						resolution = app.Config.Helix.ExternalAgentConfig.Resolution
-						zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
-						desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-						log.Debug().
-							Str("project_id", projectID).
-							Str("app_id", project.DefaultHelixAppID).
-							Int("display_width", displayWidth).
-							Int("display_height", displayHeight).
-							Int("display_refresh_rate", displayRefreshRate).
-							Str("resolution", resolution).
-							Int("zoom_level", zoomLevel).
-							Str("desktop_type", desktopType).
-							Msg("Using display settings from project's default agent for exploratory restart")
-					}
-				}
-
-				// Ensure desktopType has a sensible default (ubuntu) when not set by app config
-				// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
-				if desktopType == "" {
-					desktopType = "ubuntu"
-				}
-
-				// Restart Zed agent with existing session
-				zedAgent := &types.DesktopAgent{
-					SessionID: existingSession.ID,
-					UserID:    user.ID,
-					Input:               fmt.Sprintf("Explore the %s project", project.Name),
-					ProjectPath:         "workspace",
-					SpecTaskID:          "",
-					ProjectID:           projectID,
-					PrimaryRepositoryID: primaryRepoID,
-					RepositoryIDs:       repositoryIDs,
-					DisplayWidth:        displayWidth,
-					DisplayHeight:       displayHeight,
-					DisplayRefreshRate:  displayRefreshRate,
-					Resolution:          resolution,
-					ZoomLevel:           zoomLevel,
-					DesktopType:         desktopType,
-				}
-
-				// Add user's API token for git operations
-				if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-					log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
-					return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
-				}
-
-				agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("session_id", existingSession.ID).
-						Msg("Failed to restart exploratory session")
-					return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
-				}
-
-				log.Info().
-					Str("session_id", existingSession.ID).
-					Str("lobby_id", agentResp.DevContainerID).
-					Msg("Exploratory session lobby restarted successfully")
-
-				// Reload session from database to get updated lobby ID/PIN
-				// StartDesktop updates session metadata in DB, so we need fresh data
-				updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
-				if err != nil {
-					log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
-					return existingSession, nil // Return stale session rather than failing
-				}
-
-				return updatedSession, nil
 			}
+
+			// Determine primary repository
+			primaryRepoID := project.DefaultRepoID
+			if primaryRepoID == "" && len(projectRepos) > 0 {
+				primaryRepoID = projectRepos[0].ID
+			}
+
+			// Get display settings from project's default agent app
+			displayWidth := 1920
+			displayHeight := 1080
+			displayRefreshRate := 60
+			resolution := ""
+			zoomLevel := 0
+			desktopType := ""
+			if project.DefaultHelixAppID != "" {
+				app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+				if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+					w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+					displayWidth = w
+					displayHeight = h
+					if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+						displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+					}
+					// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+					resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+					zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+					desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+					log.Debug().
+						Str("project_id", projectID).
+						Str("app_id", project.DefaultHelixAppID).
+						Int("display_width", displayWidth).
+						Int("display_height", displayHeight).
+						Int("display_refresh_rate", displayRefreshRate).
+						Str("resolution", resolution).
+						Int("zoom_level", zoomLevel).
+						Str("desktop_type", desktopType).
+						Msg("Using display settings from project's default agent for exploratory restart")
+				}
+			}
+
+			// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+			// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+			if desktopType == "" {
+				desktopType = "ubuntu"
+			}
+
+			// Check admin access for privileged mode (UseHostDocker)
+			if project.UseHostDocker && !user.Admin {
+				return nil, system.NewHTTPError403("UseHostDocker requires admin access")
+			}
+
+			// Restart Zed agent with existing session
+			zedAgent := &types.DesktopAgent{
+				SessionID:           existingSession.ID,
+				UserID:              user.ID,
+				Input:               fmt.Sprintf("Explore the %s project", project.Name),
+				ProjectPath:         "workspace",
+				SpecTaskID:          "",
+				ProjectID:           projectID,
+				PrimaryRepositoryID: primaryRepoID,
+				RepositoryIDs:       repositoryIDs,
+				DisplayWidth:        displayWidth,
+				DisplayHeight:       displayHeight,
+				DisplayRefreshRate:  displayRefreshRate,
+				Resolution:          resolution,
+				ZoomLevel:           zoomLevel,
+				DesktopType:         desktopType,
+				UseHostDocker:       project.UseHostDocker,
+			}
+
+			// Add user's API token for git operations
+			if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
+				log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+			}
+
+			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", existingSession.ID).
+					Msg("Failed to restart exploratory session")
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
+			}
+
+			log.Info().
+				Str("session_id", existingSession.ID).
+				Str("lobby_id", agentResp.DevContainerID).
+				Msg("Exploratory session lobby restarted successfully")
+
+			// Reload session from database to get updated lobby ID/PIN
+			// StartDesktop updates session metadata in DB, so we need fresh data
+			updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
+			if err != nil {
+				log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
+				return existingSession, nil // Return stale session rather than failing
+			}
+
+			return updatedSession, nil
 		}
 
 		// Session exists and lobby is running - return as-is
@@ -1247,6 +1295,11 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		desktopType = "ubuntu"
 	}
 
+	// Check admin access for privileged mode (UseHostDocker)
+	if project.UseHostDocker && !user.Admin {
+		return nil, system.NewHTTPError403("UseHostDocker requires admin access")
+	}
+
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.DesktopAgent{
 		SessionID: createdSession.ID,
@@ -1263,6 +1316,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
+		UseHostDocker:       project.UseHostDocker,
 	}
 
 	// Add user's API token for git operations (RBAC enforced)

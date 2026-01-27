@@ -5,7 +5,11 @@ import React, {
     useMemo,
     useCallback,
     useRef,
+    useLayoutEffect,
 } from "react";
+
+// Throttle interval for scroll updates during streaming (ms)
+const SCROLL_THROTTLE_MS = 200;
 import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import { useTheme } from "@mui/material/styles";
@@ -103,10 +107,36 @@ export const InteractionLiveStream: FC<{
         onMessageChange(message);
     }, [message, onMessageChange]);
 
+    // Throttle scroll updates during streaming to reduce CPU usage
+    const scrollThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingScrollRef = useRef(false);
+
     useEffect(() => {
         if (!message || !onMessageUpdate) return;
-        onMessageUpdate();
+
+        // Throttle scroll updates
+        if (!scrollThrottleRef.current) {
+            onMessageUpdate();
+            scrollThrottleRef.current = setTimeout(() => {
+                scrollThrottleRef.current = null;
+                if (pendingScrollRef.current) {
+                    pendingScrollRef.current = false;
+                    onMessageUpdate();
+                }
+            }, SCROLL_THROTTLE_MS);
+        } else {
+            pendingScrollRef.current = true;
+        }
     }, [message, onMessageUpdate]);
+
+    // Cleanup throttle on unmount
+    useEffect(() => {
+        return () => {
+            if (scrollThrottleRef.current) {
+                clearTimeout(scrollThrottleRef.current);
+            }
+        };
+    }, []);
 
     if (!serverConfig || !serverConfig.filestore_prefix) {
         return null;
