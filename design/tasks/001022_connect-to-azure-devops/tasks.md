@@ -1,5 +1,7 @@
 # Implementation Tasks
 
+_Last updated: 2025-01-27_
+
 ## Investigation (Do First)
 
 - [ ] Open browser DevTools console before testing Azure DevOps connection
