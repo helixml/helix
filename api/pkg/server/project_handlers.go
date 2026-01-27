@@ -103,21 +103,17 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Load startup script from helix-specs branch in primary repo
-	// Startup script lives at .helix/startup.sh in the helix-specs branch
+	// Load startup script from helix-specs branch in primary repo.
+	// Startup script lives at .helix/startup.sh in the helix-specs branch.
+	// No need to sync from upstream - helix-specs is only written by Helix,
+	// so our middle repo always has the latest data.
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			// Sync from upstream before reading for external repos
-			var startupScript string
-			readErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
-				var loadErr error
-				startupScript, loadErr = s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
-				return loadErr
-			})
-			if readErr != nil {
+			startupScript, loadErr := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
+			if loadErr != nil {
 				log.Warn().
-					Err(readErr).
+					Err(loadErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")

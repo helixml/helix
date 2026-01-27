@@ -39,6 +39,11 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
+### Hot Reloading
+- **API**: Uses [Air](https://github.com/air-verse/air) for hot reloading — Go code changes are automatically rebuilt and restarted
+- **Frontend**: Hot reloading enabled — React/TypeScript changes apply immediately
+- No need to manually restart after code changes in dev mode
+
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong

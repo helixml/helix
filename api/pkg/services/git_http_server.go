@@ -14,7 +14,6 @@ import (
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
-	"code.gitea.io/gitea/modules/setting"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -68,18 +67,18 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
 type GitHTTPServer struct {
-	store                  store.Store
-	gitRepoService         *GitRepositoryService
-	serverBaseURL          string
-	authTokenHeader        string
-	enablePush             bool
-	enablePull             bool
-	maxRepoSize            int64
-	requestTimeout         time.Duration
-	testMode       bool
-	authorizeFn    AuthorizationFunc
-	triggerManager *trigger.Manager
-	wg                     sync.WaitGroup
+	store           store.Store
+	gitRepoService  *GitRepositoryService
+	serverBaseURL   string
+	authTokenHeader string
+	enablePush      bool
+	enablePull      bool
+	maxRepoSize     int64
+	requestTimeout  time.Duration
+	testMode        bool
+	authorizeFn     AuthorizationFunc
+	triggerManager  *trigger.Manager
+	wg              sync.WaitGroup
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -92,36 +91,6 @@ type GitHTTPServerConfig struct {
 	RequestTimeout  time.Duration `json:"request_timeout"`
 }
 
-var gitCmdInitialized bool
-var gitCmdInitMu sync.Mutex
-
-// initGitCmd initializes gitea's gitcmd module once.
-// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
-// This is separate from where the actual git repositories are stored.
-func initGitCmd(gitHomePath string) error {
-	gitCmdInitMu.Lock()
-	defer gitCmdInitMu.Unlock()
-
-	if gitCmdInitialized {
-		return nil
-	}
-
-	// Set the git home path for gitea's setting module.
-	// This is where git will store its global config (not where repos are stored).
-	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
-	setting.Git.HomePath = gitHomePath
-	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
-
-	// Find and set the git executable path
-	if err := gitcmd.SetExecutablePath(""); err != nil {
-		return fmt.Errorf("failed to find git executable: %w", err)
-	}
-
-	gitCmdInitialized = true
-	log.Info().Msg("Initialized gitea gitcmd module")
-	return nil
-}
-
 // NewGitHTTPServer creates a new native git HTTP server
 func NewGitHTTPServer(
 	store store.Store,
@@ -130,11 +99,9 @@ func NewGitHTTPServer(
 	authorizeFn AuthorizationFunc,
 	triggerManager *trigger.Manager,
 ) *GitHTTPServer {
-	// Initialize gitcmd with the git home path from the git repo service.
-	// This sets up gitea's setting module with the HOME path for git config.
-	if err := initGitCmd(gitRepoService.GetGitHomePath()); err != nil {
-		log.Error().Err(err).Msg("Failed to initialize gitcmd")
-	}
+	// Note: gitcmd is already initialized by GitRepositoryService.Initialize()
+	// which is called before NewGitHTTPServer. The initGitCmd function in
+	// git_repository_service.go handles the initialization idempotently.
 	return &GitHTTPServer{
 		store:           store,
 		gitRepoService:  gitRepoService,
@@ -419,13 +386,20 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	}
 
 	// If this is an external repository, sync from upstream BEFORE serving the pull.
+	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
+	// Wrap in func() to ensure defer works correctly for panic safety.
 	if repo != nil && repo.ExternalURL != "" {
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
-		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
-			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
-		} else {
-			log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
-		}
+		func() {
+			lock := s.gitRepoService.GetRepoLock(repoID)
+			lock.Lock()
+			defer lock.Unlock()
+			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+			if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
+			} else {
+				log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
+			}
+		}()
 	}
 
 	// Handle GZIP-encoded request body (following gitea's pattern)
@@ -507,13 +481,21 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Acquire repo lock to serialize all git operations on this repository.
+	// This prevents race conditions where a concurrent read (with force sync)
+	// could overwrite commits between receive-pack and upstream push.
+	// The lock MUST be held for the entire push flow: sync -> receive-pack -> upstream push.
+	lock := s.gitRepoService.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
 	// This ensures we have the latest changes and can detect conflicts early.
 	// If sync fails (e.g., local ahead of remote), reject the push - this indicates
 	// something wrote to helix-specs locally without pushing to upstream.
 	if repo != nil && repo.ExternalURL != "" {
 		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
-		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, false); err != nil {
+		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
 			return
@@ -533,7 +515,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Get branches before push to detect what changed
+	// Get branches before push to detect what changed (for post-push processing)
 	branchesBefore := s.getBranchHashes(repoPath)
 
 	// Set response headers
@@ -558,6 +540,8 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	fw := newFlushingWriter(w)
 
 	// Run git receive-pack with stdin/stdout piped to HTTP
+	// Note: We sync from upstream before receive-pack (above), so the agent's push
+	// should be fast-forward. Non-fast-forward pushes will be rejected by git.
 	err = cmd.Run(r.Context(), &gitcmd.RunOpts{
 		Dir:    repoPath,
 		Env:    environ,
@@ -1002,7 +986,10 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
-	if err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false); err != nil {
+	// Acquire repo lock for push operation to prevent race conditions.
+	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
+		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false)
+	}); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 
@@ -1041,7 +1028,9 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	repoID := repo.ID
 
 	// Get task IDs from pushed design docs
-	pushedTaskIDs, dirNamesNeedingLookup, err := s.getTaskIDsFromPushedDesignDocs(ctx, gitRepo)
+	// IMPORTANT: Use the specific commitHash, not the current branch tip, because
+	// with multi-writer helix-specs branch, the tip may have moved since we received the push
+	pushedTaskIDs, dirNamesNeedingLookup, err := s.getTaskIDsFromPushedDesignDocs(ctx, gitRepo, commitHash)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
 		return
@@ -1060,11 +1049,11 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	}
 
 	if len(pushedTaskIDs) == 0 {
-		log.Debug().Str("repo_id", repoID).Msg("No design docs found in push")
+		log.Debug().Str("repo_id", repoID).Str("commit", commitHash).Msg("No design docs found in push")
 		return
 	}
 
-	log.Info().Str("repo_id", repoID).Strs("task_ids", pushedTaskIDs).Msg("Design docs detected in push")
+	log.Info().Str("repo_id", repoID).Str("commit", commitHash).Strs("task_ids", pushedTaskIDs).Msg("Design docs detected in push")
 
 	for _, taskID := range pushedTaskIDs {
 		task, err := s.store.GetSpecTask(ctx, taskID)
@@ -1131,11 +1120,16 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	}
 }
 
-// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs
-func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitRepo *GitRepo) ([]string, []string, error) {
-	files, err := gitRepo.GetChangedFilesInBranch("helix-specs")
+// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs in a specific commit.
+// The commitHash parameter specifies which commit to examine. This is critical for multi-writer
+// scenarios where the branch tip may have moved since the push was received.
+func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitRepo *GitRepo, commitHash string) ([]string, []string, error) {
+	// Use the specific commit hash, not the branch tip
+	// This prevents race conditions when multiple agents push to helix-specs concurrently
+	files, err := gitRepo.GetChangedFilesInCommit(commitHash)
 	if err != nil {
-		return nil, nil, nil // Branch doesn't exist
+		log.Warn().Err(err).Str("commit", commitHash).Msg("Failed to get changed files from commit")
+		return nil, nil, nil
 	}
 
 	taskIDs, dirNamesNeedingLookup := ParseDesignDocTaskIDs(files)

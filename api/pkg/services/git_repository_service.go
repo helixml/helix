@@ -9,13 +9,46 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
+	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+var gitCmdInitialized bool
+var gitCmdInitMu sync.Mutex
+
+// initGitCmd initializes gitea's gitcmd module once.
+// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
+// This is separate from where the actual git repositories are stored.
+func initGitCmd(gitHomePath string) error {
+	gitCmdInitMu.Lock()
+	defer gitCmdInitMu.Unlock()
+
+	if gitCmdInitialized {
+		return nil
+	}
+
+	// Set the git home path for gitea's setting module.
+	// This is where git will store its global config (not where repos are stored).
+	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
+	setting.Git.HomePath = gitHomePath
+	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
+
+	// Find and set the git executable path
+	if err := gitcmd.SetExecutablePath(""); err != nil {
+		return fmt.Errorf("failed to find git executable: %w", err)
+	}
+
+	gitCmdInitialized = true
+	log.Info().Msg("Initialized gitea gitcmd module")
+	return nil
+}
 
 // GitRepositoryService manages git repositories hosted on the Helix server
 // Uses the filestore mount for persistent storage of git repositories
@@ -30,6 +63,13 @@ type GitRepositoryService struct {
 	enableGitServer bool          // Whether to enable git server functionality
 	testMode        bool          // Test mode for unit tests
 	koditService    *KoditService // Optional Kodit service for code intelligence
+
+	// Per-repository locks to serialize git operations and prevent race conditions.
+	// All compound operations (read+sync, write+push, receive-pack+push) must hold
+	// the lock for the entire duration to prevent concurrent syncs from overwriting
+	// commits between receive-pack and upstream push.
+	repoLocks map[string]*sync.Mutex
+	locksMu   sync.Mutex // protects repoLocks map
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -56,7 +96,32 @@ func NewGitRepositoryService(
 		gitUserEmail:    gitUserEmail,
 		enableGitServer: true,
 		testMode:        false,
+		repoLocks:       make(map[string]*sync.Mutex),
 	}
+}
+
+// GetRepoLock returns the mutex for a specific repository.
+// Used by GitHTTPServer to serialize push operations with other git operations.
+func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+
+	lock, ok := s.repoLocks[repoID]
+	if !ok {
+		lock = &sync.Mutex{}
+		s.repoLocks[repoID] = lock
+	}
+	return lock
+}
+
+// WithRepoLock executes a function while holding the repository lock.
+// This serializes all git operations on the same repository to prevent
+// race conditions between concurrent syncs and pushes.
+func (s *GitRepositoryService) WithRepoLock(repoID string, fn func() error) error {
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
 }
 
 // SetTestMode enables or disables test mode
@@ -97,6 +162,26 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create git home directory: %w", err)
 	}
 
+	// Initialize gitea's gitcmd module BEFORE any git commands are used.
+	// This must happen before recoverIncompletePushes() which uses gitcmd.
+	if err := initGitCmd(gitHomePath); err != nil {
+		return fmt.Errorf("failed to initialize gitcmd: %w", err)
+	}
+
+	// Install/update pre-receive hooks on all existing repositories.
+	// This ensures force-push protection for helix-specs is always active,
+	// even for repos created before this feature was added.
+	if err := InstallPreReceiveHooksForAllRepos(s.gitRepoBase); err != nil {
+		log.Warn().Err(err).Msg("Failed to install pre-receive hooks on existing repos")
+	} else {
+		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
+	}
+
+	// Recover incomplete pushes from before a crash.
+	// If we crashed between receive-pack and upstream push, the commit is in the
+	// middle repo but not upstream. Push any such commits now to prevent data loss.
+	s.recoverIncompletePushes(ctx)
+
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
 		Str("git_home", gitHomePath).
@@ -104,6 +189,118 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		Msg("Initialized git repository service")
 
 	return nil
+}
+
+// recoverIncompletePushes checks all external repos for commits that are in the
+// middle repo but not pushed to upstream. This can happen if we crash between
+// receive-pack completing and the upstream push completing.
+func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	// List all repos from database
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list repos for crash recovery")
+		return
+	}
+
+	recoveredCount := 0
+	for _, repo := range repos {
+		// Only check external repos
+		if repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check if repo directory exists
+		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Check for unpushed commits on each branch
+		branches, err := s.listLocalBranches(ctx, repo.LocalPath)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list branches for recovery check")
+			continue
+		}
+
+		for _, branch := range branches {
+			ahead, err := s.isBranchAheadOfRemote(ctx, repo.LocalPath, branch)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Str("branch", branch).Msg("Failed to check if branch is ahead")
+				continue
+			}
+
+			if ahead {
+				log.Info().
+					Str("repo_id", repo.ID).
+					Str("branch", branch).
+					Msg("Found unpushed commits from before crash - pushing to upstream")
+
+				// Acquire lock and push
+				if err := s.WithRepoLock(repo.ID, func() error {
+					return s.PushBranchToRemote(ctx, repo.ID, branch, false)
+				}); err != nil {
+					log.Error().Err(err).
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Failed to recover unpushed commits")
+				} else {
+					recoveredCount++
+					log.Info().
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Successfully recovered unpushed commits")
+				}
+			}
+		}
+	}
+
+	if recoveredCount > 0 {
+		log.Info().Int("count", recoveredCount).Msg("Recovered incomplete pushes from before crash")
+	}
+}
+
+// listLocalBranches returns all local branch names in a repository
+func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath string) ([]string, error) {
+	stdout, _, err := gitcmd.NewCommand("for-each-ref").
+		AddArguments("--format=%(refname:short)").
+		AddDynamicArguments("refs/heads/").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return nil, err
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// isBranchAheadOfRemote checks if a local branch has commits not in the remote
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Check if remote tracking ref exists
+	remoteRef := "refs/remotes/origin/" + branch
+	_, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments(remoteRef).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		// Remote ref doesn't exist - could be a new branch, check if local has commits
+		return false, nil
+	}
+
+	// Count commits in local that aren't in remote
+	// git rev-list origin/branch..branch --count
+	stdout, _, err := gitcmd.NewCommand("rev-list").
+		AddArguments("--count").
+		AddDynamicArguments("origin/"+branch+".."+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, err
+	}
+
+	count := strings.TrimSpace(stdout)
+	return count != "0", nil
 }
 
 // CreateRepository creates a new git repository
@@ -472,9 +669,18 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
 
-	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions when updateRepositoryFromGit
+	// mutates fields like Branches, LastActivity, etc.
+	gitRepo := *storedRepo
+	// Deep copy the Branches slice to avoid shared backing array
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
 	}
 
 	// Got from database - verify the LocalPath exists if this is not external
@@ -494,12 +700,12 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	// Update with current git information (clones external repos if needed, detects default branch)
-	err = s.updateRepositoryFromGit(ctx, gitRepo)
+	err = s.updateRepositoryFromGit(ctx, &gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
 	}
 
-	return gitRepo, nil
+	return &gitRepo, nil
 }
 
 // GetExternalRepoStatus returns the status of the local repo compared to the external remote.
@@ -565,7 +771,6 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 
 	return status, nil
 }
-
 
 // UpdateRepository updates an existing repository's metadata
 // koditAPIKey is optional - only needed when enabling KoditIndexing for local (non-external) repos
@@ -957,6 +1162,11 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
 		log.Info().
 			Str("repo_path", repoPath).
 			Str("default_branch", defaultBranch).
@@ -974,6 +1184,11 @@ func (s *GitRepositoryService) initializeGitRepository(
 	if isBare {
 		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
 			log.Warn().Err(err).Msg("Failed to set HEAD to default branch")
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
 		}
 
 		log.Info().
@@ -1064,6 +1279,12 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 		if err != nil {
 			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("external_url", gitRepo.ExternalURL).
@@ -2243,7 +2464,6 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 
 	return nil
 }
-
 
 // buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
 // This is used by gitea/git module which expects credentials in the URL

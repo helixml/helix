@@ -48,15 +48,11 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 		return nil, system.NewHTTPError500("failed to get repository")
 	}
 
-	// Read design docs from Git repository helix-specs branch
+	// Read design docs from Git repository helix-specs branch.
 	// Docs are in task-specific subdirectory: tasks/{date}_{name}_{task_id}/
-	// Sync from upstream first for external repos
-	var designDocs []DesignDocument
-	readErr := apiServer.gitRepositoryService.WithExternalRepoRead(ctx, repo, func() error {
-		var err error
-		designDocs, err = apiServer.readDesignDocsFromGit(repo.LocalPath, task.ID)
-		return err
-	})
+	// No need to sync from upstream - helix-specs is only written by Helix agents,
+	// so our middle repo always has the latest data.
+	designDocs, readErr := apiServer.readDesignDocsFromGit(repo.LocalPath, task.ID)
 	if readErr != nil {
 		log.Error().Err(readErr).Str("repo_path", repo.LocalPath).Str("task_id", task.ID).Msg("Failed to read design docs from git")
 		return nil, system.NewHTTPError500("failed to read design docs")

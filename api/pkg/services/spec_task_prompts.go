@@ -80,6 +80,30 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 - [ ] Third task
 ` + "```" + `
 
+## Kodit MCP Server - Discover Patterns
+
+You have access to **Kodit**, an MCP server for code intelligence. Use it to discover patterns
+in other repositories and libraries within the organization:
+
+- Find how similar features are implemented elsewhere
+- Discover existing utilities, helpers, or patterns to reuse
+- Understand architectural conventions used in related projects
+- Search private/internal codebases the organization has indexed
+
+This helps you design solutions that are consistent with existing patterns rather than
+reinventing approaches that already exist.
+
+## Document Your Learnings
+
+**Your design docs may be cloned to similar projects.** Write down what you discover:
+
+- Patterns you found in the codebase ("This project uses X pattern for Y")
+- Decisions and rationale ("Chose A over B because...")
+- Things you learned from Kodit searches ("Found existing utility Z in repo W")
+- Constraints or gotchas you identified ("Note: this codebase requires X")
+
+Future agents implementing similar tasks will read your notes and skip the discovery process.
+
 ## After Pushing
 
 Tell the user the design is ready for review. The backend detects your push and moves the task to review status.
@@ -121,34 +145,43 @@ Follow these guidelines when creating specifications:
 	clonedTaskPreamble := ""
 	if task.ClonedFromID != "" {
 		clonedTaskPreamble = `
-## CLONED TASK - Adapt Existing Specs
+## CLONED TASK - Transfer Implementation Knowledge
 
-This task was cloned from a completed task in another project. Design docs already exist.
+This task was cloned from a completed task in another (similar) project. The design docs
+contain everything learned during the original implementation - use this knowledge directly.
 
-**CRITICAL: User-Provided Values Transfer - Don't Re-Ask**
+**What the design docs contain:**
 
-The original task may have discovered information through user interaction. Look for phrases like:
-- "User specified...", "User confirmed...", "User chose..."
-- Specific values like hex codes, URLs, API keys, version numbers
-- Decisions marked as "confirmed" or "approved"
+1. **User-specified values** - Explicit choices made during the original task
+   - Look for: "User specified...", "User confirmed...", specific values (hex codes, URLs, etc.)
+   - Use these values directly - don't re-ask questions that were already answered
 
-**These discovered values override generic instructions in the task description.** For example:
-- If the task says "ask the user for X" but design.md already has "User specified X = Y" → use Y directly
-- If the task says "determine the API endpoint" but design.md has "Using endpoint: https://..." → use that endpoint
-- The whole point of cloning is to SKIP the discovery process that already happened
+2. **Implementation approach** - How the original task was solved
+   - The architecture/pattern that worked
+   - Which files were modified and why
+   - The order of changes that made sense
+
+3. **Discovery learnings** - Things figured out during implementation
+   - "We tried X, but Y worked better because..."
+   - "This codebase uses pattern Z, so we..."
+   - Gotchas, edge cases, and workarounds discovered
+
+4. **Working solution** - The actual implementation that succeeded
+   - This is a proven approach for similar codebases
+   - Adapt file paths, but keep the core approach
 
 **BEFORE creating new specs, you MUST:**
 
-1. **Read the existing design docs** at /home/retro/work/helix-specs/design/tasks/` + taskDirName + `/
+1. **Read the existing design docs carefully** at /home/retro/work/helix-specs/design/tasks/` + taskDirName + `/
    - requirements.md, design.md, and tasks.md are already populated
-   - They contain learnings from the original implementation
-   - **Preserve all user-specified values** - copy them exactly to your adapted specs
+   - They contain the complete knowledge from the original implementation
+   - This is your guide - you're adapting a working solution, not starting fresh
 
 2. **Adapt for this repository:**
    - Update file paths and structure for the target codebase
    - Verify naming conventions match this project
-   - Update repo-specific references
-   - **Keep user-specified values unchanged** (they apply to all cloned tasks)
+   - The core approach stays the same, only repo-specific details change
+   - Keep all user-specified values unchanged (they apply across cloned tasks)
 
 3. **Reset tasks.md:**
    - All checkboxes may be marked [x] complete from the original task

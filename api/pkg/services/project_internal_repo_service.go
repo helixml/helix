@@ -298,6 +298,11 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 		log.Warn().Err(err).Msg("Failed to set HEAD to main in bare repo")
 	}
 
+	// Install pre-receive hook to protect helix-specs from force push
+	if err := InstallPreReceiveHook(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+	}
+
 	// Create helix-specs as an ORPHAN branch (empty, no code files)
 	// This branch is exclusively for design documents, separate from the code
 	if err := s.createOrphanHelixSpecsBranch(ctx, tempClone, repoPath, userName, userEmail); err != nil {
@@ -460,6 +465,11 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 		Branch: "refs/heads/*:refs/heads/*",
 	}); err != nil {
 		log.Warn().Err(err).Msg("Failed to push all branches (may be empty or up-to-date)")
+	}
+
+	// Install pre-receive hook to protect helix-specs from force push
+	if err := InstallPreReceiveHook(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
 	}
 
 	log.Info().
