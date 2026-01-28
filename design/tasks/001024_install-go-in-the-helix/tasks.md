@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `ensure_go()` function to `helix/stack` script
+- [~] Add `ensure_go()` function to `helix/stack` script
   - Extract Go version from `api/go.mod` using grep/awk
   - Check if that Go version is already installed via `go version`
   - Download official Go tarball from `go.dev/dl/` if not present
