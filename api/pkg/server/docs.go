@@ -2800,7 +2800,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List all git repositories, optionally filtered by owner and type",
+                "description": "List all git repositories, optionally filtered by owner, type, and project",
                 "produces": [
                     "application/json"
                 ],
@@ -2825,6 +2825,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by organization ID",
                         "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by project ID",
+                        "name": "project_id",
                         "in": "query"
                     }
                 ],
@@ -10825,52 +10831,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/{id}/design-docs/share": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Generate a token-based shareable link for viewing design documents on any device",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Generate shareable design docs link",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.DesignDocsShareLinkResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{spec_task_id}/approve-implementation": {
             "post": {
                 "security": [
@@ -14674,20 +14634,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.DesignDocsShareLinkResponse": {
-            "type": "object",
-            "properties": {
-                "expires_at": {
-                    "type": "string"
-                },
-                "share_url": {
-                    "type": "string"
-                },
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
         "server.DesignDocument": {
             "type": "object",
             "properties": {
@@ -17145,6 +17091,39 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CloneProgress": {
+            "type": "object",
+            "properties": {
+                "bytes_received": {
+                    "description": "Bytes received so far",
+                    "type": "integer"
+                },
+                "current": {
+                    "description": "Current object count",
+                    "type": "integer"
+                },
+                "percentage": {
+                    "description": "0-100",
+                    "type": "integer"
+                },
+                "phase": {
+                    "description": "\"counting\", \"compressing\", \"receiving\", \"resolving\", \"done\"",
+                    "type": "string"
+                },
+                "speed": {
+                    "description": "e.g., \"1.25 MiB/s\"",
+                    "type": "string"
+                },
+                "started_at": {
+                    "description": "When clone started",
+                    "type": "string"
+                },
+                "total": {
+                    "description": "Total object count",
+                    "type": "integer"
+                }
+            }
+        },
         "types.CloneTaskCreateProjectSpec": {
             "type": "object",
             "properties": {
@@ -17251,6 +17230,14 @@ const docTemplate = `{
                 "base_url": {
                     "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
                     "type": "string"
+                },
+                "max_output_tokens": {
+                    "description": "MaxOutputTokens is the model's max completion tokens\nLooked up from model_info.json, 0 if not found",
+                    "type": "integer"
+                },
+                "max_tokens": {
+                    "description": "MaxTokens is the model's context window size (max input tokens)\nLooked up from model_info.json, 0 if not found",
+                    "type": "integer"
                 },
                 "model": {
                     "description": "Model is the model identifier (e.g., \"claude-sonnet-4-5-latest\", \"gpt-4o\")",
@@ -18492,6 +18479,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "clone_error": {
+                    "description": "Clone progress tracking for async cloning",
+                    "type": "string"
+                },
+                "clone_progress": {
+                    "description": "Live progress during cloning",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CloneProgress"
+                        }
+                    ]
+                },
                 "clone_url": {
                     "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
                     "type": "string"
@@ -18684,11 +18683,19 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "active",
+                "cloning",
+                "error",
                 "archived",
                 "deleted"
             ],
+            "x-enum-comments": {
+                "GitRepositoryStatusCloning": "Clone in progress",
+                "GitRepositoryStatusError": "Clone or sync failed"
+            },
             "x-enum-varnames": [
                 "GitRepositoryStatusActive",
+                "GitRepositoryStatusCloning",
+                "GitRepositoryStatusError",
                 "GitRepositoryStatusArchived",
                 "GitRepositoryStatusDeleted"
             ]
@@ -19923,6 +19930,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "enabled": {
+                    "description": "Misc configuration",
                     "type": "boolean"
                 },
                 "id": {
@@ -19930,13 +19938,6 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
-                },
-                "scopes": {
-                    "description": "Misc configuration",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 },
                 "token_url": {
                     "type": "string"
@@ -20541,6 +20542,10 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Sandbox settings",
+                    "type": "boolean"
                 },
                 "user_id": {
                     "type": "string"
@@ -23001,6 +23006,10 @@ const docTemplate = `{
                 "project_path": {
                     "type": "string"
                 },
+                "public_design_docs": {
+                    "description": "Public sharing",
+                    "type": "boolean"
+                },
                 "pull_request_id": {
                     "type": "string"
                 },
@@ -23492,6 +23501,10 @@ const docTemplate = `{
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
                 },
+                "public_design_docs": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
+                },
                 "status": {
                     "$ref": "#/definitions/types.SpecTaskStatus"
                 },
@@ -23665,6 +23678,10 @@ const docTemplate = `{
                 },
                 "project_path": {
                     "type": "string"
+                },
+                "public_design_docs": {
+                    "description": "Public sharing",
+                    "type": "boolean"
                 },
                 "pull_request_id": {
                     "type": "string"
