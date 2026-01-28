@@ -53,6 +53,15 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
+- **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
+  ```bash
+  # ✅ CORRECT - always use dev compose file
+  docker compose -f docker-compose.dev.yaml up -d kodit vectorchord-kodit
+  docker compose -f docker-compose.dev.yaml logs api
+
+  # ❌ WRONG - never use default (prod) compose file in development
+  docker compose up -d kodit vectorchord-kodit
+  ```
 - `docker compose restart` does NOT apply .env or image changes — use `down` + `up`
 - If Docker cache seems stale: the cache is NOT wrong. Check your assumptions about what triggers rebuilds.
 
