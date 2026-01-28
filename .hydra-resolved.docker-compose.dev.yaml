@@ -1,0 +1,557 @@
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.19.0.0/16
+        name: helix_default
+services:
+    api:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: api-dev-env
+        depends_on:
+            - postgres
+            - postgres-mcp
+            - chrome
+        env_file:
+            - .env
+        environment:
+            - SERVER_PORT=8080
+            - LOG_LEVEL=${LOG_LEVEL:-debug}
+            - POSTGRES_HOST=postgres
+            - POSTGRES_DATABASE=postgres
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+            - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+            - HELIX_ENCRYPTION_KEY=${HELIX_ENCRYPTION_KEY:-dev-encryption-key-do-not-use-in-prod}
+            - SERVER_URL=${SERVER_URL:-http://localhost:8080}
+            - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
+            - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
+            - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+            - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+            - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+            - HF_TOKEN=${HF_TOKEN:-}
+            - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+            - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
+            - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
+            - FRONTEND_URL=http://frontend:8081
+            - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+            - EVAL_USER_ID=${EVAL_USER_ID:-}
+            - FILESTORE_LOCALFS_PATH=/filestore
+            - SENTRY_DSN_API=${SENTRY_DSN_API:-}
+            - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
+            - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
+            - TOOLS_ENABLED=true
+            - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
+            - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
+            - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
+            - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
+            - EMAIL_SMTP_HOST=${EMAIL_SMTP_HOST:-}
+            - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
+            - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
+            - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
+            - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+            - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
+            - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-false}
+            - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+            - RAG_HAYSTACK_ENABLED=true
+            - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-haystack}
+            - RAG_HAYSTACK_URL=http://haystack:8000
+            - RAG_PGVECTOR_PROVIDER=helix
+            - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+            - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
+            - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
+            - SANDBOX_API_URL=http://api:8080
+            - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            - HELIX_DEV_MODE=true
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+            - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
+        extra_hosts:
+            - host.docker.internal:host-gateway
+        networks:
+            default:
+                ipv4_address: 172.19.0.20
+        ports:
+            - ${API_PORT:-8080}:8080
+            - 30000-30100:30000-30100
+        restart: always
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/go.mod:/app/go.mod
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/go.sum:/app/go.sum
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/api:/app/api
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
+            - ${FILESTORE_DATA:-helix-filestore}:/filestore
+            - helix-socket:/socket
+            - go-pkg-mod:/go/pkg/mod
+            - go-build-cache:/root/.cache/go-build
+    chrome:
+        image: ghcr.io/go-rod/rod:v0.115.0
+        restart: always
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/integration-test/data/smoke:/integration-test/data/smoke
+    demos:
+        build:
+            context: .
+            dockerfile: Dockerfile.demos
+        entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
+        env_file:
+            - .env
+        environment:
+            - PORT=8085
+        ports:
+            - ${DEMOS_PORT:-8085}:8085
+        profiles:
+            - demos
+        restart: always
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/go.mod:/app/go.mod
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/go.sum:/app/go.sum
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/demos:/app/demos
+    frontend:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: ui-dev-env
+        restart: always
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/src:/app/src
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/assets:/app/assets
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/index.html:/app/index.html
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/tsconfig.json:/app/tsconfig.json
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/vite.config.ts:/app/vite.config.ts
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/package.json:/app/package.json
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/frontend/yarn.lock:/app/yarn.lock
+            - /app/node_modules
+    haystack:
+        build:
+            context: ./haystack_service
+        command:
+            - uvicorn
+            - main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+        depends_on:
+            - pgvector
+        environment:
+            - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+            - LOG_LEVEL=INFO
+            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-}
+            - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
+            - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+            - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
+            - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
+            - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-500}
+            - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
+            - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+            - RAG_VISION_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+            - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-true}
+            - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
+            - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
+            - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+            - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
+            - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
+        extra_hosts:
+            - host.docker.internal:host-gateway
+        image: ${HAYSTACK_IMAGE:-helix-haystack:dev}
+        restart: always
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/haystack_service/app:/app/app
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/haystack_service/main.py:/app/main.py
+            - helix-socket:/socket
+    kodit:
+        command:
+            - serve
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8632"
+        depends_on:
+            - vectorchord-kodit
+            - api
+        environment:
+            - DATA_DIR=/data
+            - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+            - DEFAULT_SEARCH_PROVIDER=vectorchord
+            - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
+            - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+            - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+            - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+            - ENRICHMENT_ENDPOINT_TIMEOUT=120
+            - SYNC_PERIODIC_ENABLED=true
+            - SYNC_PERIODIC_INTERVAL_SECONDS=1800
+            - SYNC_PERIODIC_RETRY_ATTEMPTS=3
+            - LOG_LEVEL=INFO
+            - LOG_FORMAT=json
+            - API_KEYS=${KODIT_API_KEYS:-}
+        image: registry.helixml.tech/helix/kodit:0.5.23
+        ports:
+            - 8632:8632
+        restart: always
+        volumes:
+            - helix-socket:/socket
+            - ${KODIT_DATA:-helix-kodit-data}:/data
+    pgvector:
+        environment:
+            - POSTGRES_DB=postgres
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
+        image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
+        restart: always
+        volumes:
+            - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
+    postgres:
+        environment:
+            - POSTGRES_DB=postgres
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+        image: postgres:12.13-alpine
+        restart: always
+        volumes:
+            - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+    postgres-mcp:
+        command:
+            - --access-mode=unrestricted
+            - --transport=sse
+        environment:
+            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
+        image: crystaldba/postgres-mcp:latest
+        ports:
+            - 8000:8000
+        restart: always
+    registry:
+        image: registry:2
+        ports:
+            - 5000:5000
+        restart: unless-stopped
+        volumes:
+            - registry-data:/var/lib/registry
+    runner_gpu:
+        build:
+            args:
+                TAG: 2025-08-13c-large
+            context: .
+            dockerfile: Dockerfile.runner
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - capabilities:
+                            - gpu
+                          count: all
+                          driver: nvidia
+        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
+        env_file:
+            - .env
+        environment:
+            - API_HOST=http://172.17.0.1:8080
+            - API_TOKEN=oh-hallo-insecure-token
+            - RUNNER_ID=dev-gpu-runner
+            - LOG_LEVEL=debug
+            - HELIX_COMMAND=runner
+            - GOTOOLCHAIN=local
+        profiles:
+            - runner_gpu
+        restart: always
+        volumes:
+            - .:/workspace/helix
+            - ~/.cache/huggingface:/root/.cache/huggingface
+            - go-pkg-mod:/go/pkg/mod
+            - go-build-cache:/root/.cache/go-build
+            - go-sdk-cache:/root/.cache/go
+    runner_gpu_amd:
+        build:
+            args:
+                TAG: 2025-08-13c-large
+            context: .
+            dockerfile: Dockerfile.runner
+        devices:
+            - /dev/kfd
+            - /dev/dri
+        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
+        env_file:
+            - .env
+        environment:
+            - API_HOST=http://172.17.0.1:8080
+            - API_TOKEN=oh-hallo-insecure-token
+            - RUNNER_ID=dev-gpu-runner-amd
+            - LOG_LEVEL=debug
+            - HELIX_COMMAND=runner
+            - GOTOOLCHAIN=local
+            - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
+        group_add:
+            - video
+            - render
+        profiles:
+            - runner_gpu_amd
+        restart: always
+        volumes:
+            - .:/workspace/helix
+            - ~/.cache/huggingface:/root/.cache/huggingface
+            - go-pkg-mod:/go/pkg/mod
+            - go-build-cache:/root/.cache/go-build
+            - go-sdk-cache:/root/.cache/go
+    sandbox-amd-intel:
+        cap_add:
+            - SYS_PTRACE
+        device_cgroup_rules:
+            - c 13:* rmw
+        devices:
+            - /dev/dri
+            - /dev/uinput
+            - /dev/uhid
+        environment:
+            - GPU_VENDOR=${GPU_VENDOR:-intel}
+            - HELIX_DEV_MODE=true
+            - ZED_IMAGE=helix-sway:latest
+            - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+            - SANDBOX_DATA_PATH=/data
+            - HELIX_API_URL=http://api:8080
+            - HELIX_API_BASE_URL=http://api:8080
+            - SANDBOX_INSTANCE_ID=local
+            - RUNNER_TOKEN=oh-hallo-insecure-token
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+            - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
+            - XDG_RUNTIME_DIR=/tmp/sockets
+            - GST_DEBUG=3
+            - GOP_SIZE=${GOP_SIZE:-240}
+            - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+        healthcheck:
+            interval: 30s
+            retries: 3
+            start_period: 10s
+            test:
+                - CMD-SHELL
+                - docker info > /dev/null 2>&1
+            timeout: 5s
+        image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
+        networks:
+            default:
+                ipv4_address: 172.19.0.50
+        privileged: true
+        profiles:
+            - code-amd-intel
+        restart: unless-stopped
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /tmp/sockets:/tmp/sockets:rw
+            - sandbox-docker-storage:/var/lib/docker
+            - hydra-storage:/hydra-data
+            - /dev:/dev/:rw
+            - /run/udev:/run/udev:rw
+            - /run/sandbox:/var/run/sandbox:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - sandbox-data:/data
+            - /run/docker.sock:/var/run/host-docker.sock:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/sandbox-images:/opt/images:ro
+    sandbox-nvidia:
+        cap_add:
+            - SYS_PTRACE
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - capabilities:
+                            - gpu
+        device_cgroup_rules:
+            - c 13:* rmw
+        devices:
+            - /dev/dri
+            - /dev/uinput
+            - /dev/uhid
+        environment:
+            - NVIDIA_DRIVER_CAPABILITIES=all
+            - NVIDIA_VISIBLE_DEVICES=all
+            - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+            - HELIX_DEV_MODE=true
+            - ZED_IMAGE=helix-sway:latest
+            - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+            - SANDBOX_DATA_PATH=/data
+            - HELIX_API_URL=http://api:8080
+            - HELIX_API_BASE_URL=http://api:8080
+            - SANDBOX_INSTANCE_ID=local
+            - RUNNER_TOKEN=oh-hallo-insecure-token
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+            - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
+            - XDG_RUNTIME_DIR=/tmp/sockets
+            - GST_DEBUG=3
+            - GOP_SIZE=${GOP_SIZE:-240}
+            - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+        healthcheck:
+            interval: 30s
+            retries: 3
+            start_period: 10s
+            test:
+                - CMD-SHELL
+                - docker info > /dev/null 2>&1
+            timeout: 5s
+        image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
+        networks:
+            default:
+                ipv4_address: 172.19.0.50
+        privileged: true
+        profiles:
+            - code-nvidia
+        restart: unless-stopped
+        runtime: nvidia
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /tmp/sockets:/tmp/sockets:rw
+            - sandbox-docker-storage:/var/lib/docker
+            - hydra-storage:/hydra-data
+            - /dev:/dev/:rw
+            - /run/udev:/run/udev:rw
+            - /run/sandbox:/var/run/sandbox:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - sandbox-data:/data
+            - /run/docker.sock:/var/run/host-docker.sock:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/sandbox-images:/opt/images:ro
+    sandbox-software:
+        cap_add:
+            - SYS_PTRACE
+        device_cgroup_rules:
+            - c 13:* rmw
+        devices:
+            - /dev/uinput
+            - /dev/uhid
+        environment:
+            - GPU_VENDOR=none
+            - LIBGL_ALWAYS_SOFTWARE=1
+            - MESA_GL_VERSION_OVERRIDE=4.5
+            - HELIX_DEV_MODE=true
+            - ZED_IMAGE=helix-sway:latest
+            - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+            - SANDBOX_DATA_PATH=/data
+            - HELIX_API_URL=http://api:8080
+            - HELIX_API_BASE_URL=http://api:8080
+            - SANDBOX_INSTANCE_ID=local
+            - RUNNER_TOKEN=oh-hallo-insecure-token
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+            - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
+            - XDG_RUNTIME_DIR=/tmp/sockets
+            - GST_DEBUG=3
+            - GOP_SIZE=${GOP_SIZE:-240}
+            - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+        healthcheck:
+            interval: 30s
+            retries: 3
+            start_period: 10s
+            test:
+                - CMD-SHELL
+                - docker info > /dev/null 2>&1
+            timeout: 5s
+        image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
+        networks:
+            default:
+                ipv4_address: 172.19.0.50
+        privileged: true
+        profiles:
+            - code-software
+        restart: unless-stopped
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /tmp/sockets:/tmp/sockets:rw
+            - sandbox-docker-storage:/var/lib/docker
+            - hydra-storage:/hydra-data
+            - /run/udev:/run/udev:rw
+            - /run/sandbox:/var/run/sandbox:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - sandbox-data:/data
+            - /run/docker.sock:/var/run/host-docker.sock:rw
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/sandbox-images:/opt/images:ro
+    searxng:
+        environment:
+            - BASE_URL=http://searxng:8080
+            - INSTANCE_NAME=helix-instance
+            - UWSGI_WORKERS=4
+            - UWSGI_THREADS=4
+        image: searxng/searxng:latest
+        volumes:
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/searxng/settings.yml:/etc/searxng/settings.yml
+            - /data/workspaces/spec-tasks/spt_01kg1nb1k07q4j4bdgmtd2xjp9/helix/searxng/limiter.toml:/etc/searxng/limiter.toml
+    tika:
+        image: apache/tika:2.9.2.1
+    typesense:
+        build:
+            context: .
+            dockerfile: Dockerfile.typesense
+        command:
+            - --data-dir
+            - /data
+            - --api-key
+            - typesense
+        volumes:
+            - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+    vectorchord-kodit:
+        environment:
+            - POSTGRES_DB=kodit
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=postgres
+        image: tensorchord/vchord-suite:pg17-20250601
+        restart: always
+        volumes:
+            - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+    webhook_relay_stripe:
+        environment:
+            - KEY=${WEBHOOK_RELAY_KEY:-}
+            - SECRET=${WEBHOOK_RELAY_SECRET:-}
+            - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
+        image: webhookrelay/webhookrelayd
+volumes:
+    go-build-cache: null
+    go-pkg-mod: null
+    go-sdk-cache: null
+    helix-filestore: null
+    helix-kodit-data: null
+    helix-pgvector-db: null
+    helix-postgres-db: null
+    helix-socket: null
+    helix-typesense-db: null
+    helix-vectorchord-kodit: null
+    hydra-storage: null
+    registry-data: null
+    sandbox-data: null
+    sandbox-docker-storage: null
+    sandbox-socket: null
+    zed-work: null
+x-runner-config:
+    entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
+    env_file:
+        - .env
+    environment:
+        - GOMODCACHE=/go/pkg/mod
+        - GOCACHE=/root/.cache/go-build
+        - GOTOOLCHAIN=local
+    restart: always
+    volumes:
+        - .:/workspace/helix
+        - ~/.cache/huggingface:/root/.cache/huggingface
+        - go-pkg-mod:/go/pkg/mod
+        - go-build-cache:/root/.cache/go-build
+        - go-sdk-cache:/root/.cache/go

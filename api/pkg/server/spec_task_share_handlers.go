@@ -1,132 +1,31 @@
 package server
 
 import (
-	"fmt"
 	"html/template"
 	"net/http"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/russross/blackfriday/v2"
 )
 
-// DesignDocsShareTokenClaims for JWT-based sharing
-type DesignDocsShareTokenClaims struct {
-	jwt.RegisteredClaims
-	TaskID string `json:"task_id"`
-	UserID string `json:"user_id"`
-}
-
-// DesignDocsShareLinkResponse contains the shareable URL
-type DesignDocsShareLinkResponse struct {
-	ShareURL  string    `json:"share_url"`
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
-// @Summary Generate shareable design docs link
-// @Description Generate a token-based shareable link for viewing design documents on any device
-// @Tags SpecTasks
-// @Produce json
-// @Param id path string true "SpecTask ID"
-// @Success 200 {object} DesignDocsShareLinkResponse
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/spec-tasks/{id}/design-docs/share [post]
-func (apiServer *HelixAPIServer) generateDesignDocsShareLink(_ http.ResponseWriter, req *http.Request) (*DesignDocsShareLinkResponse, *system.HTTPError) {
-	ctx := req.Context()
-	vars := mux.Vars(req)
-	taskID := vars["id"]
-	user := getRequestUser(req)
-
-	// Get task
-	task, err := apiServer.Store.GetSpecTask(ctx, taskID)
-	if err != nil {
-		return nil, system.NewHTTPError404("task not found")
-	}
-
-	// Verify access
-	if task.CreatedBy != user.ID && !isAdmin(user) {
-		return nil, system.NewHTTPError403("access denied")
-	}
-
-	// Generate JWT token
-	expiresAt := time.Now().Add(7 * 24 * time.Hour) // Valid for 7 days
-	claims := DesignDocsShareTokenClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "helix",
-			Subject:   taskID,
-		},
-		TaskID: taskID,
-		UserID: user.ID,
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(apiServer.Cfg.WebServer.RunnerToken))
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to sign share token")
-		return nil, system.NewHTTPError500("failed to generate share token")
-	}
-
-	// Build shareable URL
-	baseURL := apiServer.Cfg.WebServer.URL
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
-	shareURL := fmt.Sprintf("%s/spec-tasks/%s/view?token=%s", baseURL, taskID, tokenString)
-
-	log.Info().
-		Str("task_id", taskID).
-		Str("user_id", user.ID).
-		Msg("Generated shareable design docs link")
-
-	return &DesignDocsShareLinkResponse{
-		ShareURL:  shareURL,
-		Token:     tokenString,
-		ExpiresAt: expiresAt,
-	}, nil
-}
-
-// viewDesignDocsPublic renders design documents as mobile-optimized HTML (no login required)
+// viewDesignDocsPublic renders design documents as mobile-optimized HTML (no login required if public)
 func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	taskID := vars["id"]
-	tokenString := r.URL.Query().Get("token")
 
-	if tokenString == "" {
-		http.Error(w, "token required", http.StatusUnauthorized)
-		return
-	}
-
-	// Validate JWT token
-	claims := &DesignDocsShareTokenClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(apiServer.Cfg.WebServer.RunnerToken), nil
-	})
-
-	if err != nil || !token.Valid {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("Invalid share token")
-		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-		return
-	}
-
-	// Verify task ID matches token
-	if claims.TaskID != taskID {
-		http.Error(w, "token does not match task", http.StatusUnauthorized)
-		return
-	}
-
-	// Get task (no user auth needed, token validates access)
+	// Get task
 	task, err := apiServer.Store.GetSpecTask(r.Context(), taskID)
 	if err != nil {
 		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if task is public
+	if !task.PublicDesignDocs {
+		// Render private task page
+		apiServer.renderPrivateTaskPage(w, task)
 		return
 	}
 
@@ -136,12 +35,45 @@ func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *
 		return
 	}
 
+	// Render the public design docs
+	apiServer.renderDesignDocsPage(w, task)
+}
+
+// renderPrivateTaskPage shows a user-friendly message for non-public tasks
+func (apiServer *HelixAPIServer) renderPrivateTaskPage(w http.ResponseWriter, task *types.SpecTask) {
+	data := struct {
+		TaskID   string
+		TaskName string
+		LoginURL string
+	}{
+		TaskID:   task.ID,
+		TaskName: task.Name,
+		LoginURL: apiServer.Cfg.WebServer.URL + "/login",
+	}
+
+	tmpl, err := template.New("private_task").Parse(privateTaskTemplate)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse private task template")
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to render private task template")
+		http.Error(w, "render error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// renderDesignDocsPage renders the design documents for a public task
+func (apiServer *HelixAPIServer) renderDesignDocsPage(w http.ResponseWriter, task *types.SpecTask) {
 	// Convert markdown to HTML
 	requirementsHTML := template.HTML(blackfriday.Run([]byte(task.RequirementsSpec)))
 	designHTML := template.HTML(blackfriday.Run([]byte(task.TechnicalDesign)))
 	implementationHTML := template.HTML(blackfriday.Run([]byte(task.ImplementationPlan)))
 
-	// Render HTML template
 	data := struct {
 		TaskID                 string
 		TaskName               string
@@ -178,10 +110,106 @@ func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *
 	}
 
 	log.Info().
-		Str("task_id", taskID).
-		Str("user_id", claims.UserID).
+		Str("task_id", task.ID).
 		Msg("Rendered public design docs view")
 }
+
+// Private task template - shown when task is not public
+const privateTaskTemplate = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Private Task - Helix</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7fa;
+            padding: 0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 500px;
+            margin: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 40px;
+            text-align: center;
+        }
+        .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #4b5563;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        p {
+            color: #6b7280;
+            margin-bottom: 24px;
+        }
+        .task-name {
+            background: #f3f4f6;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: #374151;
+            margin-bottom: 24px;
+            display: inline-block;
+        }
+        .login-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .footer {
+            margin-top: 32px;
+            color: #9ca3af;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">🔒</div>
+        <h1>This spec task is private</h1>
+        <p>The owner has not made this task's design documents publicly viewable.</p>
+        <div class="task-name">{{.TaskName}}</div>
+        <p>If you have access to this project, you can log in to view the design documents.</p>
+        <a href="{{.LoginURL}}" class="login-btn">Log in to Helix</a>
+        <div class="footer">
+            Task ID: {{.TaskID}}
+        </div>
+    </div>
+</body>
+</html>
+`
 
 // Mobile-optimized HTML template for design docs
 const designDocsViewerTemplate = `
