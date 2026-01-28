@@ -1378,6 +1378,7 @@ type ToolMCPClientConfig struct {
 	Description   string            `json:"description" yaml:"description"`
 	Enabled       bool              `json:"enabled" yaml:"enabled"`
 	URL           string            `json:"url" yaml:"url"`
+	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API

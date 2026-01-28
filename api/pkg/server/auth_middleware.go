@@ -176,6 +176,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		}
 		user.ProjectID = apiKey.ProjectID
 		user.SpecTaskID = apiKey.SpecTaskID
+		user.SessionID = apiKey.SessionID
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
 		if user.ID != "" {

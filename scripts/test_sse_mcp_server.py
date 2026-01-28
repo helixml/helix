@@ -24,10 +24,11 @@ and check that its response contains the secret value.
 """
 
 import json
+import os
 import sys
 import threading
 import queue
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, Any, Optional
 
 # The secret that tests will verify the agent learned
@@ -91,8 +92,13 @@ class McpSseHandler(BaseHTTPRequestHandler):
         self.end_headers()
         
         # Send the endpoint event with the POST URL
+        # Use the Host header if available, otherwise use container hostname or localhost
         port = self.server.server_address[1]
-        endpoint_url = f"http://localhost:{port}/message"
+        host = self.headers.get("Host", os.environ.get("HOSTNAME", f"localhost:{port}"))
+        # If host doesn't include port, add it
+        if ":" not in host:
+            host = f"{host}:{port}"
+        endpoint_url = f"http://{host}/message"
         self.send_sse_event("endpoint", endpoint_url)
         print(f"[SSE] Sent endpoint event: {endpoint_url}")
         
@@ -251,7 +257,7 @@ class McpSseHandler(BaseHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 3333
     
-    server = HTTPServer(("0.0.0.0", port), McpSseHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), McpSseHandler)
     print(f"SSE MCP Secret Server running on http://localhost:{port}")
     print(f"  SSE endpoint: http://localhost:{port}/sse")
     print(f"  Health check: http://localhost:{port}/health")

@@ -1,9 +1,10 @@
 #!/bin/bash
-# Test Zed SSE MCP transport by asking an agent to retrieve a secret
-# Captures video during the test for debugging
+# Test Zed SSE MCP transport using the official MCP server-everything
+# Verifies that legacy SSE transport (MCP 2024-11-05) works correctly
 set -euo pipefail
 
-SECRET="HELIX-SSE-MCP-SECRET-7f3a9b2c"
+# We'll ask the agent to echo this phrase and verify it comes back
+TEST_PHRASE="helix-sse-mcp-test-$(date +%s)"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELIX="${HELIX_CLI:-/tmp/helix}"
 VIDEO_DIR="${VIDEO_DIR:-/tmp/sse-mcp-test}"
@@ -43,29 +44,22 @@ trap cleanup EXIT
 # Create video output directory
 mkdir -p "$VIDEO_DIR"
 
-# Start SSE server
-echo "=== Starting SSE MCP test server ==="
+# Build and start official MCP server-everything with SSE transport
+echo "=== Starting MCP server-everything (SSE mode) ==="
 docker rm -f sse-mcp-test 2>/dev/null || true
-docker run -d --name sse-mcp-test --network helix_default -p 3333:3333 \
-    -v "$DIR/test_sse_mcp_server.py:/app/server.py:ro" \
-    python:3.11-slim python /app/server.py 3333
 
-# Wait for SSE server to be ready
-echo "Waiting for SSE server..."
-for i in {1..10}; do
-    if curl -sf --max-time 3 http://localhost:3333/secret 2>/dev/null | grep -q "$SECRET"; then
-        echo "SSE server ready"
-        break
-    fi
-    sleep 1
-done
-
-# Verify SSE server is working
-if ! curl -sf --max-time 3 http://localhost:3333/secret 2>/dev/null | grep -q "$SECRET"; then
-    echo "ERROR: SSE server failed to start"
-    docker logs sse-mcp-test
-    exit 1
+# Build the image if needed
+if ! docker images sse-mcp-test --format "{{.Repository}}" | grep -q sse-mcp-test; then
+    echo "Building sse-mcp-test image..."
+    docker build -t sse-mcp-test "$DIR/sse-mcp-server/"
 fi
+
+docker run -d --name sse-mcp-test --network helix_default -p 3001:3001 sse-mcp-test
+
+# Wait for SSE server to start
+echo "Waiting for SSE server..."
+sleep 3
+echo "SSE server started"
 
 # Create a new project for this test
 echo ""
@@ -127,10 +121,10 @@ sleep 20
 # echo "Video capture started (PID: $VIDEO_PID), saving to: $VIDEO_FILE"
 # sleep 3
 
-# Ask for the secret
+# Ask the agent to use the echo tool
 echo ""
 echo "=== Sending prompt to agent ==="
-RESPONSE=$("$HELIX" spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns. The tool is provided by the secret-server MCP." --wait --max-wait 180 2>&1) || true
+RESPONSE=$("$HELIX" spectask send "$SESSION" "Use the echo tool from the everything-server MCP to echo this exact phrase: $TEST_PHRASE - then tell me what it returned." --wait --max-wait 180 2>&1) || true
 
 # Stop video capture (disabled)
 # echo ""
@@ -144,14 +138,14 @@ RESPONSE=$("$HELIX" spectask send "$SESSION" "Use the get_secret tool and tell m
 # Check result
 echo ""
 echo "=== Result ==="
-if echo "$RESPONSE" | grep -q "$SECRET"; then
-    echo "✓ PASSED: Agent retrieved '$SECRET' via SSE MCP"
+if echo "$RESPONSE" | grep -q "$TEST_PHRASE"; then
+    echo "✓ PASSED: Agent echoed '$TEST_PHRASE' via SSE MCP"
     echo ""
     echo "Response excerpt:"
-    echo "$RESPONSE" | grep -i secret | head -5
+    echo "$RESPONSE" | grep -i "$TEST_PHRASE" | head -5
     exit 0
 else
-    echo "✗ FAILED: Secret not found in response"
+    echo "✗ FAILED: Echo phrase not found in response"
     echo ""
     echo "Full response:"
     echo "$RESPONSE"
