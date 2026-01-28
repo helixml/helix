@@ -45,6 +45,8 @@ func New() *cobra.Command {
 	cmd.AddCommand(newScrollTestCommand())
 	cmd.AddCommand(newBenchmarkCommand())
 	cmd.AddCommand(newLatencyCommand())
+	cmd.AddCommand(newExecCommand())
+	cmd.AddCommand(newCopyCommand())
 
 	return cmd
 }
@@ -368,11 +370,11 @@ type SpecTask struct {
 }
 
 type Session struct {
-	ID         string          `json:"session_id"`
-	Mode       string          `json:"mode"`
-	Type       string          `json:"type"`
-	ModelName  string          `json:"model_name"`
-	Metadata   SessionMetadata `json:"metadata"`
+	ID        string          `json:"session_id"`
+	Mode      string          `json:"mode"`
+	Type      string          `json:"type"`
+	ModelName string          `json:"model_name"`
+	Metadata  SessionMetadata `json:"metadata"`
 }
 
 type SessionMetadata struct {
@@ -632,7 +634,6 @@ func newListAgentsCommand() *cobra.Command {
 		},
 	}
 }
-
 
 func formatBytes(b int64) string {
 	const unit = 1024
@@ -1434,32 +1435,32 @@ Examples:
 
 // videoStreamStats tracks statistics for the stream command
 type videoStreamStats struct {
-	mu           sync.Mutex
-	startTime    time.Time
+	mu            sync.Mutex
+	startTime     time.Time
 	totalMessages int
-	totalBytes   int64
-	videoFrames  int
-	videoBytes   int64
-	audioFrames  int
-	audioBytes   int64
-	keyframes    int
-	batchCount   int
-	minFrameSize int
-	maxFrameSize int
-	codec        byte
-	width        int
-	height       int
-	fps          int
+	totalBytes    int64
+	videoFrames   int
+	videoBytes    int64
+	audioFrames   int
+	audioBytes    int64
+	keyframes     int
+	batchCount    int
+	minFrameSize  int
+	maxFrameSize  int
+	codec         byte
+	width         int
+	height        int
+	fps           int
 	// Per-second frame tracking for instantaneous FPS
-	currentSecond     int   // Which second bucket we're in
-	currentSecondFPS  int   // Frames received in current second
-	lastSecondFPS     int   // Frames received in previous second (displayed)
+	currentSecond    int // Which second bucket we're in
+	currentSecondFPS int // Frames received in current second
+	lastSecondFPS    int // Frames received in previous second (displayed)
 	// Cursor message tracking
-	cursorMessages    int   // Number of cursor messages received
-	lastCursorWidth   int   // Last cursor bitmap width
-	lastCursorHeight  int   // Last cursor bitmap height
-	lastCursorHotspotX int  // Last cursor hotspot X
-	lastCursorHotspotY int  // Last cursor hotspot Y
+	cursorMessages     int // Number of cursor messages received
+	lastCursorWidth    int // Last cursor bitmap width
+	lastCursorHeight   int // Last cursor bitmap height
+	lastCursorHotspotX int // Last cursor hotspot X
+	lastCursorHotspotY int // Last cursor hotspot Y
 }
 
 // runInteractiveStream runs a combined interactive session with VLC server, keyboard, and mouse support
@@ -1658,7 +1659,6 @@ func runInteractiveStream(apiURL, token, sessionID string, wsConn *websocket.Con
 		}
 	}
 }
-
 
 // sendTextToSession sends a string as keyboard input
 func sendTextToSession(apiURL, token, sessionID, text string) error {
@@ -1996,10 +1996,10 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 
 		// Send key down
 		keyDownMsg := []byte{
-			WsMsgKeyboardInput, // msg type
-			0x00,               // subType = key input
-			0x01,               // isDown = true
-			0x00,               // modifiers = none
+			WsMsgKeyboardInput,                       // msg type
+			0x00,                                     // subType = key input
+			0x01,                                     // isDown = true
+			0x00,                                     // modifiers = none
 			byte(keyCode >> 8), byte(keyCode & 0xFF), // keyCode big-endian
 		}
 
@@ -2013,10 +2013,10 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 
 		// Send key up
 		keyUpMsg := []byte{
-			WsMsgKeyboardInput, // msg type
-			0x00,               // subType = key input
-			0x00,               // isDown = false
-			0x00,               // modifiers = none
+			WsMsgKeyboardInput,                       // msg type
+			0x00,                                     // subType = key input
+			0x00,                                     // isDown = false
+			0x00,                                     // modifiers = none
 			byte(keyCode >> 8), byte(keyCode & 0xFF), // keyCode big-endian
 		}
 

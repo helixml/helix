@@ -1,0 +1,23 @@
+# SSE MCP Test Agent
+# Used by scripts/test-zed-sse-mcp.sh to verify Zed SSE MCP transport integration
+#
+# This agent is configured to use an SSE MCP server that provides a get_secret tool.
+# The test verifies the agent can retrieve the secret via the SSE transport.
+
+name: sse-mcp-test-agent
+description: Test agent for verifying Zed SSE MCP transport integration
+
+assistants:
+  - name: default
+    model: meta-llama/Llama-3.3-70B-Instruct
+    system_prompt: |
+      You are a helpful assistant with access to MCP tools.
+      When asked about secrets, you MUST use the get_secret tool to retrieve the secret value.
+      Always report the exact secret value returned by the tool.
+    
+    mcps:
+      - name: secret-server
+        description: SSE MCP server that provides a secret value via the get_secret tool
+        # This URL is accessible from within the sandbox container via Docker networking
+        # The sse-mcp-secret service is defined in docker-compose.dev.yaml
+        url: http://sse-mcp-secret:3333/sse

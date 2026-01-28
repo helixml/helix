@@ -142,6 +142,22 @@ services:
       - "5000:5000"
     volumes:
       - registry-data:/var/lib/registry
+  # SSE MCP secret server for integration testing (Zed SSE transport)
+  # Provides a get_secret tool that returns a hard-coded secret value
+  # Used by scripts/test-zed-sse-mcp.sh to verify SSE MCP transport works
+  sse-mcp-secret:
+    image: python:3.11-slim
+    command: python /app/test_sse_mcp_server.py 3333
+    volumes:
+      - ../zed/script/test_sse_mcp_server.py:/app/test_sse_mcp_server.py:ro
+    ports:
+      - "3333:3333"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3333/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
   # Example/test MCP server
   postgres-mcp:
     image: crystaldba/postgres-mcp:latest
