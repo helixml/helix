@@ -373,7 +373,7 @@ type SessionMetadata struct {
 	SystemPrompt            string              `json:"system_prompt"`
 	HelixVersion            string              `json:"helix_version"`
 	Stream                  bool                `json:"stream"`
-	AgentType               string              `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
+	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
 	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
 	// Title history - tracks evolution of session topics (newest first)
@@ -393,7 +393,7 @@ type SessionMetadata struct {
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
 	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	DevContainerID string `json:"dev_container_id,omitempty"` // Dev container ID for streaming
+	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
@@ -1497,6 +1497,7 @@ type AssistantMCP struct {
 	Name          string            `json:"name" yaml:"name"`
 	Description   string            `json:"description" yaml:"description"`
 	URL           string            `json:"url" yaml:"url"`
+	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
@@ -2004,9 +2005,9 @@ type DesktopAgentRequest struct {
 
 // ZedTaskMessage represents a task message sent via NATS to external agent runners
 type ZedTaskMessage struct {
-	Type      string   `json:"type"`       // "zed_task"
+	Type      string       `json:"type"`       // "zed_task"
 	Agent     DesktopAgent `json:"agent"`      // Agent configuration including RDP password
-	AuthToken string   `json:"auth_token"` // Authentication token for WebSocket
+	AuthToken string       `json:"auth_token"` // Authentication token for WebSocket
 }
 
 // DesktopAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
@@ -2161,7 +2162,7 @@ type SpecTaskStopResponse struct {
 type SpecTaskStartResponse struct {
 	Message         string `json:"message"`
 	ExternalAgentID string `json:"external_agent_id"`
-	ContainerAppID       string `json:"container_app_id"`
+	ContainerAppID  string `json:"container_app_id"`
 	WorkspaceDir    string `json:"workspace_dir"`
 	ScreenshotURL   string `json:"screenshot_url,omitempty"`
 	StreamURL       string `json:"stream_url,omitempty"`
@@ -2174,7 +2175,7 @@ type SpecTaskStatusResponse struct {
 	Message         string     `json:"message,omitempty"`
 	ExternalAgentID string     `json:"external_agent_id,omitempty"`
 	Status          string     `json:"status,omitempty"`
-	ContainerAppID       string     `json:"container_app_id,omitempty"`
+	ContainerAppID  string     `json:"container_app_id,omitempty"`
 	WorkspaceDir    string     `json:"workspace_dir,omitempty"`
 	HelixSessionIDs []string   `json:"helix_session_ids,omitempty"`
 	ZedThreadIDs    []string   `json:"zed_thread_ids,omitempty"`
@@ -3017,10 +3018,10 @@ type SandboxInstance struct {
 	ID        string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
 	Created   time.Time `json:"created" gorm:"autoCreateTime"`
 	Updated   time.Time `json:"updated" gorm:"autoUpdateTime"`
-	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"`  // IP address of the sandbox
-	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`   // Hostname for DNS resolution
-	Status    string    `json:"status" gorm:"type:varchar(50)"`      // "online", "offline", "degraded"
-	LastSeen  time.Time `json:"last_seen" gorm:"index"`              // Last heartbeat time
+	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"` // IP address of the sandbox
+	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`  // Hostname for DNS resolution
+	Status    string    `json:"status" gorm:"type:varchar(50)"`     // "online", "offline", "degraded"
+	LastSeen  time.Time `json:"last_seen" gorm:"index"`             // Last heartbeat time
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
@@ -3096,4 +3097,3 @@ type DiskUsageHistory struct {
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
 }
-

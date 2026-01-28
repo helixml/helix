@@ -64,7 +64,10 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	// Zed expects "url" field for HTTP context_servers (untagged union)
+	// Zed uses "source" field to distinguish transport type:
+	// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
+	// - "sse" = Legacy SSE transport (MCP 2024-11-05)
+	Source  string            `json:"source,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -166,8 +169,8 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
-			APIURL: helixAPIURL,  // Zed appends /v1/messages
-			APIKey: helixToken,   // Helix token for authentication
+			APIURL: helixAPIURL, // Zed appends /v1/messages
+			APIKey: helixToken,  // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
@@ -272,7 +275,15 @@ func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
 	// Parse MCP URL to determine connection type
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
 		// HTTP/SSE transport - direct HTTP connection
+		// Zed uses "source" field to distinguish transport:
+		// - "http" = Streamable HTTP (default, MCP 2025-03-26+)
+		// - "sse" = Legacy SSE transport (MCP 2024-11-05)
+		source := "http"
+		if mcp.Transport == "sse" {
+			source = "sse"
+		}
 		return ContextServerConfig{
+			Source:  source,
 			URL:     mcp.URL,
 			Headers: mcp.Headers,
 		}

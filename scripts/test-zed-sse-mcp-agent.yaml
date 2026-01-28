@@ -18,6 +18,7 @@ assistants:
     mcps:
       - name: secret-server
         description: SSE MCP server that provides a secret value via the get_secret tool
-        # This URL is accessible from within the sandbox container via Docker networking
-        # The sse-mcp-secret service is defined in docker-compose.dev.yaml
+        # This URL is accessible from the Helix API via Docker networking
+        # The sse-mcp-test container runs on helix_default network
         url: http://sse-mcp-test:3333/sse
+        transport: sse  # Use legacy SSE transport (MCP 2024-11-05) instead of Streamable HTTP
