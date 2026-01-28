@@ -144,10 +144,19 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 	}
 
 	var initialStatus types.SpecTaskStatus = "backlog"
+	var designDocsPushedAt *time.Time
+
+	// Check if source task has specs - if so, we can skip spec generation
+	hasSpecs := source.RequirementsSpec != "" && source.TechnicalDesign != "" && source.ImplementationPlan != ""
 
 	if autoStart {
 		if source.JustDoItMode {
 			initialStatus = types.TaskStatusQueuedImplementation
+		} else if hasSpecs {
+			// Source has specs, skip directly to spec_review
+			initialStatus = types.TaskStatusSpecReview
+			now := time.Now()
+			designDocsPushedAt = &now
 		} else {
 			initialStatus = types.TaskStatusQueuedSpecGeneration
 		}
@@ -196,6 +205,7 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,
+		DesignDocsPushedAt:  designDocsPushedAt,
 		CreatedBy:           userID,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
