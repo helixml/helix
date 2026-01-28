@@ -35,3 +35,14 @@ Originally planned to install Go in `./stack start`, but:
 - Agents run `bash -c "command"` which doesn't source `~/.profile` or `~/.bashrc`
 - The stack script's PATH export doesn't propagate to agent subprocesses
 - Dockerfile installation is simpler and more reliable for the Helix-in-Helix use case
+
+## Implementation Notes
+
+- Added Go installation after `_INSTALL_BASE` block in both Dockerfiles
+- Go is installed to `/usr/local/go` (standard location)
+- PATH is set via `ENV` directive so it's available to all processes including `bash -c`
+- The `go.mod` is copied to `/tmp`, version extracted, then removed to keep image clean
+- Installation is verified with `/usr/local/go/bin/go version` during build
+- Files modified:
+  - `Dockerfile.ubuntu-helix` (line ~237)
+  - `Dockerfile.sway-helix` (line ~393)

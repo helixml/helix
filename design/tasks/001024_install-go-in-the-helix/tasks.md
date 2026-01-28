@@ -11,3 +11,5 @@
   - Same as ubuntu-helix
 
 - [ ] Test by rebuilding desktop image and verifying `go version` works inside container
+  - Run `./stack build-ubuntu` or `./stack build-sway`
+  - Start a session and run `go version` inside the container
