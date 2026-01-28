@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useCallback,
+  useRef,
 } from "react";
 import { useTheme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
@@ -26,6 +27,9 @@ import IconButton from "@mui/material/IconButton";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import Tooltip from "@mui/material/Tooltip";
 import ThinkingWidget from "./ThinkingWidget";
+
+// Import chat stats collector for performance monitoring
+import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -864,6 +868,12 @@ CodeBlockWithCopy.displayName = "CodeBlockWithCopy";
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 150;
 
+// Helper to count code blocks in content
+const countCodeBlocks = (text: string): number => {
+  const matches = text.match(/```/g);
+  return matches ? Math.floor(matches.length / 2) : 0;
+};
+
 // Main component
 const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
@@ -890,6 +900,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const lastProcessedTextRef = React.useRef<string>("");
   const pendingTextRef = React.useRef<string>("");
 
+  // Track render timing for stats
+  const renderStartTimeRef = useRef<number>(0);
+
   // Process content helper
   const processContent = useCallback(
     (textToProcess: string) => {
@@ -899,6 +912,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         setThinkingWidgetContent(null);
         return;
       }
+
+      // Start timing MessageProcessor
+      const processStartTime = performance.now();
 
       let content: string;
       if (session) {
@@ -910,6 +926,16 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           onFilterDocument,
         });
         content = processor.process();
+
+        // Record MessageProcessor timing
+        const processEndTime = performance.now();
+        const processTime = processEndTime - processStartTime;
+        const statsCollector = getGlobalStatsCollector();
+        statsCollector.recordProcessTime(processTime);
+        statsCollector.recordUpdate(
+          textToProcess.length,
+          countCodeBlocks(textToProcess),
+        );
         // Extract citation data if present
         const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
         const citationDataMatch = content.match(citationPattern);
@@ -946,9 +972,32 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       }
       setProcessedContent(content);
       lastProcessedTextRef.current = textToProcess;
+
+      // Record render start time (actual render timing measured in useEffect after state update)
+      renderStartTimeRef.current = performance.now();
     },
     [session, getFileURL, showBlinker, isStreaming, onFilterDocument],
   );
+
+  // Track render completion timing
+  useEffect(() => {
+    if (renderStartTimeRef.current > 0 && processedContent) {
+      // Use requestAnimationFrame to measure after React has committed the update
+      requestAnimationFrame(() => {
+        const renderTime = performance.now() - renderStartTimeRef.current;
+        const statsCollector = getGlobalStatsCollector();
+        statsCollector.recordRenderTime(renderTime);
+        renderStartTimeRef.current = 0;
+      });
+    }
+  }, [processedContent]);
+
+  // Track streaming status changes
+  useEffect(() => {
+    const statsCollector = getGlobalStatsCollector();
+    statsCollector.setStreamingStatus(isStreaming);
+    statsCollector.setThrottleStatus(isStreaming, STREAMING_THROTTLE_MS);
+  }, [isStreaming]);
 
   useEffect(() => {
     // Store the latest text
@@ -976,6 +1025,10 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           processContent(pendingTextRef.current);
         }
       }, STREAMING_THROTTLE_MS);
+    } else {
+      // Record that we're skipping this update due to throttling
+      const statsCollector = getGlobalStatsCollector();
+      statsCollector.recordThrottleSkip();
     }
     // If there's already a pending timeout, the text will be processed when it fires
 

@@ -45,6 +45,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
+import ChatStatsOverlay, { ChatStatsToggle } from "../session/ChatStatsOverlay";
 
 import DiffViewer from "./DiffViewer";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
@@ -161,6 +162,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
+
+  // Chat stats overlay state - for performance debugging
+  const [showChatStats, setShowChatStats] = useState(false);
 
   // Sort apps: zed_external agents first, then others
   const sortedApps = useMemo(() => {
@@ -1140,14 +1144,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     borderColor: "divider",
                     backgroundColor: "background.paper",
                     flexShrink: 0,
+                    position: "relative",
                   }}
                 >
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 500, color: "text.secondary" }}
-                  >
-                    Chat
-                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 500, color: "text.secondary" }}
+                    >
+                      Chat
+                    </Typography>
+                    <ChatStatsToggle
+                      showStats={showChatStats}
+                      onToggle={() => setShowChatStats(!showChatStats)}
+                    />
+                  </Box>
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1163,6 +1174,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <ChevronLeftIcon sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
+                  {/* Chat Stats Overlay */}
+                  {showChatStats && <ChatStatsOverlay />}
                 </Box>
                 <EmbeddedSessionView
                   ref={sessionViewRef}
@@ -1719,8 +1732,39 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   flexDirection: "column",
                   minHeight: 0,
                   overflow: "hidden",
+                  position: "relative",
                 }}
               >
+                {/* Mobile chat header with stats toggle */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    px: 1.5,
+                    py: 0.5,
+                    minHeight: 32,
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                    backgroundColor: "background.paper",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 500, color: "text.secondary" }}
+                    >
+                      Chat
+                    </Typography>
+                    <ChatStatsToggle
+                      showStats={showChatStats}
+                      onToggle={() => setShowChatStats(!showChatStats)}
+                    />
+                  </Box>
+                </Box>
+                {/* Chat Stats Overlay for mobile */}
+                {showChatStats && <ChatStatsOverlay />}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
