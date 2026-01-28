@@ -18,7 +18,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
 
 // Hook to track sandbox container state for external agent sessions
-const useSandboxState = (sessionId: string) => {
+// Exported for use in SpecTaskDetailContent.tsx toolbar buttons
+export const useSandboxState = (sessionId: string) => {
   const api = useApi();
   const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
