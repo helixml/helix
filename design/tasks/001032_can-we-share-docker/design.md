@@ -248,3 +248,45 @@ The BuildKit team confirms this works for concurrent builds: https://github.com/
 | Wrapper language | Go (rewrite from bash) | Testable, proper arg parsing, YAML handling, maintainable |
 | docker build | Go shim injects `--cache-from/--cache-to` | Intercepts CLI invocations |
 | docker compose build | Go shim uses `--set` or file preprocessing | Compose v2 uses BuildKit API directly, doesn't invoke docker CLI |
+
+## Implementation Notes
+
+### Files Changed
+
+**Hydra (cache directory creation and mounting):**
+- `api/pkg/hydra/manager.go` - Added `SharedBuildKitCacheDir` constant and directory creation in `Start()`
+- `api/pkg/hydra/devcontainer.go` - Added `/buildkit-cache` bind mount in `buildMounts()`
+
+**Go docker-shim (new):**
+- `desktop/docker-shim/main.go` - Entry point with mode detection (docker vs compose)
+- `desktop/docker-shim/path.go` - Path translation (WORKSPACE_DIR → actual path)
+- `desktop/docker-shim/docker.go` - Docker CLI handling with cache injection
+- `desktop/docker-shim/compose.go` - Docker Compose handling with YAML processing and --set flags
+- `desktop/docker-shim/*_test.go` - Unit tests for all functionality
+
+**Dockerfiles updated:**
+- `Dockerfile.ubuntu-helix` - Build docker-shim, replace bash wrappers with symlinks
+- `Dockerfile.sway-helix` - Same changes
+- `Dockerfile.hyprland-helix` - Same changes
+
+### Key Implementation Details
+
+1. **Single binary approach**: The docker-shim binary is symlinked as both `/usr/bin/docker` and `/usr/libexec/docker/cli-plugins/docker-compose`. It detects mode from argv[0] or first argument.
+
+2. **Cache key derivation**: For `docker build -t myimage`, the cache key is derived from the image name by sanitizing it (removing registry prefix, tag, and unsafe characters). Example: `registry.example.com/foo/bar:latest` → cache key `foo_bar`.
+
+3. **Compose version detection**: The shim checks `docker compose version --short` to determine if `--set` flag is supported (v2.24+). Falls back to YAML preprocessing for older versions.
+
+4. **Project isolation**: Compose commands get `-p helix-task-{HELIX_TASK_NUMBER}` or `-p helix-{HELIX_SESSION_ID}` if no project name is specified.
+
+5. **Graceful degradation**: If `/buildkit-cache` doesn't exist, cache injection is skipped entirely.
+
+### Bash Wrappers (Kept as Backup)
+
+The original bash wrappers are still in the repo but no longer used:
+- `desktop/sway-config/docker-wrapper.sh`
+- `desktop/sway-config/docker-compose-wrapper.sh`
+- `desktop/ubuntu-config/docker-wrapper.sh`
+- `desktop/ubuntu-config/docker-compose-wrapper.sh`
+
+These can be deleted once the Go shim is verified working in production.
