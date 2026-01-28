@@ -724,8 +724,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
-		// WORKSPACE_DIR is required by /opt/gow/startup.sh (Ubuntu container)
-		fmt.Sprintf("WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		// WORKSPACE_DIR is the actual sandbox path (e.g., /data/workspaces/spec-tasks/spt_xxx)
+		// This is required by the docker wrapper script to translate /home/retro/work paths
+		// to paths that the DinD daemon can access. Using workspaceBasePathForContainer (/workspace)
+		// doesn't work because the DinD daemon only has /data/workspaces mounted, not /workspace.
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
 		// XDG_RUNTIME_DIR is required for PipeWire, D-Bus, and Wayland sockets
 		"XDG_RUNTIME_DIR=/run/user/1000",
 		// Override default UMASK=000 which causes permission issues
