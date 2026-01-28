@@ -6,16 +6,16 @@
 - [x] Show "N/A" if design_doc_path is not set
 
 ## Task Card Task Number
-- [~] Add task number badge to `TaskCard.tsx` in bottom-right corner of card
-- [~] Format as "#001045" using `String(task.task_number).padStart(6, '0')`
-- [~] Style: small font (0.65rem), muted color (text.disabled), absolute positioned
-- [~] Only render when `task.task_number > 0`
+- [x] Add task number badge to `TaskCard.tsx` in bottom-right corner of card
+- [x] Format as "#001045" using `String(task.task_number).padStart(6, '0')`
+- [x] Style: small font (0.65rem), muted color (text.disabled), absolute positioned
+- [x] Only render when `task.task_number > 0`
 
 ## Split Screen Tabs Task Number
-- [ ] Modify `PanelTab` component in `TabsView.tsx` to show task number
-- [ ] Add before displayTitle, format as "#001045 "
-- [ ] Use same color styling as tab title (inherits active/inactive state)
-- [ ] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
+- [~] Modify `PanelTab` component in `TabsView.tsx` to show task number
+- [~] Add before displayTitle, format as "#001045 "
+- [~] Use same color styling as tab title (inherits active/inactive state)
+- [~] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
 
 ## Testing
 - [ ] Verify task number appears on cards in Kanban board
