@@ -2,10 +2,10 @@
 
 ## Pre-Receive Hook Update
 
-- [ ] Update `PreReceiveHookVersion` to `"2"` in `api/pkg/services/gitea_git_helpers.go`
-- [ ] Modify `preReceiveHookScript` to read `HELIX_ALLOWED_BRANCHES` env var
-- [ ] Add branch restriction check logic to hook (reject if branch not in allowed list)
-- [ ] Ensure clear error message format: include rejected branch and allowed branches
+- [~] Update `PreReceiveHookVersion` to `"2"` in `api/pkg/services/gitea_git_helpers.go`
+- [~] Modify `preReceiveHookScript` to read `HELIX_ALLOWED_BRANCHES` env var
+- [~] Add branch restriction check logic to hook (reject if branch not in allowed list)
+- [~] Ensure clear error message format: include rejected branch and allowed branches
 
 ## HTTP Handler Changes
 
