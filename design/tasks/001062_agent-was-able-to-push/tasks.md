@@ -9,10 +9,10 @@
 
 ## HTTP Handler Changes
 
-- [~] In `handleReceivePack()`: Move `getBranchRestrictionForAPIKey()` call BEFORE `cmd.Run()`
-- [~] If agent has restrictions, add `HELIX_ALLOWED_BRANCHES=branch1,branch2` to `environ` slice
-- [~] Remove post-receive branch restriction check and rollback logic (lines ~565-593)
-- [ ] Keep upstream push failure rollback (that's a different code path)
+- [x] In `handleReceivePack()`: Move `getBranchRestrictionForAPIKey()` call BEFORE `cmd.Run()`
+- [x] If agent has restrictions, add `HELIX_ALLOWED_BRANCHES=branch1,branch2` to `environ` slice
+- [x] Remove post-receive branch restriction check and rollback logic (lines ~565-593)
+- [x] Keep upstream push failure rollback (that's a different code path)
 
 ## Testing
 
