@@ -125,3 +125,68 @@ Only pursue if benchmarks show React rendering is the bottleneck:
 1. **Incremental/delta processing** - Too risky given external agents can modify content anywhere
 2. **Content splitting** - Same reason; can't reliably detect "finalized" content
 3. **Premature optimization** - Measure first, then optimize the actual bottlenecks
+
+---
+
+## Implementation Notes (What Was Actually Done)
+
+### Key Finding: MessageProcessor is NOT the Bottleneck
+
+Benchmarking revealed that `MessageProcessor.process()` is extremely fast:
+
+| Content Size | Mean Time | Target | Result |
+|--------------|-----------|--------|--------|
+| Small (~0.4KB) | 0.004ms | <2ms | ✅ 500x faster than target |
+| Medium (~7KB) | 0.014ms | <2ms | ✅ 140x faster |
+| Large (~18KB) | 0.065ms | <2ms | ✅ 30x faster |
+| Huge (~82KB) | 0.645ms | <2ms | ✅ 3x faster |
+
+**Conclusion**: The UI lag must come from React rendering, not MessageProcessor.
+
+### Changes Made (Commit 3e6096a3a)
+
+1. **Memoized `CodeBlockWithCopy` component**
+   - Wrapped with `React.memo()` to prevent re-renders when props unchanged
+   - Added `useCallback` for `handleCopy` to stabilize function reference
+   - Added `useMemo` for `processedChildren` to avoid recalculating on every render
+
+2. **Extracted `MemoizedMarkdownRenderer` component**
+   - Separated markdown rendering into its own memoized component
+   - Memoized the `components` object passed to react-markdown (created once, not on every render)
+   - Memoized `remarkPlugins` and `rehypePlugins` arrays
+
+3. **Added displayName for debugging**
+   - Both memoized components have `displayName` for React DevTools visibility
+
+### Files Modified
+
+- `frontend/src/components/session/Markdown.tsx` - Core optimizations
+- `frontend/src/components/session/Markdown.bench.ts` - Comprehensive benchmark suite (created)
+
+### Benchmark File Location
+
+The benchmark file is at `frontend/src/components/session/Markdown.bench.ts`. Run with:
+
+```bash
+cd frontend
+npx vitest bench --run
+```
+
+### Why This Approach Works
+
+The memoization prevents react-markdown from:
+1. Recreating the `components` object on every parent render
+2. Re-rendering already-rendered code blocks when only text content changes
+3. Re-running Prism highlighting for unchanged code blocks
+
+React's reconciliation can now skip diffing entire subtrees when props haven't changed.
+
+### What Wasn't Needed
+
+Based on benchmarks, these optimizations were **skipped** (not worth the complexity):
+- Early exit checks in MessageProcessor
+- Caching compiled regexes
+- Optimizing processThinkingTags
+- Reducing string allocations
+- Web Workers for processing
+- Incremental/delta processing
