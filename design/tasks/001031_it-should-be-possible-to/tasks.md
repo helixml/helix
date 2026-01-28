@@ -1,16 +1,17 @@
 # Implementation Tasks
 
-- [ ] Add Name/Prompt TextField in `SpecTaskDetailContent.tsx` `renderDetailsContent()` function
-  - Insert above the Description field, inside the `isEditMode` conditional
-  - Use multiline TextField with `rows={2}`
-  - Bind to `editFormData.name` with onChange handler
-  - Label as "Task Prompt" to match creation form terminology
+- [ ] Make description text clickable to enter edit mode in `SpecTaskDetailContent.tsx`
+  - Wrap the description Typography in a Box with `onClick={handleEditToggle}`
+  - Only enable click when `task.status === 'backlog'`
 
-- [ ] Verify save handler already includes `name` in update request (existing code - just confirm)
+- [ ] Add hover styles to indicate editability
+  - Cursor: `pointer` (backlog only)
+  - Background: subtle highlight on hover using `action.hover`
+  - Add slight padding/margin adjustment for natural hover area
 
 - [ ] Test the feature:
-  - Create a new SpecTask
-  - Click Edit button (should appear for backlog status tasks)
-  - Edit the prompt text
-  - Click Save and verify the change persists
-  - Click Cancel and verify changes are discarded
+  - Create a new SpecTask (stays in backlog)
+  - Hover over description text - should see cursor change and highlight
+  - Click description - should enter edit mode
+  - Verify Save/Cancel still work
+  - Start planning on a task - verify hover effect is gone for non-backlog tasks

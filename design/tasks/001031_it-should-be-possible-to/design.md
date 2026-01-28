@@ -2,60 +2,72 @@
 
 ## Current State
 
-The `SpecTaskDetailContent.tsx` component already has:
-- Edit mode toggle (`isEditMode` state)
-- Form data state (`editFormData` with `name`, `description`, `priority`)
-- Save handler that calls `updateSpecTask.mutateAsync()` with name, description, priority
-- Edit button visible only when `task.status === 'backlog'`
+The edit functionality already exists in `SpecTaskDetailContent.tsx`:
+- Edit button (pencil icon) in header, visible only for `backlog` status tasks
+- Edit mode with TextField for description and Select for priority
+- Save/Cancel buttons with backend integration via `updateSpecTask` mutation
 
-**Problem**: The edit form UI only shows fields for `description` and `priority`. There is no TextField for editing the `name` field, even though the save handler already sends it to the backend.
+**Problem**: The edit button is too subtle and users don't notice it.
 
 ## Solution
 
-Add a TextField for the task name in the edit mode section of `SpecTaskDetailContent.tsx`. The backend API already supports updating the `name` field via `TypesSpecTaskUpdateRequest`.
+Make the description text itself clickable to enter edit mode, with hover feedback to indicate it's editable.
 
 ## Implementation Details
 
 ### Location
-`helix/frontend/src/components/tasks/SpecTaskDetailContent.tsx` in the `renderDetailsContent()` function.
+`helix/frontend/src/components/tasks/SpecTaskDetailContent.tsx` in the `renderDetailsContent()` function, around the Description section (line ~622).
 
 ### Changes Required
 
-1. **Add Name TextField** - Insert a new form field above the Description field in edit mode:
-   ```tsx
-   {/* Name/Prompt - only in edit mode */}
-   {isEditMode && (
-     <Box sx={{ mb: 3 }}>
-       <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-         Task Prompt
-       </Typography>
-       <TextField
-         fullWidth
-         multiline
-         rows={2}
-         value={editFormData.name}
-         onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-         placeholder="Task prompt/name"
-       />
-     </Box>
-   )}
-   ```
+1. **Wrap description text in clickable Box** with hover styles (only for backlog status):
 
-2. **Display Name in Read Mode** - Optionally show the name when not in edit mode (currently only shown in header). This is optional since the task name is already displayed in the page header.
-
-### Data Flow
-
+```tsx
+{/* Description */}
+<Box sx={{ mb: 3 }}>
+  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+    Description
+  </Typography>
+  {isEditMode ? (
+    <TextField
+      fullWidth
+      multiline
+      rows={4}
+      value={editFormData.description}
+      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+      placeholder="Task description"
+    />
+  ) : (
+    <Box
+      onClick={task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? handleEditToggle : undefined}
+      sx={{
+        cursor: task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? 'pointer' : 'default',
+        '&:hover': task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? {
+          backgroundColor: 'action.hover',
+          borderRadius: 1,
+          mx: -1,
+          px: 1,
+        } : {},
+      }}
+    >
+      <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+        {task?.description || task?.original_prompt || 'No description provided'}
+      </Typography>
+    </Box>
+  )}
+</Box>
 ```
-User clicks Edit → isEditMode = true → editFormData populated from task
-User edits name TextField → editFormData.name updated
-User clicks Save → updateSpecTask.mutateAsync({ name, description, priority })
-Backend updates task → Query invalidated → UI refreshes
-```
 
-## Key Decisions
+### Hover UX
 
-1. **Edit `name` not `original_prompt`**: The `name` field is the user-editable title. The `original_prompt` field preserves the original request for history/debugging purposes and should remain immutable.
+- **Cursor**: Changes to `pointer` on hover (backlog only)
+- **Background**: Subtle highlight using `action.hover` theme color
+- **Padding**: Slight negative margin + padding to make the hover area feel natural
+- **Click**: Triggers `handleEditToggle()` to enter edit mode
 
-2. **Reuse existing infrastructure**: No new state, handlers, or API calls needed. The edit form already handles `name` in `editFormData` and sends it in the update request.
+### Non-Backlog Tasks
 
-3. **Multiline TextField**: Using `rows={2}` for prompts since they can be longer than typical titles.
+- No cursor change
+- No hover highlight
+- Click does nothing
+- Description displays as normal read-only text
