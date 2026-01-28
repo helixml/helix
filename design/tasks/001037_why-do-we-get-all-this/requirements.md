@@ -1,10 +1,10 @@
-# Requirements: Markdown Placeholder Syntax Collision Bug
+# Requirements: Markdown Placeholder Leakage Bug
 
 ## Problem Statement
 
 During streaming responses, users see corrupted placeholder text in rendered markdown:
 - `__INLINE_CODE_43__ensure_go()__INLINE_CODE_44__setup_dev_networking` instead of properly rendered inline code
-- `CITATION_DATA{"excerpts":[],"isStreaming":false}CITATION_DATA` appearing as visible text
+- `CITATION_DATA{"excerpts":[],"isStreaming":false}CITATION_DATA` appearing as visible text (note: underscores stripped)
 
 ## User Stories
 
@@ -14,26 +14,48 @@ During streaming responses, users see corrupted placeholder text in rendered mar
 
 ## Root Cause Analysis
 
-The `MessageProcessor` class in `Markdown.tsx` uses placeholder tokens with double underscores:
-- `__INLINE_CODE_N__` for protecting inline code during sanitization
-- `__CITATION_DATA__...__CITATION_DATA__` for passing citation metadata to the React component
-- `__CODE_BLOCK_N__` for protecting code blocks
-- `__THINKING_WIDGET__...__THINKING_WIDGET__` for thinking content
+There are **two distinct bugs** causing placeholder leakage:
 
-**The bug**: In Markdown syntax, `__text__` renders as **bold** (`<strong>text</strong>`). When these placeholders leak into content passed to react-markdown (with remarkGfm), the double underscores are consumed as bold formatting syntax instead of being treated as literal text.
+### Bug 1: CITATION_DATA markers not being extracted
 
-This explains:
-- `__CITATION_DATA__` becomes `CITATION_DATA` - underscores consumed as bold markers
-- `__INLINE_CODE_43__` gets mangled - markdown tries to parse `__` as formatting
+**Symptom**: User sees `CITATION_DATA{"excerpts":[],"isStreaming":false}CITATION_DATA` (without underscores)
 
-**Why placeholders leak:**
-1. **CITATION_DATA**: Added AFTER `sanitizeHtml()`, then extracted in `processContent()`. If extraction fails or has timing issues, markers pass through to react-markdown.
-2. **INLINE_CODE**: Restore loop in `sanitizeHtml()` may fail if DOMPurify modifies placeholders or during partial streaming content.
+**Flow**:
+1. `MessageProcessor.process()` adds `__CITATION_DATA__${json}__CITATION_DATA__` at end of message
+2. `processContent()` in `InteractionMarkdown` tries to extract with regex `/__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/`
+3. **Regex fails to match for unknown reason**
+4. Markers remain in content passed to `<Markdown>` component
+5. react-markdown with remarkGfm interprets `__text__` as bold syntax
+6. Underscores are consumed, leaving `CITATION_DATA...CITATION_DATA` visible
+
+**Additional bug in error handling**: In the catch block of `processContent()`, if JSON.parse fails, the code sets `setCitationData(null)` but does NOT remove the markers from content.
+
+### Bug 2: INLINE_CODE placeholders not being restored
+
+**Symptom**: User sees `__INLINE_CODE_43__ensure_go()__INLINE_CODE_44__` with underscores intact
+
+**Flow**:
+1. `sanitizeHtml()` replaces `` `code` `` with `__INLINE_CODE_N__` placeholders
+2. DOMPurify.sanitize() runs
+3. Restore loop: `processedMessage.replace(__INLINE_CODE_${index}__, code)`
+4. **Replace fails for unknown reason** - placeholder remains in output
+5. Content passes to react-markdown (underscores remain visible in this case)
+
+**Key observation**: The placeholder indices are 43 and 44, meaning the message has 45+ inline code blocks. This suggests the bug may be related to messages with many inline code blocks.
+
+## Investigation Needed
+
+The exact failure modes need to be confirmed with failing tests:
+- Why does the CITATION_DATA regex fail to match?
+- Why does the INLINE_CODE replace() fail to restore placeholders?
+- Is DOMPurify modifying the placeholder text somehow?
+- Is there a race condition in streaming updates?
 
 ## Acceptance Criteria
 
-- [ ] Placeholder tokens never appear in rendered output (even when leaking occurs)
+- [ ] Placeholder tokens (`__INLINE_CODE_N__`, `__CODE_BLOCK_N__`, `__CITATION_DATA__`) never appear in rendered output
 - [ ] Inline code renders correctly during streaming and final state
 - [ ] Citation data markers are invisible to users
-- [ ] Solution uses placeholder syntax that cannot be interpreted as markdown formatting
+- [ ] Error handling in processContent() removes markers even when JSON parsing fails
+- [ ] Solution handles messages with many (50+) inline code blocks
 - [ ] No regression in existing markdown rendering functionality
