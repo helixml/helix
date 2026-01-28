@@ -406,6 +406,19 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		})
 	}
 
+	// Add shared BuildKit cache mount if available
+	// This allows docker build cache to be shared across all sessions
+	// BuildKit uses content-addressed storage, so concurrent access is safe
+	buildkitCacheDir := filepath.Join(dm.manager.dataDir, SharedBuildKitCacheDir)
+	if _, err := os.Stat(buildkitCacheDir); err == nil {
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: buildkitCacheDir,
+			Target: "/buildkit-cache",
+		})
+		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
+	}
+
 	return mounts
 }
 
@@ -857,4 +870,3 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
-

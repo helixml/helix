@@ -57,6 +57,7 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
+COPY desktop/docker-shim ./desktop/docker-shim
 WORKDIR /app/api
 # GO_HASH busts the build cache when api/ code changes (passed from CI)
 ARG GO_HASH=unknown
@@ -64,7 +65,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries (GO_HASH=${GO_HASH})" && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    cd /app/desktop/docker-shim && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
@@ -537,15 +540,18 @@ RUN apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker wrappers for Hydra compatibility
-COPY desktop/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY desktop/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+# Docker shim for Hydra compatibility and shared BuildKit cache
+# The Go-based docker-shim replaces the bash wrappers with:
+# - Path translation for Hydra bind mounts
+# - BuildKit cache injection for shared caching across sessions
+# - Docker Compose project isolation per session
+COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
 RUN mv /usr/bin/docker /usr/bin/docker.real \
-    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
-    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && ln -s /usr/local/bin/docker-shim /usr/bin/docker \
+    && chmod 755 /usr/bin/docker.real /usr/local/bin/docker-shim \
     && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
-    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
-    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+    && ln -s /usr/local/bin/docker-shim /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose.real
 
 # Utilities and dev tools (Sway-specific + common)
 RUN apt-get update && apt-get install -y \
