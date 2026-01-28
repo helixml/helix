@@ -17,6 +17,7 @@ interface MonacoEditorProps extends Omit<BoxProps, 'onChange'> {
   onMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
   onSave?: () => void; // Called when user presses Cmd+S / Ctrl+S
   onTest?: () => void; // Called when user presses Cmd+Enter / Ctrl+Enter
+  onBlur?: () => void; // Called when editor loses focus
 }
 
 // Custom Helix theme for Monaco Editor
@@ -256,6 +257,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   onMount,
   onSave,
   onTest,
+  onBlur,
   ...boxProps
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -266,11 +268,13 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   // Use refs to always call latest callbacks (avoids stale closures in Monaco commands)
   const onSaveRef = useRef(onSave);
   const onTestRef = useRef(onTest);
+  const onBlurRef = useRef(onBlur);
 
   useEffect(() => {
     onSaveRef.current = onSave;
     onTestRef.current = onTest;
-  }, [onSave, onTest]);
+    onBlurRef.current = onBlur;
+  }, [onSave, onTest, onBlur]);
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -328,8 +332,14 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       });
     }
 
+    // Register blur event listener
+    const blurDisposable = editor.onDidBlurEditorWidget(() => {
+      onBlurRef.current?.();
+    });
+
     return () => {
       disposable.dispose();
+      blurDisposable.dispose();
       editor.dispose();
       editorInstanceRef.current = null;
       setIsEditorReady(false);
