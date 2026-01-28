@@ -2,16 +2,16 @@
 
 ## Pre-Receive Hook Update
 
-- [~] Update `PreReceiveHookVersion` to `"2"` in `api/pkg/services/gitea_git_helpers.go`
-- [~] Modify `preReceiveHookScript` to read `HELIX_ALLOWED_BRANCHES` env var
-- [~] Add branch restriction check logic to hook (reject if branch not in allowed list)
-- [~] Ensure clear error message format: include rejected branch and allowed branches
+- [x] Update `PreReceiveHookVersion` to `"2"` in `api/pkg/services/gitea_git_helpers.go`
+- [x] Modify `preReceiveHookScript` to read `HELIX_ALLOWED_BRANCHES` env var
+- [x] Add branch restriction check logic to hook (reject if branch not in allowed list)
+- [x] Ensure clear error message format: include rejected branch and allowed branches
 
 ## HTTP Handler Changes
 
-- [ ] In `handleReceivePack()`: Move `getBranchRestrictionForAPIKey()` call BEFORE `cmd.Run()`
-- [ ] If agent has restrictions, add `HELIX_ALLOWED_BRANCHES=branch1,branch2` to `environ` slice
-- [ ] Remove post-receive branch restriction check and rollback logic (lines ~565-593)
+- [~] In `handleReceivePack()`: Move `getBranchRestrictionForAPIKey()` call BEFORE `cmd.Run()`
+- [~] If agent has restrictions, add `HELIX_ALLOWED_BRANCHES=branch1,branch2` to `environ` slice
+- [~] Remove post-receive branch restriction check and rollback logic (lines ~565-593)
 - [ ] Keep upstream push failure rollback (that's a different code path)
 
 ## Testing
