@@ -94,3 +94,25 @@ Backend creates new interaction → routes to Zed agent with original prompt
 - The fix makes retry behavior consistent with the already-working regenerate button
 - Worst case: if prompt_message is somehow empty, behavior is same as before (retry sends empty = fails)
 - Benefits all agent types, not just external agents
+
+## Implementation Notes
+
+### Changes Made
+
+1. **`InteractionInference.tsx` (line ~385)**: Changed retry button onClick from `onRegenerate(interaction.id || '', '')` to `onRegenerate(interaction.id || '', interaction.prompt_message || '')` - now passes the original prompt message instead of empty string.
+
+2. **`EmbeddedSessionView.tsx` (line ~390)**: Removed the `isExternalAgent` conditional check. Changed `onRegenerate={isExternalAgent ? undefined : handleRegenerate}` to just `onRegenerate={handleRegenerate}`.
+
+3. **Cleanup**: Removed unused `AGENT_TYPE_ZED_EXTERNAL` import from EmbeddedSessionView.tsx.
+
+### Code Pushed
+
+- Feature branch: `feature/001039-add-a-retry-button-on`
+- Commit message: "feat: Enable retry button for external agent (Zed) errors"
+
+### Testing Required
+
+Manual UI testing needed to verify:
+- Retry button appears when external agent interaction has error state
+- Clicking retry resends the original prompt to Zed agent
+- Retry works in both EmbeddedSessionView (floating desktop panel) and standalone session views
