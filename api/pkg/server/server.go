@@ -413,6 +413,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		return err
 	}
 
+	// Ensure MCP gateway cleanup on shutdown
+	defer apiServer.mcpGateway.Stop()
+
 	// Seed models from environment variables
 	if err := apiServer.Store.SeedModelsFromEnvironment(ctx); err != nil {
 		log.Error().Err(err).Msg("failed to seed models from environment - continuing startup")

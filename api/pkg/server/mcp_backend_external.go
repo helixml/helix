@@ -40,26 +40,129 @@ type ExternalMCPBackend struct {
 	store        store.Store
 	clientGetter mcpclient.ClientGetter
 
-	// Cache of SSE servers per session+mcp combination
+	// Cache of HTTP servers per session+mcp combination
 	servers   map[string]*externalMCPServer
 	serversMu sync.RWMutex
+
+	// Cleanup goroutine control
+	cleanupCtx    context.Context
+	cleanupCancel context.CancelFunc
 }
 
 // externalMCPServer holds the MCP server for a specific external MCP
 type externalMCPServer struct {
-	sseServer *server.SSEServer
-	mcpName   string
-	sessionID string
-	createdAt time.Time
+	httpServer *server.StreamableHTTPServer
+	mcpName    string
+	sessionID  string
+	createdAt  time.Time
+	lastUsed   time.Time          // Updated on each access to keep connection alive
+	cancelFunc context.CancelFunc // Cancel the background context when server is removed from cache
+	mu         sync.Mutex         // Protects lastUsed
+}
+
+// touch updates the lastUsed timestamp
+func (s *externalMCPServer) touch() {
+	s.mu.Lock()
+	s.lastUsed = time.Now()
+	s.mu.Unlock()
+}
+
+// isExpired checks if the server has been idle for longer than the TTL
+func (s *externalMCPServer) isExpired(ttl time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return time.Since(s.lastUsed) > ttl
 }
 
 // NewExternalMCPBackend creates a new external MCP backend
 func NewExternalMCPBackend(store store.Store) *ExternalMCPBackend {
-	return &ExternalMCPBackend{
-		store:        store,
-		clientGetter: &mcpclient.DefaultClientGetter{},
-		servers:      make(map[string]*externalMCPServer),
+	ctx, cancel := context.WithCancel(context.Background())
+	b := &ExternalMCPBackend{
+		store:         store,
+		clientGetter:  &mcpclient.DefaultClientGetter{},
+		servers:       make(map[string]*externalMCPServer),
+		cleanupCtx:    ctx,
+		cleanupCancel: cancel,
 	}
+	// Start background cleanup goroutine
+	go b.cleanupLoop()
+	return b
+}
+
+// Stop stops the background cleanup goroutine and cleans up all servers
+func (b *ExternalMCPBackend) Stop() {
+	b.cleanupCancel()
+
+	// Cancel all server contexts
+	b.serversMu.Lock()
+	for key, srv := range b.servers {
+		if srv.cancelFunc != nil {
+			srv.cancelFunc()
+		}
+		delete(b.servers, key)
+	}
+	b.serversMu.Unlock()
+
+	log.Info().Msg("external MCP backend stopped")
+}
+
+// cleanupLoop periodically removes expired servers from the cache
+func (b *ExternalMCPBackend) cleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	cacheTTL := 5 * time.Minute
+
+	for {
+		select {
+		case <-b.cleanupCtx.Done():
+			return
+		case <-ticker.C:
+			b.cleanupExpiredServers(cacheTTL)
+		}
+	}
+}
+
+// cleanupExpiredServers removes servers that have been idle longer than the TTL
+func (b *ExternalMCPBackend) cleanupExpiredServers(ttl time.Duration) {
+	var expiredKeys []string
+	var expiredServers []*externalMCPServer
+
+	// Find expired servers
+	b.serversMu.RLock()
+	for key, srv := range b.servers {
+		if srv.isExpired(ttl) {
+			expiredKeys = append(expiredKeys, key)
+			expiredServers = append(expiredServers, srv)
+		}
+	}
+	b.serversMu.RUnlock()
+
+	if len(expiredKeys) == 0 {
+		return
+	}
+
+	// Remove expired servers
+	b.serversMu.Lock()
+	for _, key := range expiredKeys {
+		delete(b.servers, key)
+	}
+	b.serversMu.Unlock()
+
+	// Cancel contexts outside the lock to avoid holding it during cleanup
+	for _, srv := range expiredServers {
+		if srv.cancelFunc != nil {
+			srv.cancelFunc()
+		}
+		log.Debug().
+			Str("session_id", srv.sessionID).
+			Str("mcp_name", srv.mcpName).
+			Msg("cleaned up expired external MCP server")
+	}
+
+	log.Info().
+		Int("count", len(expiredKeys)).
+		Msg("cleaned up expired external MCP servers")
 }
 
 // ServeHTTP implements MCPBackend
@@ -97,7 +200,7 @@ func (b *ExternalMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		Msg("external MCP proxy request")
 
 	// Get or create the MCP server for this session+mcp combination
-	sseServer, err := b.getOrCreateServer(ctx, user, sessionID, mcpName)
+	httpServer, err := b.getOrCreateServer(ctx, user, sessionID, mcpName)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", sessionID).
@@ -107,10 +210,8 @@ func (b *ExternalMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 
-	// The SSE server handles routing based on path:
-	// - /sse endpoint for SSE connections
-	// - /message endpoint for POST requests
-	sseServer.ServeHTTP(w, r)
+	// The Streamable HTTP server handles MCP requests via POST
+	httpServer.ServeHTTP(w, r)
 }
 
 // parseMCPPath extracts mcp_name and remaining path from the path suffix
@@ -135,17 +236,23 @@ func parseMCPPath(path string) (mcpName, remaining string) {
 	return path, ""
 }
 
-// getOrCreateServer gets or creates an SSE server for the given session and MCP
-func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, sessionID, mcpName string) (*server.SSEServer, error) {
+// getOrCreateServer gets or creates a Streamable HTTP server for the given session and MCP
+func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, sessionID, mcpName string) (*server.StreamableHTTPServer, error) {
 	// Check cache first (with TTL check)
 	cacheKey := fmt.Sprintf("%s:%s", sessionID, mcpName)
 	cacheTTL := 5 * time.Minute
 
 	b.serversMu.RLock()
 	if srv, ok := b.servers[cacheKey]; ok {
-		if time.Since(srv.createdAt) < cacheTTL {
+		if !srv.isExpired(cacheTTL) {
+			// Refresh the lastUsed timestamp to keep the connection alive
+			srv.touch()
 			b.serversMu.RUnlock()
-			return srv.sseServer, nil
+			return srv.httpServer, nil
+		}
+		// TTL expired (idle too long), cancel old context
+		if srv.cancelFunc != nil {
+			srv.cancelFunc()
 		}
 	}
 	b.serversMu.RUnlock()
@@ -184,15 +291,23 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 		Str("transport", mcpConfig.Transport).
 		Msg("creating external MCP proxy server")
 
+	// Create a background context for the MCP client that outlives the HTTP request.
+	// This is critical for SSE transport which maintains a persistent connection.
+	// The context is canceled when the server is removed from cache (idle TTL expiry).
+	// We don't use a timeout here - the connection stays alive as long as it's being used.
+	// The TTL is based on lastUsed timestamp, not creation time.
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+
 	// Create MCP client to the external server
-	externalClient, err := b.clientGetter.NewClient(ctx, agent.Meta{UserID: user.ID}, nil, mcpConfig)
+	externalClient, err := b.clientGetter.NewClient(clientCtx, agent.Meta{UserID: user.ID}, nil, mcpConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to external MCP server: %w", err)
 	}
 
 	// List tools from the external server
-	toolsResp, err := externalClient.ListTools(ctx, mcp.ListToolsRequest{})
+	toolsResp, err := externalClient.ListTools(clientCtx, mcp.ListToolsRequest{})
 	if err != nil {
+		clientCancel()
 		return nil, fmt.Errorf("failed to list tools from external MCP server: %w", err)
 	}
 
@@ -248,23 +363,26 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 			Msg("registered external MCP tool")
 	}
 
-	// Create SSE server
-	basePath := fmt.Sprintf("/api/v1/mcp/external/%s", mcpName)
-	sseServer := server.NewSSEServer(mcpServer,
-		server.WithBasePath(basePath),
+	// Create Streamable HTTP server (modern MCP protocol)
+	// Use stateless mode so each request is independent
+	httpServer := server.NewStreamableHTTPServer(mcpServer,
+		server.WithStateLess(true),
 	)
 
 	// Cache the server
+	now := time.Now()
 	b.serversMu.Lock()
 	b.servers[cacheKey] = &externalMCPServer{
-		sseServer: sseServer,
-		mcpName:   mcpName,
-		sessionID: sessionID,
-		createdAt: time.Now(),
+		httpServer: httpServer,
+		mcpName:    mcpName,
+		sessionID:  sessionID,
+		createdAt:  now,
+		lastUsed:   now,
+		cancelFunc: clientCancel,
 	}
 	b.serversMu.Unlock()
 
-	return sseServer, nil
+	return httpServer, nil
 }
 
 // findMCPConfig searches for an MCP configuration by name in the app's assistants

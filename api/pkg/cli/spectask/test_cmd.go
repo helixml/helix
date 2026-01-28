@@ -593,14 +593,10 @@ Examples:
 						if body, err := io.ReadAll(resp.Body); err == nil {
 							var interactions []map[string]interface{}
 							if json.Unmarshal(body, &interactions) == nil && len(interactions) > 0 {
-								// Get the last assistant message
-								for i := len(interactions) - 1; i >= 0; i-- {
-									if interactions[i]["creator"] == "assistant" {
-										if msg, ok := interactions[i]["message"].(string); ok {
-											response["response"] = msg
-										}
-										break
-									}
+								// Get the last interaction's response_message
+								lastInteraction := interactions[len(interactions)-1]
+								if msg, ok := lastInteraction["response_message"].(string); ok && msg != "" {
+									response["response"] = msg
 								}
 							}
 						}
