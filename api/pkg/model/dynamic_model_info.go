@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 )
 
 //go:generate mockgen -source $GOFILE -destination dynamic_model_info_mocks.go -package $GOPACKAGE
@@ -28,12 +27,6 @@ func NewDynamicModelInfoProvider(store store, base *BaseModelInfoProvider) *Dyna
 
 func (p *DynamicModelInfoProvider) GetModelInfo(ctx context.Context, request *ModelInfoRequest) (*types.ModelInfo, error) {
 	baseModelInfo, err := p.base.GetModelInfo(ctx, request)
-	if err != nil {
-		log.Debug().Err(err).
-			Str("provider", request.Provider).
-			Str("model", request.Model).
-			Msg("failed to get base model info")
-	}
 
 	dynamicModelInfos, dynamicErr := p.store.ListDynamicModelInfos(ctx, &types.ListDynamicModelInfosQuery{
 		Provider: request.Provider,

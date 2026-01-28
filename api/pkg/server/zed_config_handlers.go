@@ -512,22 +512,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 
 	// Look up model info to get token limits
+	// Get token limits from model info if available (0 means use agent defaults)
 	var maxTokens, maxOutputTokens int
 	if apiServer.modelInfoProvider != nil {
 		modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
 			Provider: providerName,
 			Model:    modelName,
 		})
-		if err != nil {
-			log.Debug().Err(err).Str("model", modelName).Msg("Could not find model info for token limits")
-		} else {
+		if err == nil {
 			maxTokens = modelInfo.ContextLength
 			maxOutputTokens = modelInfo.MaxCompletionTokens
-			log.Debug().
-				Str("model", modelName).
-				Int("max_tokens", maxTokens).
-				Int("max_output_tokens", maxOutputTokens).
-				Msg("Got model info for token limits")
 		}
 	}
 
