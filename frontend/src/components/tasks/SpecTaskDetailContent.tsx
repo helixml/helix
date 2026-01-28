@@ -748,6 +748,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 description: e.target.value,
               }))
             }
+            onBlur={handleSaveEdit}
+            autoFocus
             placeholder="Task description"
           />
         ) : (
