@@ -1,32 +1,39 @@
-import React, { FC, ReactElement, useState, useEffect, useMemo, useCallback } from 'react'
-import { useTheme } from '@mui/material/styles'
-import Box from '@mui/material/Box'
-import Markdown from 'react-markdown'
-import { Prism as SyntaxHighlighterTS } from 'react-syntax-highlighter'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import { keyframes } from '@mui/material/styles'
+import React, {
+  FC,
+  ReactElement,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
+import { useTheme } from "@mui/material/styles";
+import Box from "@mui/material/Box";
+import Markdown from "react-markdown";
+import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import { keyframes } from "@mui/material/styles";
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { TypesSession } from '../../api/api'
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { TypesSession } from "../../api/api";
 
-import DOMPurify from 'dompurify'
+import DOMPurify from "dompurify";
 
 // Import the new Citation component
-import Citation, { Excerpt } from './Citation'
-import IconButton from '@mui/material/IconButton'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import Tooltip from '@mui/material/Tooltip'
-import ThinkingWidget from './ThinkingWidget'
+import Citation, { Excerpt } from "./Citation";
+import IconButton from "@mui/material/IconButton";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import Tooltip from "@mui/material/Tooltip";
+import ThinkingWidget from "./ThinkingWidget";
 
-const SyntaxHighlighter = SyntaxHighlighterTS as any
+const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
 // Create a blinking animation for the cursor
 const blink = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
-`
+`;
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -46,7 +53,7 @@ export interface CitationData {
     fileUrl: string;
     isPartial: boolean;
     citationNumber?: number;
-    validationStatus?: 'exact' | 'fuzzy' | 'failed';
+    validationStatus?: "exact" | "fuzzy" | "failed";
     validationMessage?: string;
     showQuotes: boolean;
   }[];
@@ -115,18 +122,20 @@ export class MessageProcessor {
 
     if (!citationMatches) {
       // Check for partial excerpts during streaming
-      if (this.options.isStreaming && message.includes('<excerpts>')) {
+      if (this.options.isStreaming && message.includes("<excerpts>")) {
         // Find the content after the opening tag
-        const partialExcerpts = message.split('<excerpts>')[1];
+        const partialExcerpts = message.split("<excerpts>")[1];
 
         // Initialize citation data for streaming
         this.citationData = {
           excerpts: [],
-          isStreaming: true
+          isStreaming: true,
         };
 
         // Try to extract partial document ID and snippet
-        const docIdMatch = partialExcerpts.match(/<document_id>(.*?)<\/document_id>/);
+        const docIdMatch = partialExcerpts.match(
+          /<document_id>(.*?)<\/document_id>/,
+        );
         const snippetMatch = partialExcerpts.match(/<snippet>([\s\S]*?)$/);
 
         if (docIdMatch && snippetMatch) {
@@ -141,10 +150,11 @@ export class MessageProcessor {
             for (const fname in docIdsMap) {
               if (docIdsMap[fname] === docId) {
                 // Extract just the basename from the path
-                filename = fname.split('/').pop() || fname;
+                filename = fname.split("/").pop() || fname;
 
                 // Check if fname is a URL
-                const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+                const isURL =
+                  fname.startsWith("http://") || fname.startsWith("https://");
 
                 // Use direct URL for web links, otherwise use filestore URL
                 fileUrl = isURL ? fname : this.options.getFileURL(fname);
@@ -159,7 +169,7 @@ export class MessageProcessor {
             filename,
             fileUrl,
             isPartial: true,
-            showQuotes: false
+            showQuotes: false,
           });
         } else {
           // If we can't extract details, fall back to a generic loading state
@@ -169,12 +179,12 @@ export class MessageProcessor {
             filename: "Loading...",
             fileUrl: "#",
             isPartial: true,
-            showQuotes: false
+            showQuotes: false,
           });
         }
 
         // In streaming mode, remove the partial excerpts
-        return message.split('<excerpts>')[0];
+        return message.split("<excerpts>")[0];
       }
 
       return message;
@@ -184,7 +194,8 @@ export class MessageProcessor {
     if (!this.citationData) {
       this.citationData = {
         excerpts: [],
-        isStreaming: this.options.isStreaming && !message.includes('</excerpts>')
+        isStreaming:
+          this.options.isStreaming && !message.includes("</excerpts>"),
       };
     }
 
@@ -210,11 +221,13 @@ export class MessageProcessor {
     }
 
     // Remove citation XML from the message
-    return message.replace(citationRegex, '');
+    return message.replace(citationRegex, "");
   }
 
   private processExcerptTag(excerptContent: string): void {
-    const docIdMatch = excerptContent.match(/<document_id>(.*?)<\/document_id>/);
+    const docIdMatch = excerptContent.match(
+      /<document_id>(.*?)<\/document_id>/,
+    );
     const snippetMatch = excerptContent.match(/<snippet>([\s\S]*?)<\/snippet>/);
 
     if (docIdMatch && snippetMatch) {
@@ -230,10 +243,11 @@ export class MessageProcessor {
         for (const fname in docIdsMap) {
           if (docIdsMap[fname] === docId) {
             // Extract just the basename from the path
-            filename = fname.split('/').pop() || fname;
+            filename = fname.split("/").pop() || fname;
 
             // Check if fname is a URL
-            const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+            const isURL =
+              fname.startsWith("http://") || fname.startsWith("https://");
 
             // Use direct URL for web links, otherwise use filestore URL
             fileUrl = isURL ? fname : this.options.getFileURL(fname);
@@ -250,14 +264,15 @@ export class MessageProcessor {
           filename,
           fileUrl,
           isPartial: false,
-          showQuotes: false
+          showQuotes: false,
         });
       }
     }
   }
 
   private processFilterMentions(message: string): string {
-    const filterPattern = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/g;
+    const filterPattern =
+      /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/g;
     const matches = [...message.matchAll(filterPattern)];
 
     let processedMessage = message;
@@ -267,14 +282,15 @@ export class MessageProcessor {
       const docName = match[1];
       const docId = match[2];
 
-      const basename = docName.split('/').pop() || docName;
+      const basename = docName.split("/").pop() || docName;
 
       let fileUrl = "#";
       if (this.options.session.config?.document_ids) {
         const docIdsMap = this.options.session.config.document_ids;
         for (const fname in docIdsMap) {
           if (docIdsMap[fname] === docId) {
-            const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+            const isURL =
+              fname.startsWith("http://") || fname.startsWith("https://");
             fileUrl = isURL ? fname : this.options.getFileURL(fname);
             break;
           }
@@ -320,7 +336,8 @@ export class MessageProcessor {
 
       if (filename) {
         // Check if filename is a URL
-        const isURL = filename.startsWith('http://') || filename.startsWith('https://');
+        const isURL =
+          filename.startsWith("http://") || filename.startsWith("https://");
 
         // Use direct URL for web links, otherwise use filestore URL
         const fileUrl = isURL ? filename : this.options.getFileURL(filename);
@@ -348,7 +365,7 @@ export class MessageProcessor {
           // Create a new object with the citationNumber added
           this.citationData.excerpts[i] = {
             ...excerpt,
-            citationNumber
+            citationNumber,
           };
         }
       }
@@ -375,13 +392,13 @@ export class MessageProcessor {
     }
 
     const groupId = this.options.session.config.document_group_id;
-    const groupRegex = new RegExp(`\\b${groupId}\\b`, 'g');
+    const groupRegex = new RegExp(`\\b${groupId}\\b`, "g");
 
     // Replace group ID with link if it exists in the message
     if (message.match(groupRegex)) {
       return message.replace(
         groupRegex,
-        `<a href="#" class="doc-group-link">[group]</a>`
+        `<a href="#" class="doc-group-link">[group]</a>`,
       );
     }
 
@@ -390,26 +407,29 @@ export class MessageProcessor {
 
   private processThinkingTags(message: string): string {
     // Check for any <think> tags
-    if (!message.includes('<think>')) {
+    if (!message.includes("<think>")) {
       return message;
     }
 
     // Fix code block indentation
-    let processedMessage = message.replace(/^[ \t]*```/gm, '```');
+    let processedMessage = message.replace(/^[ \t]*```/gm, "```");
 
     // Handle triple dash as think tag closing delimiter during streaming
     if (this.options.isStreaming) {
       // Replace --- with </think> if it's in a thinking block
       let openCount = 0;
-      processedMessage = processedMessage.split('\n').map(line => {
-        if (line.includes('<think>')) openCount++;
-        if (line.includes('</think>')) openCount--;
-        if (line.trim() === '---' && openCount > 0) {
-          openCount--;
-          return '</think>';
-        }
-        return line;
-      }).join('\n');
+      processedMessage = processedMessage
+        .split("\n")
+        .map((line) => {
+          if (line.includes("<think>")) openCount++;
+          if (line.includes("</think>")) openCount--;
+          if (line.trim() === "---" && openCount > 0) {
+            openCount--;
+            return "</think>";
+          }
+          return line;
+        })
+        .join("\n");
     }
 
     // Check if there's an unclosed think tag
@@ -419,7 +439,7 @@ export class MessageProcessor {
 
     // Add closing tag if needed and not streaming
     if (isThinking && !this.options.isStreaming) {
-      processedMessage += '\n</think>';
+      processedMessage += "\n</think>";
     }
 
     // Collect all <think>...</think> sections
@@ -428,10 +448,10 @@ export class MessageProcessor {
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
-        if (!trimmedContent) return '';
+        if (!trimmedContent) return "";
         thinkSections.push(trimmedContent);
-        return '';
-      }
+        return "";
+      },
     );
 
     // Handle unclosed thinking tags during streaming
@@ -442,18 +462,16 @@ export class MessageProcessor {
         const content = lastThinkTagMatch[1].trim();
         if (content) {
           thinkSections.push(content);
-          processedMessage = processedMessage.replace(
-            /<think>([\s\S]*)$/,
-            ''
-          );
+          processedMessage = processedMessage.replace(/<think>([\s\S]*)$/, "");
         }
       }
     }
 
     // If we found any think sections, insert a single marker with all joined by an empty line
     if (thinkSections.length > 0) {
-      const joined = thinkSections.join('\n\n');
-      processedMessage = `__THINKING_WIDGET__${joined}__THINKING_WIDGET__` + processedMessage;
+      const joined = thinkSections.join("\n\n");
+      processedMessage =
+        `__THINKING_WIDGET__${joined}__THINKING_WIDGET__` + processedMessage;
     }
 
     return processedMessage;
@@ -461,16 +479,19 @@ export class MessageProcessor {
 
   private removeTrailingTripleDash(message: string): string {
     // Remove triple dash at the end of content during streaming
-    return message.replace(/\n---\s*$/, '');
+    return message.replace(/\n---\s*$/, "");
   }
 
   private sanitizeHtml(message: string): string {
     // Temporarily replace code blocks to protect them from sanitization
     const codeBlocks: string[] = [];
-    let processedMessage = message.replace(/```(?:[\w]*)\n([\s\S]*?)```/g, (match, codeContent) => {
-      codeBlocks.push(match);
-      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
-    });
+    let processedMessage = message.replace(
+      /```(?:[\w]*)\n([\s\S]*?)```/g,
+      (match, codeContent) => {
+        codeBlocks.push(match);
+        return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+      },
+    );
 
     // Also protect inline code spans
     const inlineCode: string[] = [];
@@ -481,29 +502,76 @@ export class MessageProcessor {
 
     // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
     // This prevents malformed tags like <svg xmlns="... from breaking rendering
-    const ALLOWED_TAG_NAMES = ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
-    processedMessage = processedMessage.replace(/<(\/?)([\w-]+)/g, (match, slash, tagName) => {
-      if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
-        return match; // Keep allowed tags
-      }
-      return `&lt;${slash}${tagName}`; // Escape disallowed tags
-    });
+    const ALLOWED_TAG_NAMES = [
+      "a",
+      "p",
+      "br",
+      "strong",
+      "em",
+      "div",
+      "span",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "ul",
+      "ol",
+      "li",
+      "code",
+      "pre",
+      "blockquote",
+      "details",
+      "summary",
+      "table",
+      "thead",
+      "tbody",
+      "tr",
+      "th",
+      "td",
+    ];
+    processedMessage = processedMessage.replace(
+      /<(\/?)([\w-]+)/g,
+      (match, slash, tagName) => {
+        if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
+          return match; // Keep allowed tags
+        }
+        return `&lt;${slash}${tagName}`; // Escape disallowed tags
+      },
+    );
 
     // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
     processedMessage = DOMPurify.sanitize(processedMessage, {
       ALLOWED_TAGS: ALLOWED_TAG_NAMES,
-      ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
-      ADD_ATTR: ['target']
+      ALLOWED_ATTR: [
+        "href",
+        "target",
+        "class",
+        "style",
+        "title",
+        "id",
+        "aria-hidden",
+        "aria-label",
+        "role",
+      ],
+      ADD_ATTR: ["target"],
     });
 
     // Restore inline code
     inlineCode.forEach((code, index) => {
-      processedMessage = processedMessage.replace(`__INLINE_CODE_${index}__`, code);
+      processedMessage = processedMessage.replace(
+        `__INLINE_CODE_${index}__`,
+        code,
+      );
     });
 
     // Restore code blocks
     codeBlocks.forEach((codeBlock, index) => {
-      processedMessage = processedMessage.replace(`__CODE_BLOCK_${index}__`, codeBlock);
+      processedMessage = processedMessage.replace(
+        `__CODE_BLOCK_${index}__`,
+        codeBlock,
+      );
     });
 
     return processedMessage;
@@ -533,77 +601,105 @@ export class MessageProcessor {
   }
 
   private validateCitationsAgainstRagResults(): void {
-    if (!this.citationData || !this.options.session.config?.session_rag_results) {
+    if (
+      !this.citationData ||
+      !this.options.session.config?.session_rag_results
+    ) {
       return;
     }
 
     const ragResults = this.options.session.config.session_rag_results;
-    const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']; // Added image extensions list
+    const imageExtensions = [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp",
+      ".svg",
+      ".bmp",
+    ]; // Added image extensions list
 
     for (let i = 0; i < this.citationData.excerpts.length; i++) {
       const excerpt = this.citationData.excerpts[i];
 
       // --- Added check for image files ---
-      const fileExtension = excerpt.filename.substring(excerpt.filename.lastIndexOf('.')).toLowerCase();
+      const fileExtension = excerpt.filename
+        .substring(excerpt.filename.lastIndexOf("."))
+        .toLowerCase();
       if (imageExtensions.includes(fileExtension)) {
         // Skip validation for images
         this.citationData.excerpts[i] = {
           ...excerpt,
           validationStatus: undefined, // Explicitly set status to undefined or keep as is
-          validationMessage: 'Source is an image, validation skipped.',
-          showQuotes: false // Images don't have text snippets to quote
+          validationMessage: "Source is an image, validation skipped.",
+          showQuotes: false, // Images don't have text snippets to quote
         };
         continue; // Move to the next excerpt
       }
       // --- End of added check ---
 
       // Find all RAG results matching the document ID (can be multiple chunks)
-      const matchingRagResults = ragResults.filter(r => r.document_id === excerpt.docId);
+      const matchingRagResults = ragResults.filter(
+        (r) => r.document_id === excerpt.docId,
+      );
 
       if (matchingRagResults.length === 0) {
         // No matching RAG result found
         this.citationData.excerpts[i] = {
           ...excerpt,
-          validationStatus: 'failed',
-          validationMessage: 'No matching source document found in RAG results',
-          showQuotes: false
+          validationStatus: "failed",
+          validationMessage: "No matching source document found in RAG results",
+          showQuotes: false,
         };
         continue;
       }
 
       // Check each matching result to find the best validation status
-      let bestValidationStatus: 'exact' | 'fuzzy' | 'failed' = 'failed';
-      let bestValidationMessage = 'Citation not verified: text not found in source';
+      let bestValidationStatus: "exact" | "fuzzy" | "failed" = "failed";
+      let bestValidationMessage =
+        "Citation not verified: text not found in source";
       let bestSimilarity = 0;
       let showQuotes = false;
 
       // Clean the citation text for comparison
       const cleanSnippet = this.normalizeText(excerpt.snippet);
-      const snippetWords = new Set(cleanSnippet.split(/\s+/).filter(word => word.length > 3));
+      const snippetWords = new Set(
+        cleanSnippet.split(/\s+/).filter((word) => word.length > 3),
+      );
 
       // Check all chunks with this document_id
       for (const ragResult of matchingRagResults) {
-        const cleanContent = this.normalizeText(ragResult?.content || '');
+        const cleanContent = this.normalizeText(ragResult?.content || "");
 
         // Try exact match first (whole text contains)
         if (cleanContent.includes(cleanSnippet)) {
           // Exact match found
-          bestValidationStatus = 'exact';
-          bestValidationMessage = 'Citation verified: exact match found in source';
+          bestValidationStatus = "exact";
+          bestValidationMessage =
+            "Citation verified: exact match found in source";
           showQuotes = true;
           break; // Stop searching as we found an exact match
         }
 
         // If no exact match, try word-based similarity
-        const contentWords = cleanContent.split(/\s+/).filter(word => word.length > 3);
-        const matchedWords = Array.from(snippetWords).filter(word =>
-          contentWords.some(contentWord => contentWord.includes(word) || word.includes(contentWord))
+        const contentWords = cleanContent
+          .split(/\s+/)
+          .filter((word) => word.length > 3);
+        const matchedWords = Array.from(snippetWords).filter((word) =>
+          contentWords.some(
+            (contentWord) =>
+              contentWord.includes(word) || word.includes(contentWord),
+          ),
         );
 
-        const wordSimilarity = snippetWords.size > 0 ? matchedWords.length / snippetWords.size : 0;
+        const wordSimilarity =
+          snippetWords.size > 0 ? matchedWords.length / snippetWords.size : 0;
 
         // Try character-based similarity as fallback
-        const similarity = this.calculateTextSimilarity(cleanSnippet, cleanContent);
+        const similarity = this.calculateTextSimilarity(
+          cleanSnippet,
+          cleanContent,
+        );
 
         // Use the better of word-based or character-based similarity
         const combinedSimilarity = Math.max(wordSimilarity, similarity);
@@ -614,8 +710,9 @@ export class MessageProcessor {
           // Update fuzzy status if similarity is high enough
           // Lower threshold slightly from 0.7 to 0.6 to better handle these cases
           if (combinedSimilarity > 0.6) {
-            bestValidationStatus = 'fuzzy';
-            bestValidationMessage = 'Citation partially verified: similar text found in source';
+            bestValidationStatus = "fuzzy";
+            bestValidationMessage =
+              "Citation partially verified: similar text found in source";
             showQuotes = false; // Don't show quotes for fuzzy matches
           }
         }
@@ -626,17 +723,17 @@ export class MessageProcessor {
         ...excerpt,
         validationStatus: bestValidationStatus,
         validationMessage: bestValidationMessage,
-        showQuotes: showQuotes
+        showQuotes: showQuotes,
       };
     }
   }
 
   private normalizeText(text: string): string {
     return text
-      .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
-      .replace(/#/g, ' ')       // Replace # with spaces
-      .replace(/\s+/g, ' ')     // Normalize all whitespace
-      .replace(/[^\w\s]/g, '')  // Remove punctuation
+      .replace(/[\r\n]+/g, " ") // Replace newlines with spaces
+      .replace(/#/g, " ") // Replace # with spaces
+      .replace(/\s+/g, " ") // Normalize all whitespace
+      .replace(/[^\w\s]/g, "") // Remove punctuation
       .toLowerCase()
       .trim();
   }
@@ -654,12 +751,13 @@ export class MessageProcessor {
 
     let maxSimilarity = 0;
 
-    for (let i = 0; i <= str2.length - str1.length; i += 10) { // Step by 10 chars for efficiency
+    for (let i = 0; i <= str2.length - str1.length; i += 10) {
+      // Step by 10 chars for efficiency
       const windowEnd = Math.min(i + str1.length * 2, str2.length);
       const window = str2.substring(i, windowEnd);
       const words2 = new Set(window.split(/\s+/));
 
-      const intersection = new Set([...words1].filter(x => words2.has(x)));
+      const intersection = new Set([...words1].filter((x) => words2.has(x)));
       const union = new Set([...words1, ...words2]);
 
       const similarity = intersection.size / union.size;
@@ -682,62 +780,86 @@ export interface InteractionMarkdownProps {
 }
 
 // Add this new component for the code block with copy button
-const CodeBlockWithCopy: FC<{ children: string; language?: string }> = ({ children, language }) => {
-  const [copied, setCopied] = useState(false);
-  const theme = useTheme();
+/**
+ * Memoized code block component to prevent unnecessary re-renders during streaming.
+ * This is a key performance optimization - code blocks don't change once rendered,
+ * so we can skip re-rendering them when other content updates.
+ */
+const CodeBlockWithCopy: FC<{ children: string; language?: string }> =
+  React.memo(({ children, language }) => {
+    const [copied, setCopied] = useState(false);
+    const theme = useTheme();
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(children);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy text: ', err);
-    }
-  };
+    const handleCopy = useCallback(async () => {
+      try {
+        await navigator.clipboard.writeText(children);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy text: ", err);
+      }
+    }, [children]);
 
-  return (
-    <Box sx={{ position: 'relative' }}>
-      <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
-        <Tooltip title={copied ? "Copied!" : "Copy code"}>
-          <IconButton
-            onClick={handleCopy}
-            size="small"
-            sx={{
-              backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              '&:hover': {
-                backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
-              },
-              '& .MuiSvgIcon-root': {
-                color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)',
-              },
-            }}
-          >
-            <ContentCopyIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-      <Box
-        sx={{
-          overflowY: 'clip',
-          overflowX: 'auto',
-        }}
-      >
-        <SyntaxHighlighter
-          language={language}
-          style={oneDark}
-          PreTag="div"
-          customStyle={{
-            margin: 0,
-            overflow: 'visible',
+    // Memoize the processed children string to avoid recalculation
+    const processedChildren = useMemo(
+      () => String(children).replace(/\n$/, ""),
+      [children],
+    );
+
+    return (
+      <Box sx={{ position: "relative" }}>
+        <Box sx={{ position: "absolute", right: 8, top: 8, zIndex: 1 }}>
+          <Tooltip title={copied ? "Copied!" : "Copy code"}>
+            <IconButton
+              onClick={handleCopy}
+              size="small"
+              sx={{
+                backgroundColor:
+                  theme.palette.mode === "light"
+                    ? "rgba(255, 255, 255, 0.1)"
+                    : "rgba(0, 0, 0, 0.1)",
+                "&:hover": {
+                  backgroundColor:
+                    theme.palette.mode === "light"
+                      ? "rgba(255, 255, 255, 0.2)"
+                      : "rgba(0, 0, 0, 0.2)",
+                },
+                "& .MuiSvgIcon-root": {
+                  color:
+                    theme.palette.mode === "light"
+                      ? "rgba(0, 0, 0, 0.6)"
+                      : "rgba(255, 255, 255, 0.6)",
+                },
+              }}
+            >
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <Box
+          sx={{
+            overflowY: "clip",
+            overflowX: "auto",
           }}
         >
-          {String(children).replace(/\n$/, '')}
-        </SyntaxHighlighter>
+          <SyntaxHighlighter
+            language={language}
+            style={oneDark}
+            PreTag="div"
+            customStyle={{
+              margin: 0,
+              overflow: "visible",
+            }}
+          >
+            {processedChildren}
+          </SyntaxHighlighter>
+        </Box>
       </Box>
-    </Box>
-  );
-};
+    );
+  });
+
+// Display name for React DevTools debugging
+CodeBlockWithCopy.displayName = "CodeBlockWithCopy";
 
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 150;
@@ -746,73 +868,87 @@ const STREAMING_THROTTLE_MS = 150;
 const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
   session,
-  getFileURL = (filename) => '#',
+  getFileURL = (filename) => "#",
   showBlinker = false,
   isStreaming = false,
   onFilterDocument,
 }) => {
-  const theme = useTheme()
-  const [processedContent, setProcessedContent] = useState<string>('');
-  const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
-  const [thinkingWidgetContent, setThinkingWidgetContent] = useState<string | null>(null);
+  const theme = useTheme();
+  const [processedContent, setProcessedContent] = useState<string>("");
+  const [citationData, setCitationData] = useState<{
+    excerpts: Excerpt[];
+    isStreaming: boolean;
+  } | null>(null);
+  const [thinkingWidgetContent, setThinkingWidgetContent] = useState<
+    string | null
+  >(null);
 
   // Throttling refs for streaming performance
-  const throttleTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastProcessedTextRef = React.useRef<string>('');
-  const pendingTextRef = React.useRef<string>('');
+  const throttleTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastProcessedTextRef = React.useRef<string>("");
+  const pendingTextRef = React.useRef<string>("");
 
   // Process content helper
-  const processContent = useCallback((textToProcess: string) => {
-    if (!textToProcess) {
-      setProcessedContent('');
-      setCitationData(null);
-      setThinkingWidgetContent(null);
-      return;
-    }
+  const processContent = useCallback(
+    (textToProcess: string) => {
+      if (!textToProcess) {
+        setProcessedContent("");
+        setCitationData(null);
+        setThinkingWidgetContent(null);
+        return;
+      }
 
-    let content: string;
-    if (session) {
-      const processor = new MessageProcessor(textToProcess, {
-        session,
-        getFileURL,
-        showBlinker,
-        isStreaming,
-        onFilterDocument,
-      });
-      content = processor.process();
-      // Extract citation data if present
-      const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
-      const citationDataMatch = content.match(citationPattern);
-      if (citationDataMatch) {
-        try {
-          const citationDataJson = citationDataMatch[1];
-          const data = JSON.parse(citationDataJson);
-          setCitationData(data);
-          content = content.replace(/__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/, '');
-        } catch (error) {
-          console.error('Error parsing citation data:', error);
+      let content: string;
+      if (session) {
+        const processor = new MessageProcessor(textToProcess, {
+          session,
+          getFileURL,
+          showBlinker,
+          isStreaming,
+          onFilterDocument,
+        });
+        content = processor.process();
+        // Extract citation data if present
+        const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
+        const citationDataMatch = content.match(citationPattern);
+        if (citationDataMatch) {
+          try {
+            const citationDataJson = citationDataMatch[1];
+            const data = JSON.parse(citationDataJson);
+            setCitationData(data);
+            content = content.replace(
+              /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/,
+              "",
+            );
+          } catch (error) {
+            console.error("Error parsing citation data:", error);
+            setCitationData(null);
+          }
+        } else {
           setCitationData(null);
         }
+        // Extract thinking widget content if present
+        const thinkingPattern =
+          /__THINKING_WIDGET__([\s\S]*?)__THINKING_WIDGET__/;
+        const thinkingMatch = content.match(thinkingPattern);
+        if (thinkingMatch) {
+          setThinkingWidgetContent(thinkingMatch[1]);
+          content = content.replace(thinkingPattern, "");
+        } else {
+          setThinkingWidgetContent(null);
+        }
       } else {
+        content = processBasicContent(textToProcess);
         setCitationData(null);
-      }
-      // Extract thinking widget content if present
-      const thinkingPattern = /__THINKING_WIDGET__([\s\S]*?)__THINKING_WIDGET__/;
-      const thinkingMatch = content.match(thinkingPattern);
-      if (thinkingMatch) {
-        setThinkingWidgetContent(thinkingMatch[1]);
-        content = content.replace(thinkingPattern, '');
-      } else {
         setThinkingWidgetContent(null);
       }
-    } else {
-      content = processBasicContent(textToProcess);
-      setCitationData(null);
-      setThinkingWidgetContent(null);
-    }
-    setProcessedContent(content);
-    lastProcessedTextRef.current = textToProcess;
-  }, [session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
+      setProcessedContent(content);
+      lastProcessedTextRef.current = textToProcess;
+    },
+    [session, getFileURL, showBlinker, isStreaming, onFilterDocument],
+  );
 
   useEffect(() => {
     // Store the latest text
@@ -855,124 +991,170 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     <>
       <Box
         sx={{
-          fontSize: '0.9rem',
-          '& pre': {
-            padding: '1em',
-            borderRadius: '4px',
+          fontSize: "0.9rem",
+          "& pre": {
+            padding: "1em",
+            borderRadius: "4px",
             // Only allow horizontal scroll (for wide code)
             // Vertical scroll must go to parent container to prevent "getting stuck"
             // when scrolling the chat and momentum stops inside a code block
-            overflowX: 'auto',
-            overflowY: 'visible',
-            position: 'relative',
+            overflowX: "auto",
+            overflowY: "visible",
+            position: "relative",
           },
-          '& code': {
-            backgroundColor: 'transparent',
-            fontSize: '0.9rem',
+          "& code": {
+            backgroundColor: "transparent",
+            fontSize: "0.9rem",
           },
-          '& :not(pre) > code': {
-            backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
-            padding: '0',
-            borderRadius: '3px',
+          "& :not(pre) > code": {
+            backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",
+            padding: "0",
+            borderRadius: "3px",
           },
-          '& a': {
-            color: theme.palette.mode === 'light' ? '#333' : '#bbb',
+          "& a": {
+            color: theme.palette.mode === "light" ? "#333" : "#bbb",
           },
-          '& .blinker-class': {
+          "& .blinker-class": {
             animation: `${blink} 1.2s step-end infinite`,
-            marginLeft: '2px',
-            color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
-            fontWeight: 'normal',
-            userSelect: 'none',
+            marginLeft: "2px",
+            color:
+              theme.palette.mode === "light"
+                ? "rgba(0, 0, 0, 0.7)"
+                : "rgba(255, 255, 255, 0.7)",
+            fontWeight: "normal",
+            userSelect: "none",
           },
-          '& .doc-citation': {
-            color: theme.palette.mode === 'light' ? '#333' : '#fff',
-            backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#333',
-            padding: '0px 4px',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            textDecoration: 'none',
-            '&:hover': {
-              backgroundColor: 'rgba(88, 166, 255, 0.3)',
-            }
+          "& .doc-citation": {
+            color: theme.palette.mode === "light" ? "#333" : "#fff",
+            backgroundColor:
+              theme.palette.mode === "light" ? "#f0f0f0" : "#333",
+            padding: "0px 4px",
+            borderRadius: "4px",
+            fontWeight: "bold",
+            cursor: "pointer",
+            textDecoration: "none",
+            "&:hover": {
+              backgroundColor: "rgba(88, 166, 255, 0.3)",
+            },
           },
-          '& .filter-mention': {
-            color: theme.palette.mode === 'light' ? '#1976d2' : '#58a6ff',
-            backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.08)' : 'rgba(88, 166, 255, 0.15)',
-            padding: '2px 6px',
-            borderRadius: '4px',
+          "& .filter-mention": {
+            color: theme.palette.mode === "light" ? "#1976d2" : "#58a6ff",
+            backgroundColor:
+              theme.palette.mode === "light"
+                ? "rgba(25, 118, 210, 0.08)"
+                : "rgba(88, 166, 255, 0.15)",
+            padding: "2px 6px",
+            borderRadius: "4px",
             fontWeight: 500,
-            cursor: 'pointer',
-            textDecoration: 'none',
-            transition: 'all 0.2s ease',
-            '&:hover': {
-              backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.15)' : 'rgba(88, 166, 255, 0.25)',
-              textDecoration: 'none',
-            }
+            cursor: "pointer",
+            textDecoration: "none",
+            transition: "all 0.2s ease",
+            "&:hover": {
+              backgroundColor:
+                theme.palette.mode === "light"
+                  ? "rgba(25, 118, 210, 0.15)"
+                  : "rgba(88, 166, 255, 0.25)",
+              textDecoration: "none",
+            },
           },
-          '& table': {
-            borderCollapse: 'collapse',
-            width: '100%',
-            margin: '1em 0',
-            fontSize: '0.9em',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            boxShadow: theme.palette.mode === 'light' ? '0 2px 8px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
+          "& table": {
+            borderCollapse: "collapse",
+            width: "100%",
+            margin: "1em 0",
+            fontSize: "0.9em",
+            borderRadius: "8px",
+            overflow: "hidden",
+            boxShadow:
+              theme.palette.mode === "light"
+                ? "0 2px 8px rgba(0, 0, 0, 0.1)"
+                : "0 2px 8px rgba(0, 0, 0, 0.3)",
           },
-          '& th, & td': {
-            border: `1px solid ${theme.palette.mode === 'light' ? '#e0e0e0' : '#444'}`,
-            padding: '12px 16px',
-            textAlign: 'left',
+          "& th, & td": {
+            border: `1px solid ${theme.palette.mode === "light" ? "#e0e0e0" : "#444"}`,
+            padding: "12px 16px",
+            textAlign: "left",
           },
-          '& th': {
-            backgroundColor: theme.palette.mode === 'light' ? '#f8f9fa' : '#23272f',
-            fontWeight: '600',
-            color: theme.palette.mode === 'light' ? '#333' : '#fff',
-            borderBottom: `2px solid ${theme.palette.mode === 'light' ? '#dee2e6' : '#444'}`,
+          "& th": {
+            backgroundColor:
+              theme.palette.mode === "light" ? "#f8f9fa" : "#23272f",
+            fontWeight: "600",
+            color: theme.palette.mode === "light" ? "#333" : "#fff",
+            borderBottom: `2px solid ${theme.palette.mode === "light" ? "#dee2e6" : "#444"}`,
           },
-          '& td': {
-            backgroundColor: theme.palette.mode === 'light' ? '#fff' : 'transparent',
+          "& td": {
+            backgroundColor:
+              theme.palette.mode === "light" ? "#fff" : "transparent",
           },
-          display: 'flow-root',
+          display: "flow-root",
         }}
       >
         {thinkingWidgetContent && (
-          <ThinkingWidget text={thinkingWidgetContent} isStreaming={isStreaming} />
-        )}
-        {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
-          <Citation
-            excerpts={citationData.excerpts}
-            isStreaming={citationData.isStreaming}
-            onFilterDocument={onFilterDocument}
-            ragResults={session?.config?.session_rag_results || []}
+          <ThinkingWidget
+            text={thinkingWidgetContent}
+            isStreaming={isStreaming}
           />
         )}
-        <Markdown
-          children={processedContent}
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw]}
-          className="interactionMessage"
-          components={{
-            code(props) {
-              const { children, className, node, ...rest } = props
-              const match = /language-(\w+)/.exec(className || '')
-              return match ? (
-                <CodeBlockWithCopy language={match[1]}>
-                  {String(children).replace(/\n$/, '')}
-                </CodeBlockWithCopy>
-              ) : (
-                <code {...rest} className={className}>
-                  {children}
-                </code>
-              )
-            }
-          }}
-        />
+        {citationData &&
+          citationData.excerpts &&
+          citationData.excerpts.length > 0 && (
+            <Citation
+              excerpts={citationData.excerpts}
+              isStreaming={citationData.isStreaming}
+              onFilterDocument={onFilterDocument}
+              ragResults={session?.config?.session_rag_results || []}
+            />
+          )}
+        <MemoizedMarkdownRenderer processedContent={processedContent} />
       </Box>
     </>
   );
-}
+};
+
+/**
+ * Memoized markdown renderer component.
+ * Extracts the Markdown rendering to a separate component so it can be memoized
+ * and avoid recreating the components object on every parent render.
+ */
+const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
+  ({ processedContent }) => {
+    // Memoize the components object to prevent react-markdown from re-rendering
+    // all code blocks when content changes. This is created once per component instance.
+    const markdownComponents = useMemo(
+      () => ({
+        code(props: any) {
+          const { children, className, node, ...rest } = props;
+          const match = /language-(\w+)/.exec(className || "");
+          return match ? (
+            <CodeBlockWithCopy language={match[1]}>
+              {String(children).replace(/\n$/, "")}
+            </CodeBlockWithCopy>
+          ) : (
+            <code {...rest} className={className}>
+              {children}
+            </code>
+          );
+        },
+      }),
+      [],
+    );
+
+    // Memoize plugins arrays to prevent unnecessary re-renders
+    const remarkPluginsArray = useMemo(() => [remarkGfm], []);
+    const rehypePluginsArray = useMemo(() => [rehypeRaw], []);
+
+    return (
+      <Markdown
+        children={processedContent}
+        remarkPlugins={remarkPluginsArray}
+        rehypePlugins={rehypePluginsArray}
+        className="interactionMessage"
+        components={markdownComponents}
+      />
+    );
+  },
+);
+
+MemoizedMarkdownRenderer.displayName = "MemoizedMarkdownRenderer";
 
 function processBasicContent(text: string): string {
   // Implement basic processing logic here
