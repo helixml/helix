@@ -15,3 +15,8 @@
   - Click description - should enter edit mode
   - Verify Save/Cancel still work
   - Start planning on a task - verify hover effect is gone for non-backlog tasks
+
+- [~] Add blur-to-save behavior
+  - Add `onBlur` handler to the description TextField
+  - When user clicks outside the field, save changes and exit edit mode
+  - Should behave like clicking Save button
