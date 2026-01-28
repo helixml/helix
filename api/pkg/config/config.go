@@ -72,7 +72,7 @@ type Search struct {
 
 type Kodit struct {
 	BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
-	APIKey  string `envconfig:"KODIT_API_KEY" default:"dev-key"`
+	APIKey  string `envconfig:"KODIT_API_KEY" default:"default-kodit-api-key"`
 	Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
 	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
 	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
