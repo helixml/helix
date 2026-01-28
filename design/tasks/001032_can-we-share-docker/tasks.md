@@ -2,12 +2,12 @@
 
 ## Phase 1: Hydra Cache Directory Setup
 
-- [~] Create `/hydra-data/buildkit-cache/` directory in Hydra's `NewManager` or `Start` function
-- [ ] Ensure directory has correct permissions (0755) for all dockerd instances to access
+- [x] Create `/hydra-data/buildkit-cache/` directory in Hydra's `NewManager` or `Start` function
+- [x] Ensure directory has correct permissions (0755) for all dockerd instances to access
 
 ## Phase 2: Mount Cache in Dev Containers
 
-- [ ] Update `devcontainer.go` `buildMounts()` to add `/hydra-data/buildkit-cache` → `/buildkit-cache` bind mount
+- [~] Update `devcontainer.go` `buildMounts()` to add `/hydra-data/buildkit-cache` → `/buildkit-cache` bind mount
 - [ ] Test that dev containers can read/write to `/buildkit-cache`
 - [ ] Verify concurrent access from multiple sessions doesn't cause errors
 
