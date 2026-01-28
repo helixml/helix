@@ -18,7 +18,7 @@ Add new field:
 
 ```go
 // Public sharing
-PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without token
+PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
 ```
 
 ## API Changes
@@ -29,8 +29,7 @@ PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow 
 
 **New behavior**:
 1. If `task.PublicDesignDocs == true` → render design docs (no auth needed)
-2. Else if valid `token` provided → render design docs (existing behavior)
-3. Else → return user-friendly "This spec task is private" HTML page
+2. Else → return user-friendly "This spec task is private" HTML page with link to login
 
 ### Modified Endpoint: PATCH /api/v1/spec-tasks/{id}
 
@@ -45,24 +44,22 @@ PublicDesignDocs *bool `json:"public_design_docs,omitempty"`
 
 ### SpecTaskReviewPanel.tsx
 
-Add toggle switch above "Get Shareable Link" button:
+Replace the existing "Get Shareable Link" section with a simpler public toggle:
 
 ```
 ┌─────────────────────────────────────┐
-│ 📱 View on Any Device               │
+│ 🔗 Share Design Docs                │
 │                                     │
-│ ☐ Make design docs public           │
+│ ☐ Make publicly viewable            │
 │   Anyone with the link can view     │
 │                                     │
-│ [Copy Public Link] (when enabled)   │
-│ ─────────────── or ───────────────  │
-│ [Get Temporary Link] (7 day token)  │
+│ [Copy Link] (shown when enabled)    │
 └─────────────────────────────────────┘
 ```
 
 - Toggle calls PATCH `/api/v1/spec-tasks/{id}` with `{ public_design_docs: true/false }`
-- When public, show simple "Copy Link" that copies `{baseURL}/spec-tasks/{id}/view`
-- Keep existing "Get Shareable Link" as fallback for temporary token-based access
+- When public, show "Copy Link" button that copies `{baseURL}/spec-tasks/{id}/view`
+- Remove existing token-based share link generation
 
 ## Security Considerations
 
@@ -74,3 +71,10 @@ Add toggle switch above "Get Shareable Link" button:
 ## Migration
 
 GORM AutoMigrate handles adding the new boolean column with default `false`. No data migration needed.
+
+## Cleanup
+
+Remove the token-based share link feature:
+- Delete `generateDesignDocsShareLink` handler
+- Delete `DesignDocsShareTokenClaims` and `DesignDocsShareLinkResponse` types
+- Remove POST `/api/v1/spec-tasks/{id}/design-docs/share` route
