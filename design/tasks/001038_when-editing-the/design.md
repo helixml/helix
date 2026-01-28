@@ -63,3 +63,24 @@ fullMessage = planningPrompt + "\n\n**Original Request (for context only...):**\
 3. Start planning
 4. Verify agent receives "Build feature B with extra requirements"
 5. Repeat for Just Do It mode
+
+## Implementation Notes
+
+**Changes made:**
+
+1. `StartSpecGeneration()` (~line 396-404): Added `userPrompt` variable with fallback logic, used in both normal and cloned task cases
+2. `StartJustDoItMode()` (~line 643-649): Added same `userPrompt` variable pattern with fallback logic
+3. Also updated log statement in `StartJustDoItMode()` to log `user_prompt` instead of `original_prompt`
+
+**Pattern used:**
+```go
+// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
+userPrompt := task.Description
+if userPrompt == "" {
+    userPrompt = task.OriginalPrompt
+}
+```
+
+**Build verification:** `CGO_ENABLED=0 go build -o /tmp/helix-bin .` passes
+
+**Note:** The API hot-reloads via Air, so changes take effect without restart.
