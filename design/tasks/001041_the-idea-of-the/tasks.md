@@ -9,11 +9,11 @@
 - [x] Update spec task PATCH handler to allow setting `public_design_docs` field
 - [x] Remove `generateDesignDocsShareLink` handler and related types (`DesignDocsShareTokenClaims`, `DesignDocsShareLinkResponse`)
 - [x] Remove POST `/api/v1/spec-tasks/{id}/design-docs/share` route from `server.go`
-- [~] Run `./stack update_openapi` to regenerate API client
+- [x] Run `./stack update_openapi` to regenerate API client
 
 ## Frontend
 
-- [ ] Replace "Get Shareable Link" section in `SpecTaskReviewPanel.tsx` with public toggle
+- [~] Replace "Get Shareable Link" section in `SpecTaskReviewPanel.tsx` with public toggle
 - [ ] Add mutation to update `public_design_docs` via PATCH endpoint
 - [ ] Show "Copy Link" button when public is enabled (simple URL: `{baseURL}/spec-tasks/{id}/view`)
 - [ ] Remove token-based share link generation code
