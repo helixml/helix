@@ -2,8 +2,10 @@
 
 ## Investigation
 
-- [ ] Verify the user's current fork commit hash to assess how far behind upstream it is
+- [~] Verify the user's current fork commit hash to assess how far behind upstream it is
 - [ ] Check if commit `d16619a654` applies cleanly to the user's fork
+
+**Note:** Need clarification from user - the Zed repo at `/home/retro/work/zed` is on `main` branch. The referenced `/home/retro/work/helix-4/` is a symlink to the Helix project, not a Zed fork. Waiting for user to confirm which repo contains their custom Zed fork.
 
 ## Cherry-pick the Fix
 
