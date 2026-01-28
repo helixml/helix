@@ -29,7 +29,6 @@ See also: `.cursor/rules/*.mdc`
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress
 - **Keep commits atomic** — one logical change per commit, easier to review and revert
-- **NEVER** commit `.hydra-resolved*.yaml` files — these are generated files, not source code
 
 ### Debugging
 - **Ask user to verify after changes** — UI/behavior changes can break things silently
