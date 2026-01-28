@@ -12,7 +12,8 @@ Use the official Go binary tarball installation method:
 2. Check if that version is already installed via `go version`
 3. If not, download the official tarball from `go.dev/dl/`
 4. Extract to `$HOME/.local/go` (user-local, no sudo required)
-5. Add to PATH via export
+5. Add to PATH via export (for current session)
+6. Add to `~/.bashrc` (for future sessions)
 
 ## Key Decisions
 
@@ -21,6 +22,7 @@ Use the official Go binary tarball installation method:
 | Installation location | `$HOME/.local/go` | User-local, doesn't require root |
 | Version source | Extract from `go.mod` | Single source of truth, no hardcoding |
 | When to run | During `./stack start` | Ensures Go available before build |
+| PATH persistence | Add to `~/.bashrc` | Available in future terminal sessions |
 
 ## Implementation
 
@@ -29,6 +31,7 @@ Add a new function `ensure_go()` to the `stack` script:
 ```bash
 function ensure_go() {
   local GO_INSTALL_DIR="$HOME/.local/go"
+  local PATH_LINE='export PATH="$HOME/.local/go/bin:$PATH"'
   
   # Extract Go version from go.mod (e.g., "go 1.25.0" -> "1.25.0")
   local GO_VERSION
@@ -39,6 +42,9 @@ function ensure_go() {
     return 1
   fi
   
+  # Add to PATH for current session
+  export PATH="$GO_INSTALL_DIR/bin:$PATH"
+  
   # Check if correct version already installed
   if command -v go &>/dev/null && go version | grep -q "go${GO_VERSION}"; then
     return 0
@@ -47,8 +53,16 @@ function ensure_go() {
   echo "🔄 Installing Go ${GO_VERSION}..."
   
   # Download and install
+  mkdir -p "$HOME/.local"
   curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C "$HOME/.local" -xz
-  export PATH="$GO_INSTALL_DIR/bin:$PATH"
+  
+  # Add to ~/.bashrc for future sessions (if not already present)
+  if ! grep -q '.local/go/bin' ~/.bashrc 2>/dev/null; then
+    echo "" >> ~/.bashrc
+    echo "# Go (installed by helix ./stack script)" >> ~/.bashrc
+    echo "$PATH_LINE" >> ~/.bashrc
+    echo "✅ Added Go to ~/.bashrc for future sessions"
+  fi
   
   echo "✅ Go ${GO_VERSION} installed"
 }
@@ -61,3 +75,4 @@ Call `ensure_go` early in the `start()` function, before any Go build commands.
 - **Network dependency**: Download requires internet access. Mitigation: check if Go exists first.
 - **Architecture assumption**: Assumes `linux-amd64`. Could detect with `uname -m` if needed.
 - **go.mod parse failure**: If `go.mod` format changes. Mitigation: clear error message.
+- **Shell compatibility**: Only updates `~/.bashrc`. Users of zsh/fish would need to add PATH manually.
