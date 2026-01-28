@@ -47,6 +47,12 @@ if ! command -v tmux &> /dev/null; then
     sudo apt-get update && sudo apt-get install -y tmux
 fi
 
+# Ensure yarn is installed (needed for frontend development/testing)
+if ! command -v yarn &> /dev/null; then
+    echo "Installing yarn..."
+    npm install -g yarn
+fi
+
 # Check for privileged mode (host docker socket)
 # NOTE: We do NOT set DOCKER_HOST here. The ./stack script has its own
 # Helix-in-Helix detection (detect_helix_in_helix) that properly handles:
