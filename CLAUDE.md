@@ -40,9 +40,9 @@ See also: `.cursor/rules/*.mdc`
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
 ### Hot Reloading
-- **API**: Uses [Air](https://github.com/air-verse/air) for hot reloading — Go code changes are automatically rebuilt and restarted
-- **Frontend**: Hot reloading enabled — React/TypeScript changes apply immediately
-- No need to manually restart after code changes in dev mode
+- **API**: Uses [Air](https://github.com/air-verse/air) — Go changes auto-rebuild
+- **Frontend**: Vite HMR — TypeScript/React changes apply instantly
+- **Both hot-reload in dev mode** — no manual restart needed for API or frontend code changes
 
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
