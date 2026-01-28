@@ -552,13 +552,35 @@ Examples:
 							continue
 						}
 						// Check if agent is still working
-						// This is a simplified check - real implementation would check agent status
 						if session.Mode != "action" {
 							goto done
 						}
 					}
 				}
 			done:
+				// Fetch the latest interaction to get the actual response
+				historyURL := fmt.Sprintf("%s/api/v1/sessions/%s/interactions", apiURL, sessionID)
+				req, err := http.NewRequest("GET", historyURL, nil)
+				if err == nil {
+					req.Header.Set("Authorization", "Bearer "+token)
+					if resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req); err == nil {
+						defer resp.Body.Close()
+						if body, err := io.ReadAll(resp.Body); err == nil {
+							var interactions []map[string]interface{}
+							if json.Unmarshal(body, &interactions) == nil && len(interactions) > 0 {
+								// Get the last assistant message
+								for i := len(interactions) - 1; i >= 0; i-- {
+									if interactions[i]["creator"] == "assistant" {
+										if msg, ok := interactions[i]["message"].(string); ok {
+											response["response"] = msg
+										}
+										break
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 
 			if jsonOutput {
