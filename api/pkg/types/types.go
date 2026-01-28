@@ -862,7 +862,8 @@ type WebsocketEvent struct {
 	SessionID          string                      `json:"session_id"`
 	InteractionID      string                      `json:"interaction_id"`
 	Owner              string                      `json:"owner"`
-	Session            *Session                    `json:"session"`
+	Session            *Session                    `json:"session,omitempty"`     // Full session (for session_update)
+	Interaction        *Interaction                `json:"interaction,omitempty"` // Single interaction (for interaction_update)
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`

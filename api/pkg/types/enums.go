@@ -96,6 +96,7 @@ type WebsocketEventType string
 
 const (
 	WebsocketEventSessionUpdate        WebsocketEventType = "session_update"
+	WebsocketEventInteractionUpdate    WebsocketEventType = "interaction_update" // Single interaction update (optimized for streaming)
 	WebsocketEventWorkerTaskResponse   WebsocketEventType = "worker_task_response"
 	WebsocketLLMInferenceResponse      WebsocketEventType = "llm_inference_response"
 	WebsocketEventProcessingStepInfo   WebsocketEventType = "step_info"            // Helix tool use, rag search, etc
