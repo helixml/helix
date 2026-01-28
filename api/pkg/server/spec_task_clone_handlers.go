@@ -143,25 +143,6 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		return nil, fmt.Errorf("failed to get target project: %w", err)
 	}
 
-	var initialStatus types.SpecTaskStatus = "backlog"
-	var designDocsPushedAt *time.Time
-
-	// Check if source task has specs - if so, we can skip spec generation
-	hasSpecs := source.RequirementsSpec != "" && source.TechnicalDesign != "" && source.ImplementationPlan != ""
-
-	if autoStart {
-		if source.JustDoItMode {
-			initialStatus = types.TaskStatusQueuedImplementation
-		} else if hasSpecs {
-			// Source has specs, skip directly to spec_review
-			initialStatus = types.TaskStatusSpecReview
-			now := time.Now()
-			designDocsPushedAt = &now
-		} else {
-			initialStatus = types.TaskStatusQueuedSpecGeneration
-		}
-	}
-
 	// Get the latest design review specs if available - these contain learnings
 	// from implementation that were pushed to helix-specs during the task.
 	// Fall back to the original specs on the task if no design review exists.
@@ -185,6 +166,28 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 			Str("source_task_id", source.ID).
 			Str("review_id", latestReview.ID).
 			Msg("Using updated specs from design review for clone")
+	}
+
+	// Determine initial status and designDocsPushedAt AFTER resolving specs
+	// from design review. The cloned task may have specs from the design review
+	// even if the source task's direct fields are empty.
+	var initialStatus types.SpecTaskStatus = "backlog"
+	var designDocsPushedAt *time.Time
+
+	// Check the RESOLVED specs (after design review merge), not source task fields
+	hasSpecs := requirementsSpec != "" && technicalDesign != "" && implementationPlan != ""
+
+	if autoStart {
+		if source.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else if hasSpecs {
+			// Cloned task has specs, skip directly to spec_review
+			initialStatus = types.TaskStatusSpecReview
+			now := time.Now()
+			designDocsPushedAt = &now
+		} else {
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
 	}
 
 	// Create new task with copied data

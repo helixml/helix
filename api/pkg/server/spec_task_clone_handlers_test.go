@@ -196,6 +196,85 @@ func TestCloneTaskToProject_JustDoItMode_SkipsSpecReview(t *testing.T) {
 	assert.Nil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should not be set for JustDoItMode")
 }
 
+// TestCloneTaskToProject_SpecsFromDesignReview_SetsDesignDocsPushedAt tests the scenario
+// where the source task has no specs on its direct fields, but has a design review with specs.
+// This is a common case when a task was implemented and its specs were pushed to helix-specs,
+// but the task record's RequirementsSpec/TechnicalDesign/ImplementationPlan fields are empty.
+func TestCloneTaskToProject_SpecsFromDesignReview_SetsDesignDocsPushedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	server := &HelixAPIServer{
+		Store: mockStore,
+	}
+
+	// Source task with NO specs on direct fields (common after implementation)
+	sourceTask := &types.SpecTask{
+		ID:           "source-task-id",
+		ProjectID:    "source-project-id",
+		Name:         "Test Task",
+		JustDoItMode: false,
+		// RequirementsSpec, TechnicalDesign, ImplementationPlan are intentionally empty
+	}
+
+	targetProjectID := "target-project-id"
+	cloneGroupID := "clone-group-id"
+	userID := "user-id"
+	userEmail := "user@example.com"
+
+	// Mock GetProject
+	mockStore.EXPECT().GetProject(gomock.Any(), targetProjectID).Return(&types.Project{
+		ID:   targetProjectID,
+		Name: "Target Project",
+	}, nil)
+
+	// Mock GetLatestDesignReview - returns a design review WITH specs
+	// This simulates the case where specs were pushed to helix-specs during implementation
+	mockStore.EXPECT().GetLatestDesignReview(gomock.Any(), sourceTask.ID).Return(&types.SpecTaskDesignReview{
+		ID:                 "review-id",
+		SpecTaskID:         sourceTask.ID,
+		RequirementsSpec:   "# Requirements\nSpecs from design review",
+		TechnicalDesign:    "# Technical Design\nSpecs from design review",
+		ImplementationPlan: "# Implementation Plan\nSpecs from design review",
+	}, nil)
+
+	// Mock IncrementGlobalTaskNumber
+	mockStore.EXPECT().IncrementGlobalTaskNumber(gomock.Any()).Return(42, nil)
+
+	// Mock CreateSpecTask - capture the created task to verify it
+	var createdTask *types.SpecTask
+	mockStore.EXPECT().CreateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			createdTask = task
+			return nil
+		},
+	)
+
+	// Call cloneTaskToProject with autoStart=true
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify the cloned task has DesignDocsPushedAt set
+	// This is the key assertion - even though source task has no direct specs,
+	// the design review has specs, so DesignDocsPushedAt should be set
+	require.NotNil(t, createdTask, "CreateSpecTask should have been called")
+	assert.NotNil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should be set when design review has specs")
+
+	// Verify the status is spec_review (skipping spec generation)
+	assert.Equal(t, types.TaskStatusSpecReview, createdTask.Status, "Status should be spec_review when design review has specs")
+
+	// Verify the DesignDocsPushedAt is recent (within last minute)
+	assert.WithinDuration(t, time.Now(), *createdTask.DesignDocsPushedAt, time.Minute)
+
+	// Verify specs were copied from the design review
+	assert.Equal(t, "# Requirements\nSpecs from design review", createdTask.RequirementsSpec)
+	assert.Equal(t, "# Technical Design\nSpecs from design review", createdTask.TechnicalDesign)
+	assert.Equal(t, "# Implementation Plan\nSpecs from design review", createdTask.ImplementationPlan)
+}
+
 func TestCloneTaskToProject_AutoStartFalse_GoesToBacklog(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
