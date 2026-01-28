@@ -12,17 +12,14 @@ shopt -s expand_aliases
 set -a && source "$DIR/../.env.usercreds" && set +a
 
 # Start SSE server
-echo "Starting SSE MCP server..."
 docker rm -f sse-mcp-test 2>/dev/null || true
 docker run -d --name sse-mcp-test --network helix_default -p 3333:3333 \
     -v "$DIR/../../zed/script/test_sse_mcp_server.py:/app/server.py:ro" \
     python:3.11-slim python /app/server.py 3333
 trap "docker rm -f sse-mcp-test 2>/dev/null || true" EXIT
 
-# Wait for server
-sleep 2
-curl -sf http://localhost:3333/secret | grep -q "$SECRET" || { echo "SSE server failed to start"; exit 1; }
-echo "SSE server ready"
+# Wait for SSE server
+for i in {1..10}; do curl -sf http://localhost:3333/secret | grep -q "$SECRET" && break; sleep 1; done
 
 # Create agent
 AGENT=$(helix agent apply -f "$DIR/test-zed-sse-mcp-agent.yaml" | tail -1)
@@ -33,12 +30,8 @@ SESSION=$(helix spectask start --agent "$AGENT" --project "$HELIX_PROJECT" -n "S
 echo "Session: $SESSION"
 trap "docker rm -f sse-mcp-test 2>/dev/null || true; helix spectask stop $SESSION 2>/dev/null || true" EXIT
 
-# Wait for Zed
-echo "Waiting for Zed..."
-sleep 60
-
 # Ask for the secret
-RESPONSE=$(helix spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns." --wait --max-wait 120 2>/dev/null || echo "")
+RESPONSE=$(helix spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns." --wait --max-wait 180 2>/dev/null || echo "")
 
 # Check result
 if echo "$RESPONSE" | grep -q "$SECRET"; then

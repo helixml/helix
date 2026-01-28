@@ -497,36 +497,52 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			// Send the message
+			// Send the message with retry for session not ready
 			chatURL := fmt.Sprintf("%s/api/v1/sessions/%s/chat", apiURL, sessionID)
+			deadline := time.Now().Add(time.Duration(maxWait) * time.Second)
 
-			payload := map[string]interface{}{
-				"message": message,
-				"stream":  false,
-			}
-			jsonData, _ := json.Marshal(payload)
+			var body []byte
+			var response map[string]interface{}
 
-			req, err := http.NewRequest("POST", chatURL, bytes.NewBuffer(jsonData))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Authorization", "Bearer "+token)
-			req.Header.Set("Content-Type", "application/json")
+			for time.Now().Before(deadline) {
+				payload := map[string]interface{}{
+					"message": message,
+					"stream":  false,
+				}
+				jsonData, _ := json.Marshal(payload)
 
-			client := &http.Client{Timeout: time.Duration(maxWait) * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to send message: %w", err)
-			}
-			defer resp.Body.Close()
+				req, err := http.NewRequest("POST", chatURL, bytes.NewBuffer(jsonData))
+				if err != nil {
+					return err
+				}
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Content-Type", "application/json")
 
-			body, _ := io.ReadAll(resp.Body)
+				client := &http.Client{Timeout: 30 * time.Second}
+				resp, err := client.Do(req)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
+					time.Sleep(5 * time.Second)
+					continue
+				}
 
-			if resp.StatusCode != http.StatusOK {
+				body, _ = io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode == http.StatusOK {
+					break
+				}
+
+				// Retry on 5xx errors (session not ready)
+				if resp.StatusCode >= 500 {
+					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
+					time.Sleep(5 * time.Second)
+					continue
+				}
+
 				return fmt.Errorf("chat API returned %d: %s", resp.StatusCode, string(body))
 			}
 
-			var response map[string]interface{}
 			if err := json.Unmarshal(body, &response); err != nil {
 				// Might be plain text response
 				response = map[string]interface{}{
