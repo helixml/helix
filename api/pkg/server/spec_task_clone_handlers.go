@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -199,6 +200,22 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
+
+	// Assign task number immediately at creation time so it's always visible in UI
+	// Task numbers are globally unique across the entire deployment
+	taskNumber, err := s.Store.IncrementGlobalTaskNumber(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get global task number for cloned task, using fallback")
+		taskNumber = 1
+	}
+	newTask.TaskNumber = taskNumber
+	// Generate design doc path based on task name and number
+	newTask.DesignDocPath = services.GenerateDesignDocPath(newTask, taskNumber)
+	log.Info().
+		Str("task_id", newTask.ID).
+		Int("task_number", taskNumber).
+		Str("design_doc_path", newTask.DesignDocPath).
+		Msg("Assigned task number and design doc path to cloned task")
 
 	if err := s.Store.CreateSpecTask(ctx, newTask); err != nil {
 		return nil, fmt.Errorf("failed to create cloned task: %w", err)

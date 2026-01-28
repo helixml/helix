@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -173,7 +174,22 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		UpdatedAt:      time.Now(),
 	}
 
-	err := t.store.CreateSpecTask(ctx, task)
+	// Assign task number immediately at creation time so it's always visible in UI
+	// Task numbers are globally unique across the entire deployment
+	taskNumber, err := t.store.IncrementGlobalTaskNumber(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get global task number for agent-created task, using fallback")
+		taskNumber = 1
+	}
+	task.TaskNumber = taskNumber
+	task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
+	log.Info().
+		Str("task_id", task.ID).
+		Int("task_number", taskNumber).
+		Str("design_doc_path", task.DesignDocPath).
+		Msg("Assigned task number and design doc path to agent-created task")
+
+	err = t.store.CreateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to create spec task")
 		return "", fmt.Errorf("failed to create spec task: %w", err)

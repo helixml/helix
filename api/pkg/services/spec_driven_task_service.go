@@ -175,8 +175,24 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		UpdatedAt: time.Now(),
 	}
 
+	// Assign task number immediately at creation time so it's always visible in UI
+	// Task numbers are globally unique across the entire deployment
+	taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get global task number, using fallback")
+		taskNumber = 1
+	}
+	task.TaskNumber = taskNumber
+	// Generate design doc path based on task name and number
+	task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+	log.Info().
+		Str("task_id", task.ID).
+		Int("task_number", taskNumber).
+		Str("design_doc_path", task.DesignDocPath).
+		Msg("Assigned task number and design doc path at creation")
+
 	// Store the task
-	err := s.store.CreateSpecTask(ctx, task)
+	err = s.store.CreateSpecTask(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}

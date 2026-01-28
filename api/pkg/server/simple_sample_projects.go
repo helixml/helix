@@ -1264,6 +1264,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 						"clone_demo":     true,
 					}
 
+					// Assign task number immediately at creation time
+					taskNumber, numErr := s.Store.IncrementGlobalTaskNumber(ctx)
+					if numErr != nil {
+						log.Warn().Err(numErr).Msg("Failed to get global task number for clone demo task")
+						taskNumber = 1
+					}
+					task.TaskNumber = taskNumber
+					task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
+
 					if taskErr := s.Store.CreateSpecTask(ctx, task); taskErr != nil {
 						log.Warn().Err(taskErr).Msg("Failed to create clone demo task")
 					} else {
@@ -1655,6 +1664,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			"sample_project": sampleProject.ID,
 		}
 
+		// Assign task number immediately at creation time
+		taskNumber, numErr := s.Store.IncrementGlobalTaskNumber(ctx)
+		if numErr != nil {
+			log.Warn().Err(numErr).Msg("Failed to get global task number for sample project task")
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
+
 		err := s.Store.CreateSpecTask(ctx, task)
 		if err != nil {
 			log.Warn().Err(err).
@@ -1707,4 +1725,3 @@ func inferTaskType(labels []string) string {
 	}
 	return "task"
 }
-
