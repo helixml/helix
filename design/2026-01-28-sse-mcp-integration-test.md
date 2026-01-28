@@ -1,7 +1,7 @@
 # SSE MCP Integration Test
 
 **Date:** 2026-01-28
-**Status:** In Progress
+**Status:** In Progress - Test Infrastructure Complete, MCP Routing Investigation Needed
 **Branch (Helix):** `feat/sse-mcp-integration-test`
 **Branch (Zed):** `feat/legacy-sse`
 
@@ -224,14 +224,64 @@ The secret server implements the legacy SSE protocol, so Zed should auto-detect 
 2. How does the sandbox container resolve `sse-mcp-secret` hostname? (Docker network)
 3. Should we add this as a CI integration test?
 
+## Current Status (2026-01-28)
+
+### What's Working
+- ✅ SSE MCP test server starts and responds correctly
+- ✅ Test project creation via CLI
+- ✅ Agent creation/update via CLI  
+- ✅ Session starts and sandbox runs
+- ✅ Video capture during test
+- ✅ Message sending via `spectask send` command
+- ✅ CLI correctly uses `/api/v1/sessions/chat` endpoint
+
+### What's Not Working
+- ❌ Messages sent to session don't get responses
+- ❌ Interactions remain in `state: "waiting"` with empty `response_message`
+- ❌ Agent doesn't appear to receive the MCP configuration
+
+### Root Cause Investigation
+
+The test successfully sends messages to the session, but the agent never responds. Looking at the interactions API:
+
+```json
+{
+  "id": "int_01kg2067rbr2fx6rg98n5rxv3t",
+  "prompt_message": "Use the get_secret tool...",
+  "response_message": "",
+  "state": "waiting"
+}
+```
+
+**Hypothesis 1:** MCP configuration not being passed to Zed
+- The agent YAML specifies `mcps` with `url: http://sse-mcp-test:3333/sse`
+- Need to verify this configuration reaches Zed's `settings.json`
+
+**Hypothesis 2:** External agent WebSocket routing issue
+- Messages are created in the database but not forwarded to the Zed agent
+- The API logs show "no WebSocket connection found" errors
+
+**Hypothesis 3:** Session type mismatch
+- The session is created as a SpecTask planning session
+- The chat endpoint may not route correctly to external agents
+
+### Next Investigation Steps
+
+1. [ ] Check Zed logs inside desktop container for MCP connection attempts
+2. [ ] Verify `settings.json` includes the MCP server configuration
+3. [ ] Check if WebSocket connection from Zed to API is established
+4. [ ] Test with a session started directly (not via SpecTask)
+
 ## Next Steps
 
 1. [x] Simplify test server to just `get_secret` tool
 2. [x] Create test agent YAML with MCP config
 3. [x] Write integration test script with video capture
-4. [ ] Test locally with real Helix session
-5. [ ] Verify secret appears in agent response
-6. [ ] Debug SSE transport if needed (check Zed logs, API proxy logs)
+4. [x] Fix spectask send to use correct API endpoint
+5. [x] Test locally with real Helix session
+6. [ ] **CURRENT:** Debug why agent doesn't respond to messages
+7. [ ] Verify MCP config reaches Zed settings
+8. [ ] Verify secret appears in agent response
 
 ## Debugging
 
@@ -258,4 +308,16 @@ docker compose exec -T sandbox-nvidia docker exec <container> cat ~/.local/share
 The test script captures video to `/tmp/sse-mcp-test/`. Convert to playable format:
 ```bash
 ffmpeg -i /tmp/sse-mcp-test/sse-mcp-test-*.h264 -c copy output.mp4
+```
+
+### Check session interactions
+```bash
+export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
+curl -sf -H "Authorization: Bearer $HELIX_API_KEY" \
+  "http://localhost:8080/api/v1/sessions/<session-id>/interactions" | jq
+```
+
+### Check external agent routing
+```bash
+docker compose logs --tail 200 api 2>&1 | grep -E "External agent|WebSocket|ses_<id>"
 ```
