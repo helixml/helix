@@ -7,9 +7,9 @@ The current rendering pipeline:
 Text Stream → InteractionMarkdown → MessageProcessor → react-markdown → SyntaxHighlighter → DOM
 ```
 
-Each component in this chain has performance issues during streaming.
+Each component in this chain may have performance issues during streaming. We need to measure before optimizing.
 
-## Root Cause Analysis
+## Root Cause Analysis (Hypothesized)
 
 ### 1. MessageProcessor Overhead
 The `MessageProcessor` class runs **8 sequential processing steps** on every update:
@@ -22,16 +22,18 @@ The `MessageProcessor` class runs **8 sequential processing steps** on every upd
 - `sanitizeHtml()` - DOMPurify sanitization + code block protection
 - `addBlinker()` / `addCitationData()` - String concatenation
 
-**Cost**: ~5-15ms per call × updates every 150ms = significant CPU load
+**Estimated cost**: ~5-15ms per call × updates every 150ms = potentially significant CPU load
 
 ### 2. react-markdown Re-parsing
 `react-markdown` parses the **entire** markdown string on every render, even if only a few characters were appended. No incremental parsing.
 
 ### 3. SyntaxHighlighter Recalculation
-Prism.js tokenizes and highlights **all** code blocks on every render. A response with 3-4 code blocks can take 20-50ms per render.
+Prism.js tokenizes and highlights **all** code blocks on every render. A response with 3-4 code blocks may take 20-50ms per render.
 
 ### 4. React Reconciliation
 The entire component tree re-renders, creating new DOM nodes for unchanged content.
+
+**Note**: These are hypotheses based on code review. Benchmarks will confirm which are actual bottlenecks.
 
 ## Important Constraint: External Agent Streaming
 
@@ -72,63 +74,42 @@ for (const session of sessions) {
 
 **Goal**: Identify which processing steps are slowest, then optimize those specifically.
 
-### Phase 1: Low-Hanging Fruit in MessageProcessor
+### Phase 1: Optimize Based on Benchmark Results
 
-Based on code review, likely optimizations:
+After benchmarking, apply targeted optimizations to the slowest parts. Likely candidates:
 
-1. **Early exit checks** - Skip processing steps when markers aren't present:
-   ```typescript
-   // Before: always runs complex regex
-   processXmlCitations(message)
-   
-   // After: skip if no markers
-   if (!message.includes('<excerpts>')) return message;
-   ```
+1. **Early exit checks** - Skip processing steps when markers aren't present
+2. **Cache compiled regexes** - Move regex patterns to static class-level constants
+3. **Optimize processThinkingTags** - Replace line-by-line split/map/join with single-pass regex if this is slow
+4. **Reduce string allocations** - Audit each processing step for unnecessary string copies
 
-2. **Cache compiled regexes** - Move regex patterns to class-level constants:
-   ```typescript
-   // Before: creates new RegExp on each call
-   const citationRegex = /<excerpts>([\s\S]*?)<\/excerpts>/g;
-   
-   // After: compile once
-   private static readonly CITATION_REGEX = /<excerpts>([\s\S]*?)<\/excerpts>/g;
-   ```
+### Phase 2: Throttling Improvements (If Needed)
 
-3. **Optimize processThinkingTags** - Currently splits into lines, maps, joins. Could use single-pass regex.
+Current throttle: 150ms. If benchmarks show processing is still too slow:
 
-4. **Reduce string allocations** - Each processing step creates a new string. Consider StringBuilder pattern or processing in-place where possible.
-
-### Phase 2: Throttling Improvements
-
-Current throttle: 150ms. Options:
-
-1. **Adaptive throttling** - Increase to 250-300ms during rapid updates:
-   ```typescript
-   const isRapidStreaming = (Date.now() - lastUpdate) < 100;
-   const throttle = isRapidStreaming ? 300 : 150;
-   ```
-
+1. **Adaptive throttling** - Increase to 250-300ms during rapid updates
 2. **requestIdleCallback** - Process during browser idle time instead of fixed interval
 
-### Phase 3: React Rendering Optimizations
+### Phase 3: React Rendering Optimizations (If Needed)
 
-1. **Memoize CodeBlockWithCopy** - Already wrapped in function, add `React.memo()`
+Only pursue if benchmarks show React rendering is the bottleneck:
 
-2. **Lazy load SyntaxHighlighter** - Prism is heavy, defer loading for off-screen code blocks
+1. **Memoize CodeBlockWithCopy** - Add `React.memo()` if re-renders are excessive
+2. **Profile with React DevTools** - Identify unnecessary re-renders
 
-3. **Consider lighter markdown parser** - If benchmarks show react-markdown is the bottleneck, evaluate alternatives like `marked` + custom React renderer
+**Note**: There may already be virtualization in `session.tsx` - check existing code before adding new implementations.
 
 ## Performance Budget
 
-| Metric | Current (estimated) | Target |
-|--------|---------------------|--------|
-| MessageProcessor time | 5-15ms | <2ms |
-| React render time | 20-50ms | <10ms |
-| Total update latency | 50-100ms | <20ms |
+| Metric | Current (to be measured) | Target |
+|--------|--------------------------|--------|
+| MessageProcessor time | TBD | <2ms |
+| React render time | TBD | <10ms |
+| Total update latency | TBD | <20ms |
 
 ## Success Criteria
 
-1. Benchmarks show 5-10x improvement in MessageProcessor throughput
+1. Benchmarks show measurable improvement in identified bottlenecks
 2. UI remains responsive (no dropped frames) during streaming
 3. All existing tests pass
 4. No feature regressions (citations, thinking tags, code blocks all work)
@@ -143,4 +124,4 @@ Current throttle: 150ms. Options:
 
 1. **Incremental/delta processing** - Too risky given external agents can modify content anywhere
 2. **Content splitting** - Same reason; can't reliably detect "finalized" content
-3. **Web Workers** - Adds latency and complexity; try synchronous optimizations first
+3. **Premature optimization** - Measure first, then optimize the actual bottlenecks
