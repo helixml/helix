@@ -8,11 +8,12 @@ helix-sandbox container
 │   └── Desktop images (helix-ubuntu, helix-sway)
 │
 └── Hydra manager
-    ├── Session 1 dockerd (--data-root=/hydra-data/sessions/ses_001/docker)
-    │   └── User builds cached here (isolated)
-    ├── Session 2 dockerd (--data-root=/hydra-data/sessions/ses_002/docker)
-    │   └── User builds cached here (isolated, no sharing!)
-    └── Session N dockerd...
+    └── /hydra-data/ (hydra-storage volume - persists across sandbox restarts)
+        ├── sessions/ses_001/docker (Session 1 dockerd --data-root)
+        │   └── User builds cached here (isolated)
+        ├── sessions/ses_002/docker (Session 2 dockerd --data-root)
+        │   └── User builds cached here (isolated, no sharing!)
+        └── sessions/ses_N/...
 ```
 
 Each Hydra-spawned dockerd has its own `--data-root`, so BuildKit cache is NOT shared.
