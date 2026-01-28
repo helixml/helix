@@ -13,10 +13,11 @@
 
 ## Frontend
 
-- [~] Replace "Get Shareable Link" section in `SpecTaskReviewPanel.tsx` with public toggle
-- [ ] Add mutation to update `public_design_docs` via PATCH endpoint
-- [ ] Show "Copy Link" button when public is enabled (simple URL: `{baseURL}/spec-tasks/{id}/view`)
-- [ ] Remove token-based share link generation code
+- [x] Replace "Get Shareable Link" section in `SpecTaskReviewPanel.tsx` with public toggle
+- [x] Add mutation to update `public_design_docs` via PATCH endpoint
+- [x] Show "Copy Link" button when public is enabled (simple URL: `{baseURL}/spec-tasks/{id}/view`)
+- [x] Remove token-based share link generation code
+- [x] Add public toggle to `SpecTaskDetailContent.tsx` (main task details view)
 
 ## Testing
 
@@ -24,3 +25,11 @@
 - [ ] Test public view shows "private" message when `PublicDesignDocs` is false
 - [ ] Test only task owner can toggle public access
 - [ ] Test admin can toggle public access on any task
+
+## Implementation Notes
+
+- Added public toggle in two places:
+  1. `SpecTaskReviewPanel.tsx` - standalone review panel component
+  2. `SpecTaskDetailContent.tsx` - main task details view (in the "Share Design Docs" section above Archive button)
+- Both use the same pattern: Switch toggle + "Copy Public Link" button when enabled
+- Uses existing PUT `/api/v1/spec-tasks/{taskId}` endpoint with `public_design_docs` field
