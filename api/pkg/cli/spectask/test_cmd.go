@@ -498,7 +498,7 @@ Examples:
 			token := getToken()
 
 			// Send the message with retry for session not ready
-			chatURL := fmt.Sprintf("%s/api/v1/sessions/%s/chat", apiURL, sessionID)
+			chatURL := fmt.Sprintf("%s/api/v1/sessions/chat", apiURL)
 			deadline := time.Now().Add(time.Duration(maxWait) * time.Second)
 
 			var body []byte
@@ -506,8 +506,17 @@ Examples:
 
 			for time.Now().Before(deadline) {
 				payload := map[string]interface{}{
-					"message": message,
-					"stream":  false,
+					"session_id": sessionID,
+					"messages": []map[string]interface{}{
+						{
+							"role": "user",
+							"content": map[string]interface{}{
+								"content_type": "text",
+								"parts":        []string{message},
+							},
+						},
+					},
+					"stream": false,
 				}
 				jsonData, _ := json.Marshal(payload)
 

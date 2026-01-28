@@ -20,4 +20,4 @@ assistants:
         description: SSE MCP server that provides a secret value via the get_secret tool
         # This URL is accessible from within the sandbox container via Docker networking
         # The sse-mcp-secret service is defined in docker-compose.dev.yaml
-        url: http://sse-mcp-secret:3333/sse
+        url: http://sse-mcp-test:3333/sse

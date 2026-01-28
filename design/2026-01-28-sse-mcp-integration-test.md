@@ -28,28 +28,43 @@ If the secret appears in the response, we know the entire SSE MCP flow worked:
 
 ## Architecture
 
+**Key insight:** The Helix API proxies MCP connections. Zed doesn't connect directly to MCP servers - it connects to the API's MCP proxy endpoint, which forwards requests to the actual MCP server. This means:
+- Only the API needs network access to the MCP server
+- The desktop container (inside sandbox) doesn't need to reach external MCP servers
+- Both API and SSE test server are on `helix_default` network, so hostname resolution works
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Host                                                                │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ Docker Compose Network                                        │  │
+│  │ Docker Compose Network (helix_default)                        │  │
 │  │                                                               │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐   │  │
-│  │  │   Helix     │    │  SSE MCP    │    │    Sandbox      │   │  │
-│  │  │    API      │    │  Test       │    │   Container     │   │  │
-│  │  │             │    │  Server     │    │                 │   │  │
-│  │  │             │    │             │    │  ┌───────────┐  │   │  │
-│  │  │  Configures │    │  Provides   │    │  │    Zed    │  │   │  │
-│  │  │  agent with ├───►│  "echo"     │◄───┤  │  (Agent)  │  │   │  │
-│  │  │  MCP server │    │  tool via   │    │  │           │  │   │  │
-│  │  │             │    │  SSE        │    │  └───────────┘  │   │  │
-│  │  └─────────────┘    └─────────────┘    └─────────────────┘   │  │
-│  │        │                   ▲                    ▲            │  │
-│  │        │                   │                    │            │  │
-│  │        └───────────────────┴────────────────────┘            │  │
-│  │              Docker internal network                         │  │
-│  │              (sse-mcp-test:3333)                             │  │
+│  │  ┌─────────────┐         ┌─────────────┐                     │  │
+│  │  │   Helix     │  HTTP   │  SSE MCP    │                     │  │
+│  │  │    API      │────────►│  Test       │                     │  │
+│  │  │             │   SSE   │  Server     │                     │  │
+│  │  │  MCP Proxy  │◄────────│ (get_secret)│                     │  │
+│  │  │  Endpoint   │         │             │                     │  │
+│  │  └──────▲──────┘         └─────────────┘                     │  │
+│  │         │                sse-mcp-test:3333                   │  │
+│  │         │ WebSocket                                          │  │
+│  │         │ (MCP over WS)                                      │  │
+│  │  ┌──────┴────────────────────────────────────────────────┐   │  │
+│  │  │    Sandbox Container (DinD)                            │   │  │
+│  │  │                                                        │   │  │
+│  │  │  ┌────────────────────────────────────────────────┐   │   │  │
+│  │  │  │  Desktop Container (helix-ubuntu)               │   │   │  │
+│  │  │  │                                                 │   │   │  │
+│  │  │  │  ┌─────────────┐      ┌─────────────────────┐  │   │   │  │
+│  │  │  │  │    Zed      │      │    Qwen Code        │  │   │   │  │
+│  │  │  │  │   Editor    │◄────►│    Agent            │  │   │   │  │
+│  │  │  │  │             │ ACP  │                     │  │   │   │  │
+│  │  │  │  │  context_   │      │  Uses MCP tools     │  │   │   │  │
+│  │  │  │  │  servers    │      │  via Zed            │  │   │   │  │
+│  │  │  │  └─────────────┘      └─────────────────────┘  │   │   │  │
+│  │  │  └────────────────────────────────────────────────┘   │   │  │
+│  │  └───────────────────────────────────────────────────────┘   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌─────────────────┐                                               │
@@ -62,6 +77,15 @@ If the secret appears in the response, we know the entire SSE MCP flow worked:
 │  └─────────────────┘                                               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### MCP Connection Flow
+
+1. Agent config specifies MCP server URL: `http://sse-mcp-test:3333/sse`
+2. Helix API receives agent config when starting session
+3. API generates `settings.json` for Zed with MCP proxy URL pointing back to API
+4. Zed's `context_servers` connects to API's MCP proxy endpoint via WebSocket
+5. API's MCP proxy connects to actual SSE server (`sse-mcp-test:3333`)
+6. MCP messages flow: Zed ↔ API Proxy ↔ SSE Server
 
 ## Components
 
@@ -80,27 +104,21 @@ Tools provided:
 
 The secret value is hard-coded in the Python file as `SECRET_VALUE`.
 
-### 2. Docker Compose Service
+### 2. Test SSE Server Container
 
-Add to `docker-compose.dev.yaml`:
-```yaml
-sse-mcp-secret:
-  image: python:3.11-slim
-  command: python /app/test_sse_mcp_server.py 3333
-  volumes:
-    - ../zed/script/test_sse_mcp_server.py:/app/test_sse_mcp_server.py:ro
-  ports:
-    - "3333:3333"
-  healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3333/health')"]
-    interval: 5s
-    timeout: 3s
-    retries: 3
+The test script starts the SSE server as a standalone container (not in docker-compose):
+
+```bash
+docker run -d --name sse-mcp-test --network helix_default -p 3333:3333 \
+    -v "$DIR/../../zed/script/test_sse_mcp_server.py:/app/server.py:ro" \
+    python:3.11-slim python /app/server.py 3333
 ```
 
 The service is accessible from:
-- Host: `http://localhost:3333/sse`
-- Other containers: `http://sse-mcp-secret:3333/sse`
+- Host: `http://localhost:3333/sse` (for debugging)
+- Helix API: `http://sse-mcp-test:3333/sse` (Docker DNS on helix_default)
+
+**Important:** The container name `sse-mcp-test` must match the hostname in the agent config URL.
 
 ### 3. Helix Agent Configuration
 
@@ -209,8 +227,35 @@ The secret server implements the legacy SSE protocol, so Zed should auto-detect 
 ## Next Steps
 
 1. [x] Simplify test server to just `get_secret` tool
-2. [ ] Add SSE server to docker-compose.dev.yaml
-3. [ ] Create test agent via API with MCP config
-4. [ ] Write integration test script
-5. [ ] Test locally with real Helix session
-6. [ ] Verify secret appears in agent response
+2. [x] Create test agent YAML with MCP config
+3. [x] Write integration test script with video capture
+4. [ ] Test locally with real Helix session
+5. [ ] Verify secret appears in agent response
+6. [ ] Debug SSE transport if needed (check Zed logs, API proxy logs)
+
+## Debugging
+
+### Check SSE server is receiving connections
+```bash
+docker logs sse-mcp-test
+```
+
+### Check API MCP proxy logs
+```bash
+docker compose logs --tail 50 api 2>&1 | grep -i mcp
+```
+
+### Check Zed logs inside desktop container
+```bash
+# Find desktop container
+docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep ubuntu
+
+# View Zed logs
+docker compose exec -T sandbox-nvidia docker exec <container> cat ~/.local/share/zed/logs/Zed.log | grep -i "sse\|mcp\|context"
+```
+
+### Video capture for debugging
+The test script captures video to `/tmp/sse-mcp-test/`. Convert to playable format:
+```bash
+ffmpeg -i /tmp/sse-mcp-test/sse-mcp-test-*.h264 -c copy output.mp4
+```
