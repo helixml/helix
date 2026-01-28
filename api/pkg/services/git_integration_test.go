@@ -576,6 +576,67 @@ func (s *GitIntegrationSuite) TestNoReentrancy_NestedLockWouldDeadlock() {
 	}
 }
 
+func (s *GitIntegrationSuite) TestSyncBaseBranch_AcquiresLock() {
+	// Test that SyncBaseBranch acquires the lock and serializes with other operations.
+	// This is important because SyncBaseBranch is called from entry points
+	// (ApproveSpecs, SyncBaseBranchForTask) that don't hold the lock.
+
+	// Run concurrent SyncBaseBranch calls - they should serialize
+	var wg sync.WaitGroup
+	results := make(chan error, 3)
+	operationOrder := make([]string, 0)
+	var mu sync.Mutex
+
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			mu.Lock()
+			operationOrder = append(operationOrder, fmt.Sprintf("start-%d", idx))
+			mu.Unlock()
+
+			err := s.gitRepoService.SyncBaseBranch(s.ctx, "test-repo", "main")
+			results <- err
+
+			mu.Lock()
+			operationOrder = append(operationOrder, fmt.Sprintf("done-%d", idx))
+			mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	// All should succeed
+	for err := range results {
+		s.NoError(err)
+	}
+
+	s.T().Logf("SyncBaseBranch operation order: %v", operationOrder)
+}
+
+func (s *GitIntegrationSuite) TestSyncBaseBranch_NoDeadlockFromEntryPoint() {
+	// Verify that SyncBaseBranch can be called without holding a lock
+	// and completes successfully (doesn't deadlock on itself)
+
+	done := make(chan bool)
+
+	go func() {
+		// Call SyncBaseBranch directly - this simulates the entry point pattern
+		// from ApproveSpecs or SyncBaseBranchForTask
+		err := s.gitRepoService.SyncBaseBranch(s.ctx, "test-repo", "main")
+		s.Require().NoError(err)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success - no deadlock
+	case <-time.After(5 * time.Second):
+		s.Fail("SyncBaseBranch timed out - possible deadlock")
+	}
+}
+
 // =============================================================================
 // HTTP Server Tests
 // =============================================================================

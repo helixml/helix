@@ -729,6 +729,12 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 		return nil, fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent fetch operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// Get local branch commit
 	localCommit, err := GetBranchCommitID(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
@@ -2366,6 +2372,12 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	if branchName == "" {
 		return fmt.Errorf("branch name is required")
 	}
+
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent pull/push operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Build authenticated URL for external repo
 	authURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)

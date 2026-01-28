@@ -61,6 +61,13 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		return fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions where concurrent syncs could cause
+	// "incorrect old value provided" errors during ref updates.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// Build authenticated URL for fetch
 	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
@@ -352,6 +359,12 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	if branchName == "" {
 		return fmt.Errorf("no branch specified and repository has no default branch set - use SyncAllBranches to fetch all branches")
 	}
+
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent fetch operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
 	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
