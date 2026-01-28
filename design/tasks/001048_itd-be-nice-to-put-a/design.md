@@ -35,8 +35,8 @@ Import and use the existing `useSandboxState` hook in `SpecTaskDetailContent.tsx
 | Stopped       | Hidden      | ✓ Visible    | Hidden         |
 | Starting      | Hidden      | Disabled     | Hidden         |
 
-### 3. No confirmation for stop
-Stop is a safe operation (session persists). Match the UX of cloud VM stop - immediate action without confirmation. The restart button already has a confirmation because it warns about unsaved files.
+### 3. Confirmation for stop
+Stop requires confirmation because unsaved files in memory (e.g., IDE buffers) will be lost. Use a similar dialog to the restart confirmation but with appropriate messaging for stop.
 
 ### 4. Placement
 Stop button appears immediately before the restart button (when both visible). Start button appears in the same position when stopped.

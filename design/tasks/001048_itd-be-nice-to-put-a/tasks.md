@@ -9,8 +9,9 @@
 - [ ] Import `useSandboxState` from `ExternalAgentDesktopViewer`
 - [ ] Import `StopIcon` and `PlayArrow` icons from MUI
 - [ ] Call `useSandboxState(activeSessionId)` to get `isRunning`, `isPaused`, `isStarting`
-- [ ] Add `isStopping` state variable
+- [ ] Add `isStopping` state variable and `stopConfirmOpen` state for confirmation dialog
 - [ ] Add `handleStopSession` function that calls `v1SessionsStopExternalAgentDelete`
+- [ ] Add stop confirmation dialog (similar to restart dialog, warn about unsaved IDE buffers)
 - [ ] Add `handleStartSession` function that calls `v1SessionsResumeCreate`
 - [ ] Update big screen toolbar (around L1373): conditionally show Stop/Start/Restart based on state
 - [ ] Update small screen toolbar (around L1667): same conditional logic
