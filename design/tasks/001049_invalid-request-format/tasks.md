@@ -2,37 +2,23 @@
 
 ## Investigation
 
-- [~] Verify the user's current fork commit hash to assess how far behind upstream it is
-- [ ] Check if commit `d16619a654` applies cleanly to the user's fork
+- [x] Verify the user's current fork commit hash to assess how far behind upstream it is
+- [x] Check if commit `d16619a654` applies cleanly to the user's fork
 
-**Note:** Need clarification from user - the Zed repo at `/home/retro/work/zed` is on `main` branch. The referenced `/home/retro/work/helix-4/` is a symlink to the Helix project, not a Zed fork. Waiting for user to confirm which repo contains their custom Zed fork.
+**Finding:** The commit `d16619a654` exists in history but the `CountTokensRequest` and `count_tokens()` function are missing from the current HEAD. The code was lost during merge `28b927bce5` ("Merge upstream Zed main into fork"). Need to manually re-apply the missing code.
 
-## Cherry-pick the Fix
+## Apply the Fix Manually
 
-- [ ] Fetch upstream Zed repository: `git fetch upstream`
-- [ ] Cherry-pick the token counting fix: `git cherry-pick d16619a654`
-- [ ] Resolve any merge conflicts in affected files:
-  - `crates/anthropic/src/anthropic.rs`
-  - `crates/language_models/src/provider/anthropic.rs`
-  - `crates/agent/src/thread.rs`
-  - `crates/language_models/src/provider/cloud.rs`
+- [~] Add `CountTokensRequest`, `CountTokensResponse`, and `count_tokens()` to `crates/anthropic/src/anthropic.rs`
+- [ ] Update `crates/language_models/src/provider/anthropic.rs` to use the new token counting API
+- [ ] Verify `crates/agent/src/thread.rs` has the token usage tracking (should already be present)
 
 ## Build and Test
 
 - [ ] Run `cargo check` to verify compilation
 - [ ] Run `cargo test -p anthropic` to verify Anthropic crate tests pass
 - [ ] Run `cargo test -p language_models` to verify language model tests pass
-- [ ] Run `cargo test -p agent` to verify agent tests pass
 
-## Verification
+## Push
 
-- [ ] Build Zed: `cargo build --release`
-- [ ] Test with a long context conversation that previously failed
-- [ ] Verify token count display in UI reflects actual usage from API responses
-- [ ] Confirm no more "prompt is too long" errors when staying within displayed limits
-
-## Fallback (if cherry-pick fails)
-
-- [ ] Manually apply the `CountTokensRequest` and `count_tokens()` additions to `crates/anthropic/src/anthropic.rs`
-- [ ] Update the `count_tokens` trait implementation in `crates/language_models/src/provider/anthropic.rs`
-- [ ] Or: reduce displayed context limit to 180K as a safety buffer workaround
+- [ ] Push fix directly to main branch in Zed repo
