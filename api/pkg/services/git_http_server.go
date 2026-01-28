@@ -536,6 +536,26 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		environ = append(environ, "GIT_PROTOCOL="+protocol)
 	}
 
+	// Check branch restrictions for agent API keys BEFORE running receive-pack.
+	// Pass allowed branches via env var so the pre-receive hook can enforce them.
+	apiKey := s.extractAPIKey(r)
+	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+	}
+	if restriction != nil && restriction.IsAgentKey {
+		if restriction.ErrorMessage != "" {
+			log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
+			http.Error(w, "Push denied: "+restriction.ErrorMessage, http.StatusForbidden)
+			return
+		}
+		if len(restriction.AllowedBranches) > 0 {
+			// Pass allowed branches to pre-receive hook via environment variable
+			environ = append(environ, "HELIX_ALLOWED_BRANCHES="+strings.Join(restriction.AllowedBranches, ","))
+			log.Info().Str("repo_id", repoID).Strs("allowed_branches", restriction.AllowedBranches).Msg("Agent branch restriction set for pre-receive hook")
+		}
+	}
+
 	// Use flushing writer for streaming
 	fw := newFlushingWriter(w)
 
@@ -561,36 +581,9 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
-	// Check branch restrictions for agent API keys
-	if len(pushedBranches) > 0 {
-		apiKey := s.extractAPIKey(r)
-		restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey)
-		if err != nil {
-			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
-		}
-		if restriction != nil && restriction.IsAgentKey {
-			if restriction.ErrorMessage != "" {
-				log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied - rolling back")
-				s.rollbackBranchRefs(repoPath, branchesBefore, pushedBranches)
-				return
-			}
-			for _, branch := range pushedBranches {
-				allowed := false
-				for _, ab := range restriction.AllowedBranches {
-					if branch == ab {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					log.Error().Str("repo_id", repoID).Str("pushed_branch", branch).Strs("allowed_branches", restriction.AllowedBranches).Msg("Agent attempted to push to unauthorized branch - rolling back")
-					s.rollbackBranchRefs(repoPath, branchesBefore, pushedBranches)
-					return
-				}
-			}
-			log.Info().Str("repo_id", repoID).Strs("allowed_branches", restriction.AllowedBranches).Msg("Agent branch restriction verified")
-		}
-	}
+	// Note: Branch restrictions for agent API keys are now enforced by the pre-receive hook
+	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive
+	// rollback is needed - unauthorized pushes are rejected before refs are updated.
 
 	// For external repos, SYNCHRONOUSLY push to upstream
 	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
