@@ -2,9 +2,9 @@
 
 ## Backend
 
-- [~] Add `PublicDesignDocs bool` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
-- [ ] Add `PublicDesignDocs *bool` to `SpecTaskUpdateRequest` in `api/pkg/types/simple_spec_task.go`
-- [ ] Update `viewDesignDocsPublic` handler in `api/pkg/server/spec_task_share_handlers.go` to check `PublicDesignDocs` instead of requiring token
+- [x] Add `PublicDesignDocs bool` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
+- [x] Add `PublicDesignDocs *bool` to `SpecTaskUpdateRequest` in `api/pkg/types/simple_spec_task.go`
+- [~] Update `viewDesignDocsPublic` handler in `api/pkg/server/spec_task_share_handlers.go` to check `PublicDesignDocs` instead of requiring token
 - [ ] Create user-friendly "This spec task is private" HTML template for non-public tasks
 - [ ] Update spec task PATCH handler to allow setting `public_design_docs` field
 - [ ] Remove `generateDesignDocsShareLink` handler and related types (`DesignDocsShareTokenClaims`, `DesignDocsShareLinkResponse`)
