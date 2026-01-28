@@ -26,8 +26,8 @@
   - [x] Argument parsing and passthrough
 - [x] Add `argv[0]` detection to act as both `docker` and `docker-compose` shim
 - [x] Build static binary for inclusion in desktop images
-- [~] Update `desktop/sway-config/` and `desktop/ubuntu-config/` Dockerfiles to use Go shim
-- [ ] Delete the bash wrapper scripts
+- [x] Update `desktop/sway-config/` and `desktop/ubuntu-config/` Dockerfiles to use Go shim
+- [ ] Delete the bash wrapper scripts (keeping as backup until tested)
 - [x] Write unit tests for argument parsing and path translation
 
 ## Phase 4: Add Cache Injection to Go Shim
