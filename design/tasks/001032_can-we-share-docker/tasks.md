@@ -2,7 +2,7 @@
 
 ## Phase 1: Hydra Cache Directory Setup
 
-- [ ] Create `/hydra-data/buildkit-cache/` directory in Hydra's `NewManager` or `Start` function
+- [~] Create `/hydra-data/buildkit-cache/` directory in Hydra's `NewManager` or `Start` function
 - [ ] Ensure directory has correct permissions (0755) for all dockerd instances to access
 
 ## Phase 2: Mount Cache in Dev Containers
