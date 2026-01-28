@@ -10,47 +10,87 @@ const isExternalAgent = session.config?.agent_type === AGENT_TYPE_ZED_EXTERNAL
 onRegenerate={isExternalAgent ? undefined : handleRegenerate}
 ```
 
+## Root Cause Analysis
+
+After deeper investigation, **the retry button was disabled because it would send an empty message**.
+
+### The Bug Chain
+
+1. **Retry button passes empty string**: In `InteractionInference.tsx` line 385:
+   ```typescript
+   onClick={() => onRegenerate(interaction.id || '', '')}  // Empty message!
+   ```
+
+2. **EmbeddedSessionView's handleRegenerate is too simple**: Unlike `Session.tsx` which rebuilds the full message history, `EmbeddedSessionView.tsx` just passes the message through:
+   ```typescript
+   const handleRegenerate = useCallback(async (interactionID: string, message: string) => {
+       await NewInference({
+         message: message,  // Empty string = nothing sent to Zed!
+         sessionId: sessionId,
+         type: SESSION_TYPE_TEXT,
+       })
+   }, [...])
+   ```
+
+3. **For external agents, empty message = failure**: The backend requires a user message to send to Zed. An empty message would fail or do nothing useful.
+
+### Contrast with Working Regenerate Button
+
+The "Regenerate" button (for assistant messages, line 260) works correctly because it passes the original prompt:
+```typescript
+onClick={() => onRegenerate(interaction.id || '', interaction.prompt_message || '')}
+```
+
 ## Solution
 
-Enable the existing retry functionality for external agents. The infrastructure already exists in `InteractionInference.tsx` - we just need to pass the `onRegenerate` callback for external agent sessions.
+Fix the retry button to pass the original prompt message instead of an empty string.
 
-## Key Findings
+### Option A: Fix at InteractionInference.tsx (Recommended)
 
-### Existing Error Handling
-- `InteractionInference.tsx` already has a retry button that shows when `error` is present and `onRegenerate` is provided
-- The button calls `onRegenerate(interaction.id, '')` which resends the original prompt
-- External agents are intentionally excluded via the `isExternalAgent` check
+Change the retry button onClick from:
+```typescript
+onClick={() => onRegenerate(interaction.id || '', '')}
+```
+To:
+```typescript
+onClick={() => onRegenerate(interaction.id || '', interaction.prompt_message || '')}
+```
 
-### Why It Was Disabled
-The comment says "Regenerate doesn't work for external agents" but doesn't explain why. Testing needed to verify if this is still true or was a temporary limitation.
+This matches the behavior of the working "Regenerate" button and fixes retry for ALL agent types.
 
-### Interaction States (from `types/enums.go`)
+### Option B: Fix at EmbeddedSessionView.tsx
+
+Modify `handleRegenerate` to look up the original prompt when message is empty. This is more complex and less clean.
+
+## Interaction States (from `api/pkg/types/enums.go`)
+
 - `InteractionStateWaiting` - in progress
 - `InteractionStateComplete` - finished successfully  
 - `InteractionStateError` - failed (this is when retry should show)
 
-## Architecture
+## Architecture Flow (After Fix)
 
 ```
 User clicks Retry
         ↓
-EmbeddedSessionView.handleRegenerate()
+InteractionInference: onRegenerate(interaction.id, interaction.prompt_message)
         ↓
-NewInference({ message, sessionId, type: SESSION_TYPE_TEXT })
+EmbeddedSessionView.handleRegenerate(id, originalPrompt)
         ↓
-Backend creates new interaction → routes to Zed agent
+NewInference({ message: originalPrompt, sessionId, type: SESSION_TYPE_TEXT })
+        ↓
+Backend creates new interaction → routes to Zed agent with original prompt
 ```
-
-## Design Decision
-
-**Enable retry for external agents** by removing the `isExternalAgent` conditional in `EmbeddedSessionView.tsx`.
-
-The `handleRegenerate` function uses `NewInference` which already supports external agents - it's the same code path used when sending new messages.
-
-## Risk Assessment
-
-**Low risk**: This change only removes a restriction. If there was a real incompatibility, the worst case is the retry fails with another error (same as current state, just with an extra click).
 
 ## Files to Modify
 
-1. `frontend/src/components/session/EmbeddedSessionView.tsx` - Remove the `isExternalAgent` check that disables `onRegenerate`
+1. **`frontend/src/components/session/InteractionInference.tsx`** - Fix retry button to pass `interaction.prompt_message` instead of empty string (line ~385)
+
+2. **`frontend/src/components/session/EmbeddedSessionView.tsx`** - Remove the `isExternalAgent` check that disables `onRegenerate` (line ~390)
+
+## Risk Assessment
+
+**Low risk**: 
+- The fix makes retry behavior consistent with the already-working regenerate button
+- Worst case: if prompt_message is somehow empty, behavior is same as before (retry sends empty = fails)
+- Benefits all agent types, not just external agents
