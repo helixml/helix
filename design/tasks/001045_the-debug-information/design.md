@@ -65,3 +65,29 @@ Modify `PanelTab` component to prefix task number:
 
 **Risk**: Long task numbers could overflow
 **Mitigation**: 6-digit format is fixed width, won't grow unexpectedly
+
+## Implementation Notes
+
+### Files Modified
+1. **`SpecTaskDetailContent.tsx`** (~line 979-1029)
+   - Added Task # field right after Task ID
+   - Added Specs Folder field after Base Branch
+   - Both use same monospace styling as existing debug fields
+   - Show "N/A" when fields not set
+
+2. **`TaskCard.tsx`**
+   - Added `task_number?: number` to `SpecTaskWithExtras` interface
+   - Added Typography badge after CardContent, before CloneTaskDialog
+   - Positioned absolutely at bottom-right (bottom: 8, right: 8)
+   - Style: 0.65rem monospace, text.disabled color, 0.7 opacity
+
+3. **`TabsView.tsx`** (PanelTab component ~line 600-660)
+   - Added task number Typography before the displayTitle
+   - Only renders for `tab.type === 'task'` when `displayTask?.task_number > 0`
+   - Inherits same color styling as title (active/inactive)
+   - Slight opacity (0.7) to not compete with title
+
+### Gotchas
+- Task numbers are only assigned when planning starts, so backlog tasks won't have them
+- The `task_number` field needed to be added to `SpecTaskWithExtras` interface in TaskCard.tsx
+- Edit tool reformatted both files (prettier-style) - this is fine, the important changes are there
