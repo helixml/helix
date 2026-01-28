@@ -234,6 +234,16 @@ PINEOF
 
 _INSTALL_BASE
 
+# Install Go (version extracted from go.mod)
+# This makes Go available for agents running inside the container (Helix-in-Helix)
+COPY go.mod /tmp/go.mod
+RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+    echo "Installing Go ${GO_VERSION}..." && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz && \
+    rm /tmp/go.mod && \
+    /usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # WirePlumber configuration to disable stream suspension
 # PipeWire/WirePlumber suspends streams after 5 seconds of "inactivity" by default.
 # This causes ScreenCast video streams to stop producing frames, breaking Wolf video capture.
@@ -816,4 +826,3 @@ RUN set -e && \
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-
