@@ -47,7 +47,7 @@ mkdir -p "$VIDEO_DIR"
 echo "=== Starting SSE MCP test server ==="
 docker rm -f sse-mcp-test 2>/dev/null || true
 docker run -d --name sse-mcp-test --network helix_default -p 3333:3333 \
-    -v "$DIR/../../zed/script/test_sse_mcp_server.py:/app/server.py:ro" \
+    -v "$DIR/test_sse_mcp_server.py:/app/server.py:ro" \
     python:3.11-slim python /app/server.py 3333
 
 # Wait for SSE server to be ready
@@ -117,30 +117,29 @@ echo "Session: $SESSION"
 echo "Waiting 20s for session to initialize..."
 sleep 20
 
-# Start video capture in background (60 seconds should be plenty)
-echo ""
-echo "=== Starting video capture ==="
-VIDEO_FILE="$VIDEO_DIR/sse-mcp-test-$(date +%Y%m%d-%H%M%S).h264"
-"$HELIX" spectask stream "$SESSION" --output "$VIDEO_FILE" --duration 60 -v &
-VIDEO_PID=$!
-echo "Video capture started (PID: $VIDEO_PID), saving to: $VIDEO_FILE"
-
-# Give the stream a moment to connect
-sleep 3
+# Video capture disabled to save GPU memory
+# Uncomment to enable video capture for debugging:
+# echo ""
+# echo "=== Starting video capture ==="
+# VIDEO_FILE="$VIDEO_DIR/sse-mcp-test-$(date +%Y%m%d-%H%M%S).h264"
+# "$HELIX" spectask stream "$SESSION" --output "$VIDEO_FILE" --duration 60 -v &
+# VIDEO_PID=$!
+# echo "Video capture started (PID: $VIDEO_PID), saving to: $VIDEO_FILE"
+# sleep 3
 
 # Ask for the secret
 echo ""
 echo "=== Sending prompt to agent ==="
 RESPONSE=$("$HELIX" spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns. The tool is provided by the secret-server MCP." --wait --max-wait 180 2>&1) || true
 
-# Stop video capture
-echo ""
-echo "=== Stopping video capture ==="
-if kill -0 "$VIDEO_PID" 2>/dev/null; then
-    kill "$VIDEO_PID" 2>/dev/null || true
-    wait "$VIDEO_PID" 2>/dev/null || true
-fi
-echo "Video saved to: $VIDEO_FILE"
+# Stop video capture (disabled)
+# echo ""
+# echo "=== Stopping video capture ==="
+# if [[ -n "${VIDEO_PID:-}" ]] && kill -0 "$VIDEO_PID" 2>/dev/null; then
+#     kill "$VIDEO_PID" 2>/dev/null || true
+#     wait "$VIDEO_PID" 2>/dev/null || true
+# fi
+# echo "Video saved to: $VIDEO_FILE"
 
 # Check result
 echo ""
@@ -159,8 +158,5 @@ else
     echo ""
     echo "SSE server logs:"
     docker logs sse-mcp-test 2>&1 | tail -30
-    echo ""
-    echo "Video file for debugging: $VIDEO_FILE"
-    echo "Convert to playable format: ffmpeg -i $VIDEO_FILE -c copy ${VIDEO_FILE%.h264}.mp4"
     exit 1
 fi
