@@ -382,9 +382,6 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
-	log.Debug().
-		Str("task_id", task.ID).
-		Msg("Task in implementation (using reused agent pattern)")
 	return nil
 }
 

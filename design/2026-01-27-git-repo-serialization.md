@@ -161,6 +161,8 @@ Using `force=false` was confusing because it implied we might want to preserve l
 
 ## Audit Results (2026-01-27)
 
+**⚠️ UPDATE 2026-01-28: This audit was incomplete.** See `2026-01-28-sync-base-branch-locking.md` for 4 additional functions that were missed: `SyncBaseBranch`, `PullFromRemote`, `PushPullRequest`, `GetExternalRepoStatus`.
+
 ### Issues Found and Fixed
 
 | Location | Issue | Fix |
