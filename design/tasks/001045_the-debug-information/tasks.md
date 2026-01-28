@@ -18,9 +18,11 @@
 - [x] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
 
 ## Backend: Assign Task Numbers at Creation
-- [~] Move task number assignment from `StartSpecGeneration` to `CreateTaskFromPrompt` in `spec_driven_task_service.go`
-- [ ] Also update `cloneTaskToProject` in `spec_task_clone_handlers.go` to assign task number at clone time
-- [ ] Ensure design_doc_path is also generated at creation time (not just at planning start)
+- [x] Move task number assignment from `StartSpecGeneration` to `CreateTaskFromPrompt` in `spec_driven_task_service.go`
+- [x] Also update `cloneTaskToProject` in `spec_task_clone_handlers.go` to assign task number at clone time
+- [x] Also update `CreateSpecTaskTool` agent tool in `spec_task_create_tool.go`
+- [x] Also update sample project task creation in `simple_sample_projects.go`
+- [x] Ensure design_doc_path is also generated at creation time (not just at planning start)
 
 ## Testing
 - [x] Verify task number appears on cards in Kanban board
