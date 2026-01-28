@@ -1,15 +1,15 @@
 # Implementation Tasks
 
 ## Debug Panel Enhancement
-- [~] Add design_doc_path display to debug panel in `SpecTaskDetailContent.tsx` (~line 990, after branch_name display)
-- [~] Label it "Specs Folder:" with same monospace styling as other debug fields
-- [~] Show "N/A" if design_doc_path is not set
+- [x] Add design_doc_path display to debug panel in `SpecTaskDetailContent.tsx` (~line 990, after branch_name display)
+- [x] Label it "Specs Folder:" with same monospace styling as other debug fields
+- [x] Show "N/A" if design_doc_path is not set
 
 ## Task Card Task Number
-- [ ] Add task number badge to `TaskCard.tsx` in bottom-right corner of card
-- [ ] Format as "#001045" using `String(task.task_number).padStart(6, '0')`
-- [ ] Style: small font (0.65rem), muted color (text.disabled), absolute positioned
-- [ ] Only render when `task.task_number > 0`
+- [~] Add task number badge to `TaskCard.tsx` in bottom-right corner of card
+- [~] Format as "#001045" using `String(task.task_number).padStart(6, '0')`
+- [~] Style: small font (0.65rem), muted color (text.disabled), absolute positioned
+- [~] Only render when `task.task_number > 0`
 
 ## Split Screen Tabs Task Number
 - [ ] Modify `PanelTab` component in `TabsView.tsx` to show task number
