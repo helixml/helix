@@ -1,4 +1,5 @@
 api/pkg/skills/test_results/
+.hydra-resolved*.yaml
 .env
 .env.*
 node_modules
