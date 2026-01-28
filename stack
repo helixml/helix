@@ -654,12 +654,7 @@ function build-zed() {
   echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
 
-  # Verify external WebSocket sync is included
-  if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
-    echo "✅ External WebSocket Thread Sync detected in binary"
-  else
-    echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
-  fi
+
 
   # Note: Release builds are already stripped via RUSTFLAGS during compilation
   if [ "$BUILD_TYPE" = "release" ]; then
@@ -1978,12 +1973,7 @@ function zed-test() {
     return 1
   fi
 
-  # Test 2: Check for external sync feature
-  if strings ./zed-build/zed | grep -q "external_websocket_sync"; then
-    echo "✅ External WebSocket Thread Sync feature detected"
-  else
-    echo "⚠️  External WebSocket Thread Sync not clearly detectable"
-  fi
+
 
   echo "🎉 Basic Zed tests passed!"
   echo ""
