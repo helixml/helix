@@ -9,7 +9,7 @@ Users need the ability to just stop without restarting (to free resources), and 
 ## Existing Patterns
 
 ### API Endpoints (already exist)
-- `v1SessionsStopExternalAgentDelete(sessionId)` - stops the desktop container
+- `v1SessionsStopExternalAgentDelete(sessionId)` - stops the desktop container (same endpoint used by the X button in `AgentSandboxes.tsx` admin dashboard)
 - `v1SessionsResumeCreate(sessionId)` - starts/resumes the desktop container
 
 ### Session State Hook
