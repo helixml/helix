@@ -28,6 +28,8 @@ import {
   DialogActions,
   ToggleButton,
   ToggleButtonGroup,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -44,6 +46,9 @@ import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
+import PublicIcon from "@mui/icons-material/Public";
+import LockIcon from "@mui/icons-material/Lock";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
 
@@ -304,6 +309,40 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Archive state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+
+  // Public design docs state
+  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(task?.public_design_docs ?? false);
+  const [updatingPublic, setUpdatingPublic] = useState(false);
+
+  // Sync public state when task data changes
+  useEffect(() => {
+    if (task?.public_design_docs !== undefined) {
+      setIsPublicDesignDocs(task.public_design_docs);
+    }
+  }, [task?.public_design_docs]);
+
+  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+
+  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = event.target.checked;
+    setUpdatingPublic(true);
+    try {
+      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+        public_design_docs: newValue,
+      });
+      setIsPublicDesignDocs(newValue);
+      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
+    } catch (err: any) {
+      snackbar.error(err.message || 'Failed to update visibility');
+    } finally {
+      setUpdatingPublic(false);
+    }
+  };
+
+  const copyPublicLink = async () => {
+    await navigator.clipboard.writeText(publicLink);
+    snackbar.success('Link copied to clipboard!');
+  };
 
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId);
@@ -1096,6 +1135,55 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           >
             Render: {sessionData.config.render_node}
           </Typography>
+        )}
+
+        {/* Public Design Docs Toggle */}
+        <Divider sx={{ my: 2 }} />
+        <Typography variant="subtitle2" gutterBottom>
+          Share Design Docs
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={isPublicDesignDocs}
+                onChange={handlePublicToggle}
+                disabled={updatingPublic}
+                size="small"
+              />
+            }
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {isPublicDesignDocs ? (
+                  <>
+                    <PublicIcon fontSize="small" color="primary" />
+                    <Typography variant="body2">Public</Typography>
+                  </>
+                ) : (
+                  <>
+                    <LockIcon fontSize="small" color="action" />
+                    <Typography variant="body2">Private</Typography>
+                  </>
+                )}
+              </Box>
+            }
+          />
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {isPublicDesignDocs
+            ? 'Anyone with the link can view design docs without logging in.'
+            : 'Only users with project access can view design docs.'}
+        </Typography>
+        {isPublicDesignDocs && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<ContentCopyIcon />}
+            onClick={copyPublicLink}
+            sx={{ fontSize: "0.75rem", mb: 1 }}
+          >
+            Copy Public Link
+          </Button>
         )}
 
         {/* Archive button */}
