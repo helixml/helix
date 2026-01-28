@@ -979,6 +979,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         >
           Task ID: {task?.id || "N/A"}
         </Typography>
+        <Typography
+          variant="caption"
+          color="grey.300"
+          sx={{ fontFamily: "monospace", display: "block" }}
+        >
+          Task #:{" "}
+          {task?.task_number
+            ? `#${String(task.task_number).padStart(6, "0")}`
+            : "N/A"}
+        </Typography>
         {task?.branch_name && (
           <Tooltip title="Spectask branches push changes to upstream repository">
             <Typography
@@ -1007,6 +1017,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Typography>
           </Tooltip>
         )}
+        <Typography
+          variant="caption"
+          color="grey.300"
+          sx={{ fontFamily: "monospace", display: "block" }}
+        >
+          Specs Folder: {task?.design_doc_path || "N/A"}
+        </Typography>
         {activeSessionId && (
           <Typography
             variant="caption"
