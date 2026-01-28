@@ -24,6 +24,6 @@ Each Hydra-created session gets its own isolated dockerd instance with separate 
 
 ## Out of Scope
 
-- Cross-sandbox cache sharing (each sandbox has its own cache volume)
+- Cross-sandbox cache sharing: This design shares cache between sessions **within** a single sandbox. If multiple sandboxes exist (e.g., in Kubernetes), each has its own isolated cache volume - no sharing between sandboxes.
 - Remote cache backends (registry-based caching)
 - Cache eviction policies (rely on Docker's built-in LRU)
