@@ -316,7 +316,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "2"
+const PreReceiveHookVersion = "4"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -343,13 +343,11 @@ branch_allowed() {
         return 0
     fi
 
-    # Check each allowed branch (comma-separated)
-    echo "$allowed" | tr ',' '\n' | while read -r ab; do
-        if [ "$branch" = "$ab" ]; then
-            exit 0  # Found - exit subshell with success
-        fi
-    done
-    # If we get here, branch was not found
+    # Use case statement for exact matching (avoids subshell issues with pipes)
+    # Add commas to both ends so we match whole branch names only
+    case ",$allowed," in
+        *",$branch,"*) return 0 ;;
+    esac
     return 1
 }
 
@@ -363,10 +361,16 @@ while read oldrev newrev refname; do
         *) continue ;;
     esac
 
-    # Check 1: Force-push protection for helix-specs
+    # Check 1: Force-push and deletion protection for helix-specs
     if [ "$branch" = "helix-specs" ]; then
-        # Skip if this is a new branch (old is all zeros)
-        if [ "$oldrev" != "$ZERO" ] && [ "$newrev" != "$ZERO" ]; then
+        # Block deletion of helix-specs
+        if [ "$newrev" = "$ZERO" ]; then
+            echo "error: refusing to delete protected branch 'helix-specs'" >&2
+            echo "hint: helix-specs contains design documents and cannot be deleted." >&2
+            exit 1
+        fi
+        # Skip force-push check if this is a new branch (old is all zeros)
+        if [ "$oldrev" != "$ZERO" ]; then
             # Check if old is ancestor of new (fast-forward)
             if ! git merge-base --is-ancestor "$oldrev" "$newrev" 2>/dev/null; then
                 echo "error: refusing to force-push to protected branch 'helix-specs'" >&2
