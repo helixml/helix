@@ -17,8 +17,14 @@
 - [x] Use same color styling as tab title (inherits active/inactive state)
 - [x] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
 
+## Backend: Assign Task Numbers at Creation
+- [~] Move task number assignment from `StartSpecGeneration` to `CreateTaskFromPrompt` in `spec_driven_task_service.go`
+- [ ] Also update `cloneTaskToProject` in `spec_task_clone_handlers.go` to assign task number at clone time
+- [ ] Ensure design_doc_path is also generated at creation time (not just at planning start)
+
 ## Testing
 - [x] Verify task number appears on cards in Kanban board
 - [x] Verify task number appears in split screen tabs
 - [x] Verify debug panel shows specs folder path
 - [x] Verify fields gracefully handle missing data (new tasks without numbers)
+- [ ] Verify new tasks get task numbers immediately when created
