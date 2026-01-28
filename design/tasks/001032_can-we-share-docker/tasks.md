@@ -11,12 +11,15 @@
 - [ ] Test that dev containers can read/write to `/buildkit-cache`
 - [ ] Verify concurrent access from multiple sessions doesn't cause errors
 
-## Phase 3: Extend Existing Docker Wrapper
+## Phase 3: Deduplicate and Extend Docker Wrapper
 
-- [ ] Update `desktop/sway-config/docker-wrapper.sh` to detect `build` and `buildx build` commands
+- [ ] Move `desktop/sway-config/docker-wrapper.sh` to `desktop/shared/docker-wrapper.sh`
+- [ ] Move `desktop/sway-config/docker-compose-wrapper.sh` to `desktop/shared/docker-compose-wrapper.sh`
+- [ ] Update helix-sway and helix-ubuntu Dockerfiles to copy from `shared/` instead
+- [ ] Delete the duplicate copies in `desktop/ubuntu-config/`
+- [ ] Add cache flag injection: detect `build` and `buildx build` commands
 - [ ] Extract image name from `-t` flag to use as cache key subdirectory
 - [ ] Inject `--cache-from` and `--cache-to` flags when `/buildkit-cache` directory exists
-- [ ] Copy same changes to `desktop/ubuntu-config/docker-wrapper.sh`
 
 ## Phase 4: Testing
 
