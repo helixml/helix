@@ -22,8 +22,8 @@
 
 ## Testing
 
-- [~] Verify stop button stops desktop and shows paused state
-- [~] Verify start button resumes desktop from paused state
-- [~] Verify restart button still works when running
-- [~] Verify chat panel remains functional throughout stop/start cycle
-- [~] Verify button states update correctly during transitions
+- [x] Verify stop button stops desktop and shows paused state
+- [x] Verify start button resumes desktop from paused state
+- [x] Verify restart button still works when running
+- [x] Verify chat panel remains functional throughout stop/start cycle
+- [x] Verify button states update correctly during transitions

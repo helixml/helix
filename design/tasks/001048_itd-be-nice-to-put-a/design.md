@@ -73,3 +73,24 @@ Export `useSandboxState` hook so it can be reused.
 - Stop failures: Show snackbar error, reset button state
 - Start failures: Show snackbar error, reset button state
 - Both operations invalidate session query to refresh state
+
+## Implementation Notes
+
+### Files Modified
+1. `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` - Exported the `useSandboxState` hook
+2. `frontend/src/components/tasks/SpecTaskDetailContent.tsx` - Added all stop/start UI logic
+
+### Key Implementation Details
+- The `useSandboxState` hook polls every 3 seconds to check container state via `v1SessionsDetail`
+- State mapping: `isDesktopRunning`, `isDesktopPaused`, `isDesktopStarting` derived from session metadata
+- Both toolbar instances (big screen ~L1423, small screen ~L1756) updated with identical conditional logic
+- Stop button uses `color="error"` (red), Start button uses `color="success"` (green)
+- Added `isStopping` and `isStarting` local state to prevent double-clicks during API calls
+- The `isStarting` state combines local state with `isDesktopStarting` from hook for accurate spinner display
+
+### Button Visibility Logic Implemented
+```
+Running:  [Stop] [Restart] [Upload]
+Stopped:  [Start]
+Starting: [Start (disabled/spinning)]
+```
