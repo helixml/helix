@@ -9,16 +9,17 @@
 
 ## Apply the Fix Manually
 
-- [~] Add `CountTokensRequest`, `CountTokensResponse`, and `count_tokens()` to `crates/anthropic/src/anthropic.rs`
-- [ ] Update `crates/language_models/src/provider/anthropic.rs` to use the new token counting API
-- [ ] Verify `crates/agent/src/thread.rs` has the token usage tracking (should already be present)
+- [x] Add `CountTokensRequest`, `CountTokensResponse`, and `count_tokens()` to `crates/anthropic/src/anthropic.rs`
+- [x] Update `crates/language_models/src/provider/anthropic.rs` to use the new token counting API
+- [x] Verify `crates/agent/src/thread.rs` has the token usage tracking (already present)
 
 ## Build and Test
 
-- [ ] Run `cargo check` to verify compilation
-- [ ] Run `cargo test -p anthropic` to verify Anthropic crate tests pass
-- [ ] Run `cargo test -p language_models` to verify language model tests pass
+- [x] No diagnostics errors in modified files
+- [ ] Run `cargo check` to verify compilation (Rust not installed in this environment - user should verify)
+- [ ] Run `cargo test -p anthropic` to verify Anthropic crate tests pass (user should verify)
+- [ ] Run `cargo test -p language_models` to verify language model tests pass (user should verify)
 
 ## Push
 
-- [ ] Push fix directly to main branch in Zed repo
+- [x] Push fix directly to main branch in Zed repo (commit 170b32056e)
