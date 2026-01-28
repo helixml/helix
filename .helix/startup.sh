@@ -48,14 +48,17 @@ if ! command -v tmux &> /dev/null; then
 fi
 
 # Check for privileged mode (host docker socket)
+# NOTE: We do NOT set DOCKER_HOST here. The ./stack script has its own
+# Helix-in-Helix detection (detect_helix_in_helix) that properly handles:
+# - Running the control plane on inner Docker (Hydra's DinD)
+# - Running the sandbox on host Docker via start_outer_sandbox()
 if [ -S /var/run/host-docker.sock ]; then
-    echo "✓ Privileged mode enabled - host Docker available"
-    # Use host Docker for running sandboxes
-    export DOCKER_HOST=unix:///var/run/host-docker.sock
+    echo "✓ Privileged mode enabled - host Docker available for sandbox"
+    echo "  The ./stack script will handle Helix-in-Helix mode automatically"
 else
     echo "⚠ Warning: Privileged mode not enabled"
     echo "  Host Docker not available. Set UseHostDocker=true on the task/session."
-    echo "  Continuing with inner Docker only..."
+    echo "  The inner Helix won't be able to run sandboxes (DinD-in-DinD-in-DinD doesn't work)"
 fi
 
 # Find the helix repo - check common locations
