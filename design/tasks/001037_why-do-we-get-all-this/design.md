@@ -1,46 +1,65 @@
-# Design: Inline Code Placeholder Rendering Fix
+# Design: Markdown Placeholder Syntax Collision Fix
 
 ## Architecture
 
-The fix targets `frontend/src/components/session/Markdown.tsx`, specifically the `sanitizeHtml()` method in the `MessageProcessor` class.
+The fix targets `frontend/src/components/session/Markdown.tsx`, specifically the `MessageProcessor` class and placeholder patterns used throughout.
 
 ## Problem Analysis
 
-Current flow:
-1. `sanitizeHtml()` replaces `` `code` `` → `__INLINE_CODE_0__`
-2. DOMPurify runs
-3. Restore `__INLINE_CODE_0__` → `` `code` ``
+Current placeholder patterns use double underscores:
+- `__INLINE_CODE_N__`
+- `__CODE_BLOCK_N__`
+- `__CITATION_DATA__...__CITATION_DATA__`
+- `__THINKING_WIDGET__...__THINKING_WIDGET__`
 
-**Failure mode**: If LLM output contains literal `__INLINE_CODE_N__` text, step 3 can't restore it (not in array), so placeholder leaks into rendered output.
+**Failure mode**: In Markdown, `__text__` is bold syntax. When placeholders leak into content passed to react-markdown (with remarkGfm), the `__` markers are consumed as formatting, corrupting the output:
+- `__CITATION_DATA__` → `CITATION_DATA` (underscores eaten by bold parsing)
+- `__INLINE_CODE_43__` → mangled text
 
-## Solution: Use UUID-Based Placeholders
+**Why placeholders leak:**
+1. **CITATION_DATA**: Added after `sanitizeHtml()`, extracted in `processContent()`. Timing issues or extraction failures cause leakage.
+2. **INLINE_CODE/CODE_BLOCK**: Restore loop may fail if content is modified during processing or during partial streaming chunks.
 
-Replace sequential indices with random UUIDs to eliminate collision risk:
+## Solution: Use Non-Markdown Placeholder Syntax
+
+Replace double underscores with a pattern that has no meaning in Markdown:
 
 ```typescript
-// Before (collision-prone)
-return `__INLINE_CODE_${inlineCode.length - 1}__`;
+// Before (collides with markdown bold syntax)
+`__INLINE_CODE_${index}__`
+`__CODE_BLOCK_${index}__`
+`__CITATION_DATA__${json}__CITATION_DATA__`
+`__THINKING_WIDGET__${content}__THINKING_WIDGET__`
 
-// After (collision-resistant)  
-const uuid = crypto.randomUUID();
-inlineCodeMap.set(uuid, match);
-return `__INLINE_CODE_${uuid}__`;
+// After (no markdown interpretation)
+`<<<INLINE_CODE_${index}>>>`
+`<<<CODE_BLOCK_${index}>>>`
+`<<<CITATION_DATA>>>${json}<<</CITATION_DATA>>>`
+`<<<THINKING_WIDGET>>>${content}<<</THINKING_WIDGET>>>`
 ```
+
+The `<<<` and `>>>` pattern:
+- Has no meaning in Markdown syntax
+- Visually distinct and unlikely to appear in LLM output
+- Easy to search/replace with regex
 
 ## Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Placeholder format | Keep `__INLINE_CODE_*__` pattern | Minimal change, existing restore logic works |
-| ID generation | `crypto.randomUUID()` | Browser-native, no dependencies, zero collision risk |
-| Data structure | `Map<string, string>` instead of array | Direct lookup by UUID key |
+| Placeholder format | `<<<TYPE>>>` | No markdown interpretation, visually distinct |
+| Backward compatibility | None needed | Placeholders are internal, never persisted |
+| Scope | All placeholder patterns | Consistent fix across all marker types |
 
-## Scope
+## Files to Change
 
-- **In scope**: `sanitizeHtml()` placeholder generation for inline code and code blocks
-- **Out of scope**: Slack bot (`slack_bot.go`) - different context, lower risk
+- `frontend/src/components/session/Markdown.tsx`:
+  - `sanitizeHtml()`: Update `__CODE_BLOCK_N__` and `__INLINE_CODE_N__` patterns
+  - `addCitationData()`: Update `__CITATION_DATA__` pattern
+  - `processThinkingTags()`: Update `__THINKING_WIDGET__` pattern
+  - `processContent()` in `InteractionMarkdown`: Update extraction patterns
 
 ## Risks
 
-- **Low**: `crypto.randomUUID()` is widely supported (all modern browsers, Node 19+)
-- **Mitigation**: If older browser support needed, fallback to `Math.random().toString(36).slice(2)`
+- **Low**: Simple string replacement, no logic changes
+- **Testing**: Existing tests in `MessageProcessor.test.tsx` will need pattern updates
