@@ -555,6 +555,7 @@ RUN apt-get update && apt-get install -y \
     htop tmux less tree \
     ripgrep fd-find ncdu \
     strace net-tools dnsutils iproute2 \
+    silversearcher-ag \
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
     imagemagick \
     kitty \
