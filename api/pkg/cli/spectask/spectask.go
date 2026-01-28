@@ -56,6 +56,7 @@ func newStartCommand() *cobra.Command {
 	var projectID string
 	var agentID string
 	var prompt string
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -83,7 +84,9 @@ Example workflow:
 				if projectID == "" {
 					return fmt.Errorf("--project is required when creating a new task")
 				}
-				fmt.Println("Creating new spec task...")
+				if !quiet {
+					fmt.Println("Creating new spec task...")
+				}
 				taskPrompt := prompt
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
@@ -93,36 +96,48 @@ Example workflow:
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
 				taskID = task.ID
-				fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
-				if agentID != "" {
-					fmt.Printf("   Agent: %s\n", agentID)
+				if !quiet {
+					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
+					if agentID != "" {
+						fmt.Printf("   Agent: %s\n", agentID)
+					}
 				}
 			}
 
 			// Start planning - this triggers async session creation
-			fmt.Printf("Starting planning for task %s...\n", taskID)
+			if !quiet {
+				fmt.Printf("Starting planning for task %s...\n", taskID)
+			}
 			task, err := triggerStartPlanning(apiURL, token, taskID)
 			if err != nil {
 				return fmt.Errorf("failed to start planning: %w", err)
 			}
-			fmt.Printf("✅ Task status: %s\n", task.Status)
+			if !quiet {
+				fmt.Printf("✅ Task status: %s\n", task.Status)
+			}
 
 			// Poll for session to be created (sandbox takes ~10-15s to start)
-			fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
+			if !quiet {
+				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
+			}
 			session, err := waitForTaskSession(apiURL, token, taskID, 60*time.Second)
 			if err != nil {
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 
-			fmt.Printf("\n✅ Sandbox is running!\n")
-			fmt.Printf("   Session ID: %s\n", session.ID)
+			if quiet {
+				fmt.Println(session.ID)
+			} else {
+				fmt.Printf("\n✅ Sandbox is running!\n")
+				fmt.Printf("   Session ID: %s\n", session.ID)
 
-			// Show connection instructions
-			fmt.Printf("\n📺 Connect to Desktop:\n")
-			fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
+				// Show connection instructions
+				fmt.Printf("\n📺 Connect to Desktop:\n")
+				fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
 
-			fmt.Printf("\n📷 Test screenshot:\n")
-			fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+				fmt.Printf("\n📷 Test screenshot:\n")
+				fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+			}
 
 			return nil
 		},
@@ -132,6 +147,7 @@ Example workflow:
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
 	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
 
 	return cmd
 }

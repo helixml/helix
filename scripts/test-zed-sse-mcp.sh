@@ -26,12 +26,12 @@ AGENT=$(helix agent apply -f "$DIR/test-zed-sse-mcp-agent.yaml" | tail -1)
 echo "Agent: $AGENT"
 
 # Start session
-SESSION=$(helix spectask start --agent "$AGENT" --project "$HELIX_PROJECT" -n "SSE MCP Test" 2>&1 | grep -oP 'ses_\w+' | head -1)
+SESSION=$(helix spectask start -q --agent "$AGENT" --project "$HELIX_PROJECT" -n "SSE MCP Test")
 echo "Session: $SESSION"
 trap "docker rm -f sse-mcp-test 2>/dev/null || true; helix spectask stop $SESSION 2>/dev/null || true" EXIT
 
 # Ask for the secret
-RESPONSE=$(helix spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns." --wait --max-wait 180 2>/dev/null || echo "")
+RESPONSE=$(helix spectask send "$SESSION" "Use the get_secret tool and tell me exactly what it returns." --wait --max-wait 180)
 
 # Check result
 if echo "$RESPONSE" | grep -q "$SECRET"; then
