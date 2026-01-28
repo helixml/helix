@@ -6,10 +6,10 @@
 - [x] Add `PublicDesignDocs *bool` to `SpecTaskUpdateRequest` in `api/pkg/types/simple_spec_task.go`
 - [x] Update `viewDesignDocsPublic` handler in `api/pkg/server/spec_task_share_handlers.go` to check `PublicDesignDocs` instead of requiring token
 - [x] Create user-friendly "This spec task is private" HTML template for non-public tasks
-- [~] Update spec task PATCH handler to allow setting `public_design_docs` field
-- [ ] Remove `generateDesignDocsShareLink` handler and related types (`DesignDocsShareTokenClaims`, `DesignDocsShareLinkResponse`)
-- [ ] Remove POST `/api/v1/spec-tasks/{id}/design-docs/share` route from `server.go`
-- [ ] Run `./stack update_openapi` to regenerate API client
+- [x] Update spec task PATCH handler to allow setting `public_design_docs` field
+- [x] Remove `generateDesignDocsShareLink` handler and related types (`DesignDocsShareTokenClaims`, `DesignDocsShareLinkResponse`)
+- [x] Remove POST `/api/v1/spec-tasks/{id}/design-docs/share` route from `server.go`
+- [~] Run `./stack update_openapi` to regenerate API client
 
 ## Frontend
 
