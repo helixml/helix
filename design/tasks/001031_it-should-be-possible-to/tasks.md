@@ -9,7 +9,7 @@
   - Background: subtle highlight on hover using `action.hover`
   - Add slight padding/margin adjustment for natural hover area
 
-- [ ] Test the feature:
+- [~] Test the feature:
   - Create a new SpecTask (stays in backlog)
   - Hover over description text - should see cursor change and highlight
   - Click description - should enter edit mode
