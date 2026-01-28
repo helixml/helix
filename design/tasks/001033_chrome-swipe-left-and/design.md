@@ -1,0 +1,89 @@
+# Design: Chrome Swipe Navigation Fix
+
+## Overview
+
+Fix Chrome's native swipe-to-navigate gestures while preserving Safari iPad stability and stream viewer touch controls.
+
+## Technical Analysis
+
+### Current Behavior
+
+1. **Global CSS** (`index.html`):
+   ```css
+   html, body, #root {
+     overscroll-behavior: none;
+   }
+   ```
+   This prevents pull-to-refresh and bounce effects but may also affect swipe navigation.
+
+2. **DesktopStreamViewer** (`DesktopStreamViewer.tsx`):
+   - `handleTouchStart`: calls `event.preventDefault()` unconditionally
+   - `handleTouchMove`: calls `event.preventDefault()` unconditionally
+   - `handleTouchEnd`: calls `event.preventDefault()` unconditionally
+   
+   This blocks ALL touch gestures from reaching the browser, including Chrome's swipe navigation.
+
+### Why Safari iPad Had Issues
+
+Previous fixes likely removed `overscroll-behavior: none` globally, which caused:
+- Rubber-band scrolling/bouncing on overscroll
+- Edge swipe causing the whole page to slide
+- Pull-to-refresh interfering with the app
+
+## Solution Design
+
+### Approach: Scoped Prevention
+
+Keep global `overscroll-behavior: none` but scope touch `preventDefault()` to ONLY the stream viewer canvas element.
+
+### Key Insight
+
+Chrome's swipe-to-navigate works on **overscroll** at page edges, not on individual elements. The issue is:
+- `event.preventDefault()` on touch events stops the gesture from propagating
+- This happens on the canvas even when the user is trying to navigate at a page level
+
+### Implementation
+
+1. **Keep global `overscroll-behavior: none`** - This is correct for Safari iPad stability
+
+2. **Use CSS `touch-action` on canvas** - Instead of JS `preventDefault()`:
+   ```css
+   touch-action: none;  /* On the stream viewer canvas only */
+   ```
+   This tells the browser "don't interpret touch gestures on this element" without blocking gestures elsewhere.
+
+3. **Remove `event.preventDefault()` from stream touch handlers** - Let CSS `touch-action` handle gesture blocking. The canvas already has `touch-action: none` intent through its event handlers.
+
+4. **Alternative (if CSS alone insufficient)**: Only call `preventDefault()` when touch starts INSIDE the canvas bounds. Check `event.target` to ensure we're not blocking gestures that start outside.
+
+## Architecture Decision
+
+**Chosen: CSS `touch-action: none` on canvas**
+
+Rationale:
+- Standard browser API for this exact use case
+- No JS timing issues or race conditions
+- Browser handles gesture disambiguation natively
+- Already implicitly expected given our event handlers
+
+## Risk Mitigation
+
+| Risk | Mitigation |
+|------|------------|
+| Breaking stream touch controls | `touch-action: none` only disables browser gestures, our JS handlers still fire |
+| Safari bounce returning | Keep global `overscroll-behavior: none` |
+| Other pages affected | Change is scoped to DesktopStreamViewer only |
+
+## Files to Modify
+
+1. `helix/frontend/src/components/external-agent/DesktopStreamViewer.tsx`
+   - Add `touchAction: 'none'` to canvas style
+   - Optionally remove redundant `event.preventDefault()` calls (test first)
+
+## Testing Plan
+
+1. Chrome desktop: Two-finger swipe on trackpad on non-stream pages → browser back/forward
+2. Chrome desktop: Touch gestures on stream viewer → controls remote desktop
+3. Safari iPad: No UI sliding/bouncing when scrolling or interacting
+4. Safari iPad: Stream viewer touch controls work
+5. Mobile Chrome: Same as desktop Chrome tests
