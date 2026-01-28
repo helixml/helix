@@ -599,12 +599,6 @@ export interface ServerDesignDocsResponse {
   task_id?: string;
 }
 
-export interface ServerDesignDocsShareLinkResponse {
-  expires_at?: string;
-  share_url?: string;
-  token?: string;
-}
-
 export interface ServerDesignDocument {
   content?: string;
   filename?: string;
@@ -1637,6 +1631,23 @@ export interface TypesCloneGroupTaskProgress {
   task_id?: string;
 }
 
+export interface TypesCloneProgress {
+  /** Bytes received so far */
+  bytes_received?: number;
+  /** Current object count */
+  current?: number;
+  /** 0-100 */
+  percentage?: number;
+  /** "counting", "compressing", "receiving", "resolving", "done" */
+  phase?: string;
+  /** e.g., "1.25 MiB/s" */
+  speed?: string;
+  /** When clone started */
+  started_at?: string;
+  /** Total object count */
+  total?: number;
+}
+
 export interface TypesCloneTaskCreateProjectSpec {
   /** Optional, will use repo name if not provided */
   name?: string;
@@ -1680,6 +1691,16 @@ export interface TypesCodeAgentConfig {
   api_type?: string;
   /** BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1") */
   base_url?: string;
+  /**
+   * MaxOutputTokens is the model's max completion tokens
+   * Looked up from model_info.json, 0 if not found
+   */
+  max_output_tokens?: number;
+  /**
+   * MaxTokens is the model's context window size (max input tokens)
+   * Looked up from model_info.json, 0 if not found
+   */
+  max_tokens?: number;
   /** Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o") */
   model?: string;
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
@@ -2202,6 +2223,10 @@ export interface TypesGitRepository {
   azure_devops?: TypesAzureDevOps;
   bitbucket?: TypesBitbucket;
   branches?: string[];
+  /** Clone progress tracking for async cloning */
+  clone_error?: string;
+  /** Live progress during cloning */
+  clone_progress?: TypesCloneProgress;
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
   created_at?: string;
@@ -2286,6 +2311,8 @@ export interface TypesGitRepositoryFileResponse {
 
 export enum TypesGitRepositoryStatus {
   GitRepositoryStatusActive = "active",
+  GitRepositoryStatusCloning = "cloning",
+  GitRepositoryStatusError = "error",
   GitRepositoryStatusArchived = "archived",
   GitRepositoryStatusDeleted = "deleted",
 }
@@ -2809,11 +2836,10 @@ export interface TypesOAuthProvider {
   deleted_at?: GormDeletedAt;
   description?: string;
   discovery_url?: string;
+  /** Misc configuration */
   enabled?: boolean;
   id?: string;
   name?: string;
-  /** Misc configuration */
-  scopes?: string[];
   token_url?: string;
   type?: TypesOAuthProviderType;
   updated_at?: string;
@@ -3061,6 +3087,8 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
+  /** Sandbox settings */
+  use_host_docker?: boolean;
   user_id?: string;
 }
 
@@ -4101,6 +4129,8 @@ export interface TypesSpecTask {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  /** Public sharing */
+  public_design_docs?: boolean;
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
@@ -4304,6 +4334,8 @@ export interface TypesSpecTaskUpdateRequest {
   just_do_it_mode?: boolean;
   name?: string;
   priority?: TypesSpecTaskPriority;
+  /** Pointer to allow explicit false */
+  public_design_docs?: boolean;
   status?: TypesSpecTaskStatus;
   /** User override for tab title (pointer to allow clearing with empty string) */
   user_short_title?: string;
@@ -4379,6 +4411,8 @@ export interface TypesSpecTaskWithProject {
   project_id?: string;
   project_name?: string;
   project_path?: string;
+  /** Public sharing */
+  public_design_docs?: boolean;
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
@@ -6639,7 +6673,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all git repositories, optionally filtered by owner and type
+     * @description List all git repositories, optionally filtered by owner, type, and project
      *
      * @tags git-repositories
      * @name V1GitRepositoriesList
@@ -6655,6 +6689,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         repo_type?: string;
         /** Filter by organization ID */
         organization_id?: string;
+        /** Filter by project ID */
+        project_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -10226,24 +10262,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerDesignDocsResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${id}/design-docs`,
         method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Generate a token-based shareable link for viewing design documents on any device
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsShareCreate
-     * @summary Generate shareable design docs link
-     * @request POST:/api/v1/spec-tasks/{id}/design-docs/share
-     * @secure
-     */
-    v1SpecTasksDesignDocsShareCreate: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsShareLinkResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs/share`,
-        method: "POST",
         secure: true,
         format: "json",
         ...params,

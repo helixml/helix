@@ -915,15 +915,6 @@ definitions:
       task_id:
         type: string
     type: object
-  server.DesignDocsShareLinkResponse:
-    properties:
-      expires_at:
-        type: string
-      share_url:
-        type: string
-      token:
-        type: string
-    type: object
   server.DesignDocument:
     properties:
       content:
@@ -2649,6 +2640,30 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CloneProgress:
+    properties:
+      bytes_received:
+        description: Bytes received so far
+        type: integer
+      current:
+        description: Current object count
+        type: integer
+      percentage:
+        description: 0-100
+        type: integer
+      phase:
+        description: '"counting", "compressing", "receiving", "resolving", "done"'
+        type: string
+      speed:
+        description: e.g., "1.25 MiB/s"
+        type: string
+      started_at:
+        description: When clone started
+        type: string
+      total:
+        description: Total object count
+        type: integer
+    type: object
   types.CloneTaskCreateProjectSpec:
     properties:
       name:
@@ -2723,6 +2738,16 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      max_output_tokens:
+        description: |-
+          MaxOutputTokens is the model's max completion tokens
+          Looked up from model_info.json, 0 if not found
+        type: integer
+      max_tokens:
+        description: |-
+          MaxTokens is the model's context window size (max input tokens)
+          Looked up from model_info.json, 0 if not found
+        type: integer
       model:
         description: Model is the model identifier (e.g., "claude-sonnet-4-5-latest",
           "gpt-4o")
@@ -3572,6 +3597,13 @@ definitions:
         items:
           type: string
         type: array
+      clone_error:
+        description: Clone progress tracking for async cloning
+        type: string
+      clone_progress:
+        allOf:
+        - $ref: '#/definitions/types.CloneProgress'
+        description: Live progress during cloning
       clone_url:
         description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
         type: string
@@ -3707,11 +3739,18 @@ definitions:
   types.GitRepositoryStatus:
     enum:
     - active
+    - cloning
+    - error
     - archived
     - deleted
     type: string
+    x-enum-comments:
+      GitRepositoryStatusCloning: Clone in progress
+      GitRepositoryStatusError: Clone or sync failed
     x-enum-varnames:
     - GitRepositoryStatusActive
+    - GitRepositoryStatusCloning
+    - GitRepositoryStatusError
     - GitRepositoryStatusArchived
     - GitRepositoryStatusDeleted
   types.GitRepositoryTreeResponse:
@@ -4589,16 +4628,12 @@ definitions:
       discovery_url:
         type: string
       enabled:
+        description: Misc configuration
         type: boolean
       id:
         type: string
       name:
         type: string
-      scopes:
-        description: Misc configuration
-        items:
-          type: string
-        type: array
       token_url:
         type: string
       type:
@@ -5025,6 +5060,9 @@ definitions:
         type: array
       updated_at:
         type: string
+      use_host_docker:
+        description: Sandbox settings
+        type: boolean
       user_id:
         type: string
     type: object
@@ -6775,6 +6813,9 @@ definitions:
         type: string
       project_path:
         type: string
+      public_design_docs:
+        description: Public sharing
+        type: boolean
       pull_request_id:
         type: string
       pull_request_url:
@@ -7146,6 +7187,9 @@ definitions:
         type: string
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
+      public_design_docs:
+        description: Pointer to allow explicit false
+        type: boolean
       status:
         $ref: '#/definitions/types.SpecTaskStatus'
       user_short_title:
@@ -7270,6 +7314,9 @@ definitions:
         type: string
       project_path:
         type: string
+      public_design_docs:
+        description: Public sharing
+        type: boolean
       pull_request_id:
         type: string
       pull_request_url:
@@ -10185,7 +10232,8 @@ paths:
       - git-repositories
   /api/v1/git/repositories:
     get:
-      description: List all git repositories, optionally filtered by owner and type
+      description: List all git repositories, optionally filtered by owner, type,
+        and project
       parameters:
       - description: Filter by owner ID
         in: query
@@ -10198,6 +10246,10 @@ paths:
       - description: Filter by organization ID
         in: query
         name: organization_id
+        type: string
+      - description: Filter by project ID
+        in: query
+        name: project_id
         type: string
       produces:
       - application/json
@@ -15222,36 +15274,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
-  /api/v1/spec-tasks/{id}/design-docs/share:
-    post:
-      description: Generate a token-based shareable link for viewing design documents
-        on any device
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsShareLinkResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Generate shareable design docs link
       tags:
       - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
