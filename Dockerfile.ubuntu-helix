@@ -498,7 +498,7 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Utilities
+# Utilities and dev tools
 RUN apt-get update && apt-get install -y \
     lsof libjpeg-turbo8 \
     evtest evemu-tools \
@@ -512,6 +512,17 @@ RUN apt-get update && apt-get install -y \
     vulkan-tools \
     ffmpeg \
     socat \
+    htop \
+    tmux \
+    less \
+    tree \
+    ripgrep \
+    fd-find \
+    ncdu \
+    strace \
+    net-tools \
+    dnsutils \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
