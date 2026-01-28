@@ -15,45 +15,45 @@
 
 **Prerequisite**: The existing bash wrappers are unmaintainable garbage. Rewrite before adding cache logic.
 
-- [~] Create new `docker-shim` Go package (probably in `api/pkg/docker-shim/` or standalone `cmd/docker-shim/`)
-- [ ] Implement core functionality from `docker-wrapper.sh`:
-  - [ ] Path translation for Hydra bind mounts
-  - [ ] Docker socket routing
-  - [ ] Argument parsing and passthrough
-- [ ] Implement core functionality from `docker-compose-wrapper.sh`:
-  - [ ] Compose file path translation
-  - [ ] Project name handling
-  - [ ] Argument parsing and passthrough
-- [ ] Add `argv[0]` detection to act as both `docker` and `docker-compose` shim
-- [ ] Build static binary for inclusion in desktop images
-- [ ] Update `desktop/sway-config/` and `desktop/ubuntu-config/` Dockerfiles to use Go shim
+- [x] Create new `docker-shim` Go package (probably in `api/pkg/docker-shim/` or standalone `cmd/docker-shim/`)
+- [x] Implement core functionality from `docker-wrapper.sh`:
+  - [x] Path translation for Hydra bind mounts
+  - [x] Docker socket routing
+  - [x] Argument parsing and passthrough
+- [x] Implement core functionality from `docker-compose-wrapper.sh`:
+  - [x] Compose file path translation
+  - [x] Project name handling
+  - [x] Argument parsing and passthrough
+- [x] Add `argv[0]` detection to act as both `docker` and `docker-compose` shim
+- [x] Build static binary for inclusion in desktop images
+- [~] Update `desktop/sway-config/` and `desktop/ubuntu-config/` Dockerfiles to use Go shim
 - [ ] Delete the bash wrapper scripts
-- [ ] Write unit tests for argument parsing and path translation
+- [x] Write unit tests for argument parsing and path translation
 
 ## Phase 4: Add Cache Injection to Go Shim
 
 ### For `docker build` / `docker buildx build`:
 
-- [ ] Detect `build` and `buildx build` commands
-- [ ] Extract image name from `-t` flag to use as cache key subdirectory
-- [ ] Inject `--cache-from type=local,src=/buildkit-cache/{key}` flag
-- [ ] Inject `--cache-to type=local,dest=/buildkit-cache/{key},mode=max` flag
-- [ ] Only inject if `/buildkit-cache` directory exists
+- [x] Detect `build` and `buildx build` commands
+- [x] Extract image name from `-t` flag to use as cache key subdirectory
+- [x] Inject `--cache-from type=local,src=/buildkit-cache/{key}` flag
+- [x] Inject `--cache-to type=local,dest=/buildkit-cache/{key},mode=max` flag
+- [x] Only inject if `/buildkit-cache` directory exists
 
 ### For `docker compose build` / `docker compose up --build`:
 
 **Note**: Docker Compose v2 does NOT shell out to `docker build`. It uses the BuildKit API directly via gRPC, so the docker shim won't intercept these builds. Must handle at compose wrapper level.
 
-- [ ] Detect `compose build` and `compose up` (with `--build`) commands
-- [ ] Get Compose version: `docker compose version --short`
-- [ ] For Compose v2.24+: Inject `--set` flags:
+- [x] Detect `compose build` and `compose up` (with `--build`) commands
+- [x] Get Compose version: `docker compose version --short`
+- [x] For Compose v2.24+: Inject `--set` flags:
   - `--set "*.build.cache_from=[\"type=local,src=/buildkit-cache\"]"`
   - `--set "*.build.cache_to=[\"type=local,dest=/buildkit-cache,mode=max\"]"`
-- [ ] For older Compose: Implement compose file preprocessing fallback
-  - [ ] Parse compose file with `gopkg.in/yaml.v3`
-  - [ ] Inject `cache_from` and `cache_to` into all services with `build:` sections
-  - [ ] Write to temp file, pass with `-f` flag
-  - [ ] Clean up temp file after compose exits
+- [x] For older Compose: Implement compose file preprocessing fallback
+  - [x] Parse compose file with `gopkg.in/yaml.v3`
+  - [x] Inject `cache_from` and `cache_to` into all services with `build:` sections
+  - [x] Write to temp file, pass with `-f` flag
+  - [x] Clean up temp file after compose exits
 
 ## Phase 5: Testing
 
