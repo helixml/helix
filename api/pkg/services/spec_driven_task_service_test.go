@@ -45,6 +45,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	}
 
 	// Mock expectations
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(ctx context.Context, task *types.SpecTask) error {
 			assert.Equal(t, "test-project", task.ProjectID)
@@ -53,6 +54,9 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
+			// Task number and design doc path should be assigned at creation
+			assert.Equal(t, 1, task.TaskNumber)
+			assert.NotEmpty(t, task.DesignDocPath)
 			return nil
 		},
 	)
@@ -70,6 +74,9 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.Equal(t, "Create a user authentication system", task.OriginalPrompt)
 	assert.Equal(t, types.TaskStatusBacklog, task.Status)
 	assert.Equal(t, "test-user", task.CreatedBy)
+	// Task number and design doc path should be assigned at creation
+	assert.Equal(t, 1, task.TaskNumber)
+	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
