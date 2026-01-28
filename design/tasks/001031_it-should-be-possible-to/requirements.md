@@ -6,10 +6,11 @@ As a user, I want to edit the prompt/description of a SpecTask after creating it
 
 ## Acceptance Criteria
 
-1. **Edit Button Visible in Backlog Status**
-   - The edit button (pencil icon) is already visible for tasks in `backlog` status
+1. **Edit Button in Details Panel**
+   - The edit button (pencil icon) is already visible in the details panel for tasks in `backlog` status
    - Location: `SpecTaskDetailContent.tsx` header action buttons area (lines ~1057 and ~1301 for different layouts)
-   - Clicking it should enable edit mode for the prompt/name field
+   - Clicking it enables edit mode for the prompt/name field
+   - **Note**: Editing is NOT available on the kanban card - only in the details panel
 
 2. **Editable Prompt Field**
    - When in edit mode, the task name/prompt should be editable via a TextField
@@ -27,6 +28,7 @@ As a user, I want to edit the prompt/description of a SpecTask after creating it
 
 ## Out of Scope
 
+- Editing prompts on the kanban card view (must open details panel)
 - Editing prompts after planning has started
 - Editing the `original_prompt` field directly (we edit `name`/`description`)
 - Changes to the backend API (already supports updating name/description)
