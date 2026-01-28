@@ -1,8 +1,8 @@
 # Implementation Tasks
 
-- [~] Revert `ensure_go()` changes from `helix/stack` script
+- [x] Revert `ensure_go()` changes from `helix/stack` script
 
-- [ ] Add Go installation to `Dockerfile.ubuntu-helix`
+- [~] Add Go installation to `Dockerfile.ubuntu-helix`
   - Copy `go.mod` to extract version
   - Download and install Go tarball to `/usr/local/go`
   - Add `/usr/local/go/bin` to PATH via ENV
