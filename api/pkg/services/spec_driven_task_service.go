@@ -393,13 +393,19 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Create initial interaction combining planning instructions with user's request
 	// The planning prompt tells Zed how to create design documents
 	// The user's prompt is what they want designed
+	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
+	userPrompt := task.Description
+	if userPrompt == "" {
+		userPrompt = task.OriginalPrompt
+	}
+
 	var fullMessage string
 	if task.ClonedFromID != "" {
 		// For cloned tasks, reframe original prompt as historical context (not active instructions)
 		// Wrap in quotes to emphasize it's a reference, not commands to follow
-		fullMessage = planningPrompt + "\n\n**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
+		fullMessage = planningPrompt + "\n\n**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + userPrompt + "\""
 	} else {
-		fullMessage = planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+		fullMessage = planningPrompt + "\n\n**User Request:**\n" + userPrompt
 	}
 
 	interaction := &types.Interaction{
@@ -634,9 +640,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		}
 	}
 
+	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
+	userPrompt := task.Description
+	if userPrompt == "" {
+		userPrompt = task.OriginalPrompt
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
-		Str("original_prompt", task.OriginalPrompt).
+		Str("user_prompt", userPrompt).
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
@@ -837,7 +849,7 @@ Follow these guidelines when making changes:
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1598,8 +1610,8 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
-		SessionID: session.ID,
-		UserID:    task.CreatedBy,
+		SessionID:           session.ID,
+		UserID:              task.CreatedBy,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,
