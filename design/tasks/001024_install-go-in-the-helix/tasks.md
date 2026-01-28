@@ -1,8 +1,9 @@
 # Implementation Tasks
 
 - [ ] Add `ensure_go()` function to `helix/stack` script
-  - Check if Go 1.25.x is already installed via `go version`
-  - Download official Go 1.25.0 tarball from `go.dev/dl/` if not present
+  - Extract Go version from `api/go.mod` using grep/awk
+  - Check if that Go version is already installed via `go version`
+  - Download official Go tarball from `go.dev/dl/` if not present
   - Extract to `$HOME/.local/go`
   - Export PATH to include `$HOME/.local/go/bin`
 
@@ -10,4 +11,6 @@
 
 - [ ] Test installation flow on clean system (no Go installed)
 
-- [ ] Test skip behavior when Go 1.25 already installed
+- [ ] Test skip behavior when correct Go version already installed
+
+- [ ] Test error handling when `go.mod` cannot be parsed
