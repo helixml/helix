@@ -29,6 +29,7 @@
 - [x] Update `desktop/sway-config/` and `desktop/ubuntu-config/` Dockerfiles to use Go shim
 - [ ] Delete the bash wrapper scripts (keeping as backup until tested)
 - [x] Write unit tests for argument parsing and path translation
+- [x] Write integration tests with real Docker instance
 
 ## Phase 4: Add Cache Injection to Go Shim
 
