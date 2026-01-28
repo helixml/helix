@@ -288,29 +288,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting spec generation")
 
-	// Assign task number and design doc path if not already set
-	// Task numbers are globally unique across the entire deployment
-	if task.TaskNumber == 0 {
-		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
-			// Fallback: use a hash of task ID for uniqueness
-			taskNumber = 1
-		}
-		task.TaskNumber = taskNumber
-		// Generate unique design doc path (checks for collisions across all projects)
-		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
-			designDocPath = GenerateDesignDocPath(task, taskNumber)
-		}
-		task.DesignDocPath = designDocPath
-		log.Info().
-			Str("task_id", task.ID).
-			Int("task_number", taskNumber).
-			Str("design_doc_path", task.DesignDocPath).
-			Msg("Assigned task number and design doc path")
-	}
+	// Note: Task number and design doc path are now assigned at creation time
+	// in CreateTaskFromPrompt, so they should always be set by this point.
 
 	// For cloned tasks, pre-populate the design docs in helix-specs so the agent can read them
 	if task.ClonedFromID != "" && project != nil && project.DefaultRepoID != "" {
@@ -668,28 +647,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
-	// Assign task number and design doc path if not already set
-	// Task numbers are globally unique across the entire deployment
-	if task.TaskNumber == 0 {
-		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
-			taskNumber = 1
-		}
-		task.TaskNumber = taskNumber
-		// Generate unique design doc path (checks for collisions across all projects)
-		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
-			designDocPath = GenerateDesignDocPath(task, taskNumber)
-		}
-		task.DesignDocPath = designDocPath
-		log.Info().
-			Str("task_id", task.ID).
-			Int("task_number", taskNumber).
-			Str("design_doc_path", task.DesignDocPath).
-			Msg("Assigned task number and design doc path")
-	}
+	// Note: Task number and design doc path are now assigned at creation time
+	// in CreateTaskFromPrompt, so they should always be set by this point.
 
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
