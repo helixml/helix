@@ -13,7 +13,7 @@ Use the official Go binary tarball installation method:
 3. If not, download the official tarball from `go.dev/dl/`
 4. Extract to `$HOME/.local/go` (user-local, no sudo required)
 5. Add to PATH via export (for current session)
-6. Add to `~/.profile` (for future sessions)
+6. Add to `~/.bashrc` (for future sessions)
 
 ## Key Decisions
 
@@ -22,7 +22,7 @@ Use the official Go binary tarball installation method:
 | Installation location | `$HOME/.local/go` | User-local, doesn't require root |
 | Version source | Extract from `go.mod` | Single source of truth, no hardcoding |
 | When to run | During `./stack start` | Ensures Go available before build |
-| PATH persistence | Add to `~/.profile` | Sourced by login shells; more portable than `.bashrc` |
+| PATH persistence | Add to `~/.bashrc` | Most common expectation for developers |
 
 ## Implementation
 
@@ -56,12 +56,12 @@ function ensure_go() {
   mkdir -p "$HOME/.local"
   curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C "$HOME/.local" -xz
   
-  # Add to ~/.profile for future sessions (if not already present)
-  if ! grep -q '.local/go/bin' ~/.profile 2>/dev/null; then
-    echo "" >> ~/.profile
-    echo "# Go (installed by helix ./stack script)" >> ~/.profile
-    echo "$PATH_LINE" >> ~/.profile
-    echo "✅ Added Go to ~/.profile for future sessions"
+  # Add to ~/.bashrc for future sessions (if not already present)
+  if ! grep -q '.local/go/bin' ~/.bashrc 2>/dev/null; then
+    echo "" >> ~/.bashrc
+    echo "# Go (installed by helix ./stack script)" >> ~/.bashrc
+    echo "$PATH_LINE" >> ~/.bashrc
+    echo "✅ Added Go to ~/.bashrc for future sessions"
   fi
   
   echo "✅ Go ${GO_VERSION} installed"
@@ -75,4 +75,4 @@ Call `ensure_go` early in the `start()` function, before any Go build commands.
 - **Network dependency**: Download requires internet access. Mitigation: check if Go exists first.
 - **Architecture assumption**: Assumes `linux-amd64`. Could detect with `uname -m` if needed.
 - **go.mod parse failure**: If `go.mod` format changes. Mitigation: clear error message.
-- **Shell compatibility**: Only updates `~/.profile`. Users of zsh/fish would need to add PATH manually.
+- **Shell compatibility**: Only updates `~/.bashrc`. Users of zsh/fish would need to add PATH manually.
