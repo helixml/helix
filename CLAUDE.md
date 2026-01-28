@@ -35,6 +35,10 @@ See also: `.cursor/rules/*.mdc`
 - **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
 - **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
 
+### Sessions
+- **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
+- **NEVER** stop sessions you didn't create in the current conversation — always ask first
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
