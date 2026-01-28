@@ -1,5 +1,11 @@
 # Design: Shared Docker BuildKit Cache
 
+## Primary Use Case: Helix-in-Helix Development
+
+When developing Helix inside a Helix desktop session ("Helix-in-Helix"), running `./stack start` triggers `docker compose up -d` which builds multiple services (api, frontend, haystack, etc.). Each new session currently rebuilds everything from scratch because BuildKit cache isn't shared between Hydra-spawned dockerd instances.
+
+**Pain point**: Starting a new Helix-in-Helix dev session means waiting 10+ minutes for builds that should be cached.
+
 ## Current Architecture
 
 ```
@@ -50,13 +56,29 @@ docker buildx build \
 **Pros**: Standard pattern, works across sandboxes
 **Cons**: More network overhead, registry must be running
 
-## Recommended Approach: Option A with Existing Wrappers
+## Recommended Approach: Option A with Go Wrappers
 
 1. **Hydra creates shared cache directory** at `/hydra-data/buildkit-cache/`
 2. **Hydra mounts this directory** into all dev containers it creates
-3. **Extend existing `docker-wrapper.sh`** to inject cache flags for `docker build` and `docker buildx build`
-4. **Extend existing `docker-compose-wrapper.sh`** to inject cache flags for `docker compose build`
+3. **Rewrite `docker-wrapper.sh` in Go** - inject cache flags for `docker build` and `docker buildx build`
+4. **Rewrite `docker-compose-wrapper.sh` in Go** - inject cache flags for `docker compose build` (requires special handling - see below)
 5. **BuildKit handles concurrency** via content-addressed storage (safe for concurrent access)
+
+### Prerequisite: Rewrite Bash Wrappers in Go
+
+The existing bash wrappers (`docker-wrapper.sh`, `docker-compose-wrapper.sh`) are already complex and hard to maintain. Adding version detection, YAML preprocessing, and cache injection in bash would be a nightmare.
+
+**New approach**: Single Go binary `docker-shim` that handles both `docker` and `docker compose` commands.
+
+Benefits:
+- Proper argument parsing (not bash string manipulation)
+- Testable with unit tests
+- YAML parsing for compose files (use `gopkg.in/yaml.v3`)
+- Version comparison without `sort -V` hacks
+- Single binary, easier to deploy into desktop images
+- Can share code with Hydra
+
+The shim will be symlinked as both `docker` and `docker-compose` in the PATH, and detect which mode based on `argv[0]` or first argument.
 
 ### Implementation Details
 
@@ -79,64 +101,124 @@ mounts = append(mounts, mount.Mount{
 
 This is entirely internal to Hydra - no docker-compose changes needed. The `/hydra-data` volume already exists and persists across sandbox restarts.
 
-**Extend existing docker-wrapper.sh** (`desktop/sway-config/docker-wrapper.sh` and `desktop/ubuntu-config/docker-wrapper.sh`):
+**Go docker-shim for `docker build`**:
 
-There's already a Docker wrapper that intercepts all `docker` commands to translate paths for Hydra. We add cache flag injection there:
+```go
+// In docker-shim, detect "buildx build" or "build" commands and inject cache flags
 
-```bash
-# In docker-wrapper.sh, detect "buildx build" or "build" commands and inject cache flags
-# Add this logic before the final exec:
-
-if [[ "${args[0]}" == "buildx" && "${args[1]}" == "build" ]] || [[ "${args[0]}" == "build" ]]; then
-    # Extract image name from -t flag for cache key
-    IMAGE_NAME=""
-    for ((i=0; i<${#args[@]}; i++)); do
-        if [[ "${args[$i]}" == "-t" && $((i+1)) -lt ${#args[@]} ]]; then
-            IMAGE_NAME="${args[$((i+1))]}"
-            break
-        fi
-    done
+func handleDockerCommand(args []string) []string {
+    if !isBuildCommand(args) {
+        return args
+    }
     
-    # Sanitize image name for directory path
-    CACHE_KEY=$(echo "${IMAGE_NAME:-default}" | tr '/:' '_')
-    CACHE_DIR="/buildkit-cache/${CACHE_KEY}"
+    if _, err := os.Stat("/buildkit-cache"); os.IsNotExist(err) {
+        return args // No cache directory, pass through
+    }
     
-    # Inject cache flags (only if /buildkit-cache exists)
-    if [[ -d "/buildkit-cache" ]]; then
-        args+=("--cache-from" "type=local,src=$CACHE_DIR")
-        args+=("--cache-to" "type=local,dest=$CACHE_DIR,mode=max")
-    fi
-fi
+    // Extract image name from -t flag for cache key
+    imageName := extractImageTag(args)
+    cacheKey := sanitizeForPath(imageName)
+    if cacheKey == "" {
+        cacheKey = "default"
+    }
+    cacheDir := filepath.Join("/buildkit-cache", cacheKey)
+    
+    // Inject cache flags
+    args = append(args,
+        "--cache-from", fmt.Sprintf("type=local,src=%s", cacheDir),
+        "--cache-to", fmt.Sprintf("type=local,dest=%s,mode=max", cacheDir),
+    )
+    
+    return args
+}
 ```
 
-This reuses the existing "evil shit" wrapper instead of creating a new one.
+### ⚠️ Docker Compose v2 Caveat
 
-**Extend existing docker-compose-wrapper.sh** (`desktop/shared/docker-compose-wrapper.sh`):
+**IMPORTANT**: Docker Compose v2 (the Go rewrite, `docker compose` as a plugin) does **NOT** shell out to `docker build`. Instead, it:
 
-The compose wrapper already handles `build` commands (for path translation). Add cache flag injection there too:
+1. Uses the Docker SDK/API directly
+2. Communicates with the BuildKit daemon over gRPC
+3. Never invokes the `docker` CLI binary
 
-```bash
-# In docker-compose-wrapper.sh, when processing build commands, set BUILDKIT env vars
-# or inject --build-arg flags. For compose, we can use COMPOSE_DOCKER_CLI_BUILD=1 
-# and DOCKER_BUILDKIT=1 to ensure BuildKit is used, then the docker-wrapper.sh 
-# will handle the cache flags when compose invokes docker build.
+This means **the docker shim won't intercept builds triggered by `docker compose build`** when compose calls BuildKit directly.
 
-# Alternatively, for docker compose build specifically, inject build args:
-if [[ " ${new_args[*]} " =~ " build " ]]; then
-    # Extract service/image name for cache key (or use project name)
-    CACHE_KEY="${COMPOSE_PROJECT_NAME:-default}"
-    CACHE_DIR="/buildkit-cache/${CACHE_KEY}"
+**Solution for Docker Compose v2**: The shim must inject cache configuration when wrapping compose commands, using one of these approaches:
+
+#### Approach 1: Use `--set` flag (Compose v2.24+)
+
+Docker Compose v2.24+ supports `--set` to override build options:
+
+```go
+func handleComposeCommand(args []string) []string {
+    if !isBuildOrUpBuild(args) {
+        return args
+    }
     
-    if [[ -d "/buildkit-cache" ]]; then
-        # Compose v2 supports --build-arg for cache
-        new_args+=("--build-arg" "BUILDKIT_INLINE_CACHE=1")
-        # Note: --cache-from in compose requires image reference, not local path
-        # So we rely on docker-wrapper.sh intercepting the underlying docker build
-    fi
-fi
+    if _, err := os.Stat("/buildkit-cache"); os.IsNotExist(err) {
+        return args
+    }
+    
+    version := getComposeVersion()
+    if version.AtLeast("2.24") {
+        // Inject cache config for all services using wildcard
+        args = append(args,
+            "--set", `*.build.cache_from=["type=local,src=/buildkit-cache"]`,
+            "--set", `*.build.cache_to=["type=local,dest=/buildkit-cache,mode=max"]`,
+        )
+    } else {
+        // Fall back to compose file preprocessing
+        args = preprocessComposeFile(args)
+    }
+    
+    return args
+}
 ```
 
-Since `docker compose build` ultimately calls `docker build`, and our `docker-wrapper.sh` intercepts all docker commands, the cache flags will be injected automatically. The compose wrapper just needs to ensure BuildKit is enabled.
+**Pros**: Clean, no file manipulation
+**Cons**: Requires Compose v2.24+, wildcard syntax
+
+#### Approach 2: Preprocess Compose File (Fallback for older Compose)
+
+Generate a modified compose file with cache configuration injected:
+
+```go
+func preprocessComposeFile(args []string) []string {
+    // Find the compose file being used
+    composeFile := findComposeFile(args)
+    
+    // Parse YAML
+    var compose map[string]interface{}
+    data, _ := os.ReadFile(composeFile)
+    yaml.Unmarshal(data, &compose)
+    
+    // Inject cache config into all services with build sections
+    services := compose["services"].(map[string]interface{})
+    for name, svc := range services {
+        service := svc.(map[string]interface{})
+        if build, ok := service["build"]; ok {
+            buildConfig := normalizeBuildConfig(build)
+            buildConfig["cache_from"] = []string{"type=local,src=/buildkit-cache"}
+            buildConfig["cache_to"] = []string{"type=local,dest=/buildkit-cache,mode=max"}
+            service["build"] = buildConfig
+        }
+    }
+    
+    // Write modified file
+    tmpFile, _ := os.CreateTemp("", "compose-cache-*.yaml")
+    yaml.NewEncoder(tmpFile).Encode(compose)
+    
+    // Prepend -f flag (compose uses last -f for conflicts)
+    return append([]string{"-f", tmpFile.Name()}, args...)
+}
+```
+
+**Pros**: Works with any Compose v2 version, full control
+**Cons**: More complex, must handle compose file merging semantics
+
+#### Recommended: Approach 1 with Approach 2 Fallback
+
+Check Compose version and use the appropriate method.
 
 ## Concurrency Safety
 
@@ -163,4 +245,6 @@ The BuildKit team confirms this works for concurrent builds: https://github.com/
 | Cache location | `/hydra-data/buildkit-cache/` | Uses existing volume, Hydra implementation detail |
 | Mount type | Bind mount | Share across Hydra dockerd instances |
 | Concurrency | Trust BuildKit | Content-addressed, proven safe |
-| Wrapper | Extend existing `docker-wrapper.sh` | Reuse existing path-translation wrapper, no new scripts |
+| Wrapper language | Go (rewrite from bash) | Testable, proper arg parsing, YAML handling, maintainable |
+| docker build | Go shim injects `--cache-from/--cache-to` | Intercepts CLI invocations |
+| docker compose build | Go shim uses `--set` or file preprocessing | Compose v2 uses BuildKit API directly, doesn't invoke docker CLI |
