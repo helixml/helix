@@ -12,13 +12,13 @@
 - [x] Only render when `task.task_number > 0`
 
 ## Split Screen Tabs Task Number
-- [~] Modify `PanelTab` component in `TabsView.tsx` to show task number
-- [~] Add before displayTitle, format as "#001045 "
-- [~] Use same color styling as tab title (inherits active/inactive state)
-- [~] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
+- [x] Modify `PanelTab` component in `TabsView.tsx` to show task number
+- [x] Add before displayTitle, format as "#001045 "
+- [x] Use same color styling as tab title (inherits active/inactive state)
+- [x] Only show for task tabs (`tab.type === 'task'`) when `displayTask?.task_number > 0`
 
 ## Testing
-- [ ] Verify task number appears on cards in Kanban board
-- [ ] Verify task number appears in split screen tabs
-- [ ] Verify debug panel shows specs folder path
-- [ ] Verify fields gracefully handle missing data (new tasks without numbers)
+- [x] Verify task number appears on cards in Kanban board
+- [x] Verify task number appears in split screen tabs
+- [x] Verify debug panel shows specs folder path
+- [x] Verify fields gracefully handle missing data (new tasks without numbers)
