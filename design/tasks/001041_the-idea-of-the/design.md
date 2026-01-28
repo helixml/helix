@@ -78,3 +78,31 @@ Remove the token-based share link feature:
 - Delete `generateDesignDocsShareLink` handler
 - Delete `DesignDocsShareTokenClaims` and `DesignDocsShareLinkResponse` types
 - Remove POST `/api/v1/spec-tasks/{id}/design-docs/share` route
+
+## Implementation Notes
+
+### Files Modified
+
+**Backend:**
+- `api/pkg/types/simple_spec_task.go` - Added `PublicDesignDocs` field to `SpecTask` and `SpecTaskUpdateRequest`
+- `api/pkg/server/spec_task_share_handlers.go` - Rewrote `viewDesignDocsPublic` to check `PublicDesignDocs`, added private task template, removed token-based logic
+- `api/pkg/server/spec_driven_task_handlers.go` - Added handling for `PublicDesignDocs` in `updateSpecTask` handler
+- `api/pkg/server/server.go` - Removed the POST `/api/v1/spec-tasks/{id}/design-docs/share` route
+
+**Frontend:**
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` - Added public toggle in details view (above Archive button)
+- `frontend/src/components/tasks/SpecTaskReviewPanel.tsx` - Replaced token-based share with public toggle
+
+### Key Decisions
+
+1. **Placed toggle in SpecTaskDetailContent.tsx** - This is the main task details view that users see when viewing a task. The toggle is in a "Share Design Docs" section above the Archive button.
+
+2. **Uses existing PUT endpoint** - No new API endpoint needed. The `PUT /api/v1/spec-tasks/{taskId}` endpoint already handles updates, we just added `public_design_docs` to the request schema.
+
+3. **Private page shows login link** - When a task is not public, visitors see a friendly message with a link to login rather than a raw 401 error.
+
+### Patterns Used
+
+- Followed the existing `Global` pattern used by `App` and `Tool` types for public/private visibility
+- Used MUI `Switch` component with `FormControlLabel` for the toggle UI (consistent with other toggles in the codebase)
+- Used `api.put()` for updates (matches existing patterns in `SpecTaskDetailContent.tsx`)
