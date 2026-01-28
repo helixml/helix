@@ -1,44 +1,38 @@
 # Implementation Tasks
 
-## Phase 1: Quick Wins (Low Risk)
+## Phase 0: Benchmarking (Do This First)
 
-- [ ] **Profile current performance** - Use React DevTools Profiler and Chrome Performance tab to measure baseline render times, identify which components are slowest
-- [ ] **Increase streaming throttle** - Change `STREAMING_THROTTLE_MS` from 150ms to 250ms in `Markdown.tsx` to reduce update frequency
-- [ ] **Add adaptive throttling** - Detect rapid streaming (updates <100ms apart) and use longer throttle (300ms) automatically
-- [ ] **Memoize CodeBlockWithCopy** - Wrap `CodeBlockWithCopy` component with `React.memo()` to prevent re-renders when props unchanged
+- [ ] **Create benchmark test file** - Create `frontend/src/components/session/Markdown.bench.ts` with performance tests for MessageProcessor
+- [ ] **Capture real session data** - Export 4-5 real large sessions (small ~1KB, medium ~10KB, large ~50KB, huge ~200KB with many code blocks) as test fixtures
+- [ ] **Benchmark MessageProcessor.process()** - Measure total time and per-step time for each processing method
+- [ ] **Benchmark react-markdown rendering** - Measure render time for various content sizes
+- [ ] **Benchmark SyntaxHighlighter** - Measure Prism.js highlighting time for different code block counts/sizes
+- [ ] **Document baseline metrics** - Record current performance numbers to compare against after optimizations
 
-## Phase 2: Content Splitting (Medium Effort)
-
-- [ ] **Split finalized vs streaming content** - Detect "safe split points" (closed code blocks, complete paragraphs) and separate into finalized content that can be memoized
-- [ ] **Create MemoizedMarkdown wrapper** - Memoized component for rendering finalized content that doesn't change
-- [ ] **Render streaming tail separately** - Only pass the "active" portion (last paragraph/code block being written) to non-memoized Markdown
-- [ ] **Handle split point detection edge cases** - Ensure unclosed code blocks, partial citations, and thinking tags don't break the split logic
-
-## Phase 3: MessageProcessor Optimization (Higher Effort)
+## Phase 1: MessageProcessor Optimization (Based on Benchmark Results)
 
 - [ ] **Add early-exit checks** - Skip processing steps when their markers aren't present (e.g., skip `processXmlCitations` if no `<excerpts>` in text)
-- [ ] **Cache regex objects** - Move regex patterns to class-level constants instead of creating new RegExp on each call
+- [ ] **Cache regex objects** - Move regex patterns to static class-level constants instead of creating new RegExp on each call
 - [ ] **Optimize processThinkingTags** - Replace line-by-line split/map/join with single-pass regex where possible
-- [ ] **Batch DOMPurify calls** - Only sanitize the delta content when possible, not the entire message
-- [ ] **Consider incremental processing** - Track processed length and only process new text for simple operations (non-spanning features)
+- [ ] **Reduce string allocations** - Audit each processing step for unnecessary string copies
+- [ ] **Re-run benchmarks** - Verify improvements after each change
 
-## Phase 4: Code Block Performance (Optional)
+## Phase 2: Throttling Improvements
 
-- [ ] **Lazy load SyntaxHighlighter** - Use `React.lazy()` for Prism highlighter, show plain `<pre>` as fallback during load
-- [ ] **Defer off-screen code blocks** - Use Intersection Observer to only highlight code blocks visible in viewport
-- [ ] **Consider lighter highlighter** - Evaluate if `highlight.js` or a subset of Prism languages would be faster
+- [ ] **Add adaptive throttling** - Detect rapid streaming (updates <100ms apart) and use longer throttle (250-300ms) automatically
+- [ ] **Consider requestIdleCallback** - Evaluate processing during browser idle time instead of fixed interval
+- [ ] **Measure UI responsiveness** - Ensure scrolling and clicking remain smooth during streaming
 
-## Phase 5: Web Worker (Optional, if needed)
+## Phase 3: React Rendering Optimizations
 
-- [ ] **Create MessageProcessor worker** - Move `MessageProcessor.process()` to a Web Worker
-- [ ] **Handle worker communication** - Post message text, receive processed result
-- [ ] **Add fallback for worker errors** - Process on main thread if worker fails
-- [ ] **Measure worker overhead** - Verify worker communication latency doesn't negate benefits
+- [ ] **Memoize CodeBlockWithCopy** - Wrap component with `React.memo()` to prevent re-renders when props unchanged
+- [ ] **Profile React reconciliation** - Use React DevTools Profiler to identify unnecessary re-renders
+- [ ] **Lazy load SyntaxHighlighter** - Defer Prism loading for off-screen code blocks if benchmarks show it's a bottleneck
 
 ## Verification
 
 - [ ] **Run existing tests** - Ensure all `Markdown.test.tsx` and `MessageProcessor.test.tsx` tests pass
 - [ ] **Manual testing** - Test with long streaming responses (1000+ tokens) with multiple code blocks
-- [ ] **Measure improvements** - Profile after each phase, document render time improvements
-- [ ] **Test edge cases** - Partial citations, unclosed code blocks, rapid text deletion/replacement
+- [ ] **Compare before/after benchmarks** - Document improvement (target: 5-10x faster MessageProcessor)
+- [ ] **Test edge cases** - Partial citations, unclosed code blocks, parallel tool call outputs changing mid-stream
 - [ ] **Cross-browser testing** - Verify performance improvements in Chrome, Firefox, Safari

@@ -33,120 +33,114 @@ Prism.js tokenizes and highlights **all** code blocks on every render. A respons
 ### 4. React Reconciliation
 The entire component tree re-renders, creating new DOM nodes for unchanged content.
 
-## Proposed Solutions
+## Important Constraint: External Agent Streaming
 
-### Solution 1: Incremental Message Processing (Primary)
+External agents send the **entire interaction content** on every update, not just appended text. This is because:
+- Multiple tool calls can run in parallel
+- Content can change mid-stream (not just at the end)
+- Two commands running simultaneously both update the output
 
-**Concept**: Only process the **delta** (new text) during streaming, not the entire message.
+This means **incremental/delta processing is risky** - we can't assume text is only appended. The entire content may change anywhere. Focus optimization efforts on making full processing faster, not avoiding it.
+
+## Recommended Approach: Benchmark-Driven Optimization
+
+### Phase 0: Create Benchmarks First
+
+Before optimizing, we need to measure. Create JavaScript benchmarks using real large sessions:
 
 ```typescript
-class IncrementalMessageProcessor {
-  private processedUpTo: number = 0;
-  private cachedResult: string = '';
-  
-  processIncremental(fullText: string): string {
-    if (fullText.length < this.processedUpTo) {
-      // Text was reset, reprocess everything
-      return this.processAll(fullText);
-    }
-    
-    const delta = fullText.slice(this.processedUpTo);
-    const processedDelta = this.processDelta(delta);
-    this.cachedResult += processedDelta;
-    this.processedUpTo = fullText.length;
-    
-    return this.cachedResult;
+// benchmark/messageProcessor.bench.ts
+import { MessageProcessor } from '../src/components/session/Markdown';
+import { realSessionData } from './fixtures/large-sessions';
+
+const sessions = [
+  { name: 'small', text: realSessionData.small },      // ~1KB
+  { name: 'medium', text: realSessionData.medium },    // ~10KB  
+  { name: 'large', text: realSessionData.large },      // ~50KB
+  { name: 'huge', text: realSessionData.huge },        // ~200KB with many code blocks
+];
+
+for (const session of sessions) {
+  console.time(`MessageProcessor:${session.name}`);
+  for (let i = 0; i < 100; i++) {
+    const processor = new MessageProcessor(session.text, mockOptions);
+    processor.process();
   }
+  console.timeEnd(`MessageProcessor:${session.name}`);
 }
 ```
 
-**Limitation**: Some features (thinking tags, citations) span multiple chunks and need full reprocessing. Use a hybrid approach - process delta for simple text, full reprocess only when special markers detected.
+**Goal**: Identify which processing steps are slowest, then optimize those specifically.
 
-### Solution 2: Increase Throttle During Active Streaming
+### Phase 1: Low-Hanging Fruit in MessageProcessor
 
-Current throttle: 150ms. During rapid streaming, increase to 250-300ms.
+Based on code review, likely optimizations:
 
-```typescript
-const STREAMING_THROTTLE_MS = 150;
-const FAST_STREAMING_THROTTLE_MS = 300;
+1. **Early exit checks** - Skip processing steps when markers aren't present:
+   ```typescript
+   // Before: always runs complex regex
+   processXmlCitations(message)
+   
+   // After: skip if no markers
+   if (!message.includes('<excerpts>')) return message;
+   ```
 
-// Detect rapid streaming (>10 updates/sec)
-const isRapidStreaming = (Date.now() - lastUpdate) < 100;
-const throttle = isRapidStreaming ? FAST_STREAMING_THROTTLE_MS : STREAMING_THROTTLE_MS;
-```
+2. **Cache compiled regexes** - Move regex patterns to class-level constants:
+   ```typescript
+   // Before: creates new RegExp on each call
+   const citationRegex = /<excerpts>([\s\S]*?)<\/excerpts>/g;
+   
+   // After: compile once
+   private static readonly CITATION_REGEX = /<excerpts>([\s\S]*?)<\/excerpts>/g;
+   ```
 
-### Solution 3: Virtualized Code Block Rendering
+3. **Optimize processThinkingTags** - Currently splits into lines, maps, joins. Could use single-pass regex.
 
-Use `React.lazy` and visibility detection to only render code blocks that are in/near viewport:
+4. **Reduce string allocations** - Each processing step creates a new string. Consider StringBuilder pattern or processing in-place where possible.
 
-```typescript
-const LazyCodeBlock = React.lazy(() => import('./CodeBlockWithCopy'));
+### Phase 2: Throttling Improvements
 
-const CodeBlockWrapper = ({ inView, ...props }) => {
-  if (!inView) {
-    return <pre className="code-placeholder">Loading...</pre>;
-  }
-  return (
-    <Suspense fallback={<pre>...</pre>}>
-      <LazyCodeBlock {...props} />
-    </Suspense>
-  );
-};
-```
+Current throttle: 150ms. Options:
 
-### Solution 4: Memoize Static Content
+1. **Adaptive throttling** - Increase to 250-300ms during rapid updates:
+   ```typescript
+   const isRapidStreaming = (Date.now() - lastUpdate) < 100;
+   const throttle = isRapidStreaming ? 300 : 150;
+   ```
 
-Split content into "finalized" (closed code blocks, completed paragraphs) and "streaming" (current line/block being written):
+2. **requestIdleCallback** - Process during browser idle time instead of fixed interval
 
-```typescript
-const MemoizedContent = React.memo(({ content }) => (
-  <Markdown>{content}</Markdown>
-));
+### Phase 3: React Rendering Optimizations
 
-// Only re-render the streaming tail
-<MemoizedContent content={finalizedContent} />
-<Markdown>{streamingTail}</Markdown>
-```
+1. **Memoize CodeBlockWithCopy** - Already wrapped in function, add `React.memo()`
 
-### Solution 5: Web Worker for MessageProcessor
+2. **Lazy load SyntaxHighlighter** - Prism is heavy, defer loading for off-screen code blocks
 
-Move expensive regex operations to a Web Worker to avoid blocking the main thread:
-
-```typescript
-// worker.ts
-self.onmessage = (e) => {
-  const { text, options } = e.data;
-  const processor = new MessageProcessor(text, options);
-  const result = processor.process();
-  self.postMessage(result);
-};
-```
-
-**Trade-off**: Adds latency (worker communication) but frees main thread for UI interactions.
-
-## Recommended Implementation Order
-
-1. **Quick wins** (Solution 2): Adaptive throttling - low risk, immediate improvement
-2. **Medium effort** (Solution 4): Content splitting - moderate refactor, good gains
-3. **Higher effort** (Solution 1): Incremental processing - requires careful handling of edge cases
-4. **Optional** (Solutions 3, 5): Only if above insufficient
+3. **Consider lighter markdown parser** - If benchmarks show react-markdown is the bottleneck, evaluate alternatives like `marked` + custom React renderer
 
 ## Performance Budget
 
-| Metric | Current | Target |
-|--------|---------|--------|
-| MessageProcessor time | 5-15ms | <3ms |
-| React render time | 20-50ms | <16ms (60fps) |
-| Total update latency | 50-100ms | <32ms |
+| Metric | Current (estimated) | Target |
+|--------|---------------------|--------|
+| MessageProcessor time | 5-15ms | <2ms |
+| React render time | 20-50ms | <10ms |
+| Total update latency | 50-100ms | <20ms |
+
+## Success Criteria
+
+1. Benchmarks show 5-10x improvement in MessageProcessor throughput
+2. UI remains responsive (no dropped frames) during streaming
+3. All existing tests pass
+4. No feature regressions (citations, thinking tags, code blocks all work)
 
 ## Risks
 
-1. **Feature regressions** - Citations, thinking tags, and blinker depend on full-text processing
-2. **Edge cases** - Partial markdown (unclosed code blocks) during streaming
-3. **Browser compatibility** - Web Workers may have issues in some environments
+1. **Over-optimization** - Don't add complexity for marginal gains; benchmark first
+2. **Feature regressions** - Run full test suite after each change
+3. **Browser differences** - Benchmark in Chrome, Firefox, Safari
 
-## Alternatives Considered
+## What NOT to Do
 
-1. **Replace react-markdown with mdx-js** - Similar performance, more complexity
-2. **Custom markdown parser** - High effort, maintenance burden
-3. **Server-side rendering** - Doesn't help with streaming
+1. **Incremental/delta processing** - Too risky given external agents can modify content anywhere
+2. **Content splitting** - Same reason; can't reliably detect "finalized" content
+3. **Web Workers** - Adds latency and complexity; try synchronous optimizations first
