@@ -80,10 +80,13 @@ RUN echo "layer3" > /layer3.txt
 			return
 		}
 
-		cmd := exec.Command("docker", processedArgs...)
+		// Use buildx for cache export support
+		buildxArgs := append([]string{"buildx"}, processedArgs...)
+		buildxArgs = append(buildxArgs, "--load") // Load into docker images
+		cmd := exec.Command("docker", buildxArgs...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("Docker build failed: %v\nOutput: %s", err, output)
+			t.Fatalf("Docker buildx build failed: %v\nOutput: %s", err, output)
 		}
 		t.Logf("Build output:\n%s", output)
 	})
@@ -132,10 +135,13 @@ RUN echo "layer3" > /layer3.txt
 		args := []string{"build", "-t", imageName, buildDir}
 		processedArgs := processDockerArgsWithCacheDir(args, cacheDir, imageName)
 
-		cmd := exec.Command("docker", processedArgs...)
+		// Use buildx for cache export support
+		buildxArgs := append([]string{"buildx"}, processedArgs...)
+		buildxArgs = append(buildxArgs, "--load")
+		cmd := exec.Command("docker", buildxArgs...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("Docker build failed: %v\nOutput: %s", err, output)
+			t.Fatalf("Docker buildx build failed: %v\nOutput: %s", err, output)
 		}
 
 		// Check for cache hit indicators in output
@@ -462,7 +468,10 @@ RUN echo "shared-layer" > /shared.txt
 			args := []string{"build", "-t", imageName, buildDirs[idx]}
 			processedArgs := processDockerArgsWithCacheDir(args, cacheDir, imageName)
 
-			cmd := exec.Command("docker", processedArgs...)
+			// Use buildx for cache export support
+			buildxArgs := append([]string{"buildx"}, processedArgs...)
+			buildxArgs = append(buildxArgs, "--load")
+			cmd := exec.Command("docker", buildxArgs...)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				errChan <- err
@@ -532,10 +541,12 @@ func buildxCacheExportSupported() bool {
 	cacheDir := filepath.Join(tmpDir, "cache")
 	os.MkdirAll(cacheDir, 0755)
 
-	// Try a build with cache export
-	cmd = exec.Command("docker", "build",
+	// Try a build with cache export using buildx explicitly
+	// This uses the current buildx builder (set via `docker buildx use`)
+	cmd = exec.Command("docker", "buildx", "build",
 		"--cache-to=type=local,dest="+cacheDir,
 		"-t", "cache-test:probe",
+		"--load",
 		tmpDir)
 	output, err := cmd.CombinedOutput()
 
@@ -547,6 +558,8 @@ func buildxCacheExportSupported() bool {
 		if bytes.Contains(output, []byte("Cache export is not supported")) {
 			return false
 		}
+		// Other errors (like network issues pulling scratch) also mean we can't test
+		return false
 	}
 
 	return true
@@ -875,7 +888,9 @@ RUN echo "layer3" > /l3.txt
 	// First build (cold cache)
 	start := time.Now()
 	args := processDockerArgsWithCacheDir([]string{"build", "-t", imageName, buildDir}, cacheDir, imageName)
-	cmd := exec.Command("docker", args...)
+	buildxArgs := append([]string{"buildx"}, args...)
+	buildxArgs = append(buildxArgs, "--load")
+	cmd := exec.Command("docker", buildxArgs...)
 	cmd.CombinedOutput()
 	coldDuration := time.Since(start)
 	t.Logf("Cold build duration: %v", coldDuration)
@@ -886,7 +901,9 @@ RUN echo "layer3" > /l3.txt
 	// Second build (warm cache)
 	start = time.Now()
 	args = processDockerArgsWithCacheDir([]string{"build", "-t", imageName, buildDir}, cacheDir, imageName)
-	cmd = exec.Command("docker", args...)
+	buildxArgs = append([]string{"buildx"}, args...)
+	buildxArgs = append(buildxArgs, "--load")
+	cmd = exec.Command("docker", buildxArgs...)
 	output, _ := cmd.CombinedOutput()
 	warmDuration := time.Since(start)
 	t.Logf("Warm build duration: %v", warmDuration)
