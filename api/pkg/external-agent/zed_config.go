@@ -197,7 +197,8 @@ func GenerateZedMCPConfig(
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
 		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			URL: koditMCPURL,
+			Source: "http",
+			URL:    koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -209,7 +210,8 @@ func GenerateZedMCPConfig(
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: "http://localhost:9877/mcp",
+		Source: "http",
+		URL:    "http://localhost:9877/mcp",
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -218,7 +220,8 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		URL: sessionMCPURL,
+		Source: "http",
+		URL:    sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
