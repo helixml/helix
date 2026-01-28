@@ -2,7 +2,7 @@
 
 ## Setup
 
-- [ ] Export `useSandboxState` hook from `ExternalAgentDesktopViewer.tsx`
+- [~] Export `useSandboxState` hook from `ExternalAgentDesktopViewer.tsx`
 
 ## SpecTaskDetailContent.tsx Changes
 
