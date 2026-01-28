@@ -50,12 +50,13 @@ docker buildx build \
 **Pros**: Standard pattern, works across sandboxes
 **Cons**: More network overhead, registry must be running
 
-## Recommended Approach: Option A with Existing Wrapper
+## Recommended Approach: Option A with Existing Wrappers
 
 1. **Hydra creates shared cache directory** at `/hydra-data/buildkit-cache/`
 2. **Hydra mounts this directory** into all dev containers it creates
-3. **Extend existing `docker-wrapper.sh`** to inject cache flags for `buildx build` commands
-4. **BuildKit handles concurrency** via content-addressed storage (safe for concurrent access)
+3. **Extend existing `docker-wrapper.sh`** to inject cache flags for `docker build` and `docker buildx build`
+4. **Extend existing `docker-compose-wrapper.sh`** to inject cache flags for `docker compose build`
+5. **BuildKit handles concurrency** via content-addressed storage (safe for concurrent access)
 
 ### Implementation Details
 
@@ -109,6 +110,33 @@ fi
 ```
 
 This reuses the existing "evil shit" wrapper instead of creating a new one.
+
+**Extend existing docker-compose-wrapper.sh** (`desktop/shared/docker-compose-wrapper.sh`):
+
+The compose wrapper already handles `build` commands (for path translation). Add cache flag injection there too:
+
+```bash
+# In docker-compose-wrapper.sh, when processing build commands, set BUILDKIT env vars
+# or inject --build-arg flags. For compose, we can use COMPOSE_DOCKER_CLI_BUILD=1 
+# and DOCKER_BUILDKIT=1 to ensure BuildKit is used, then the docker-wrapper.sh 
+# will handle the cache flags when compose invokes docker build.
+
+# Alternatively, for docker compose build specifically, inject build args:
+if [[ " ${new_args[*]} " =~ " build " ]]; then
+    # Extract service/image name for cache key (or use project name)
+    CACHE_KEY="${COMPOSE_PROJECT_NAME:-default}"
+    CACHE_DIR="/buildkit-cache/${CACHE_KEY}"
+    
+    if [[ -d "/buildkit-cache" ]]; then
+        # Compose v2 supports --build-arg for cache
+        new_args+=("--build-arg" "BUILDKIT_INLINE_CACHE=1")
+        # Note: --cache-from in compose requires image reference, not local path
+        # So we rely on docker-wrapper.sh intercepting the underlying docker build
+    fi
+fi
+```
+
+Since `docker compose build` ultimately calls `docker build`, and our `docker-wrapper.sh` intercepts all docker commands, the cache flags will be injected automatically. The compose wrapper just needs to ensure BuildKit is enabled.
 
 ## Concurrency Safety
 

@@ -17,9 +17,10 @@
 - [ ] Move `desktop/sway-config/docker-compose-wrapper.sh` to `desktop/shared/docker-compose-wrapper.sh`
 - [ ] Update helix-sway and helix-ubuntu Dockerfiles to copy from `shared/` instead
 - [ ] Delete the duplicate copies in `desktop/ubuntu-config/`
-- [ ] Add cache flag injection: detect `build` and `buildx build` commands
+- [ ] Add cache flag injection to `docker-wrapper.sh`: detect `build` and `buildx build` commands
 - [ ] Extract image name from `-t` flag to use as cache key subdirectory
 - [ ] Inject `--cache-from` and `--cache-to` flags when `/buildkit-cache` directory exists
+- [ ] Verify `docker compose build` works (compose calls docker build, which hits our wrapper)
 
 ## Phase 4: Testing
 
