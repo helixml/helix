@@ -1,28 +1,40 @@
-import React, { useEffect, useLayoutEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
-import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
-import CircularProgress from '@mui/material/CircularProgress'
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+  useState,
+} from "react";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
 
 // DEBUG: Set to true to show scroll debug overlay
-const DEBUG_SCROLL = false
+const DEBUG_SCROLL = false;
 
-import Interaction from './Interaction'
-import InteractionLiveStream from './InteractionLiveStream'
+import Interaction from "./Interaction";
+import InteractionLiveStream from "./InteractionLiveStream";
 
-import useAccount from '../../hooks/useAccount'
-import { useGetSession, useListSessionSteps } from '../../services/sessionService'
-import { useStreaming } from '../../contexts/streaming'
-import { TypesInteractionState } from '../../api/api'
-import useLightTheme from '../../hooks/useLightTheme'
-import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
+import useAccount from "../../hooks/useAccount";
+import {
+  useGetSession,
+  useListSessionSteps,
+} from "../../services/sessionService";
+import { useStreaming } from "../../contexts/streaming";
+import { TypesInteractionState } from "../../api/api";
+import useLightTheme from "../../hooks/useLightTheme";
+import { SESSION_TYPE_TEXT } from "../../types";
 
 interface EmbeddedSessionViewProps {
-  sessionId: string
-  onScrollToBottom?: () => void
+  sessionId: string;
+  onScrollToBottom?: () => void;
 }
 
 export interface EmbeddedSessionViewHandle {
-  scrollToBottom: () => void
+  scrollToBottom: () => void;
 }
 
 /**
@@ -33,19 +45,19 @@ export interface EmbeddedSessionViewHandle {
  * - If you scroll up, stay where you are
  * - If you scroll back to bottom, resume auto-scroll
  */
-const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessionViewProps>(({
-  sessionId,
-  onScrollToBottom,
-}, ref) => {
-  const account = useAccount()
-  const lightTheme = useLightTheme()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const { NewInference } = useStreaming()
+const EmbeddedSessionView = forwardRef<
+  EmbeddedSessionViewHandle,
+  EmbeddedSessionViewProps
+>(({ sessionId, onScrollToBottom }, ref) => {
+  const account = useAccount();
+  const lightTheme = useLightTheme();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { NewInference } = useStreaming();
 
   // Simple scroll state: are we currently at the bottom?
   // This is the ONLY state we need for sticky scroll behavior
-  const isAtBottomRef = useRef(true)
-  const SCROLL_THRESHOLD = 50
+  const isAtBottomRef = useRef(true);
+  const SCROLL_THRESHOLD = 50;
 
   // DEBUG: State for debug overlay
   const [debugInfo, setDebugInfo] = useState({
@@ -53,207 +65,225 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
     scrollTop: 0,
     scrollHeight: 0,
     clientHeight: 0,
-    lastEvent: 'init',
+    lastEvent: "init",
     mutationCount: 0,
     scrollCount: 0,
-  })
+  });
 
   // Check if currently at bottom
   const checkIsAtBottom = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return true
-    const { scrollTop, scrollHeight, clientHeight } = container
-    return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD
-  }, [])
+    const container = containerRef.current;
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD;
+  }, []);
 
   // Update isAtBottom on every scroll event
   const handleScroll = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return
+    const container = containerRef.current;
+    if (!container) return;
 
-    isAtBottomRef.current = checkIsAtBottom()
+    isAtBottomRef.current = checkIsAtBottom();
 
     if (DEBUG_SCROLL) {
-      setDebugInfo(prev => ({
+      setDebugInfo((prev) => ({
         ...prev,
         isAtBottom: isAtBottomRef.current,
         scrollTop: Math.round(container.scrollTop),
         scrollHeight: container.scrollHeight,
         clientHeight: container.clientHeight,
-        lastEvent: 'scroll',
+        lastEvent: "scroll",
         scrollCount: prev.scrollCount + 1,
-      }))
+      }));
     }
-  }, [checkIsAtBottom])
+  }, [checkIsAtBottom]);
 
   // iOS Safari fix: Also track via native scroll event listener
   // React's onScroll might not fire correctly on iOS
   // Depends on session so it re-runs after the container is rendered
   useEffect(() => {
-    const container = containerRef.current
+    const container = containerRef.current;
     if (!container) {
       if (DEBUG_SCROLL) {
-        setDebugInfo(prev => ({ ...prev, lastEvent: 'NO CONTAINER REF' }))
+        setDebugInfo((prev) => ({ ...prev, lastEvent: "NO CONTAINER REF" }));
       }
-      return
+      return;
     }
 
     // Debug: mark that we attached the listener
     if (DEBUG_SCROLL) {
-      setDebugInfo(prev => ({ ...prev, lastEvent: 'listener-attached' }))
+      setDebugInfo((prev) => ({ ...prev, lastEvent: "listener-attached" }));
     }
 
     const onNativeScroll = () => {
-      isAtBottomRef.current = checkIsAtBottom()
+      isAtBottomRef.current = checkIsAtBottom();
 
       if (DEBUG_SCROLL) {
-        setDebugInfo(prev => ({
+        setDebugInfo((prev) => ({
           ...prev,
           isAtBottom: isAtBottomRef.current,
           scrollTop: Math.round(container.scrollTop),
           scrollHeight: container.scrollHeight,
           clientHeight: container.clientHeight,
-          lastEvent: 'native-scroll',
+          lastEvent: "native-scroll",
           scrollCount: prev.scrollCount + 1,
-        }))
+        }));
       }
-    }
+    };
 
     // Also listen for wheel events directly (Magic Keyboard trackpad)
     const onWheel = () => {
       // Small delay to let scroll position update
       requestAnimationFrame(() => {
-        isAtBottomRef.current = checkIsAtBottom()
+        isAtBottomRef.current = checkIsAtBottom();
         if (DEBUG_SCROLL) {
-          setDebugInfo(prev => ({
+          setDebugInfo((prev) => ({
             ...prev,
             isAtBottom: isAtBottomRef.current,
             scrollTop: Math.round(container.scrollTop),
-            lastEvent: 'wheel',
+            lastEvent: "wheel",
             scrollCount: prev.scrollCount + 1,
-          }))
+          }));
         }
-      })
-    }
+      });
+    };
 
     // Touch events for iOS - check if container is even receiving touch input
     const onTouchMove = () => {
       requestAnimationFrame(() => {
-        isAtBottomRef.current = checkIsAtBottom()
+        isAtBottomRef.current = checkIsAtBottom();
         if (DEBUG_SCROLL) {
-          setDebugInfo(prev => ({
+          setDebugInfo((prev) => ({
             ...prev,
             isAtBottom: isAtBottomRef.current,
             scrollTop: Math.round(container.scrollTop),
             lastEvent: `touch(h=${container.scrollHeight},st=${Math.round(container.scrollTop)})`,
             scrollCount: prev.scrollCount + 1,
-          }))
+          }));
         }
-      })
-    }
+      });
+    };
 
     // Use passive: true for better scroll performance
-    container.addEventListener('scroll', onNativeScroll, { passive: true })
-    container.addEventListener('wheel', onWheel, { passive: true })
-    container.addEventListener('touchmove', onTouchMove, { passive: true })
+    container.addEventListener("scroll", onNativeScroll, { passive: true });
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
 
     return () => {
-      container.removeEventListener('scroll', onNativeScroll)
-      container.removeEventListener('wheel', onWheel)
-      container.removeEventListener('touchmove', onTouchMove)
-    }
-  }, [checkIsAtBottom])
+      container.removeEventListener("scroll", onNativeScroll);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [checkIsAtBottom]);
 
   // Scroll to bottom - only scrolls if we're already at the bottom (sticky scroll)
   // Pass force=true to scroll regardless of current position
-  const scrollToBottom = useCallback((force = false) => {
-    const container = containerRef.current
-    if (!container) return
+  const scrollToBottom = useCallback(
+    (force = false) => {
+      const container = containerRef.current;
+      if (!container) return;
 
-    // Only scroll if we're already at the bottom (or forced)
-    // This implements "sticky scroll" - stay at bottom if you were there
-    if (!force && !isAtBottomRef.current) {
-      if (DEBUG_SCROLL) {
-        setDebugInfo(prev => ({
-          ...prev,
-          lastEvent: `SCROLL_BLOCKED (not at bottom)`,
-        }))
+      // Only scroll if we're already at the bottom (or forced)
+      // This implements "sticky scroll" - stay at bottom if you were there
+      if (!force && !isAtBottomRef.current) {
+        if (DEBUG_SCROLL) {
+          setDebugInfo((prev) => ({
+            ...prev,
+            lastEvent: `SCROLL_BLOCKED (not at bottom)`,
+          }));
+        }
+        return;
       }
-      return
-    }
 
-    // DEBUG: Show what triggered the scroll
-    if (DEBUG_SCROLL) {
-      setDebugInfo(prev => ({
-        ...prev,
-        lastEvent: `SCROLL_TO_BOTTOM (${force ? 'forced' : 'sticky'})`,
-      }))
-    }
+      // DEBUG: Show what triggered the scroll
+      if (DEBUG_SCROLL) {
+        setDebugInfo((prev) => ({
+          ...prev,
+          lastEvent: `SCROLL_TO_BOTTOM (${force ? "forced" : "sticky"})`,
+        }));
+      }
 
-    container.scrollTop = container.scrollHeight
-    isAtBottomRef.current = true
-    onScrollToBottom?.()
-  }, [onScrollToBottom])
+      container.scrollTop = container.scrollHeight;
+      isAtBottomRef.current = true;
+      onScrollToBottom?.();
+    },
+    [onScrollToBottom],
+  );
 
   // Expose scrollToBottom via ref for parent components
-  useImperativeHandle(ref, () => ({
-    scrollToBottom,
-  }), [scrollToBottom])
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToBottom,
+    }),
+    [scrollToBottom],
+  );
 
   // Fetch session data with auto-refresh
-  const { data: sessionResponse, refetch: refetchSession } = useGetSession(sessionId, {
-    enabled: !!sessionId,
-    refetchInterval: 2000,
-  })
+  const { data: sessionResponse, refetch: refetchSession } = useGetSession(
+    sessionId,
+    {
+      enabled: !!sessionId,
+      refetchInterval: 2000,
+    },
+  );
 
-  const session = sessionResponse?.data
+  const session = sessionResponse?.data;
 
   // Fetch session steps
   const { data: sessionSteps } = useListSessionSteps(sessionId, {
     enabled: !!sessionId,
-  })
+  });
 
   // Track if we're streaming (last interaction is in waiting state)
   const isStreaming = useMemo(() => {
-    if (!session?.interactions || session.interactions.length === 0) return false
-    const lastInteraction = session.interactions[session.interactions.length - 1]
-    return lastInteraction.state === TypesInteractionState.InteractionStateWaiting
-  }, [session?.interactions])
+    if (!session?.interactions || session.interactions.length === 0)
+      return false;
+    const lastInteraction =
+      session.interactions[session.interactions.length - 1];
+    return (
+      lastInteraction.state === TypesInteractionState.InteractionStateWaiting
+    );
+  }, [session?.interactions]);
 
   // Scroll to bottom on initial load
-  const hasInitiallyScrolled = useRef(false)
+  const hasInitiallyScrolled = useRef(false);
   useEffect(() => {
-    if (session?.interactions && session.interactions.length > 0 && !hasInitiallyScrolled.current) {
-      hasInitiallyScrolled.current = true
+    if (
+      session?.interactions &&
+      session.interactions.length > 0 &&
+      !hasInitiallyScrolled.current
+    ) {
+      hasInitiallyScrolled.current = true;
       // Small delay to ensure content is rendered
       requestAnimationFrame(() => {
-        scrollToBottom(true) // Force scroll on initial load
-      })
+        scrollToBottom(true); // Force scroll on initial load
+      });
     }
-  }, [session?.interactions?.length, scrollToBottom])
+  }, [session?.interactions?.length, scrollToBottom]);
 
   // Maintain sticky scroll when session data updates (e.g., from polling or WebSocket)
   // Use useLayoutEffect to run synchronously after DOM mutations but before browser paint
   // This ensures we scroll before any scroll events could fire from layout reflow
-  const prevScrollHeightRef = useRef(0)
+  const prevScrollHeightRef = useRef(0);
 
   useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container || !session?.interactions) return
+    const container = containerRef.current;
+    if (!container || !session?.interactions) return;
 
-    const prevScrollHeight = prevScrollHeightRef.current
-    const currentScrollHeight = container.scrollHeight
+    const prevScrollHeight = prevScrollHeightRef.current;
+    const currentScrollHeight = container.scrollHeight;
 
     // If content height changed and we were at bottom, scroll to bottom
     if (currentScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
       // Check isAtBottomRef BEFORE the scroll - this is the value from before the DOM update
       if (isAtBottomRef.current) {
-        container.scrollTop = currentScrollHeight
+        container.scrollTop = currentScrollHeight;
       }
     }
 
-    prevScrollHeightRef.current = currentScrollHeight
-  })
+    prevScrollHeightRef.current = currentScrollHeight;
+  });
 
   // DISABLED: MutationObserver was causing constant scroll jumps
   // because scroll events weren't being detected on iOS Safari,
@@ -268,22 +298,25 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
-    await refetchSession()
-    return session
-  }, [refetchSession, session])
+    await refetchSession();
+    return session;
+  }, [refetchSession, session]);
 
   // Regenerate handler
-  const handleRegenerate = useCallback(async (interactionID: string, message: string) => {
-    if (!session) return
+  const handleRegenerate = useCallback(
+    async (interactionID: string, message: string) => {
+      if (!session) return;
 
-    await NewInference({
-      message: message,
-      sessionId: sessionId,
-      type: SESSION_TYPE_TEXT,
-    })
+      await NewInference({
+        message: message,
+        sessionId: sessionId,
+        type: SESSION_TYPE_TEXT,
+      });
 
-    scrollToBottom()
-  }, [session, sessionId, NewInference, scrollToBottom])
+      scrollToBottom();
+    },
+    [session, sessionId, NewInference, scrollToBottom],
+  );
 
   // Show loading state while fetching session
   if (!session) {
@@ -291,10 +324,10 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       <Box
         sx={{
           flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexDirection: 'column',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
           gap: 2,
         }}
       >
@@ -303,7 +336,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
           Loading session...
         </Typography>
       </Box>
-    )
+    );
   }
 
   // Show empty state if no interactions
@@ -312,19 +345,19 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       <Box
         sx={{
           flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
         <Typography variant="body2" color="text.secondary">
           No messages yet. Send a message to start the conversation.
         </Typography>
       </Box>
-    )
+    );
   }
 
-  const isOwner = account.user?.id === session.owner
+  const isOwner = account.user?.id === session.owner;
 
   return (
     <Box
@@ -335,13 +368,13 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
         // Without height: 0, the container may expand to fit content on iOS
         height: 0,
         flex: 1,
-        overflow: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
+        overflow: "auto",
+        display: "flex",
+        flexDirection: "column",
         minHeight: 0,
-        position: 'relative',
+        position: "relative",
         // Enable momentum scrolling on iOS
-        WebkitOverflowScrolling: 'touch',
+        WebkitOverflowScrolling: "touch",
         ...lightTheme.scrollbar,
       }}
     >
@@ -349,46 +382,54 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
       {DEBUG_SCROLL && (
         <Box
           sx={{
-            position: 'sticky',
+            position: "sticky",
             top: 0,
             left: 0,
             right: 0,
             zIndex: 9999,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            color: '#0f0',
-            fontFamily: 'monospace',
-            fontSize: '11px',
-            padding: '4px 8px',
-            pointerEvents: 'none',
+            backgroundColor: "rgba(0, 0, 0, 0.85)",
+            color: "#0f0",
+            fontFamily: "monospace",
+            fontSize: "11px",
+            padding: "4px 8px",
+            pointerEvents: "none",
           }}
         >
-          <div>atBottom: {debugInfo.isAtBottom ? 'YES' : 'NO'} | scrollTop: {debugInfo.scrollTop}</div>
-          <div>scrollH: {debugInfo.scrollHeight} | clientH: {debugInfo.clientHeight}</div>
+          <div>
+            atBottom: {debugInfo.isAtBottom ? "YES" : "NO"} | scrollTop:{" "}
+            {debugInfo.scrollTop}
+          </div>
+          <div>
+            scrollH: {debugInfo.scrollHeight} | clientH:{" "}
+            {debugInfo.clientHeight}
+          </div>
           <div>last: {debugInfo.lastEvent}</div>
-          <div>mutations: {debugInfo.mutationCount} | scrolls: {debugInfo.scrollCount}</div>
+          <div>
+            mutations: {debugInfo.mutationCount} | scrolls:{" "}
+            {debugInfo.scrollCount}
+          </div>
         </Box>
       )}
       <Box
         sx={{
-          width: '100%',
+          width: "100%",
           maxWidth: 700,
-          mx: 'auto',
+          mx: "auto",
           px: 2,
           py: 2,
-          display: 'flex',
-          flexDirection: 'column',
+          display: "flex",
+          flexDirection: "column",
           gap: 2,
           // Ensure content can shrink on narrow screens
           minWidth: 0,
-          boxSizing: 'border-box',
+          boxSizing: "border-box",
         }}
       >
         {session.interactions.map((interaction, index) => {
-          const isLastInteraction = index === session.interactions!.length - 1
-          const isLive = isLastInteraction && interaction.state === TypesInteractionState.InteractionStateWaiting
-          // Regenerate doesn't work for external agents, so disable it
-          const isExternalAgent = session.config?.agent_type === AGENT_TYPE_ZED_EXTERNAL
-
+          const isLastInteraction = index === session.interactions!.length - 1;
+          const isLive =
+            isLastInteraction &&
+            interaction.state === TypesInteractionState.InteractionStateWaiting;
           return (
             <Interaction
               key={interaction.id}
@@ -397,7 +438,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
               session={session}
               highlightAllFiles={false}
               onReloadSession={handleReloadSession}
-              onRegenerate={isExternalAgent ? undefined : handleRegenerate}
+              onRegenerate={handleRegenerate}
               isLastInteraction={isLastInteraction}
               isOwner={isOwner}
               isAdmin={account.admin}
@@ -415,11 +456,11 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
                 />
               )}
             </Interaction>
-          )
+          );
         })}
       </Box>
     </Box>
-  )
-})
+  );
+});
 
-export default EmbeddedSessionView
+export default EmbeddedSessionView;
