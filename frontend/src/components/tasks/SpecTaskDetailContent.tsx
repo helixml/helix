@@ -1453,19 +1453,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
-                  {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
-                  {task.design_docs_pushed_at &&
-                    task.status !== "spec_review" && (
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<Description />}
-                        onClick={handleReviewSpec}
-                        sx={{ ml: 1, fontSize: "0.75rem" }}
-                      >
-                        View Spec
-                      </Button>
-                    )}
 
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
@@ -1509,7 +1496,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={() => setShowCloneDialog(true)}
                             >
-                              <Wand2 size={18} />
+                              <Wand2 size={16} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1524,7 +1511,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               }
                               sx={{ color: "primary.main" }}
                             >
-                              <Wand2 size={18} />
+                              <Wand2 size={16} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1783,18 +1770,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
-              {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
-              {task.design_docs_pushed_at && task.status !== "spec_review" && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<Description />}
-                  onClick={handleReviewSpec}
-                  sx={{ fontSize: "0.75rem" }}
-                >
-                  View Spec
-                </Button>
-              )}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
               <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
@@ -1844,7 +1819,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={() => setShowCloneDialog(true)}
                         >
-                          <Wand2 size={18} />
+                          <Wand2 size={16} />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -1857,7 +1832,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           }
                           sx={{ color: "primary.main" }}
                         >
-                          <Wand2 size={18} />
+                          <Wand2 size={16} />
                         </IconButton>
                       </Tooltip>
                     )}
