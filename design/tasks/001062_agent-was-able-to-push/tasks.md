@@ -14,7 +14,7 @@
 - [x] Remove post-receive branch restriction check and rollback logic (lines ~565-593)
 - [x] Keep upstream push failure rollback (that's a different code path)
 
-## Testing
+## Testing (Manual Verification Required)
 
 - [ ] Test: Agent push to unauthorized branch (e.g., `main`) → receives rejection error
 - [ ] Test: Agent push to allowed branch (e.g., `helix-specs`) → succeeds
@@ -22,8 +22,16 @@
 - [ ] Test: Normal user push to any branch → succeeds (no restrictions)
 - [ ] Test: Force-push to `helix-specs` still rejected (existing protection)
 
-## Verification
+> **Note:** These tests require a running Helix stack with an agent session. Manual verification by user after merge.
+
+## Verification (After Deployment)
 
 - [ ] Check hook auto-updates on API startup (version bump triggers reinstall)
 - [ ] Verify error message is visible in git client output
 - [ ] Confirm no rollback log entries for branch restriction violations
+
+> **How to verify:** Start a spec task, have agent attempt `git push origin main`. Should see:
+> ```
+> remote: error: refusing to update refs/heads/main
+> remote: hint: This push is restricted to: helix-specs, feature/001062-...
+> ```

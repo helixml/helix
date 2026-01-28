@@ -103,3 +103,32 @@ error: failed to push some refs to 'http://api:8080/git/...'
 1. Increment `PreReceiveHookVersion` to trigger automatic hook updates
 2. Existing repos get updated hook on next `receive-pack` call (hook is checked/updated in `handleReceivePack`)
 3. No migration needed - hooks auto-update on API startup via `InstallPreReceiveHooksForAllRepos()`
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`api/pkg/services/gitea_git_helpers.go`** (lines 319-390):
+   - Changed `PreReceiveHookVersion` from `"1"` to `"2"`
+   - Rewrote `preReceiveHookScript` to include `branch_allowed()` helper function
+   - Hook now reads `HELIX_ALLOWED_BRANCHES` env var and rejects unauthorized branches
+   - Combined force-push protection and branch restriction into single loop
+
+2. **`api/pkg/services/git_http_server.go`** (lines 539-561 and 584-586):
+   - Moved `getBranchRestrictionForAPIKey()` call BEFORE `cmd.Run()` (was after)
+   - Added env var: `environ = append(environ, "HELIX_ALLOWED_BRANCHES="+strings.Join(restriction.AllowedBranches, ","))`
+   - Removed ~30 lines of post-receive rollback logic for branch restrictions
+   - Kept upstream push failure rollback (different code path, still needed)
+
+### Shell Script Gotcha
+
+The `branch_allowed()` function uses a subshell pattern with `echo | while read` and `exit 0` inside the loop. This works because we check `return 1` after the subshell - if the subshell exited with 0 (found), the return value propagates. This is a common shell idiom for "find in list".
+
+### Existing Pattern Reused
+
+The codebase already had:
+- Pre-receive hook infrastructure (`InstallPreReceiveHook`, `PreReceiveHookVersion`)
+- Environment variable passing in `handleReceivePack()` (used for `GIT_PROTOCOL`)
+- `getBranchRestrictionForAPIKey()` function for looking up agent restrictions
+
+No new infrastructure needed - just rewired existing components.
