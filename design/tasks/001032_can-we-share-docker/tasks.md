@@ -7,7 +7,7 @@
 
 ## Phase 2: Mount Cache in Dev Containers
 
-- [~] Update `devcontainer.go` `buildMounts()` to add `/hydra-data/buildkit-cache` → `/buildkit-cache` bind mount
+- [x] Update `devcontainer.go` `buildMounts()` to add `/hydra-data/buildkit-cache` → `/buildkit-cache` bind mount
 - [ ] Test that dev containers can read/write to `/buildkit-cache`
 - [ ] Verify concurrent access from multiple sessions doesn't cause errors
 
@@ -15,7 +15,7 @@
 
 **Prerequisite**: The existing bash wrappers are unmaintainable garbage. Rewrite before adding cache logic.
 
-- [ ] Create new `docker-shim` Go package (probably in `api/pkg/docker-shim/` or standalone `cmd/docker-shim/`)
+- [~] Create new `docker-shim` Go package (probably in `api/pkg/docker-shim/` or standalone `cmd/docker-shim/`)
 - [ ] Implement core functionality from `docker-wrapper.sh`:
   - [ ] Path translation for Hydra bind mounts
   - [ ] Docker socket routing
