@@ -85,3 +85,43 @@ The existing self-healing code in `listDesignReviews()` will create the design r
 3. Click "Review Spec" and verify design review loads correctly
 4. Clone same task with autoStart=false, then manually start it
 5. Verify it goes through spec generation properly (no specs should be skipped)
+
+## Implementation Notes
+
+### Changes Made
+
+**File: `api/pkg/server/spec_task_clone_handlers.go`**
+
+Added logic in `cloneTaskToProject()` to detect when source task has specs and handle accordingly:
+
+```go
+// Check if source task has specs - if so, we can skip spec generation
+hasSpecs := source.RequirementsSpec != "" && source.TechnicalDesign != "" && source.ImplementationPlan != ""
+
+if autoStart {
+    if source.JustDoItMode {
+        initialStatus = types.TaskStatusQueuedImplementation
+    } else if hasSpecs {
+        // Source has specs, skip directly to spec_review
+        initialStatus = types.TaskStatusSpecReview
+        now := time.Now()
+        designDocsPushedAt = &now
+    } else {
+        initialStatus = types.TaskStatusQueuedSpecGeneration
+    }
+}
+```
+
+Also added `DesignDocsPushedAt: designDocsPushedAt` to the newTask struct.
+
+### Key Insight
+
+The existing self-healing code in `listDesignReviews()` (spec_task_design_review_handlers.go:109-115) will automatically create a design review record when the user opens the review UI, so no additional work needed for design review creation.
+
+### Unit Tests Added
+
+Created `spec_task_clone_handlers_test.go` with 4 tests:
+1. `TestCloneTaskToProject_WithSpecs_SetsDesignDocsPushedAt` - verifies fix works
+2. `TestCloneTaskToProject_WithoutSpecs_DoesNotSetDesignDocsPushedAt` - no regression for tasks without specs
+3. `TestCloneTaskToProject_JustDoItMode_SkipsSpecReview` - JustDoItMode still goes to implementation
+4. `TestCloneTaskToProject_AutoStartFalse_GoesToBacklog` - autoStart=false still goes to backlog
