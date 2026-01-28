@@ -55,7 +55,9 @@
   - [x] Write to temp file, pass with `-f` flag
   - [x] Clean up temp file after compose exits
 
-## Phase 5: Testing
+## Phase 5: Testing (Requires User Verification)
+
+**Note**: These tests require building the desktop images and starting real sessions.
 
 - [ ] Test: `docker build` in session A, verify cache hit in session B
 - [ ] Test: `docker compose build` in session A, verify cache hit in session B
@@ -68,7 +70,22 @@
 
 ## Phase 6: Documentation
 
+- [x] Document the Go shim for future maintainers (in design.md Implementation Notes)
 - [ ] Update CLAUDE.md build section if needed
 - [ ] Document cache flags for users who want explicit control
 - [ ] Add troubleshooting notes for cache corruption recovery (`docker buildx prune`)
-- [ ] Document the Go shim for future maintainers
+
+## Implementation Complete
+
+The core implementation is complete:
+- ✅ Hydra creates shared cache directory at `/hydra-data/buildkit-cache/`
+- ✅ Dev containers mount `/buildkit-cache` for shared cache access
+- ✅ Go docker-shim replaces bash wrappers with proper arg parsing and cache injection
+- ✅ Unit tests pass for path translation and cache flag injection
+- ✅ All 3 desktop Dockerfiles updated (ubuntu, sway, hyprland)
+
+**Next steps for user**:
+1. Build desktop images: `./stack build-ubuntu` and/or `./stack build-sway`
+2. Start a session and run `docker build` or `docker compose build`
+3. Start a NEW session and verify cache is reused
+4. Delete bash wrapper scripts once verified working
