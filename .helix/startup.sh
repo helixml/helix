@@ -61,18 +61,11 @@ else
     echo "  The inner Helix won't be able to run sandboxes (DinD-in-DinD-in-DinD doesn't work)"
 fi
 
-# Find the helix repo - check common locations
-HELIX_DIR=""
-for dir in ~/work/helix ~/code/helix ~/helix-workspace/helix ~/helix; do
-    if [ -d "$dir" ]; then
-        HELIX_DIR="$dir"
-        break
-    fi
-done
+# Helix repo location - project setup clones it to ~/work/helix
+HELIX_DIR=~/work/helix
 
-if [ -z "$HELIX_DIR" ]; then
-    echo "Error: Could not find helix repository"
-    echo "Expected in one of: ~/work/helix, ~/code/helix, ~/helix-workspace/helix, ~/helix"
+if [ ! -d "$HELIX_DIR" ]; then
+    echo "Error: Could not find helix repository at $HELIX_DIR"
     exit 1
 fi
 
