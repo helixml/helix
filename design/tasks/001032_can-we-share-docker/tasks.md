@@ -11,12 +11,12 @@
 - [ ] Test that dev containers can read/write to `/buildkit-cache`
 - [ ] Verify concurrent access from multiple sessions doesn't cause errors
 
-## Phase 3: Build Wrapper (Optional Convenience)
+## Phase 3: Extend Existing Docker Wrapper
 
-- [ ] Create `/usr/local/bin/docker-build-cached` wrapper script in desktop images
-- [ ] Script extracts image name and uses it as cache key subdirectory
-- [ ] Add wrapper to helix-ubuntu and helix-sway Dockerfiles
-- [ ] Document usage in desktop container README
+- [ ] Update `desktop/sway-config/docker-wrapper.sh` to detect `build` and `buildx build` commands
+- [ ] Extract image name from `-t` flag to use as cache key subdirectory
+- [ ] Inject `--cache-from` and `--cache-to` flags when `/buildkit-cache` directory exists
+- [ ] Copy same changes to `desktop/ubuntu-config/docker-wrapper.sh`
 
 ## Phase 4: Testing
 
