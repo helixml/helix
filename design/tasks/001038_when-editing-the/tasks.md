@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `api/pkg/services/spec_driven_task_service.go` `StartSpecGeneration()`: Replace `task.OriginalPrompt` with `task.Description` when building the agent prompt (~line 400-401)
+- [~] In `api/pkg/services/spec_driven_task_service.go` `StartSpecGeneration()`: Replace `task.OriginalPrompt` with `task.Description` when building the agent prompt (~line 400-401)
 - [ ] In `api/pkg/services/spec_driven_task_service.go` `StartSpecGeneration()`: Update the cloned task case to also use `task.Description` (~line 400)
 - [ ] In `api/pkg/services/spec_driven_task_service.go` `StartJustDoItMode()`: Replace `task.OriginalPrompt` with `task.Description` in log statement and prompt building (~line 637+)
 - [ ] Add fallback logic: if `task.Description` is empty, use `task.OriginalPrompt`
