@@ -1,14 +1,13 @@
 # Implementation Tasks
 
-## Phase 1: Volume Setup
+## Phase 1: Hydra Cache Directory Setup
 
-- [ ] Add `buildkit-cache` volume to `docker-compose.dev.yaml` and `docker-compose.yaml`
-- [ ] Mount `/buildkit-cache` in sandbox-nvidia, sandbox-amd-intel, and sandbox-software services
-- [ ] Verify volume persists across sandbox restarts
+- [ ] Create `/hydra-data/buildkit-cache/` directory in Hydra's `NewManager` or `Start` function
+- [ ] Ensure directory has correct permissions (0755) for all dockerd instances to access
 
-## Phase 2: Hydra Integration
+## Phase 2: Mount Cache in Dev Containers
 
-- [ ] Update `devcontainer.go` to add `/buildkit-cache` bind mount to all dev containers
+- [ ] Update `devcontainer.go` `buildMounts()` to add `/hydra-data/buildkit-cache` → `/buildkit-cache` bind mount
 - [ ] Test that dev containers can read/write to `/buildkit-cache`
 - [ ] Verify concurrent access from multiple sessions doesn't cause errors
 

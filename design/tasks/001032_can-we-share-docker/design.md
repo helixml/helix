@@ -51,26 +51,31 @@ docker buildx build \
 
 ## Recommended Approach: Option A with Wrapper
 
-1. **Mount shared cache volume** in all Hydra dockerd containers
-2. **Provide a build wrapper** that automatically adds cache flags
-3. **BuildKit handles concurrency** via content-addressed storage (safe for concurrent access)
+1. **Hydra creates shared cache directory** at `/hydra-data/buildkit-cache/`
+2. **Hydra mounts this directory** into all dev containers it creates
+3. **Provide a build wrapper** that automatically adds cache flags
+4. **BuildKit handles concurrency** via content-addressed storage (safe for concurrent access)
 
 ### Implementation Details
 
-**Volume Mount** (in docker-compose):
-```yaml
-volumes:
-  - buildkit-cache:/buildkit-cache
+**Hydra creates shared cache directory** (manager.go):
+```go
+// In NewManager or Start, create the shared cache directory
+cacheDir := filepath.Join(m.dataDir, "buildkit-cache")
+os.MkdirAll(cacheDir, 0755)
 ```
 
 **Hydra passes mount to dev containers** (devcontainer.go):
 ```go
+// Add shared buildkit cache to all dev containers
 mounts = append(mounts, mount.Mount{
     Type:   mount.TypeBind,
-    Source: "/buildkit-cache",
+    Source: filepath.Join(dm.manager.dataDir, "buildkit-cache"),
     Target: "/buildkit-cache",
 })
 ```
+
+This is entirely internal to Hydra - no docker-compose changes needed. The `/hydra-data` volume already exists and persists across sandbox restarts.
 
 **Build wrapper script** (`/usr/local/bin/docker-build-cached`):
 ```bash
@@ -97,7 +102,7 @@ The BuildKit team confirms this works for concurrent builds: https://github.com/
 
 ## Disk Space Considerations
 
-- **Cache location**: `/buildkit-cache/` on the `buildkit-cache` volume
+- **Cache location**: `/hydra-data/buildkit-cache/` (inside existing hydra-storage volume)
 - **Deduplication**: Content-addressed storage means identical layers stored once
 - **Pruning**: Use `docker buildx prune` periodically, or let Docker's LRU handle it
 - **Estimated savings**: 10 identical builds go from ~50GB to ~5GB
@@ -107,6 +112,7 @@ The BuildKit team confirms this works for concurrent builds: https://github.com/
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Cache method | Local directory | Simplest, no registry dependency |
+| Cache location | `/hydra-data/buildkit-cache/` | Uses existing volume, Hydra implementation detail |
 | Mount type | Bind mount | Share across Hydra dockerd instances |
 | Concurrency | Trust BuildKit | Content-addressed, proven safe |
 | Wrapper | Optional script | Don't force users, but provide convenience |
