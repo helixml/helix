@@ -339,7 +339,12 @@ func NewServer(
 	// Register Session MCP backend (session navigation and context tools)
 	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store))
 
-	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, and Session backends")
+	// Register External MCP backend (user-configured MCP servers)
+	// This proxies requests from Zed to external MCP servers configured in agents
+	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
+	apiServer.mcpGateway.RegisterBackend("external", NewExternalMCPBackend(store))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, Session, and External backends")
 
 	// Initialize Git HTTP Server for clone/push operations (pure Go implementation)
 	gitHTTPConfig := &services.GitHTTPServerConfig{
@@ -407,6 +412,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	if err != nil {
 		return err
 	}
+
+	// Ensure MCP gateway cleanup on shutdown
+	defer apiServer.mcpGateway.Stop()
 
 	// Seed models from environment variables
 	if err := apiServer.Store.SeedModelsFromEnvironment(ctx); err != nil {
@@ -720,20 +728,20 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
-	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                // WebSocket: Zed agent bidirectional communication (chat, tool calls)
-	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET") // Desktop screenshots for previews and fallback display
-	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                           // Network throughput measurement for adaptive video bitrate
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")  // Read remote desktop clipboard to sync locally
-	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST") // Write local clipboard to remote desktop
-	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")     // Upload files to sandbox container
-	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")       // Send keyboard/mouse input to desktop
-	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")             // Execute safe commands (vkcube, glxgears for benchmarks)
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // WebSocket: keyboard/mouse input stream
-	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // WebSocket: H.264 video stream (primary)
-	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET") // Video streaming stats (buffer usage, client count)
+	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                                   // WebSocket: Zed agent bidirectional communication (chat, tool calls)
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")              // Desktop screenshots for previews and fallback display
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")                                              // Network throughput measurement for adaptive video bitrate
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                // Read remote desktop clipboard to sync locally
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")               // Write local clipboard to remote desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                        // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")                          // Send keyboard/mouse input to desktop
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                // Execute safe commands (vkcube, glxgears for benchmarks)
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                       // WebSocket: keyboard/mouse input stream
+	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET")                     // WebSocket: H.264 video stream (primary)
+	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET")             // Video streaming stats (buffer usage, client count)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
-	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")       // Git diff from container workspace
-	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET") // List git workspaces in container
+	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")                          // Git diff from container workspace
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET")              // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")

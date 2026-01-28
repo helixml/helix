@@ -64,7 +64,10 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	// Zed expects "url" field for HTTP context_servers (untagged union)
+	// Zed uses "source" field to distinguish transport type:
+	// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
+	// - "sse" = Legacy SSE transport (MCP 2024-11-05)
+	Source  string            `json:"source,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -166,8 +169,8 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
-			APIURL: helixAPIURL,  // Zed appends /v1/messages
-			APIKey: helixToken,   // Helix token for authentication
+			APIURL: helixAPIURL, // Zed appends /v1/messages
+			APIKey: helixToken,  // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
@@ -194,7 +197,8 @@ func GenerateZedMCPConfig(
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
 		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			URL: koditMCPURL,
+			Source: "http",
+			URL:    koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -206,7 +210,8 @@ func GenerateZedMCPConfig(
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: "http://localhost:9877/mcp",
+		Source: "http",
+		URL:    "http://localhost:9877/mcp",
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -215,7 +220,8 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		URL: sessionMCPURL,
+		Source: "http",
+		URL:    sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
@@ -237,11 +243,16 @@ func GenerateZedMCPConfig(
 		},
 	}
 
-	// 6. Pass-through external MCP servers
+	// 6. Route external MCP servers through Helix proxy
+	// HTTP/HTTPS MCPs go through /api/v1/mcp/external/{mcp_name} for:
+	// - SSE endpoint URL rewriting (external server's endpoint isn't reachable from sandbox)
+	// - Transport adaptation (can convert between SSE and Streamable HTTP if needed)
+	// - Centralized authentication and authorization
+	// Stdio MCPs are passed through directly (they run locally in the sandbox)
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
-			config.ContextServers[serverName] = mcpToContextServer(mcp)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
 		}
 	}
 
@@ -267,18 +278,31 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 	return hasAPIs || hasRAG || hasKnowledge || hasNativeToolConfigs
 }
 
-// mcpToContextServer converts Helix MCP config to Zed context server config
-func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
-	// Parse MCP URL to determine connection type
+// mcpToContextServerWithProxy converts Helix MCP config to Zed context server config,
+// routing HTTP MCPs through the Helix proxy for proper SSE endpoint handling.
+func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken string) ContextServerConfig {
+	// For HTTP/HTTPS MCPs, route through Helix proxy
+	// This is necessary because:
+	// 1. SSE protocol sends an endpoint URL that would point to the unreachable external server
+	// 2. The sandbox can't reach external MCP servers directly
+	// 3. We want centralized auth and transport adaptation
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
-		// HTTP/SSE transport - direct HTTP connection
+		// Route through Helix external MCP proxy
+		// The proxy will connect to the actual MCP server and forward requests
+		proxyURL := fmt.Sprintf("%s/api/v1/mcp/external/%s", helixAPIURL, sanitizeName(mcp.Name))
+
+		// The proxy always exposes as Streamable HTTP (the modern protocol)
+		// It handles SSE transport internally when connecting to legacy servers
 		return ContextServerConfig{
-			URL:     mcp.URL,
-			Headers: mcp.Headers,
+			Source: "http",
+			URL:    proxyURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
 		}
 	}
 
-	// Stdio transport - direct command execution
+	// Stdio transport - direct command execution (runs locally in sandbox)
 	// Parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
 	cmd, args := parseStdioURL(mcp.URL)
 	return ContextServerConfig{

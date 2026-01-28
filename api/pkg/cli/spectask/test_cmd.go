@@ -497,36 +497,61 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			// Send the message
-			chatURL := fmt.Sprintf("%s/api/v1/sessions/%s/chat", apiURL, sessionID)
+			// Send the message with retry for session not ready
+			chatURL := fmt.Sprintf("%s/api/v1/sessions/chat", apiURL)
+			deadline := time.Now().Add(time.Duration(maxWait) * time.Second)
 
-			payload := map[string]interface{}{
-				"message": message,
-				"stream":  false,
-			}
-			jsonData, _ := json.Marshal(payload)
+			var body []byte
+			var response map[string]interface{}
 
-			req, err := http.NewRequest("POST", chatURL, bytes.NewBuffer(jsonData))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Authorization", "Bearer "+token)
-			req.Header.Set("Content-Type", "application/json")
+			for time.Now().Before(deadline) {
+				payload := map[string]interface{}{
+					"session_id": sessionID,
+					"messages": []map[string]interface{}{
+						{
+							"role": "user",
+							"content": map[string]interface{}{
+								"content_type": "text",
+								"parts":        []string{message},
+							},
+						},
+					},
+					"stream": false,
+				}
+				jsonData, _ := json.Marshal(payload)
 
-			client := &http.Client{Timeout: time.Duration(maxWait) * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to send message: %w", err)
-			}
-			defer resp.Body.Close()
+				req, err := http.NewRequest("POST", chatURL, bytes.NewBuffer(jsonData))
+				if err != nil {
+					return err
+				}
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Content-Type", "application/json")
 
-			body, _ := io.ReadAll(resp.Body)
+				client := &http.Client{Timeout: 30 * time.Second}
+				resp, err := client.Do(req)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
+					time.Sleep(5 * time.Second)
+					continue
+				}
 
-			if resp.StatusCode != http.StatusOK {
+				body, _ = io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode == http.StatusOK {
+					break
+				}
+
+				// Retry on 5xx errors (session not ready)
+				if resp.StatusCode >= 500 {
+					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
+					time.Sleep(5 * time.Second)
+					continue
+				}
+
 				return fmt.Errorf("chat API returned %d: %s", resp.StatusCode, string(body))
 			}
 
-			var response map[string]interface{}
 			if err := json.Unmarshal(body, &response); err != nil {
 				// Might be plain text response
 				response = map[string]interface{}{
@@ -552,13 +577,31 @@ Examples:
 							continue
 						}
 						// Check if agent is still working
-						// This is a simplified check - real implementation would check agent status
 						if session.Mode != "action" {
 							goto done
 						}
 					}
 				}
 			done:
+				// Fetch the latest interaction to get the actual response
+				historyURL := fmt.Sprintf("%s/api/v1/sessions/%s/interactions", apiURL, sessionID)
+				req, err := http.NewRequest("GET", historyURL, nil)
+				if err == nil {
+					req.Header.Set("Authorization", "Bearer "+token)
+					if resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req); err == nil {
+						defer resp.Body.Close()
+						if body, err := io.ReadAll(resp.Body); err == nil {
+							var interactions []map[string]interface{}
+							if json.Unmarshal(body, &interactions) == nil && len(interactions) > 0 {
+								// Get the last interaction's response_message
+								lastInteraction := interactions[len(interactions)-1]
+								if msg, ok := lastInteraction["response_message"].(string); ok && msg != "" {
+									response["response"] = msg
+								}
+							}
+						}
+					}
+				}
 			}
 
 			if jsonOutput {

@@ -120,15 +120,19 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	for name, server := range zedConfig.ContextServers {
 		serverMap := make(map[string]interface{})
 
-		// HTTP-based MCP server
-		// Zed expects "url" field for HTTP context_servers (untagged union)
+		// HTTP/SSE-based MCP server
+		// Zed uses "source" field to distinguish transport type:
+		// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
+		// - "sse" = Legacy SSE transport (MCP 2024-11-05)
 		if server.URL != "" {
+			serverMap["source"] = server.Source
 			serverMap["url"] = server.URL
 			if len(server.Headers) > 0 {
 				serverMap["headers"] = server.Headers
 			}
 		} else {
 			// Stdio-based MCP server
+			serverMap["source"] = "stdio"
 			serverMap["command"] = server.Command
 			serverMap["args"] = server.Args
 			if len(server.Env) > 0 {

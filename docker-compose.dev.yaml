@@ -142,6 +142,7 @@ services:
       - "5000:5000"
     volumes:
       - registry-data:/var/lib/registry
+
   # Example/test MCP server
   postgres-mcp:
     image: crystaldba/postgres-mcp:latest

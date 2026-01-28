@@ -35,6 +35,10 @@ See also: `.cursor/rules/*.mdc`
 - **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
 - **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
 
+### Sessions
+- **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
+- **NEVER** stop sessions you didn't create in the current conversation — always ask first
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
@@ -43,6 +47,7 @@ See also: `.cursor/rules/*.mdc`
 - **API**: Uses [Air](https://github.com/air-verse/air) — Go changes auto-rebuild
 - **Frontend**: Vite HMR — TypeScript/React changes apply instantly
 - **Both hot-reload in dev mode** — no manual restart needed for API or frontend code changes
+- **Settings-sync-daemon does NOT hot reload** — it runs inside the helix-ubuntu container, so changes to `zed_config.go` or related code require rebuilding the desktop image with `./stack build-ubuntu` and starting a NEW session
 
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
@@ -85,6 +90,7 @@ helix-sandbox (outer container)
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
 | Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |
+| Settings-sync-daemon (`api/pkg/external-agent/zed_config.go`) | `./stack build-ubuntu` | Runs IN desktop container, NOT API. Start NEW session after rebuild |
 
 ### Build Order for Full Rebuild
 
