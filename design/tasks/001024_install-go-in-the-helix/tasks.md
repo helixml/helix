@@ -6,7 +6,7 @@
   - Download official Go tarball from `go.dev/dl/` if not present
   - Extract to `$HOME/.local/go`
   - Export PATH to include `$HOME/.local/go/bin` for current session
-  - Add PATH to `~/.bashrc` for future sessions (if not already present)
+  - Add PATH to `~/.profile` for future sessions (if not already present)
 
 - [ ] Call `ensure_go` at start of `start()` function (before any Go commands)
 
@@ -16,4 +16,4 @@
 
 - [ ] Test error handling when `go.mod` cannot be parsed
 
-- [ ] Test that PATH persists in new terminal sessions after installation
+- [ ] Test that PATH persists in new login shells after installation
