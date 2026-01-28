@@ -8,6 +8,7 @@ As a user, I want to edit the prompt/description of a SpecTask after creating it
 
 1. **Edit Button Visible in Backlog Status**
    - The edit button (pencil icon) is already visible for tasks in `backlog` status
+   - Location: `SpecTaskDetailContent.tsx` header action buttons area (lines ~1057 and ~1301 for different layouts)
    - Clicking it should enable edit mode for the prompt/name field
 
 2. **Editable Prompt Field**
