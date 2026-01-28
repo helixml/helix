@@ -29,11 +29,11 @@ Users need the ability to just stop without restarting (to free resources), and 
 Import and use the existing `useSandboxState` hook in `SpecTaskDetailContent.tsx` to track desktop state. This is the same hook the `ExternalAgentDesktopViewer` uses internally.
 
 ### 2. Button visibility logic
-| Desktop State | Stop Button | Start Button | Restart Button |
-|---------------|-------------|--------------|----------------|
-| Running       | ✓ Visible   | Hidden       | ✓ Visible      |
-| Stopped       | Hidden      | ✓ Visible    | Hidden         |
-| Starting      | Hidden      | Disabled     | Hidden         |
+| Desktop State | Stop Button | Start Button | Restart Button | Upload Button |
+|---------------|-------------|--------------|----------------|---------------|
+| Running       | ✓ Visible   | Hidden       | ✓ Visible      | ✓ Visible     |
+| Stopped       | Hidden      | ✓ Visible    | Hidden         | Hidden        |
+| Starting      | Hidden      | Disabled     | Hidden         | Hidden        |
 
 ### 3. Confirmation for stop
 Stop requires confirmation because unsaved files in memory (e.g., IDE buffers) will be lost. Use a similar dialog to the restart confirmation but with appropriate messaging for stop.
@@ -65,7 +65,7 @@ Export `useSandboxState` hook so it can be reused.
 
 **When Stopped:**
 ```
-[Clone] [Start ▶] [Upload ⬆]
+[Clone] [Start ▶]
 ```
 
 ## Error Handling
