@@ -1,6 +1,5 @@
 import React, { FC, useState } from 'react';
 import {
-  Box,
   Card,
   CardHeader,
   CardContent,
@@ -10,7 +9,9 @@ import {
   Stack,
   IconButton,
   Tooltip,
-  Snackbar,
+  Switch,
+  FormControlLabel,
+  Box,
 } from '@mui/material';
 import {
   Share as ShareIcon,
@@ -18,19 +19,22 @@ import {
   CheckCircle as CheckCircleIcon,
   Edit as EditIcon,
   ContentCopy as ContentCopyIcon,
+  Public as PublicIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
-import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
-import useRouter from '../../hooks/useRouter';
 import useSnackbar from '../../hooks/useSnackbar';
+import useApi from '../../hooks/useApi';
 
 interface SpecTaskReviewPanelProps {
   taskId: string;
   taskName: string;
   status: string;
   specSessionId: string;
+  publicDesignDocs?: boolean;
   onApprove?: () => void;
   onRequestChanges?: () => void;
+  onPublicToggle?: (isPublic: boolean) => void;
 }
 
 const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
@@ -38,42 +42,39 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   taskName,
   status,
   specSessionId,
+  publicDesignDocs = false,
   onApprove,
   onRequestChanges,
+  onPublicToggle,
 }) => {
-  const api = useApi();
   const account = useAccount();
-  const router = useRouter();
   const snackbar = useSnackbar();
-  const [shareLink, setShareLink] = useState<string | null>(null);
-  const [generatingLink, setGeneratingLink] = useState(false);
+  const api = useApi();
+  const [isPublic, setIsPublic] = useState(publicDesignDocs);
+  const [updating, setUpdating] = useState(false);
 
-  const generateShareLink = async () => {
-    setGeneratingLink(true);
+  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+
+  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = event.target.checked;
+    setUpdating(true);
     try {
-      const response = await api.post<{ share_url: string; expires_at: string }>(
-        `/api/v1/spec-tasks/${taskId}/design-docs/share`
-      );
-
-      if (response && response.share_url) {
-        setShareLink(response.share_url);
-
-        // Copy to clipboard
-        await navigator.clipboard.writeText(response.share_url);
-        snackbar.success('Link copied to clipboard!');
-      }
+      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+        public_design_docs: newValue,
+      });
+      setIsPublic(newValue);
+      onPublicToggle?.(newValue);
+      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
     } catch (err: any) {
-      snackbar.error(err.message || 'Failed to generate share link');
+      snackbar.error(err.message || 'Failed to update visibility');
     } finally {
-      setGeneratingLink(false);
+      setUpdating(false);
     }
   };
 
   const copyToClipboard = async () => {
-    if (shareLink) {
-      await navigator.clipboard.writeText(shareLink);
-      snackbar.success('Link copied!');
-    }
+    await navigator.clipboard.writeText(publicLink);
+    snackbar.success('Link copied to clipboard!');
   };
 
   const openPlanningSession = () => {
@@ -85,27 +86,50 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
 
   return (
     <Stack spacing={2}>
-      {/* Shareable Link Card */}
+      {/* Share Design Docs Card */}
       <Card>
         <CardHeader
-          title="📱 View on Any Device"
-          subheader="Get a shareable link to review on your phone"
+          title="🔗 Share Design Docs"
+          subheader="Share design documents with anyone"
         />
         <CardContent>
-          <Button
-            fullWidth
-            variant="outlined"
-            startIcon={<ShareIcon />}
-            onClick={generateShareLink}
-            disabled={generatingLink}
-          >
-            {generatingLink ? 'Generating...' : 'Get Shareable Link'}
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={isPublic}
+                  onChange={handlePublicToggle}
+                  disabled={updating}
+                  color="primary"
+                />
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {isPublic ? (
+                    <>
+                      <PublicIcon fontSize="small" color="primary" />
+                      <Typography variant="body2">Public</Typography>
+                    </>
+                  ) : (
+                    <>
+                      <LockIcon fontSize="small" color="action" />
+                      <Typography variant="body2">Private</Typography>
+                    </>
+                  )}
+                </Box>
+              }
+            />
+          </Box>
 
-          {shareLink && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            {isPublic
+              ? 'Anyone with the link can view the design documents without logging in.'
+              : 'Only users with access to this project can view the design documents.'}
+          </Typography>
+
+          {isPublic && (
             <Alert
               severity="success"
-              sx={{ mt: 2 }}
               action={
                 <Tooltip title="Copy link">
                   <IconButton size="small" onClick={copyToClipboard}>
@@ -115,7 +139,7 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
               }
             >
               <Typography variant="body2" gutterBottom>
-                Link copied to clipboard!
+                Public link ready to share
               </Typography>
               <Typography
                 variant="caption"
@@ -126,9 +150,20 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
                   fontFamily: 'monospace',
                 }}
               >
-                {shareLink}
+                {publicLink}
               </Typography>
             </Alert>
+          )}
+
+          {!isPublic && (
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<ShareIcon />}
+              onClick={copyToClipboard}
+            >
+              Copy Link (requires login)
+            </Button>
           )}
         </CardContent>
       </Card>
