@@ -54,6 +54,13 @@ func (s *GitRepositoryService) WithExternalRepoWrite(
 		return fmt.Errorf("branch is required for external repo write operations")
 	}
 
+	// Acquire repo lock to serialize all git operations.
+	// This prevents race conditions where a concurrent sync could overwrite
+	// commits between our write and push operations.
+	lock := s.GetRepoLock(repo.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// 1. Pre-sync from upstream (force=true to handle non-fast-forward branches)
 	log.Debug().
 		Str("repo_id", repo.ID).
@@ -164,6 +171,13 @@ func (s *GitRepositoryService) WithExternalRepoRead(
 		return readFunc()
 	}
 
+	// Acquire repo lock to serialize all git operations.
+	// This prevents race conditions where our sync could overwrite commits
+	// that are in the middle of being pushed by another operation.
+	lock := s.GetRepoLock(repo.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	// Sync from upstream before reading (force=true to handle non-fast-forward branches)
 	log.Debug().
 		Str("repo_id", repo.ID).
@@ -191,6 +205,13 @@ func (s *GitRepositoryService) MustSyncBeforeRead(
 	if !repo.IsExternal || repo.ExternalURL == "" {
 		return readFunc()
 	}
+
+	// Acquire repo lock to serialize all git operations.
+	// This prevents race conditions where our sync could overwrite commits
+	// that are in the middle of being pushed by another operation.
+	lock := s.GetRepoLock(repo.ID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Sync from upstream before reading - fail if sync fails (force=true for non-fast-forward)
 	log.Debug().

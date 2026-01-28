@@ -1010,7 +1010,11 @@ func (s *HelixAPIServer) syncAllBranches(w http.ResponseWriter, r *http.Request)
 
 	force := r.URL.Query().Get("force") == "true"
 
-	err = s.gitRepositoryService.SyncAllBranches(r.Context(), repoID, force)
+	// Acquire repo lock to serialize git operations and prevent race conditions
+	// with concurrent pushes or other syncs.
+	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
+		return s.gitRepositoryService.SyncAllBranches(r.Context(), repoID, force)
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Bool("force", force).Msg("Failed to sync all branches from remote")
 		http.Error(w, fmt.Sprintf("Failed to sync from upstream: %s", err.Error()), http.StatusInternalServerError)
@@ -1130,7 +1134,10 @@ func (s *HelixAPIServer) pushToRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, branchName, true)
+	// Acquire repo lock to serialize git operations and prevent race conditions.
+	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
+		return s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, branchName, true)
+	})
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Msg("Failed to push to remote")
 		http.Error(w, fmt.Sprintf("Failed to push to remote: %s", err.Error()), http.StatusInternalServerError)
@@ -1498,17 +1505,22 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return
 	}
 
-	err = s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false)
-	if err != nil {
-		log.Error().Err(err).
-			Str("repo_id", repoID).
-			Str("branch", request.SourceBranch).
-			Msg("Failed to push branch to remote")
-		http.Error(w, fmt.Sprintf("Failed to push branch to remote: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
+	// Acquire repo lock to serialize git operations and prevent race conditions.
+	// Both push and PR creation should happen atomically.
+	var prID string
+	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).
+				Str("repo_id", repoID).
+				Str("branch", request.SourceBranch).
+				Msg("Failed to push branch to remote")
+			return fmt.Errorf("failed to push branch to remote: %w", pushErr)
+		}
 
-	prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		var prErr error
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		return prErr
+	})
 	if err != nil {
 		log.Error().Err(err).
 			Str("repo_id", repoID).

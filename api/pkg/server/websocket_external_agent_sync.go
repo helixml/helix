@@ -1138,39 +1138,15 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				}(helixSessionID, commentID, requestID, content)
 			}
 
-			// Reload session with all interactions so WebSocket event has latest data
-			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+			// OPTIMIZATION: Send only the updated interaction, not the full session
+			// This reduces O(n) data per update to O(1), dramatically improving streaming performance
+			err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction, requestIDForPublish)
 			if err != nil {
-				log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session")
-			} else {
-				// Load all interactions
-				allInteractions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
-					SessionID:    helixSessionID,
-					GenerationID: reloadedSession.GenerationID,
-					PerPage:      1000,
-				})
-				if err == nil {
-					reloadedSession.Interactions = allInteractions
-
-					// DEBUG: Log what we're about to send
-					log.Info().
-						Str("session_id", helixSessionID).
-						Int("interaction_count", len(allInteractions)).
-						Int("last_interaction_response_len", len(allInteractions[len(allInteractions)-1].ResponseMessage)).
-						Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
-						Msg("🔍 [DEBUG] About to publish session update")
-
-					// Publish session update to frontend so UI updates in real-time
-					// Pass requestIDForPublish so commenter also receives the update (for design review streaming)
-					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, requestIDForPublish)
-					if err != nil {
-						log.Error().Err(err).
-							Str("session_id", helixSessionID).
-							Str("interaction_id", targetInteraction.ID).
-							Str("request_id", requestIDForPublish).
-							Msg("Failed to publish session update to frontend")
-					}
-				}
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", targetInteraction.ID).
+					Str("request_id", requestIDForPublish).
+					Msg("Failed to publish interaction update to frontend")
 			}
 		} else {
 			log.Warn().
@@ -2424,6 +2400,65 @@ func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.S
 						Str("interaction_id", interaction.ID).
 						Str("commenter_id", commenterID).
 						Msg("📤 [HELIX] Published session update to commenter")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// publishInteractionUpdateToFrontend sends only the updated interaction to the frontend.
+// This is an optimization over publishSessionUpdateToFrontend - instead of sending the full
+// session with all interactions (O(n) data), we send just the single updated interaction (O(1)).
+// This dramatically reduces WebSocket traffic during streaming updates.
+func (apiServer *HelixAPIServer) publishInteractionUpdateToFrontend(sessionID, owner string, interaction *types.Interaction, requestID ...string) error {
+	// Create websocket event with just the interaction, not the full session
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventInteractionUpdate,
+		SessionID:     sessionID,
+		InteractionID: interaction.ID,
+		Owner:         owner,
+		Interaction:   interaction,
+	}
+
+	// Marshal to JSON
+	messageBytes, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal websocket event: %w", err)
+	}
+
+	// Publish to session owner's queue
+	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes)
+	if err != nil {
+		return fmt.Errorf("failed to publish to pubsub: %w", err)
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("interaction_id", interaction.ID).
+		Str("owner", owner).
+		Int("response_len", len(interaction.ResponseMessage)).
+		Msg("📤 [HELIX] Published interaction update to frontend (optimized)")
+
+	// If requestID is provided, check if there's a commenter who should also receive the update
+	if len(requestID) > 0 && requestID[0] != "" {
+		if apiServer.requestToCommenterMapping != nil {
+			if commenterID, exists := apiServer.requestToCommenterMapping[requestID[0]]; exists && commenterID != owner {
+				// Publish to commenter's queue as well
+				err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID, sessionID), messageBytes)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("session_id", sessionID).
+						Str("commenter_id", commenterID).
+						Msg("Failed to publish interaction update to commenter")
+				} else {
+					log.Debug().
+						Str("session_id", sessionID).
+						Str("interaction_id", interaction.ID).
+						Str("commenter_id", commenterID).
+						Msg("📤 [HELIX] Published interaction update to commenter")
 				}
 			}
 		}

@@ -346,9 +346,23 @@ func main() {
 		userAPIKey: userAPIKey,
 	}
 
-	// Initial sync from Helix → local
-	if err := daemon.syncFromHelix(); err != nil {
-		log.Printf("Warning: Initial sync failed: %v", err)
+	// Initial sync from Helix → local with retry
+	// Retry handles race condition where daemon starts before API token is fully available
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		if err := daemon.syncFromHelix(); err != nil {
+			if i < maxRetries-1 {
+				log.Printf("Initial sync attempt %d/%d failed: %v (retrying in 2s)", i+1, maxRetries, err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			log.Printf("Warning: Initial sync failed after %d attempts: %v", maxRetries, err)
+		} else {
+			if i > 0 {
+				log.Printf("Initial sync succeeded on attempt %d/%d", i+1, maxRetries)
+			}
+			break
+		}
 	}
 
 	// Start file watcher for Zed changes

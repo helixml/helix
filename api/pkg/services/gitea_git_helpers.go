@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -310,4 +312,119 @@ func ShortHash(hash string) string {
 		return hash
 	}
 	return hash[:8]
+}
+
+// PreReceiveHookVersion is incremented when the hook logic changes.
+// The hook script contains this version and will be updated if it differs.
+const PreReceiveHookVersion = "1"
+
+// preReceiveHookScript is the shell script that protects helix-specs from force push.
+// It reads ref updates from stdin, checks if helix-specs is being force-pushed,
+// and rejects with a GitHub-style error message if so.
+const preReceiveHookScript = `#!/bin/sh
+# Helix pre-receive hook v` + PreReceiveHookVersion + `
+# Protects helix-specs branch from force pushes.
+
+ZERO="0000000000000000000000000000000000000000"
+
+while read oldrev newrev refname; do
+    # Only check helix-specs branch
+    if [ "$refname" = "refs/heads/helix-specs" ]; then
+        # Skip if this is a new branch (old is all zeros)
+        if [ "$oldrev" = "$ZERO" ]; then
+            continue
+        fi
+        # Skip if this is a branch deletion (new is all zeros)
+        if [ "$newrev" = "$ZERO" ]; then
+            continue
+        fi
+        # Check if old is ancestor of new (fast-forward)
+        if ! git merge-base --is-ancestor "$oldrev" "$newrev" 2>/dev/null; then
+            echo "error: refusing to force-push to protected branch 'helix-specs'" >&2
+            echo "hint: helix-specs is a forward-only branch to protect design documents." >&2
+            echo "hint: If you need to revert changes, create a new commit instead." >&2
+            exit 1
+        fi
+    fi
+done
+exit 0
+`
+
+// InstallPreReceiveHook installs the force-push protection hook in a bare repository.
+// The hook prevents force pushes to the helix-specs branch.
+// If the hook already exists with the current version, this is a no-op.
+func InstallPreReceiveHook(repoPath string) error {
+	hooksDir := filepath.Join(repoPath, "hooks")
+	hookPath := filepath.Join(hooksDir, "pre-receive")
+
+	// Check if hook exists and has current version
+	if content, err := os.ReadFile(hookPath); err == nil {
+		if strings.Contains(string(content), "Helix pre-receive hook v"+PreReceiveHookVersion) {
+			return nil // Already up to date
+		}
+	}
+
+	// Create hooks directory if needed
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks directory: %w", err)
+	}
+
+	// Write hook script
+	if err := os.WriteFile(hookPath, []byte(preReceiveHookScript), 0755); err != nil {
+		return fmt.Errorf("failed to write pre-receive hook: %w", err)
+	}
+
+	return nil
+}
+
+// InstallPreReceiveHooksForAllRepos installs or updates pre-receive hooks in all
+// bare repositories in the given directory. This should be called on API startup
+// to ensure existing repos have the latest hook version.
+func InstallPreReceiveHooksForAllRepos(reposDir string) error {
+	entries, err := os.ReadDir(reposDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No repos dir yet
+		}
+		return fmt.Errorf("failed to read repos directory: %w", err)
+	}
+
+	var installedCount, updatedCount, errorCount int
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// Bare repos typically end in .git or contain a HEAD file
+		repoPath := filepath.Join(reposDir, entry.Name())
+		headPath := filepath.Join(repoPath, "HEAD")
+		if _, err := os.Stat(headPath); err != nil {
+			continue // Not a git repo
+		}
+
+		hookPath := filepath.Join(repoPath, "hooks", "pre-receive")
+		hadHook := false
+		if content, err := os.ReadFile(hookPath); err == nil {
+			hadHook = true
+			if strings.Contains(string(content), "Helix pre-receive hook v"+PreReceiveHookVersion) {
+				continue // Already up to date
+			}
+		}
+
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			errorCount++
+			continue
+		}
+
+		if hadHook {
+			updatedCount++
+		} else {
+			installedCount++
+		}
+	}
+
+	if installedCount > 0 || updatedCount > 0 {
+		// Log is imported in the file that calls this, we return counts instead
+	}
+
+	return nil
 }

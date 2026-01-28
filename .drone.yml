@@ -688,7 +688,7 @@ steps:
   #   depends_on: [oauth-confluence-integration-test]
 
   - name: release-backend
-    image: golang:1.25-bullseye
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build

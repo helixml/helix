@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -1288,10 +1289,21 @@ func generateTaskID() string {
 }
 
 func generateTaskNameFromPrompt(prompt string) string {
-	if len(prompt) > 60 {
-		return prompt[:57] + "..."
+	// Replace newlines and other whitespace with spaces to create clean task names
+	// (prompts can contain newlines from multi-line input)
+	name := strings.ReplaceAll(prompt, "\n", " ")
+	name = strings.ReplaceAll(name, "\r", " ")
+	name = strings.ReplaceAll(name, "\t", " ")
+	// Collapse multiple spaces into one
+	for strings.Contains(name, "  ") {
+		name = strings.ReplaceAll(name, "  ", " ")
 	}
-	return prompt
+	name = strings.TrimSpace(name)
+
+	if len(name) > 60 {
+		return name[:57] + "..."
+	}
+	return name
 }
 
 // isTaskInactive returns true if the task is in a terminal/inactive state

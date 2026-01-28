@@ -1032,13 +1032,8 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Str("spec_task_id", specTaskID).
 		Msg("Backfilling design review from git")
 
-	// Sync from upstream first for external repos
-	if err := s.gitRepositoryService.WithExternalRepoRead(ctx, repo, func() error { return nil }); err != nil {
-		log.Warn().
-			Err(err).
-			Str("spec_task_id", specTaskID).
-			Msg("Failed to sync from upstream before backfill - continuing with local data")
-	}
+	// No need to sync from upstream - helix-specs is only written by Helix agents,
+	// so our middle repo always has the latest data.
 
 	repoPath := repo.LocalPath
 
