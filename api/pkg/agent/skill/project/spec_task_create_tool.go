@@ -3,10 +3,11 @@ package project
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -14,6 +15,33 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 )
+
+// generateDesignDocPath creates a human-readable directory path for design docs
+// Format: "NNNNNN_shortname" e.g., "000001_install-cowsay"
+// This is a local copy to avoid import cycles with the services package
+func generateDesignDocPath(taskName string, taskNumber int) string {
+	// Sanitize task name for use in path
+	name := strings.ToLower(taskName)
+	reg := regexp.MustCompile(`\s+`)
+	name = reg.ReplaceAllString(name, " ")
+	reg = regexp.MustCompile(`[^a-z0-9- ]`)
+	name = reg.ReplaceAllString(name, "")
+	name = strings.ReplaceAll(name, " ", "-")
+	reg = regexp.MustCompile(`-+`)
+	name = reg.ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-")
+	if len(name) > 25 {
+		truncated := name[:25]
+		lastHyphen := strings.LastIndex(truncated, "-")
+		if lastHyphen > 10 {
+			name = truncated[:lastHyphen]
+		} else {
+			name = truncated
+		}
+	}
+	name = strings.TrimRight(name, "-")
+	return fmt.Sprintf("%06d_%s", taskNumber, name)
+}
 
 // CreateSpecTaskTool - creates a new spec task
 
@@ -182,7 +210,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		taskNumber = 1
 	}
 	task.TaskNumber = taskNumber
-	task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
+	task.DesignDocPath = generateDesignDocPath(task.Name, taskNumber)
 	log.Info().
 		Str("task_id", task.ID).
 		Int("task_number", taskNumber).
