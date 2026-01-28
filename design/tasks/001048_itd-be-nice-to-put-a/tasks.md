@@ -6,19 +6,19 @@
 
 ## SpecTaskDetailContent.tsx Changes
 
-- [~] Import `useSandboxState` from `ExternalAgentDesktopViewer`
-- [~] Import `StopIcon` and `PlayArrow` icons from MUI
-- [~] Call `useSandboxState(activeSessionId)` to get `isRunning`, `isPaused`, `isStarting`
-- [~] Add `isStopping` state variable and `stopConfirmOpen` state for confirmation dialog
-- [~] Add `handleStopSession` function that calls `v1SessionsStopExternalAgentDelete`
-- [~] Add stop confirmation dialog (similar to restart dialog, warn about unsaved IDE buffers)
-- [~] Add `handleStartSession` function that calls `v1SessionsResumeCreate`
-- [ ] Update big screen toolbar (around L1373): conditionally show Stop/Start/Restart based on state
-- [ ] Update small screen toolbar (around L1667): same conditional logic
-- [ ] Hide Restart button when desktop is stopped (restart doesn't make sense for stopped VM)
-- [ ] Hide Upload button when desktop is stopped (can't upload to stopped container)
-- [ ] Show Start button (with PlayArrow icon) when desktop is stopped
-- [ ] Show Stop button (with StopIcon) when desktop is running
+- [x] Import `useSandboxState` from `ExternalAgentDesktopViewer`
+- [x] Import `StopIcon` and `PlayArrow` icons from MUI
+- [x] Call `useSandboxState(activeSessionId)` to get `isRunning`, `isPaused`, `isStarting`
+- [x] Add `isStopping` state variable and `stopConfirmOpen` state for confirmation dialog
+- [x] Add `handleStopSession` function that calls `v1SessionsStopExternalAgentDelete`
+- [x] Add stop confirmation dialog (similar to restart dialog, warn about unsaved IDE buffers)
+- [x] Add `handleStartSession` function that calls `v1SessionsResumeCreate`
+- [~] Update big screen toolbar (around L1373): conditionally show Stop/Start/Restart based on state
+- [~] Update small screen toolbar (around L1667): same conditional logic
+- [~] Hide Restart button when desktop is stopped (restart doesn't make sense for stopped VM)
+- [~] Hide Upload button when desktop is stopped (can't upload to stopped container)
+- [~] Show Start button (with PlayArrow icon) when desktop is stopped
+- [~] Show Stop button (with StopIcon) when desktop is running
 
 ## Testing
 
