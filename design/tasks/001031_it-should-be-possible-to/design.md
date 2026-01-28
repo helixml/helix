@@ -16,7 +16,7 @@ Make the description text itself clickable to enter edit mode, with hover feedba
 ## Implementation Details
 
 ### Location
-`helix/frontend/src/components/tasks/SpecTaskDetailContent.tsx` in the `renderDetailsContent()` function, around the Description section (line ~622).
+`helix/frontend/src/components/tasks/SpecTaskDetailContent.tsx` in the `renderDetailsContent()` function, around the Description section (line ~745).
 
 ### Changes Required
 
@@ -42,11 +42,13 @@ Make the description text itself clickable to enter edit mode, with hover feedba
       onClick={task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? handleEditToggle : undefined}
       sx={{
         cursor: task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? 'pointer' : 'default',
+        borderRadius: 1,
+        mx: -1,
+        px: 1,
+        py: 0.5,
+        transition: 'background-color 0.15s ease',
         '&:hover': task?.status === TypesSpecTaskStatus.TaskStatusBacklog ? {
           backgroundColor: 'action.hover',
-          borderRadius: 1,
-          mx: -1,
-          px: 1,
         } : {},
       }}
     >
@@ -63,6 +65,7 @@ Make the description text itself clickable to enter edit mode, with hover feedba
 - **Cursor**: Changes to `pointer` on hover (backlog only)
 - **Background**: Subtle highlight using `action.hover` theme color
 - **Padding**: Slight negative margin + padding to make the hover area feel natural
+- **Transition**: Smooth 0.15s ease transition on background color
 - **Click**: Triggers `handleEditToggle()` to enter edit mode
 
 ### Non-Backlog Tasks
@@ -71,3 +74,10 @@ Make the description text itself clickable to enter edit mode, with hover feedba
 - No hover highlight
 - Click does nothing
 - Description displays as normal read-only text
+
+## Implementation Notes
+
+- The existing `handleEditToggle` callback was reused - no new functions needed
+- The `TypesSpecTaskStatus.TaskStatusBacklog` enum ensures type-safe status comparison
+- Hover styles are applied conditionally using MUI's `sx` prop with ternary operators
+- The description is frozen after planning starts - users can interact via chat thread instead
