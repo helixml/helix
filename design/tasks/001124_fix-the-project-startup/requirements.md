@@ -2,7 +2,7 @@
 
 ## Context
 
-The startup script lives at `/home/retro/work/helix-specs/.helix/startup.sh` in the helix-specs branch (a git worktree). The main Helix codebase is at `/home/retro/work/helix-4` on the main branch. When the API clones repos for a project, it creates numbered directories (helix-4, zed-4, qwen-code-4) which the startup script renames to canonical names.
+The startup script lives at `/home/retro/work/helix-specs/.helix/startup.sh` in the helix-specs branch (a git worktree). The main Helix codebase is at `/home/retro/work/helix-4` on the main branch. When the API clones repos for a project, it creates numbered directories (helix-4, zed-4, qwen-code-4) which the startup script renames to canonical names and creates symlinks back to the numbered names.
 
 **Important**: The helix-specs worktree IS being created correctly at `/home/retro/work/helix-specs` by the workspace setup. However, it's NOT being included as a project root directory in the Zed/IDE configuration, so tools can't access files in it.
 
