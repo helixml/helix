@@ -1977,6 +1977,20 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		apiServer.connman.Set(runnerID, conn)
 		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
+		// If this is a Hydra connection (hydra-{sandbox_id}), discover running containers.
+		// This reconciles container state when the API restarts but containers
+		// are still running on the sandbox.
+		if strings.HasPrefix(runnerID, "hydra-") && apiServer.externalAgentExecutor != nil {
+			sandboxID := strings.TrimPrefix(runnerID, "hydra-")
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := apiServer.externalAgentExecutor.DiscoverContainersFromSandbox(ctx, sandboxID); err != nil {
+					log.Debug().Err(err).Str("sandbox_id", sandboxID).Msg("Container discovery failed on revdial connect")
+				}
+			}()
+		}
+
 		// The connection is now managed by connman
 		// It will be used when external_agent_handlers.go calls connman.Dial(runnerID)
 	})
