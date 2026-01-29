@@ -281,10 +281,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	helixAppIDChanged := false
 	if task.HelixAppID == "" {
-		// Try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			helixAppIDChanged = true
@@ -292,8 +291,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 				Str("task_id", task.ID).
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
+		} else {
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
-		// No fallback to system default - leave empty and use defaults
 	}
 
 	log.Info().
@@ -641,8 +642,10 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 				Str("task_id", task.ID).
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
+		} else {
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
-		// No fallback to system default - leave empty and use defaults
 	}
 
 	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
