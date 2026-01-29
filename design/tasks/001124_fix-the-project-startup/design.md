@@ -4,9 +4,18 @@
 
 The Helix-in-Helix development setup involves:
 
-- **helix-4** (`~/work/helix-4`): Main Helix codebase on `main` branch, contains `./stack` script
-- **helix-specs** (`~/work/helix-specs`): Git worktree of helix-4 on `helix-specs` branch, contains design docs and `.helix/startup.sh`
+- **helix-4** (`~/work/helix-4`): Main Helix codebase, should be on a feature branch for code changes
+- **helix-specs** (`~/work/helix-specs`): Git worktree on `helix-specs` branch, contains design docs and `.helix/startup.sh`
 - **zed-4, qwen-code-4**: Sister repositories needed by the `./stack` script
+
+## Expected Session Setup
+
+For a task like "fix the startup script", the correct setup should be:
+
+1. `~/work/helix-4` on `feature/001124-fix-the-project-startup` branch (for code changes like docker-shim fix)
+2. `~/work/helix-specs` worktree on `helix-specs` branch (for design docs and startup script changes)
+
+Both should exist simultaneously. The helix-specs worktree should ALWAYS be created, regardless of what feature branch the main repo is on.
 
 ## Issue 1: Docker Compose Shim Bug
 
@@ -18,7 +27,7 @@ The docker-shim at `desktop/docker-shim/compose.go` incorrectly passes "compose"
 
 When `docker compose version` is invoked:
 
-1. Docker CLI calls the compose plugin at `/usr/libexec/docker/cli-plugins/docker-compose` (which is symlinked to docker-shim)
+1. Docker CLI calls the compose plugin at `/usr/libexec/docker/cli-plugins/docker-compose` (symlinked to docker-shim)
 2. The shim receives `args = ["compose", "version"]`
 3. The shim extracts `pluginName = "compose"` and processes the remaining args
 4. It builds `finalArgs = ["compose", "-p", "helix-task-1124", "version"]`
@@ -40,7 +49,7 @@ When `docker compose version` is invoked:
 
 ### Solution
 
-Remove the `pluginName` from `finalArgs` in `compose.go`. The Docker CLI plugin protocol does NOT expect the plugin to receive its own name as an argument - that's only passed by docker to the shim for routing purposes.
+Remove the `pluginName` from `finalArgs` in `compose.go`. The Docker CLI plugin protocol does NOT expect the plugin to receive its own name as an argument.
 
 **Code change in `desktop/docker-shim/compose.go` around line 35-40:**
 
@@ -52,60 +61,50 @@ finalArgs = append(finalArgs, projectArgs...)
 finalArgs = append(finalArgs, newArgs...)
 ```
 
-## Issue 2: helix-specs Not in Project Roots
+## Issue 2: Wrong Branch Configuration
 
 ### Problem
 
-The helix-specs worktree is NOT being created, and therefore not included in the project roots. The `~/.helix-zed-folders` file only contains:
+The current session has:
 ```
-/home/retro/work/helix-4
-/home/retro/work/qwen-code-4
-/home/retro/work/zed-4
+HELIX_WORKING_BRANCH=helix-specs
+HELIX_BASE_BRANCH=helix-specs
+HELIX_BRANCH_MODE=existing
 ```
 
-### Context: Why HELIX_WORKING_BRANCH=helix-specs
+This is incorrect. The task should have a feature branch (e.g., `feature/001124-fix-the-project-startup`) as the working branch, NOT `helix-specs`.
 
-This session is a "fix the project startup script" task. The startup script lives at `.helix/startup.sh` in the helix-specs branch. So `HELIX_WORKING_BRANCH=helix-specs` is **intentionally correct** - we're editing files that live in the helix-specs branch.
-
-However, we ALSO need access to the main codebase to:
-- Fix the docker-shim bug in `desktop/docker-shim/compose.go`
-- Test the `./stack` build commands
-- Run the startup script
-
-### Root Cause Analysis
-
-The bug is in the branch checkout logic in `helix-workspace-setup.sh` (lines 250-345).
+### Consequences
 
 When `HELIX_WORKING_BRANCH=helix-specs`:
-```bash
-if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
-    if [ -n "$HELIX_WORKING_BRANCH" ]; then
-        git checkout "$HELIX_WORKING_BRANCH"  # Checks out helix-specs ON THE MAIN REPO!
-```
+1. The workspace setup does `git checkout helix-specs` on helix-4
+2. helix-4 ends up on helix-specs branch (no code, no `./stack`)
+3. Worktree creation fails (can't create worktree for currently checked out branch)
+4. `~/work/helix-specs` is never created
+5. ZED_FOLDERS doesn't include helix-specs
 
-This checks out the `helix-specs` branch **directly on the primary repo (helix-4)**, which:
-1. Leaves helix-4 on helix-specs branch (no code, no `./stack` script)
-2. Makes the worktree creation fail or be skipped (can't create worktree for current branch)
-3. Results in `~/work/helix-specs` never being created
-4. ZED_FOLDERS doesn't include helix-specs
+### Root Cause
+
+The task was created with the wrong branch configuration. Tasks should always get a feature branch name, even when they involve editing files in helix-specs.
 
 ### Solution
 
-The workspace setup script needs special handling for `helix-specs` branch:
-1. When `HELIX_WORKING_BRANCH=helix-specs`, DON'T checkout that branch on the main repo
-2. Keep the main repo on `main` branch (so code and `./stack` are available)
-3. Create the helix-specs worktree as usual (the code already exists at lines 346-410)
-4. Both directories are then available: helix-4 (code) and helix-specs (design docs)
+Two fixes needed:
+
+1. **Task creation fix**: Ensure tasks always get a proper feature branch name, not `helix-specs`
+
+2. **Workspace setup defensive fix**: Even if `HELIX_WORKING_BRANCH=helix-specs` is passed (incorrectly), the workspace setup should handle it gracefully by:
+   - NOT checking out helix-specs directly on the main repo
+   - Creating the helix-specs worktree instead
 
 **Code change in `helix-workspace-setup.sh` around line 268:**
 ```bash
 if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
     if [ -n "$HELIX_WORKING_BRANCH" ]; then
-        # Special case: helix-specs branch uses a worktree, not direct checkout
+        # Special case: helix-specs should use worktree, not direct checkout
         if [ "$HELIX_WORKING_BRANCH" = "helix-specs" ]; then
-            echo "  Mode: helix-specs branch (will use worktree)"
-            echo "  Keeping main repo on default branch for code access"
-            # Worktree will be created later in the script
+            echo "  Warning: helix-specs should not be the working branch"
+            echo "  Keeping main repo on default branch, will create worktree instead"
         else
             echo "  Mode: Continue existing branch"
             echo "  Checking out branch: $HELIX_WORKING_BRANCH"
@@ -117,35 +116,30 @@ if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
 
 ### Problem
 
-The startup script at `helix-specs/.helix/startup.sh` has several issues:
+The startup script at `helix-specs/.helix/startup.sh` has minor issues:
 
-1. **Directory renaming logic**: Renames `helix-4` to `helix` and creates symlinks. This works but:
-   - The `./stack` script expects `../zed` and `../qwen-code` relative paths
-   - After renaming, paths resolve correctly
-   - However, the numbered directories (helix-4, zed-4, qwen-code-4) are what the API creates and what tools expect
-
-2. **Branch assumption**: Script assumes helix repo is on main branch, but doesn't verify this
-
-3. **Non-idempotent tmux**: `./stack start` may fail if tmux session already exists
+1. Doesn't verify the main repo is on the correct branch before building
+2. Doesn't handle existing tmux sessions gracefully
 
 ### Solution
 
 Update the startup script to:
-1. Keep the symlink creation logic (it works correctly)
-2. Add a check that the helix directory is on the `main` branch before building
-3. Handle existing tmux sessions gracefully
-4. Improve error messages
+1. Check that helix directory has the `./stack` script before trying to run it
+2. Handle existing tmux sessions
+3. Better error messages
 
 ## Implementation Order
 
 1. **Fix docker-shim** (main branch) - Unblocks all docker compose usage
-2. **Add helix-specs to project roots** (main branch) - Allows tools to access design docs
-3. **Improve startup script** (helix-specs branch) - Better error handling and idempotency
+2. **Fix task creation** (main branch) - Ensure tasks get feature branches, not helix-specs
+3. **Fix workspace setup** (main branch) - Defensive handling of helix-specs as working branch
+4. **Improve startup script** (helix-specs branch) - Better error handling
 
 ## Files to Modify
 
 | File | Branch | Change |
 |------|--------|--------|
 | `desktop/docker-shim/compose.go` | main | Remove pluginName from finalArgs |
-| `desktop/shared/helix-workspace-setup.sh` | main | Don't checkout helix-specs directly on main repo |
-| `.helix/startup.sh` | helix-specs | Improve error handling, add branch check |
+| Task creation code (TBD) | main | Ensure tasks get feature branch names |
+| `desktop/shared/helix-workspace-setup.sh` | main | Defensive handling of helix-specs branch |
+| `.helix/startup.sh` | helix-specs | Improve error handling |

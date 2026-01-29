@@ -2,34 +2,35 @@
 
 ## Context
 
-This is a "fix the project startup script" task. The startup script lives at `.helix/startup.sh` in the helix-specs branch. When working on helix-specs content (like this task), we need:
+This task fixes issues with the Helix-in-Helix development project startup. The correct workspace setup should be:
 
-1. The helix-specs worktree at `~/work/helix-specs` - to edit design docs and the startup script
-2. The main repo at `~/work/helix-4` on the `main` branch - to edit code (docker-shim) and run `./stack`
+1. `~/work/helix-4` on a feature branch (e.g., `feature/001124-fix-the-project-startup`) for code changes
+2. `~/work/helix-specs` as a git worktree on the `helix-specs` branch for design docs and startup script
+
+Both should exist simultaneously. Changes to code (like docker-shim) go to the feature branch; changes to design docs and `.helix/startup.sh` go directly to the helix-specs branch.
 
 ## Problems
 
 1. **Docker compose commands fail**: The docker-shim wrapper passes "compose" twice to the real plugin, causing "unknown docker command: compose compose" errors.
 
-2. **helix-specs worktree not created**: When `HELIX_WORKING_BRANCH=helix-specs`, the workspace setup script checks out the helix-specs branch directly on the main repo instead of creating a worktree. This corrupts the main repo (no code, no `./stack` script) and the `~/work/helix-specs` worktree is never created.
+2. **Wrong branch configuration**: This session was incorrectly created with `HELIX_WORKING_BRANCH=helix-specs` instead of a feature branch. This causes the workspace setup to checkout helix-specs directly on helix-4 (corrupting it) instead of creating a worktree.
 
-3. **Startup script fragility**: The script doesn't verify the repo is on the correct branch before building, and doesn't handle re-runs gracefully.
+3. **Startup script fragility**: The script doesn't verify prerequisites before building, and doesn't handle re-runs gracefully.
 
 ## Acceptance Criteria
 
 - [ ] `docker compose version` works without errors
 - [ ] `docker compose -f docker-compose.dev.yaml config` works
+- [ ] Tasks get feature branch names, not `helix-specs` as working branch
 - [ ] The helix-specs worktree is created at `~/work/helix-specs`
-- [ ] The main repo (helix-4) stays on `main` branch
-- [ ] The helix-specs directory appears in `~/.helix-zed-folders` and is visible in Zed
-- [ ] AI tools can read and write files in helix-specs
+- [ ] The main repo stays on its feature branch (not helix-specs)
+- [ ] Both helix-4 and helix-specs appear in `~/.helix-zed-folders`
 - [ ] The startup script completes successfully
 - [ ] The startup script can be run multiple times without errors (idempotent)
-- [ ] The Helix stack builds and starts in tmux
 
 ## Notes
 
-- The startup script creates symlinks from numbered directories (helix-4, zed-4, qwen-code-4) to canonical names (helix, zed, qwen-code) because the `./stack` script expects `../zed` and `../qwen-code` relative paths.
 - Docker-shim fix goes to main branch
-- Workspace setup fix goes to main branch  
+- Task creation fix goes to main branch
+- Workspace setup fix goes to main branch
 - Startup script improvements go to helix-specs branch
