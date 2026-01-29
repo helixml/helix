@@ -19,10 +19,8 @@ func runCompose(args []string) int {
 	}
 
 	// Docker CLI plugin protocol: first arg is the plugin name ("compose")
-	// We need to preserve it
-	pluginName := ""
+	// Strip it - the real plugin doesn't expect it as an argument
 	if len(args) > 0 && args[0] == "compose" {
-		pluginName = args[0]
 		args = args[1:]
 	}
 
@@ -34,10 +32,7 @@ func runCompose(args []string) int {
 	projectArgs := getProjectArgs(newArgs)
 
 	// Build final arguments
-	finalArgs := make([]string, 0, len(newArgs)+len(projectArgs)+1)
-	if pluginName != "" {
-		finalArgs = append(finalArgs, pluginName)
-	}
+	finalArgs := make([]string, 0, len(newArgs)+len(projectArgs))
 	finalArgs = append(finalArgs, projectArgs...)
 	finalArgs = append(finalArgs, newArgs...)
 
