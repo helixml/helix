@@ -27,13 +27,13 @@
 
 ## Fix Startup Script (helix-specs Worktree)
 
-- [~] Edit `~/work/helix-specs/.helix/startup.sh` directly in the worktree
-- [ ] Add check that `./stack` script exists before trying to run it
-- [ ] Handle existing tmux sessions gracefully
-- [ ] Improve error messages
+- [x] Edit `~/work/helix-specs/.helix/startup.sh` directly in the worktree
+- [x] Add check that `./stack` script exists before trying to run it
+- [x] Handle existing tmux sessions gracefully
+- [x] Improve error messages (added sudo for yarn install)
 - [ ] Test the script runs successfully
 - [ ] Test the script is idempotent
-- [ ] Commit to helix-specs branch
+- [x] Commit to helix-specs branch
 
 ## Testing
 
