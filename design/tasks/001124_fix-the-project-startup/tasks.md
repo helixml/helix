@@ -6,7 +6,7 @@
 - [x] Remove `pluginName` from `finalArgs` (around line 35-40)
 - [x] Test: `docker compose version` should work
 - [x] Test: `docker compose -f docker-compose.dev.yaml config --services` should work
-- [ ] Commit to feature branch
+- [x] Commit to feature branch
 
 ## Fix Task Branch Configuration (Feature Branch)
 
@@ -44,7 +44,7 @@
 
 ## Git Commits
 
-- [ ] Push docker-shim fix to feature branch
+- [x] Push docker-shim fix to feature branch
 - [ ] Push task creation fix to feature branch
 - [ ] Push workspace setup fix to feature branch
 - [ ] Push startup script improvements directly from `~/work/helix-specs` worktree to helix-specs branch
