@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -12,7 +11,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestCloneTaskToProject_WithSpecs_SetsDesignDocsPushedAt(t *testing.T) {
+func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -63,17 +62,15 @@ func TestCloneTaskToProject_WithSpecs_SetsDesignDocsPushedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Verify the cloned task has DesignDocsPushedAt set
+	// Verify the cloned task goes to queued_spec_generation to boot the desktop.
+	// The agent will see pre-populated specs and adapt them, then push to set DesignDocsPushedAt.
 	require.NotNil(t, createdTask, "CreateSpecTask should have been called")
-	assert.NotNil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should be set when source has specs")
+	assert.Equal(t, types.TaskStatusQueuedSpecGeneration, createdTask.Status, "Status should be queued_spec_generation to boot desktop")
 
-	// Verify the status is spec_review (skipping spec generation)
-	assert.Equal(t, types.TaskStatusSpecReview, createdTask.Status, "Status should be spec_review when source has specs")
+	// DesignDocsPushedAt is NOT set at clone time - it will be set when agent pushes specs
+	assert.Nil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should not be set at clone time")
 
-	// Verify the DesignDocsPushedAt is recent (within last minute)
-	assert.WithinDuration(t, time.Now(), *createdTask.DesignDocsPushedAt, time.Minute)
-
-	// Verify specs were copied
+	// Verify specs were copied (will be pre-populated in helix-specs/ by StartSpecGeneration)
 	assert.Equal(t, sourceTask.RequirementsSpec, createdTask.RequirementsSpec)
 	assert.Equal(t, sourceTask.TechnicalDesign, createdTask.TechnicalDesign)
 	assert.Equal(t, sourceTask.ImplementationPlan, createdTask.ImplementationPlan)
@@ -196,11 +193,11 @@ func TestCloneTaskToProject_JustDoItMode_SkipsSpecReview(t *testing.T) {
 	assert.Nil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should not be set for JustDoItMode")
 }
 
-// TestCloneTaskToProject_SpecsFromDesignReview_SetsDesignDocsPushedAt tests the scenario
+// TestCloneTaskToProject_SpecsFromDesignReview_GoesToSpecGeneration tests the scenario
 // where the source task has no specs on its direct fields, but has a design review with specs.
 // This is a common case when a task was implemented and its specs were pushed to helix-specs,
 // but the task record's RequirementsSpec/TechnicalDesign/ImplementationPlan fields are empty.
-func TestCloneTaskToProject_SpecsFromDesignReview_SetsDesignDocsPushedAt(t *testing.T) {
+func TestCloneTaskToProject_SpecsFromDesignReview_GoesToSpecGeneration(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -257,19 +254,15 @@ func TestCloneTaskToProject_SpecsFromDesignReview_SetsDesignDocsPushedAt(t *test
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Verify the cloned task has DesignDocsPushedAt set
-	// This is the key assertion - even though source task has no direct specs,
-	// the design review has specs, so DesignDocsPushedAt should be set
+	// Verify the cloned task goes to queued_spec_generation to boot the desktop.
+	// The agent will see pre-populated specs and adapt them to the new project.
 	require.NotNil(t, createdTask, "CreateSpecTask should have been called")
-	assert.NotNil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should be set when design review has specs")
+	assert.Equal(t, types.TaskStatusQueuedSpecGeneration, createdTask.Status, "Status should be queued_spec_generation to boot desktop")
 
-	// Verify the status is spec_review (skipping spec generation)
-	assert.Equal(t, types.TaskStatusSpecReview, createdTask.Status, "Status should be spec_review when design review has specs")
+	// DesignDocsPushedAt is NOT set at clone time - it will be set when agent pushes specs
+	assert.Nil(t, createdTask.DesignDocsPushedAt, "DesignDocsPushedAt should not be set at clone time")
 
-	// Verify the DesignDocsPushedAt is recent (within last minute)
-	assert.WithinDuration(t, time.Now(), *createdTask.DesignDocsPushedAt, time.Minute)
-
-	// Verify specs were copied from the design review
+	// Verify specs were copied from the design review (will be pre-populated in helix-specs/)
 	assert.Equal(t, "# Requirements\nSpecs from design review", createdTask.RequirementsSpec)
 	assert.Equal(t, "# Technical Design\nSpecs from design review", createdTask.TechnicalDesign)
 	assert.Equal(t, "# Implementation Plan\nSpecs from design review", createdTask.ImplementationPlan)

@@ -1583,6 +1583,18 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		displayRefreshRate = 60
 	}
 
+	// Get desktop type from app config (same logic as StartSpecGeneration)
+	desktopType := ""
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+	if desktopType == "" {
+		desktopType = "ubuntu" // Default to ubuntu, not sway
+	}
+
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
 		SessionID:           session.ID,
@@ -1598,7 +1610,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType:         "sway", // Default to Sway
+		DesktopType:         desktopType,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},

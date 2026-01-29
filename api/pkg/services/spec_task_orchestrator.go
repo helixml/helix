@@ -321,8 +321,14 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 			Str("task_id", task.ID).
 			Msg("Spec generation complete, moving to review")
 
+		now := time.Now()
 		task.Status = types.TaskStatusSpecReview
-		task.UpdatedAt = time.Now()
+		task.UpdatedAt = now
+		// Ensure DesignDocsPushedAt is set so the "Approve Spec" button appears.
+		// For cloned tasks, specs may already exist on the record without being "pushed".
+		if task.DesignDocsPushedAt == nil {
+			task.DesignDocsPushedAt = &now
+		}
 
 		return o.store.UpdateSpecTask(ctx, task)
 	}

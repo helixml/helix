@@ -49,6 +49,7 @@ import ArchiveIcon from "@mui/icons-material/Archive";
 import PublicIcon from "@mui/icons-material/Public";
 import LockIcon from "@mui/icons-material/Lock";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
 
@@ -1004,7 +1005,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     setSelectedCloneGroupId(task.clone_group_id || null)
                   }
                 >
-                  <Wand2 size={16} style={{ color: "inherit", opacity: 0.7 }} />
+                  <AccountTree sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }} />
                   <Typography variant="caption" color="text.secondary">
                     Batch Progress
                   </Typography>
@@ -1511,7 +1512,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               }
                               sx={{ color: "primary.main" }}
                             >
-                              <Wand2 size={16} />
+                              <AccountTree sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1832,7 +1833,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           }
                           sx={{ color: "primary.main" }}
                         >
-                          <Wand2 size={16} />
+                          <AccountTree sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
                     )}
