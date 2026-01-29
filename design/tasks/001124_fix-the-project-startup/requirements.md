@@ -2,25 +2,32 @@
 
 ## Context
 
-The startup script lives at `/home/retro/work/helix-specs/.helix/startup.sh` in the helix-specs branch (a git worktree). The main Helix codebase is at `/home/retro/work/helix` on the main branch. When the API clones repos for a project, it creates numbered directories (helix-4, zed-4, qwen-code-4) which the startup script renames to canonical names.
+The startup script lives at `/home/retro/work/helix-specs/.helix/startup.sh` in the helix-specs branch (a git worktree). The main Helix codebase is at `/home/retro/work/helix-4` on the main branch. When the API clones repos for a project, it creates numbered directories (helix-4, zed-4, qwen-code-4) which the startup script renames to canonical names.
 
-## User Story
+**Important**: The helix-specs worktree should be automatically created at `/home/retro/work/helix-specs` by the project setup, but currently it is NOT being created. This is a bug in the project initialization logic.
 
-As a developer working on Helix-in-Helix development, I want the startup script to run successfully and idempotently so that I can build and start the Helix stack without manual intervention.
+## User Stories
+
+1. As a developer working on Helix-in-Helix development, I want the startup script to run successfully and idempotently so that I can build and start the Helix stack without manual intervention.
+
+2. As a developer starting a new Helix project, I want the helix-specs worktree to be automatically created during project setup so I don't have to manually create it.
 
 ## Current Issues Identified
 
 1. **Docker Compose Shim Bug**: The docker-shim wrapper at `/home/retro/work/helix/desktop/docker-shim/compose.go` incorrectly passes "compose" as the first argument when calling `docker-compose.real`, causing commands to fail with "unknown docker command: 'compose compose'".
 
-2. **Script Assumptions**: The startup script assumes it's running in a context where it can find the Helix repo at `~/work/helix`, but needs clarity on:
-   - Whether the repo should be on main or helix-specs branch when the script runs
-   - How the script gets executed (from where, by what process)
-   - What the exact directory structure should be
+2. **Missing helix-specs Worktree**: The project setup does NOT automatically create the helix-specs worktree. It should create a git worktree at `~/work/helix-specs` pointing to the helix-specs branch when setting up a Helix development project.
 
-3. **Missing Dependencies**: The script tries to install yarn globally but this may fail or take time.
+3. **Script Assumptions**: The startup script assumes it's running in a context where it can find the Helix repo at `~/work/helix`, but needs to handle:
+   - The main repo being at `~/work/helix-4` (numbered directory)
+   - The helix-specs worktree being at `~/work/helix-specs`
+   - Ensuring the main repo is on the main branch before building
+
+4. **Missing Dependencies**: The script tries to install yarn globally but this may fail or take time.
 
 ## Acceptance Criteria
 
+- [ ] The helix-specs worktree is automatically created during project setup
 - [ ] The startup script runs successfully without errors
 - [ ] The script is idempotent (can be run multiple times safely)
 - [ ] The docker compose commands work correctly
@@ -32,5 +39,6 @@ As a developer working on Helix-in-Helix development, I want the startup script 
 ## Notes
 
 - The startup script is stored in the helix-specs branch for version control of project configuration
-- Changes must be committed to the helix-specs branch, not main
-- The script may need to handle switching between branches or using git worktrees
+- Changes to the startup script must be committed to the helix-specs branch, not main
+- Changes to docker-shim must be committed to the main branch
+- The project setup logic needs to be updated to create the helix-specs worktree automatically
