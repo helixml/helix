@@ -168,24 +168,18 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 			Msg("Using updated specs from design review for clone")
 	}
 
-	// Determine initial status and designDocsPushedAt AFTER resolving specs
-	// from design review. The cloned task may have specs from the design review
-	// even if the source task's direct fields are empty.
+	// Determine initial status. Cloned tasks go through spec generation
+	// so the agent can adapt specs to the new project context.
 	var initialStatus types.SpecTaskStatus = "backlog"
-	var designDocsPushedAt *time.Time
-
-	// Check the RESOLVED specs (after design review merge), not source task fields
-	hasSpecs := requirementsSpec != "" && technicalDesign != "" && implementationPlan != ""
+	var designDocsPushedAt *time.Time // Will be set when agent pushes specs
 
 	if autoStart {
 		if source.JustDoItMode {
 			initialStatus = types.TaskStatusQueuedImplementation
-		} else if hasSpecs {
-			// Cloned task has specs, skip directly to spec_review
-			initialStatus = types.TaskStatusSpecReview
-			now := time.Now()
-			designDocsPushedAt = &now
 		} else {
+			// Always go through spec generation to boot the desktop.
+			// For cloned tasks with specs, the agent will read the pre-populated
+			// specs from helix-specs/ and adapt them to the new project context.
 			initialStatus = types.TaskStatusQueuedSpecGeneration
 		}
 	}
