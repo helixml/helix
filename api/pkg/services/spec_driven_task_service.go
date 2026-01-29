@@ -121,15 +121,26 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	// Determine which agent to use (single agent for entire workflow)
-	// Priority: request.AppID > project.DefaultHelixAppID > empty (will be set later)
+	// Priority: request.AppID > project.DefaultHelixAppID > error if not found
 	helixAppID := ""
 	if req.AppID != "" {
 		helixAppID = req.AppID
 	} else if req.ProjectID != "" {
 		// Check project's default agent
 		project, err := s.store.GetProject(ctx, req.ProjectID)
-		if err == nil && project != nil && project.DefaultHelixAppID != "" {
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project: %w", err)
+		}
+		if project != nil && project.DefaultHelixAppID != "" {
 			helixAppID = project.DefaultHelixAppID
+		}
+	}
+
+	// Validate that the app exists if one is configured
+	if helixAppID != "" {
+		app, err := s.store.GetApp(ctx, helixAppID)
+		if err != nil || app == nil {
+			return nil, fmt.Errorf("configured agent '%s' not found - check project settings", helixAppID)
 		}
 	}
 
@@ -1582,36 +1593,22 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		displayRefreshRate = 60
 	}
 
-	// Get desktop type from app config (same logic as StartSpecGeneration)
-	// Try task's HelixAppID first, fall back to project's DefaultHelixAppID
-	desktopType := ""
-	appIDsToTry := []string{}
+	// Get desktop type from app config
+	// Task must have a valid HelixAppID - error if not found
+	desktopType := "ubuntu" // Default
 	if task.HelixAppID != "" {
-		appIDsToTry = append(appIDsToTry, task.HelixAppID)
-	}
-	// Get project for fallback app ID
-	if task.ProjectID != "" {
-		proj, err := s.store.GetProject(ctx, task.ProjectID)
-		if err == nil && proj != nil && proj.DefaultHelixAppID != "" && proj.DefaultHelixAppID != task.HelixAppID {
-			appIDsToTry = append(appIDsToTry, proj.DefaultHelixAppID)
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err != nil || app == nil {
+			return fmt.Errorf("configured agent '%s' not found - check project settings", task.HelixAppID)
 		}
-	}
-	for _, appID := range appIDsToTry {
-		app, err := s.store.GetApp(ctx, appID)
-		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+		if app.Config.Helix.ExternalAgentConfig != nil {
 			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-			if desktopType != "" {
-				log.Debug().
-					Str("task_id", task.ID).
-					Str("app_id", appID).
-					Str("desktop_type", desktopType).
-					Msg("Got desktop type from app config")
-				break
-			}
+			log.Debug().
+				Str("task_id", task.ID).
+				Str("app_id", task.HelixAppID).
+				Str("desktop_type", desktopType).
+				Msg("Got desktop type from app config")
 		}
-	}
-	if desktopType == "" {
-		desktopType = "ubuntu" // Default to ubuntu, not sway
 	}
 
 	// Build the ZedAgent for restart
