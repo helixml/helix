@@ -10,7 +10,7 @@
 
 ## Fix Task Branch Configuration (Feature Branch)
 
-- [ ] Find where "let AI fix your startup script" button sets branch configuration
+- [~] Find where "let AI fix your startup script" button sets branch configuration
 - [ ] Ensure `helix-specs` is never used as a feature branch name (it's reserved for the spec documents worktree)
 - [ ] Tasks should get proper feature branch names like `feature/001124-fix-the-project-startup`
 - [ ] Test: Click "let AI fix your startup script" and verify task gets a feature branch name, not `helix-specs`
