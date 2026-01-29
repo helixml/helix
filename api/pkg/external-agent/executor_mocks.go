@@ -68,6 +68,20 @@ func (mr *MockExecutorMockRecorder) CreateZedThread(ctx, instanceID, threadID, c
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateZedThread", reflect.TypeOf((*MockExecutor)(nil).CreateZedThread), ctx, instanceID, threadID, config)
 }
 
+// DiscoverContainersFromSandbox mocks base method.
+func (m *MockExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscoverContainersFromSandbox", ctx, sandboxID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DiscoverContainersFromSandbox indicates an expected call of DiscoverContainersFromSandbox.
+func (mr *MockExecutorMockRecorder) DiscoverContainersFromSandbox(ctx, sandboxID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscoverContainersFromSandbox", reflect.TypeOf((*MockExecutor)(nil).DiscoverContainersFromSandbox), ctx, sandboxID)
+}
+
 // FindContainerBySessionID mocks base method.
 func (m *MockExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
 	m.ctrl.T.Helper()

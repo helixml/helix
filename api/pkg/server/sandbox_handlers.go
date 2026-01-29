@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -49,6 +50,20 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 		Str("hostname", instance.Hostname).
 		Str("gpu_vendor", instance.GPUVendor).
 		Msg("Sandbox registered")
+
+	// Discover running containers from this newly registered sandbox.
+	// This reconciles container state when the API restarts but containers
+	// are still running on the sandbox.
+	if apiServer.externalAgentExecutor != nil {
+		go func() {
+			// Use background context since the request context will be canceled
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := apiServer.externalAgentExecutor.DiscoverContainersFromSandbox(ctx, instance.ID); err != nil {
+				log.Debug().Err(err).Str("sandbox_id", instance.ID).Msg("Container discovery failed on register")
+			}
+		}()
+	}
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(instance)
