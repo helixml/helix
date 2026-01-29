@@ -29,7 +29,6 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Switch,
-  FormControlLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -46,9 +45,6 @@ import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
-import PublicIcon from "@mui/icons-material/Public";
-import LockIcon from "@mui/icons-material/Lock";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
@@ -96,6 +92,7 @@ import {
   GitCompare,
   MonitorPlay,
   Wand2,
+  Copy,
 } from "lucide-react";
 
 interface SpecTaskDetailContentProps {
@@ -834,7 +831,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <TextField
             fullWidth
             multiline
-            rows={4}
+            minRows={4}
+            maxRows={20}
             value={editFormData.description}
             onChange={(e) =>
               setEditFormData((prev) => ({
@@ -842,7 +840,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 description: e.target.value,
               }))
             }
-            onBlur={handleSaveEdit}
             autoFocus
             placeholder="Task description"
           />
@@ -871,7 +868,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   : {},
             }}
           >
-            <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+            <Typography
+              variant="body1"
+              sx={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflow: "visible",
+              }}
+            >
               {task?.description ||
                 task?.original_prompt ||
                 "No description provided"}
@@ -1157,73 +1161,75 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
         {/* Public Design Docs Toggle */}
         <Divider sx={{ my: 2 }} />
-        <Typography variant="subtitle2" gutterBottom>
-          Share Design Docs
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={isPublicDesignDocs}
-                onChange={handlePublicToggle}
-                disabled={updatingPublic}
-                size="small"
-              />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {isPublicDesignDocs ? (
-                  <>
-                    <PublicIcon fontSize="small" color="primary" />
-                    <Typography variant="body2">Public</Typography>
-                  </>
-                ) : (
-                  <>
-                    <LockIcon fontSize="small" color="action" />
-                    <Typography variant="body2">Private</Typography>
-                  </>
-                )}
-              </Box>
-            }
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+          <Box>
+            <Typography variant="subtitle2">
+              Share Design Docs
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Anyone with the link can view
+            </Typography>
+          </Box>
+          <Switch
+            checked={isPublicDesignDocs}
+            onChange={handlePublicToggle}
+            disabled={updatingPublic}
+            size="small"
           />
         </Box>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          {isPublicDesignDocs
-            ? 'Anyone with the link can view design docs without logging in.'
-            : 'Only users with project access can view design docs.'}
-        </Typography>
         {isPublicDesignDocs && (
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<ContentCopyIcon />}
-            onClick={copyPublicLink}
-            sx={{ fontSize: "0.75rem", mb: 1 }}
-          >
-            Copy Public Link
-          </Button>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1, 
+            mb: 1,
+            p: 1,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+          }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                flex: 1, 
+                fontFamily: 'monospace',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: 'text.secondary',
+              }}
+            >
+              {publicLink}
+            </Typography>
+            <Tooltip title="Copy link">
+              <IconButton size="small" onClick={copyPublicLink}>
+                <Copy size={14} />
+              </IconButton>
+            </Tooltip>
+          </Box>
         )}
 
         {/* Archive button */}
-        <Tooltip title="Hold Shift to skip confirmation">
-          <Button
-            size="small"
-            variant="outlined"
-            color="error"
-            startIcon={
-              isArchiving ? (
-                <CircularProgress size={14} color="inherit" />
-              ) : (
-                <ArchiveIcon />
-              )
-            }
-            onClick={handleArchiveClick}
-            disabled={isArchiving || task?.archived}
-            sx={{ mt: 2, fontSize: "0.75rem" }}
-          >
-            {isArchiving ? "Archiving..." : "Archive Task"}
-          </Button>
-        </Tooltip>
+        <Box sx={{ mt: 2 }}>
+          <Tooltip title="Hold Shift to skip confirmation">
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={
+                isArchiving ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <ArchiveIcon />
+                )
+              }
+              onClick={handleArchiveClick}
+              disabled={isArchiving || task?.archived}
+              sx={{ fontSize: "0.75rem" }}
+            >
+              {isArchiving ? "Archiving..." : "Archive Task"}
+            </Button>
+          </Tooltip>
+        </Box>
       </Box>
     </>
   );
