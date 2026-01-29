@@ -273,7 +273,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
 	helixAppIDChanged := false
 	if task.HelixAppID == "" {
-		// First try project's default agent
+		// Try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			helixAppIDChanged = true
@@ -281,12 +281,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 				Str("task_id", task.ID).
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
-		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			helixAppIDChanged = true
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
 		}
+		// No fallback to system default - leave empty and use defaults
 	}
 
 	log.Info().
@@ -626,20 +622,16 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	if task.HelixAppID == "" {
-		// First try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			log.Info().
 				Str("task_id", task.ID).
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
-		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
 		}
+		// No fallback to system default - leave empty and use defaults
 	}
 
 	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
