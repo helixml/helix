@@ -2,124 +2,109 @@
 
 ## Architecture Overview
 
-The Helix project uses a dual-branch setup:
-- **main branch** (`~/work/helix-4`): Contains the actual Helix codebase with `./stack` script
-- **helix-specs branch** (`~/work/helix-specs`): Git worktree containing design docs and `.helix/startup.sh`
+The Helix-in-Helix development setup involves:
 
-## Workspace Setup Flow
+- **helix-4** (`~/work/helix-4`): Main Helix codebase on `main` branch, contains `./stack` script
+- **helix-specs** (`~/work/helix-specs`): Git worktree of helix-4 on `helix-specs` branch, contains design docs and `.helix/startup.sh`
+- **zed-4, qwen-code-4**: Sister repositories needed by the `./stack` script
 
-1. **Hydra Executor** (`api/pkg/external-agent/hydra_executor.go`):
-   - Sets `HELIX_REPOSITORIES` env var with repo IDs, names, and types
-   - Sets `HELIX_PRIMARY_REPO_NAME` for the main repository
-   - Starts dev container with these environment variables
+## Issue 1: Docker Compose Shim Bug
 
-2. **helix-workspace-setup.sh** (`desktop/shared/helix-workspace-setup.sh`):
-   - Sources `helix-specs-create.sh` for helper functions
-   - Clones all repositories listed in `HELIX_REPOSITORIES`
-   - Calls `create_helix_specs_branch()` to create helix-specs orphan branch if needed
-   - Creates helix-specs worktree at `~/work/helix-specs` using `git worktree add`
-   - ✅ This works correctly - the worktree is created
+### Problem
 
-3. **Zed/IDE Startup**:
-   - ❌ The helix-specs worktree path is NOT included in the project roots
-   - This means tools/AI can't access files in the helix-specs directory
-   - Need to add `~/work/helix-specs` to the list of project root directories
+The docker-shim at `desktop/docker-shim/compose.go` incorrectly passes "compose" as the first argument when calling the real compose plugin.
 
-4. **User's startup script** (`helix-specs/.helix/startup.sh`):
-   - Runs AFTER workspace setup
-   - Should find repos already cloned and helix-specs worktree already created
-   - Performs project-specific build and startup tasks
+### Root Cause Analysis
 
-## Key Issues and Solutions
+When `docker compose version` is invoked:
 
-### 1. Docker Compose Shim Bug
+1. Docker CLI calls the compose plugin at `/usr/libexec/docker/cli-plugins/docker-compose` (which is symlinked to docker-shim)
+2. The shim receives `args = ["compose", "version"]`
+3. The shim extracts `pluginName = "compose"` and processes the remaining args
+4. It builds `finalArgs = ["compose", "-p", "helix-task-1124", "version"]`
+5. It calls `execReal(ComposeRealPath, finalArgs)` where `ComposeRealPath = "/usr/libexec/docker/cli-plugins/docker-compose.real"`
+6. `execReal` builds `argv = ["/usr/libexec/docker/cli-plugins/docker-compose.real", "compose", "-p", ...]`
+7. The real plugin receives "compose" as its first argument and fails with "unknown docker command: compose compose"
 
-**Problem**: The docker-shim at `desktop/docker-shim/compose.go` incorrectly adds "compose" as the first argument when calling the real compose plugin, causing double-compose error.
+### Verified Behavior
 
-**Root Cause**: Docker CLI plugins don't expect "compose" as the first argument when called directly. The shim preserves the "compose" argument from `docker compose` invocations and passes it to `docker-compose.real`, which already knows it's compose.
+```bash
+# Direct call to real plugin works:
+/usr/libexec/docker/cli-plugins/docker-compose.real version
+# Output: Docker Compose version v5.0.2
 
-**Solution**: Remove the pluginName from finalArgs when calling the real compose plugin.
+# With "compose" as first arg fails:
+/usr/libexec/docker/cli-plugins/docker-compose.real compose version
+# Output: unknown docker command: "compose compose"
+```
 
-**Code Change Required**:
+### Solution
+
+Remove the `pluginName` from `finalArgs` in `compose.go`. The Docker CLI plugin protocol does NOT expect the plugin to receive its own name as an argument - that's only passed by docker to the shim for routing purposes.
+
+**Code change in `desktop/docker-shim/compose.go` around line 35-40:**
+
 ```go
-// In compose.go runCompose() function (around line 40):
-// Don't add pluginName to finalArgs when calling the real plugin
+// Build final arguments
 finalArgs := make([]string, 0, len(newArgs)+len(projectArgs))
-// REMOVE THIS LINE: if pluginName != "" { finalArgs = append(finalArgs, pluginName) }
+// REMOVED: if pluginName != "" { finalArgs = append(finalArgs, pluginName) }
 finalArgs = append(finalArgs, projectArgs...)
 finalArgs = append(finalArgs, newArgs...)
 ```
 
-### 2. helix-specs Worktree Not in Project Roots
+## Issue 2: helix-specs Not in Project Roots
 
-**Problem**: The helix-specs worktree is created correctly at `~/work/helix-specs`, but it's NOT included in the list of project root directories passed to Zed/the IDE.
+### Problem
 
-**Root Cause**: When setting up the project roots for the IDE, only the cloned repositories are included. The helix-specs worktree is created as a separate step and isn't added to the project roots list.
+The helix-specs worktree is created correctly at `~/work/helix-specs` by `helix-workspace-setup.sh`, but it's NOT included in the list of project root directories passed to Zed. This means AI tools and the IDE cannot access files in the helix-specs directory.
 
-**Where to Fix**: Find where project roots are configured for Zed/IDE startup and add the helix-specs worktree path.
+### Where to Fix
 
-**Investigation needed**:
-1. Where does Hydra Executor or Zed launcher configure the project root directories?
-2. Is it in the Zed workspace configuration?
-3. Is it passed as command-line arguments or environment variables?
-4. Should helix-specs be added automatically for any project with a primary repo?
+The project roots are configured when launching Zed. Need to investigate:
+- `api/pkg/external-agent/hydra_executor.go` - builds the DesktopAgent with RepositoryIDs
+- How Zed workspace is configured with project directories
+- Whether helix-specs should be added as a pseudo-repository or handled specially
 
-**Solution Options**:
-- **Option A**: Add helix-specs to project roots in Hydra Executor when launching Zed
-- **Option B**: Update Zed workspace configuration after worktree is created
-- **Option C**: Add helix-specs path to the list of repositories in DesktopAgent.RepositoryIDs
+### Solution
 
-### 3. Startup Script Execution Context
+Add `~/work/helix-specs` to the project roots after the worktree is created. This could be done by:
+1. Adding it to the Zed workspace configuration
+2. Treating it as an additional repository path in the executor
+3. Modifying the workspace setup to register it with Zed
 
-**Problem**: The startup script needs to handle the actual directory structure (numbered directories like helix-4) and ensure the main repo is on the main branch.
+## Issue 3: Startup Script Assumptions
 
-**Current Behavior**: Script renames `helix-4 → helix` and creates symlinks. This works but could be cleaner.
+### Problem
 
-**Solution**: Update the startup script to:
-1. Work with the actual numbered directory names (helix-4, zed-4, qwen-code-4)
-2. Ensure helix-4 is on main branch before running `./stack` commands
-3. Verify the helix-specs worktree exists at ~/work/helix-specs
-4. Provide clear error messages if worktree doesn't exist
+The startup script at `helix-specs/.helix/startup.sh` has several issues:
 
-### 4. Idempotency
+1. **Directory renaming logic**: Renames `helix-4` to `helix` and creates symlinks. This works but:
+   - The `./stack` script expects `../zed` and `../qwen-code` relative paths
+   - After renaming, paths resolve correctly
+   - However, the numbered directories (helix-4, zed-4, qwen-code-4) are what the API creates and what tools expect
 
-**Current State**: Script partially handles re-runs (checks for existing symlinks, checks for tmux/yarn).
+2. **Branch assumption**: Script assumes helix repo is on main branch, but doesn't verify this
 
-**Improvements Needed**:
-- Check if yarn installation is in progress before retrying
-- Handle case where build is already running
-- Gracefully handle existing tmux sessions
-- Add better error messages and continue/skip logic
+3. **Non-idempotent tmux**: `./stack start` may fail if tmux session already exists
 
-## Design Decisions
+### Solution
 
-1. **Add helix-specs to project roots automatically**: When a project has a primary repository, automatically include the helix-specs worktree as a project root
-2. **Fix docker-shim in main branch**: This is a code bug that affects all compose usage (separate commit)
-3. **Make startup script defensive**: Script should check if worktree exists and provide helpful error if not
-4. **Find the right place to add helix-specs**: Need to identify where project roots are configured
+Update the startup script to:
+1. Keep the symlink creation logic (it works correctly)
+2. Add a check that the helix directory is on the `main` branch before building
+3. Handle existing tmux sessions gracefully
+4. Improve error messages
 
-## Things Learned from Codebase
+## Implementation Order
 
-- The `./stack` script has built-in Helix-in-Helix detection (`detect_helix_in_helix` function)
-- Docker-shim provides path translation and BuildKit cache injection
-- The project expects `$PROJECTS_ROOT/{zed,qwen-code}` to exist alongside helix
-- Numbered directories (helix-4, etc.) are an API quirk from the git server cloning
-- helix-workspace-setup.sh is responsible for ALL workspace prep (repos, branches, worktree, hooks)
-- The startup script runs AFTER workspace-setup, so worktree should already exist
-- `helix-specs-create.sh` creates the orphan branch if it doesn't exist remotely
-- Worktree creation uses `git worktree add ~/work/helix-specs helix-specs`
-- **The worktree IS created, it's just not visible to tools because it's not in project roots**
+1. **Fix docker-shim** (main branch) - Unblocks all docker compose usage
+2. **Add helix-specs to project roots** (main branch) - Allows tools to access design docs
+3. **Improve startup script** (helix-specs branch) - Better error handling and idempotency
 
-## Constraints
+## Files to Modify
 
-- Startup script must remain in helix-specs branch
-- Docker-shim fix must go to main branch (different commit/PR)
-- Project roots configuration must go to main branch (wherever that is)
-- Script must work in Hydra desktop environment with DinD
-- Must handle both privileged (host Docker) and non-privileged modes
-
-## Open Questions
-
-1. Where are project roots configured for Zed/IDE? (Hydra Executor? Zed config? Environment variables?)
-2. Should helix-specs be added automatically for all projects with a primary repo?
-3. Should it be added as a separate "repository" in RepositoryIDs or as a special case?
+| File | Branch | Change |
+|------|--------|--------|
+| `desktop/docker-shim/compose.go` | main | Remove pluginName from finalArgs |
+| TBD (project roots config) | main | Add helix-specs worktree to project roots |
+| `.helix/startup.sh` | helix-specs | Improve error handling, add branch check |
