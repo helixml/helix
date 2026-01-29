@@ -63,38 +63,39 @@ The helix-specs worktree is NOT being created, and therefore not included in the
 /home/retro/work/zed-4
 ```
 
+### Context: Why HELIX_WORKING_BRANCH=helix-specs
+
+This session is a "fix the project startup script" task. The startup script lives at `.helix/startup.sh` in the helix-specs branch. So `HELIX_WORKING_BRANCH=helix-specs` is **intentionally correct** - we're editing files that live in the helix-specs branch.
+
+However, we ALSO need access to the main codebase to:
+- Fix the docker-shim bug in `desktop/docker-shim/compose.go`
+- Test the `./stack` build commands
+- Run the startup script
+
 ### Root Cause Analysis
 
 The bug is in the branch checkout logic in `helix-workspace-setup.sh` (lines 250-345).
 
-When a spec task uses the `helix-specs` branch:
-- `HELIX_BRANCH_MODE=existing`
-- `HELIX_WORKING_BRANCH=helix-specs`
-
-The script does this (line 268-275):
+When `HELIX_WORKING_BRANCH=helix-specs`:
 ```bash
 if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
     if [ -n "$HELIX_WORKING_BRANCH" ]; then
         git checkout "$HELIX_WORKING_BRANCH"  # Checks out helix-specs ON THE MAIN REPO!
 ```
 
-This checks out the `helix-specs` branch **directly on the primary repo (helix-4)**, instead of:
-1. Keeping the main repo on `main` branch
-2. Creating a separate worktree for `helix-specs`
-
-The consequences:
-1. The main repo (helix-4) ends up on `helix-specs` branch, which has no code (only design docs)
-2. The worktree creation code (lines 346-410) may fail or be skipped
-3. The `./stack` script doesn't exist on helix-specs branch, so builds fail
-4. `~/work/helix-specs` directory never gets created, so it's not added to ZED_FOLDERS
+This checks out the `helix-specs` branch **directly on the primary repo (helix-4)**, which:
+1. Leaves helix-4 on helix-specs branch (no code, no `./stack` script)
+2. Makes the worktree creation fail or be skipped (can't create worktree for current branch)
+3. Results in `~/work/helix-specs` never being created
+4. ZED_FOLDERS doesn't include helix-specs
 
 ### Solution
 
 The workspace setup script needs special handling for `helix-specs` branch:
 1. When `HELIX_WORKING_BRANCH=helix-specs`, DON'T checkout that branch on the main repo
-2. Keep the main repo on `main` branch (or `HELIX_BASE_BRANCH`)
-3. Create the helix-specs worktree as usual
-4. The worktree creation code already exists - just need to not corrupt the main repo first
+2. Keep the main repo on `main` branch (so code and `./stack` are available)
+3. Create the helix-specs worktree as usual (the code already exists at lines 346-410)
+4. Both directories are then available: helix-4 (code) and helix-specs (design docs)
 
 **Code change in `helix-workspace-setup.sh` around line 268:**
 ```bash
@@ -103,7 +104,7 @@ if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
         # Special case: helix-specs branch uses a worktree, not direct checkout
         if [ "$HELIX_WORKING_BRANCH" = "helix-specs" ]; then
             echo "  Mode: helix-specs branch (will use worktree)"
-            echo "  Keeping main repo on default branch"
+            echo "  Keeping main repo on default branch for code access"
             # Worktree will be created later in the script
         else
             echo "  Mode: Continue existing branch"

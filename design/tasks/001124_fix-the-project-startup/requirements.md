@@ -2,13 +2,16 @@
 
 ## Context
 
-The Helix-in-Helix development project has a startup script at `.helix/startup.sh` in the helix-specs branch. This script builds and starts the inner Helix development stack. The script should live in a git worktree (`~/work/helix-specs`) separate from the main code (`~/work/helix-4`).
+This is a "fix the project startup script" task. The startup script lives at `.helix/startup.sh` in the helix-specs branch. When working on helix-specs content (like this task), we need:
+
+1. The helix-specs worktree at `~/work/helix-specs` - to edit design docs and the startup script
+2. The main repo at `~/work/helix-4` on the `main` branch - to edit code (docker-shim) and run `./stack`
 
 ## Problems
 
 1. **Docker compose commands fail**: The docker-shim wrapper passes "compose" twice to the real plugin, causing "unknown docker command: compose compose" errors.
 
-2. **helix-specs worktree not created**: When `HELIX_WORKING_BRANCH=helix-specs`, the workspace setup script checks out the helix-specs branch directly on the main repo instead of creating a worktree. This leaves the main repo on the wrong branch (no code, no `./stack` script) and the `~/work/helix-specs` directory is never created.
+2. **helix-specs worktree not created**: When `HELIX_WORKING_BRANCH=helix-specs`, the workspace setup script checks out the helix-specs branch directly on the main repo instead of creating a worktree. This corrupts the main repo (no code, no `./stack` script) and the `~/work/helix-specs` worktree is never created.
 
 3. **Startup script fragility**: The script doesn't verify the repo is on the correct branch before building, and doesn't handle re-runs gracefully.
 
