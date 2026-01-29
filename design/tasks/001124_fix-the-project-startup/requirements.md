@@ -1,5 +1,7 @@
 # Requirements: Fix Project Startup Script
 
+**Note:** This task is meta - it is both running inside a Helix spec task session AND working on fixing the Helix spec task setup itself. The issues we're experiencing are the very issues we're trying to fix.
+
 ## Context
 
 This task fixes issues with the Helix-in-Helix development project startup. The correct workspace setup should be:
