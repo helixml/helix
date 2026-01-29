@@ -10,11 +10,11 @@
 
 ## Fix Task Branch Configuration (Feature Branch)
 
-- [~] Find where "let AI fix your startup script" button sets branch configuration
-- [ ] Ensure `helix-specs` is never used as a feature branch name (it's reserved for the spec documents worktree)
-- [ ] Tasks should get proper feature branch names like `feature/001124-fix-the-project-startup`
+- [x] Find where "let AI fix your startup script" button sets branch configuration
+- [x] Ensure `helix-specs` is never used as a feature branch name (it's reserved for the spec documents worktree)
+- [x] Tasks should get proper feature branch names like `feature/001124-fix-the-project-startup`
 - [ ] Test: Click "let AI fix your startup script" and verify task gets a feature branch name, not `helix-specs`
-- [ ] Commit to feature branch
+- [x] Commit to feature branch
 
 ## Fix Workspace Setup (Feature Branch)
 
@@ -44,7 +44,7 @@
 
 ## Git Commits
 
-- [x] Push docker-shim fix to feature branch
-- [ ] Push task creation fix to feature branch
-- [x] Push workspace setup fix to feature branch
+- [x] Push docker-shim fix to feature branch (commit 3aaa6dca0)
+- [x] Push task creation fix to feature branch (commit 2d654218c)
+- [x] Push workspace setup fix to feature branch (commit c53f80ebf)
 - [x] Push startup script improvements directly from `~/work/helix-specs` worktree to helix-specs branch
