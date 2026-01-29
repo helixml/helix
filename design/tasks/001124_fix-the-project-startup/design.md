@@ -56,21 +56,61 @@ finalArgs = append(finalArgs, newArgs...)
 
 ### Problem
 
-The helix-specs worktree is created correctly at `~/work/helix-specs` by `helix-workspace-setup.sh`, but it's NOT included in the list of project root directories passed to Zed. This means AI tools and the IDE cannot access files in the helix-specs directory.
+The helix-specs worktree is NOT being created, and therefore not included in the project roots. The `~/.helix-zed-folders` file only contains:
+```
+/home/retro/work/helix-4
+/home/retro/work/qwen-code-4
+/home/retro/work/zed-4
+```
 
-### Where to Fix
+### Root Cause Analysis
 
-The project roots are configured when launching Zed. Need to investigate:
-- `api/pkg/external-agent/hydra_executor.go` - builds the DesktopAgent with RepositoryIDs
-- How Zed workspace is configured with project directories
-- Whether helix-specs should be added as a pseudo-repository or handled specially
+The bug is in the branch checkout logic in `helix-workspace-setup.sh` (lines 250-345).
+
+When a spec task uses the `helix-specs` branch:
+- `HELIX_BRANCH_MODE=existing`
+- `HELIX_WORKING_BRANCH=helix-specs`
+
+The script does this (line 268-275):
+```bash
+if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
+    if [ -n "$HELIX_WORKING_BRANCH" ]; then
+        git checkout "$HELIX_WORKING_BRANCH"  # Checks out helix-specs ON THE MAIN REPO!
+```
+
+This checks out the `helix-specs` branch **directly on the primary repo (helix-4)**, instead of:
+1. Keeping the main repo on `main` branch
+2. Creating a separate worktree for `helix-specs`
+
+The consequences:
+1. The main repo (helix-4) ends up on `helix-specs` branch, which has no code (only design docs)
+2. The worktree creation code (lines 346-410) may fail or be skipped
+3. The `./stack` script doesn't exist on helix-specs branch, so builds fail
+4. `~/work/helix-specs` directory never gets created, so it's not added to ZED_FOLDERS
 
 ### Solution
 
-Add `~/work/helix-specs` to the project roots after the worktree is created. This could be done by:
-1. Adding it to the Zed workspace configuration
-2. Treating it as an additional repository path in the executor
-3. Modifying the workspace setup to register it with Zed
+The workspace setup script needs special handling for `helix-specs` branch:
+1. When `HELIX_WORKING_BRANCH=helix-specs`, DON'T checkout that branch on the main repo
+2. Keep the main repo on `main` branch (or `HELIX_BASE_BRANCH`)
+3. Create the helix-specs worktree as usual
+4. The worktree creation code already exists - just need to not corrupt the main repo first
+
+**Code change in `helix-workspace-setup.sh` around line 268:**
+```bash
+if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
+    if [ -n "$HELIX_WORKING_BRANCH" ]; then
+        # Special case: helix-specs branch uses a worktree, not direct checkout
+        if [ "$HELIX_WORKING_BRANCH" = "helix-specs" ]; then
+            echo "  Mode: helix-specs branch (will use worktree)"
+            echo "  Keeping main repo on default branch"
+            # Worktree will be created later in the script
+        else
+            echo "  Mode: Continue existing branch"
+            echo "  Checking out branch: $HELIX_WORKING_BRANCH"
+            # ... existing checkout logic
+        fi
+```
 
 ## Issue 3: Startup Script Assumptions
 
@@ -106,5 +146,5 @@ Update the startup script to:
 | File | Branch | Change |
 |------|--------|--------|
 | `desktop/docker-shim/compose.go` | main | Remove pluginName from finalArgs |
-| TBD (project roots config) | main | Add helix-specs worktree to project roots |
+| `desktop/shared/helix-workspace-setup.sh` | main | Don't checkout helix-specs directly on main repo |
 | `.helix/startup.sh` | helix-specs | Improve error handling, add branch check |

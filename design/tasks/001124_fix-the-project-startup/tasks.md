@@ -9,12 +9,14 @@
 - [ ] Rebuild shim if needed: `cd desktop/docker-shim && go build -o /usr/local/bin/docker-shim`
 - [ ] Commit to main branch
 
-## Add helix-specs to Project Roots (Main Branch)
+## Fix helix-specs Branch Handling (Main Branch)
 
-- [ ] Investigate where Zed project roots are configured (Hydra Executor? Zed workspace config?)
-- [ ] Find the code that passes repository paths to Zed
-- [ ] Add `~/work/helix-specs` to the list of project roots when the worktree exists
-- [ ] Test: Verify helix-specs appears as a project root in Zed
+- [ ] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
+- [ ] In the branch checkout section (around line 268), add special handling for `helix-specs` branch
+- [ ] When `HELIX_WORKING_BRANCH=helix-specs`, skip the direct checkout and let worktree handle it
+- [ ] Keep the main repo on `main` branch (or base branch)
+- [ ] Test: Verify helix-specs worktree is created at `~/work/helix-specs`
+- [ ] Test: Verify helix-specs appears in `~/.helix-zed-folders`
 - [ ] Test: Verify AI tools can read/write files in helix-specs directory
 - [ ] Commit to main branch
 
