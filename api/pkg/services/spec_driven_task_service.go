@@ -121,9 +121,27 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	// Determine which agent to use (single agent for entire workflow)
-	helixAppID := s.helixAgentID
+	// Priority: request.AppID > project.DefaultHelixAppID > error if not found
+	helixAppID := ""
 	if req.AppID != "" {
 		helixAppID = req.AppID
+	} else if req.ProjectID != "" {
+		// Check project's default agent
+		project, err := s.store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project: %w", err)
+		}
+		if project != nil && project.DefaultHelixAppID != "" {
+			helixAppID = project.DefaultHelixAppID
+		}
+	}
+
+	// Validate that the app exists if one is configured
+	if helixAppID != "" {
+		app, err := s.store.GetApp(ctx, helixAppID)
+		if err != nil || app == nil {
+			return nil, fmt.Errorf("configured agent '%s' not found - check project settings", helixAppID)
+		}
 	}
 
 	// Default branch mode to "new" if not specified
@@ -263,10 +281,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	helixAppIDChanged := false
 	if task.HelixAppID == "" {
-		// First try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			helixAppIDChanged = true
@@ -275,10 +292,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
 		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			helixAppIDChanged = true
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
 	}
 
@@ -619,9 +634,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	if task.HelixAppID == "" {
-		// First try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			log.Info().
@@ -629,9 +643,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
 		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
 	}
 
@@ -1583,16 +1596,22 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		displayRefreshRate = 60
 	}
 
-	// Get desktop type from app config (same logic as StartSpecGeneration)
-	desktopType := ""
+	// Get desktop type from app config
+	// Task must have a valid HelixAppID - error if not found
+	desktopType := "ubuntu" // Default
 	if task.HelixAppID != "" {
 		app, err := s.store.GetApp(ctx, task.HelixAppID)
-		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
-			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		if err != nil || app == nil {
+			return fmt.Errorf("configured agent '%s' not found - check project settings", task.HelixAppID)
 		}
-	}
-	if desktopType == "" {
-		desktopType = "ubuntu" // Default to ubuntu, not sway
+		if app.Config.Helix.ExternalAgentConfig != nil {
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Str("app_id", task.HelixAppID).
+				Str("desktop_type", desktopType).
+				Msg("Got desktop type from app config")
+		}
 	}
 
 	// Build the ZedAgent for restart
