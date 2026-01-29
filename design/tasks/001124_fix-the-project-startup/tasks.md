@@ -18,12 +18,12 @@
 
 ## Fix Workspace Setup (Feature Branch)
 
-- [~] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
-- [ ] Add defensive handling: if `HELIX_WORKING_BRANCH=helix-specs`, don't checkout directly
-- [ ] Keep main repo on default branch and let worktree creation handle helix-specs
+- [x] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
+- [x] Add defensive handling: if `HELIX_WORKING_BRANCH=helix-specs`, don't checkout directly
+- [x] Keep main repo on default branch and let worktree creation handle helix-specs
 - [ ] Test: Verify helix-specs worktree is created at `~/work/helix-specs`
 - [ ] Test: Verify both helix-4 and helix-specs appear in `~/.helix-zed-folders`
-- [ ] Commit to main branch
+- [x] Commit to feature branch
 
 ## Fix Startup Script (helix-specs Worktree)
 
@@ -46,5 +46,5 @@
 
 - [x] Push docker-shim fix to feature branch
 - [ ] Push task creation fix to feature branch
-- [ ] Push workspace setup fix to feature branch
-- [ ] Push startup script improvements directly from `~/work/helix-specs` worktree to helix-specs branch
+- [x] Push workspace setup fix to feature branch
+- [x] Push startup script improvements directly from `~/work/helix-specs` worktree to helix-specs branch
