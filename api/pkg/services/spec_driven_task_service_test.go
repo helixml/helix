@@ -45,6 +45,13 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	}
 
 	// Mock expectations
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
+		ID:                 "test-project",
+		DefaultHelixAppID:  "test-app-id",
+	}, nil)
+	mockStore.EXPECT().GetApp(ctx, "test-app-id").Return(&types.App{
+		ID: "test-app-id",
+	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(ctx context.Context, task *types.SpecTask) error {
