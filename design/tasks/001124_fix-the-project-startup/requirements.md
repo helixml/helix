@@ -13,7 +13,7 @@ Both should exist simultaneously. Changes to code (like docker-shim) go to the f
 
 1. **Docker compose commands fail**: The docker-shim wrapper passes "compose" twice to the real plugin, causing "unknown docker command: compose compose" errors.
 
-2. **Wrong branch configuration**: This session was incorrectly created with `HELIX_WORKING_BRANCH=helix-specs` instead of a feature branch. This causes the workspace setup to checkout helix-specs directly on helix-4 (corrupting it) instead of creating a worktree.
+2. **Wrong branch configuration**: Tasks started by the "let AI fix your startup script" button are incorrectly created with `HELIX_WORKING_BRANCH=helix-specs` instead of a feature branch. This causes the workspace setup to checkout helix-specs directly on helix-4 (corrupting it) instead of creating a worktree.
 
 3. **Startup script fragility**: The script doesn't verify prerequisites before building, and doesn't handle re-runs gracefully.
 
