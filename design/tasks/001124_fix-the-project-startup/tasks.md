@@ -2,7 +2,7 @@
 
 ## Fix Docker Compose Shim (Feature Branch)
 
-- [ ] Edit `helix-4/desktop/docker-shim/compose.go`
+- [~] Edit `helix-4/desktop/docker-shim/compose.go`
 - [ ] Remove `pluginName` from `finalArgs` (around line 35-40)
 - [ ] Test: `docker compose version` should work
 - [ ] Test: `docker compose -f docker-compose.dev.yaml config --services` should work
