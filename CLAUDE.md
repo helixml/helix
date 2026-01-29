@@ -49,6 +49,36 @@ See also: `.cursor/rules/*.mdc`
 - **Both hot-reload in dev mode** — no manual restart needed for API or frontend code changes
 - **Settings-sync-daemon does NOT hot reload** — it runs inside the helix-ubuntu container, so changes to `zed_config.go` or related code require rebuilding the desktop image with `./stack build-ubuntu` and starting a NEW session
 
+### Production Frontend Mode
+For demos or slow connections, serve the production build instead of Vite dev server:
+
+```bash
+# 1. Build the frontend
+cd frontend && yarn build && cd ..
+
+# 2. Enable production mode (add to .env)
+echo "FRONTEND_URL=/www" >> .env
+
+# 3. Restart API to pick up the change
+docker compose -f docker-compose.dev.yaml up -d api
+```
+
+**When making frontend changes in this mode**, you must rebuild:
+```bash
+cd frontend && yarn build
+# Then just refresh the browser - no container restart needed
+```
+
+**Cache headers** are automatically set:
+- `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
+- `/assets/*`: `max-age=1year, immutable` (Vite hashes filenames)
+
+**To switch back to dev mode** (Vite HMR):
+```bash
+sed -i '/^FRONTEND_URL=/d' .env
+docker compose -f docker-compose.dev.yaml up -d api
+```
+
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
