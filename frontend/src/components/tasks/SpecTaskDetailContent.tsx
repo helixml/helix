@@ -338,8 +338,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   };
 
   const copyPublicLink = async () => {
-    await navigator.clipboard.writeText(publicLink);
-    snackbar.success('Link copied to clipboard!');
+    try {
+      await navigator.clipboard.writeText(publicLink);
+      snackbar.success('Link copied to clipboard!');
+    } catch (err) {
+      snackbar.error('Failed to copy link');
+    }
   };
 
   // Fetch clone groups where this task was the source
