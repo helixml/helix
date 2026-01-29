@@ -30,7 +30,7 @@ Both should exist simultaneously. Changes to code (like docker-shim) go to the f
 
 ## Notes
 
-- Docker-shim fix goes to main branch
-- Task creation fix goes to main branch
-- Workspace setup fix goes to main branch
-- Startup script improvements go to helix-specs branch
+- Docker-shim fix goes to a feature branch (then merged to main)
+- Task creation fix goes to a feature branch (then merged to main)
+- Workspace setup fix goes to a feature branch (then merged to main)
+- Startup script improvements go directly to helix-specs branch
