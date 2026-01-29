@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-## Fix Docker Compose Shim (Main Branch)
+## Fix Docker Compose Shim (Feature Branch)
 
 - [ ] Edit `helix-4/desktop/docker-shim/compose.go`
 - [ ] Remove `pluginName` from `finalArgs` (around line 35-40)
@@ -8,7 +8,7 @@
 - [ ] Test: `docker compose -f docker-compose.dev.yaml config --services` should work
 - [ ] Commit to main branch
 
-## Fix Task Branch Configuration (Main Branch)
+## Fix Task Branch Configuration (Feature Branch)
 
 - [ ] Find where tasks get their branch name set to `helix-specs` incorrectly
 - [ ] Ensure tasks always get a feature branch name (e.g., `feature/001124-fix-the-project-startup`)
@@ -16,7 +16,7 @@
 - [ ] Test: Create a new task and verify it gets a feature branch name
 - [ ] Commit to main branch
 
-## Fix Workspace Setup (Main Branch)
+## Fix Workspace Setup (Feature Branch)
 
 - [ ] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
 - [ ] Add defensive handling: if `HELIX_WORKING_BRANCH=helix-specs`, don't checkout directly
@@ -44,7 +44,7 @@
 
 ## Git Commits
 
-- [ ] Push docker-shim fix to main branch
-- [ ] Push task creation fix to main branch
-- [ ] Push workspace setup fix to main branch
+- [ ] Push docker-shim fix to feature branch
+- [ ] Push task creation fix to feature branch
+- [ ] Push workspace setup fix to feature branch
 - [ ] Push startup script improvements to helix-specs branch
