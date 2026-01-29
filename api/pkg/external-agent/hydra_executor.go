@@ -656,7 +656,7 @@ func (h *HydraExecutor) parseContainerType(desktopType string) string {
 	case "headless":
 		return "headless"
 	default:
-		return "sway" // Default to Sway
+		return "ubuntu" // Default to Ubuntu (GNOME)
 	}
 }
 
@@ -1084,9 +1084,9 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	for _, container := range containerList.Containers {
 		sessionID := container.SessionID
 		if _, exists := h.sessions[sessionID]; !exists {
-			containerType := "sway"
-			if strings.Contains(container.ContainerName, "ubuntu") {
-				containerType = "ubuntu"
+			containerType := "ubuntu" // Default to Ubuntu
+			if strings.Contains(container.ContainerName, "sway") {
+				containerType = "sway"
 			}
 			containersToAdd = append(containersToAdd, containerToAdd{
 				sessionID:     sessionID,

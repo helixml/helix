@@ -121,9 +121,16 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	// Determine which agent to use (single agent for entire workflow)
-	helixAppID := s.helixAgentID
+	// Priority: request.AppID > project.DefaultHelixAppID > empty (will be set later)
+	helixAppID := ""
 	if req.AppID != "" {
 		helixAppID = req.AppID
+	} else if req.ProjectID != "" {
+		// Check project's default agent
+		project, err := s.store.GetProject(ctx, req.ProjectID)
+		if err == nil && project != nil && project.DefaultHelixAppID != "" {
+			helixAppID = project.DefaultHelixAppID
+		}
 	}
 
 	// Default branch mode to "new" if not specified
@@ -1584,11 +1591,31 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	}
 
 	// Get desktop type from app config (same logic as StartSpecGeneration)
+	// Try task's HelixAppID first, fall back to project's DefaultHelixAppID
 	desktopType := ""
+	appIDsToTry := []string{}
 	if task.HelixAppID != "" {
-		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		appIDsToTry = append(appIDsToTry, task.HelixAppID)
+	}
+	// Get project for fallback app ID
+	if task.ProjectID != "" {
+		proj, err := s.store.GetProject(ctx, task.ProjectID)
+		if err == nil && proj != nil && proj.DefaultHelixAppID != "" && proj.DefaultHelixAppID != task.HelixAppID {
+			appIDsToTry = append(appIDsToTry, proj.DefaultHelixAppID)
+		}
+	}
+	for _, appID := range appIDsToTry {
+		app, err := s.store.GetApp(ctx, appID)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
 			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			if desktopType != "" {
+				log.Debug().
+					Str("task_id", task.ID).
+					Str("app_id", appID).
+					Str("desktop_type", desktopType).
+					Msg("Got desktop type from app config")
+				break
+			}
 		}
 	}
 	if desktopType == "" {
