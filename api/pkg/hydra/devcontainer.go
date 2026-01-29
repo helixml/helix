@@ -175,6 +175,121 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		}
 	}
 
+	// Check if container with this name already exists
+	// This handles cases where:
+	// 1. API restarted but container is still running
+	// 2. Previous start request failed after container creation but before DB update
+	existingContainer, err := dockerClient.ContainerInspect(ctx, req.ContainerName)
+	if err == nil {
+		// Container exists - check its state
+		if existingContainer.State.Running {
+			// Container is already running - return success
+			log.Info().
+				Str("session_id", req.SessionID).
+				Str("container_id", existingContainer.ID).
+				Str("container_name", req.ContainerName).
+				Msg("Container already running, returning existing container")
+
+			// Get IP address
+			var ipAddress string
+			if existingContainer.HostConfig.NetworkMode.IsHost() {
+				ipAddress = "host"
+			} else {
+				for _, network := range existingContainer.NetworkSettings.Networks {
+					if network.IPAddress != "" {
+						ipAddress = network.IPAddress
+						break
+					}
+				}
+				if ipAddress == "" {
+					ipAddress = existingContainer.NetworkSettings.IPAddress
+				}
+			}
+			if ipAddress == "" {
+				ipAddress = "host"
+			}
+
+			// Track container in our map
+			dm.mu.Lock()
+			dm.containers[req.SessionID] = &DevContainer{
+				SessionID:     req.SessionID,
+				ContainerID:   existingContainer.ID,
+				ContainerName: req.ContainerName,
+				IPAddress:     ipAddress,
+			}
+			dm.mu.Unlock()
+
+			return &DevContainerResponse{
+				ContainerID:   existingContainer.ID,
+				ContainerName: req.ContainerName,
+				IPAddress:     ipAddress,
+			}, nil
+		}
+
+		// Container exists but is stopped - start it
+		log.Info().
+			Str("session_id", req.SessionID).
+			Str("container_id", existingContainer.ID).
+			Str("container_name", req.ContainerName).
+			Str("state", existingContainer.State.Status).
+			Msg("Container exists but stopped, starting it")
+
+		if err := dockerClient.ContainerStart(ctx, existingContainer.ID, container.StartOptions{}); err != nil {
+			// Failed to start - remove and create new
+			log.Warn().Err(err).
+				Str("container_id", existingContainer.ID).
+				Msg("Failed to start existing container, removing and creating new")
+			dockerClient.ContainerRemove(ctx, existingContainer.ID, container.RemoveOptions{Force: true})
+		} else {
+			// Started successfully - get updated info and return
+			inspect, err := dockerClient.ContainerInspect(ctx, existingContainer.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to inspect started container: %w", err)
+			}
+
+			var ipAddress string
+			if inspect.HostConfig.NetworkMode.IsHost() {
+				ipAddress = "host"
+			} else {
+				for _, network := range inspect.NetworkSettings.Networks {
+					if network.IPAddress != "" {
+						ipAddress = network.IPAddress
+						break
+					}
+				}
+				if ipAddress == "" {
+					ipAddress = inspect.NetworkSettings.IPAddress
+				}
+			}
+			if ipAddress == "" {
+				ipAddress = "host"
+			}
+
+			// Track container
+			dm.mu.Lock()
+			dm.containers[req.SessionID] = &DevContainer{
+				SessionID:     req.SessionID,
+				ContainerID:   existingContainer.ID,
+				ContainerName: req.ContainerName,
+				IPAddress:     ipAddress,
+			}
+			dm.mu.Unlock()
+
+			log.Info().
+				Str("session_id", req.SessionID).
+				Str("container_id", existingContainer.ID).
+				Str("container_name", req.ContainerName).
+				Msg("Existing container started successfully")
+
+			return &DevContainerResponse{
+				ContainerID:   existingContainer.ID,
+				ContainerName: req.ContainerName,
+				IPAddress:     ipAddress,
+			}, nil
+		}
+	}
+	// Container doesn't exist (or was removed above) - create new one
+
 	// Create container
 	resp, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
 	if err != nil {
