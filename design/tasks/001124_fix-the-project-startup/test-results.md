@@ -107,12 +107,21 @@ However, the script has not been tested in a fresh session yet.
 ## Git History
 
 ```
+d5273d2a8 Improve 'Fix Startup Script' prompt: mention feature branch availability
 2d654218c Fix task creation: use feature branch instead of helix-specs for code changes
 c53f80ebf Fix workspace setup: don't checkout helix-specs directly on main repo
 3aaa6dca0 Fix docker-shim: don't pass 'compose' to the real plugin
 ```
 
 All commits pushed to `feature/001124-fix-the-project-startup` branch.
+
+### Latest Improvement (commit d5273d2a8)
+Updated the "Fix Startup Script" button's prompt to clarify workspace structure:
+- Mentions that a feature branch exists on the primary repo
+- Explains it's available for code changes if needed
+- Notes that the AI probably won't need it unless the user asks
+
+This helps the AI understand the dual-branch setup without confusion about which branch to use for which purpose.
 
 ## Acceptance Criteria Status
 
