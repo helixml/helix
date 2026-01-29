@@ -65,14 +65,16 @@ finalArgs = append(finalArgs, newArgs...)
 
 ### Problem
 
-The current session has:
+The current session was originally created with:
 ```
 HELIX_WORKING_BRANCH=helix-specs
 HELIX_BASE_BRANCH=helix-specs
 HELIX_BRANCH_MODE=existing
 ```
 
-This is incorrect. The task should have a feature branch (e.g., `feature/001124-fix-the-project-startup`) as the working branch, NOT `helix-specs`.
+This is incorrect. The `helix-specs` branch is **reserved** for storing spec documents via a worktree - it should never be used as a feature branch. Tasks should have a feature branch (e.g., `feature/001124-fix-the-project-startup`) as the working branch.
+
+**This task's configuration has been fixed in the database** to use `feature/001124-fix-the-project-startup` as the branch name, but the underlying bug in task creation needs to be fixed.
 
 ### Consequences
 
@@ -85,16 +87,17 @@ When `HELIX_WORKING_BRANCH=helix-specs`:
 
 ### Root Cause
 
-The task was created with the wrong branch configuration. Tasks should always get a feature branch name, even when they involve editing files in helix-specs.
+Tasks started by the "let AI fix your startup script" button incorrectly set `branch_name=helix-specs`. The task creation code needs to ensure that `helix-specs` is never used as a feature branch name since it's reserved for the spec documents worktree.
 
 ### Solution
 
 Two fixes needed:
 
-1. **Task creation fix**: Ensure tasks always get a proper feature branch name, not `helix-specs`
+1. **Task creation fix**: Ensure `helix-specs` is never used as a feature branch name. The task creation code (particularly for "let AI fix your startup script" button) must generate a proper feature branch name like `feature/001124-fix-the-project-startup`.
 
 2. **Workspace setup defensive fix**: Even if `HELIX_WORKING_BRANCH=helix-specs` is passed (incorrectly), the workspace setup should handle it gracefully by:
    - NOT checking out helix-specs directly on the main repo
+   - Logging a warning that helix-specs is reserved
    - Creating the helix-specs worktree instead
 
 **Code change in `helix-workspace-setup.sh` around line 268:**
