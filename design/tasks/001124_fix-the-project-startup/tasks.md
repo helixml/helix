@@ -2,11 +2,11 @@
 
 ## Fix Docker Compose Shim (Feature Branch)
 
-- [~] Edit `helix-4/desktop/docker-shim/compose.go`
-- [ ] Remove `pluginName` from `finalArgs` (around line 35-40)
-- [ ] Test: `docker compose version` should work
-- [ ] Test: `docker compose -f docker-compose.dev.yaml config --services` should work
-- [ ] Commit to main branch
+- [x] Edit `helix-4/desktop/docker-shim/compose.go`
+- [x] Remove `pluginName` from `finalArgs` (around line 35-40)
+- [x] Test: `docker compose version` should work
+- [x] Test: `docker compose -f docker-compose.dev.yaml config --services` should work
+- [ ] Commit to feature branch
 
 ## Fix Task Branch Configuration (Feature Branch)
 
