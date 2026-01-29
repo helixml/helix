@@ -25,9 +25,9 @@
 - [ ] Test: Verify both helix-4 and helix-specs appear in `~/.helix-zed-folders`
 - [ ] Commit to main branch
 
-## Fix Startup Script (helix-specs Branch)
+## Fix Startup Script (helix-specs Worktree)
 
-- [ ] Edit `helix-specs/.helix/startup.sh`
+- [ ] Edit `~/work/helix-specs/.helix/startup.sh` directly in the worktree
 - [ ] Add check that `./stack` script exists before trying to run it
 - [ ] Handle existing tmux sessions gracefully
 - [ ] Improve error messages
@@ -47,4 +47,4 @@
 - [ ] Push docker-shim fix to feature branch
 - [ ] Push task creation fix to feature branch
 - [ ] Push workspace setup fix to feature branch
-- [ ] Push startup script improvements to helix-specs branch
+- [ ] Push startup script improvements directly from `~/work/helix-specs` worktree to helix-specs branch
