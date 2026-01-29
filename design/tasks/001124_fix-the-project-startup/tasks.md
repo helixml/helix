@@ -18,7 +18,7 @@
 
 ## Fix Workspace Setup (Feature Branch)
 
-- [ ] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
+- [~] Edit `helix-4/desktop/shared/helix-workspace-setup.sh`
 - [ ] Add defensive handling: if `HELIX_WORKING_BRANCH=helix-specs`, don't checkout directly
 - [ ] Keep main repo on default branch and let worktree creation handle helix-specs
 - [ ] Test: Verify helix-specs worktree is created at `~/work/helix-specs`
