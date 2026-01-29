@@ -262,6 +262,19 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.GitRepository.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Git Repository",
+				Description: "Use the Git Repository to interact with Git repositories",
+				ToolType:    types.ToolTypeGitRepository,
+				Config: types.ToolConfig{
+					GitRepository: &types.ToolGitRepositoryConfig{
+						Enabled: assistant.GitRepository.Enabled,
+					},
+				},
+			})
+		}
+
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
 			t, err := ConvertAPIToTool(api)

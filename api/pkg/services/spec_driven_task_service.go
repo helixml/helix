@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -34,8 +34,9 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
-	store                    store.Store
-	controller               *controller.Controller
+	store    store.Store
+	notifier notification.Notifier
+	// controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
 	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
@@ -54,7 +55,7 @@ type SpecDrivenTaskService struct {
 // NewSpecDrivenTaskService creates a new service instance
 func NewSpecDrivenTaskService(
 	store store.Store,
-	controller *controller.Controller,
+	notifier notification.Notifier,
 	helixAgentID string,
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
@@ -64,7 +65,6 @@ func NewSpecDrivenTaskService(
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
-		controller:             controller,
 		externalAgentExecutor:  externalAgentExecutor,
 		gitRepositoryService:   gitRepositoryService,
 		RegisterRequestMapping: registerRequestMapping,
@@ -77,7 +77,6 @@ func NewSpecDrivenTaskService(
 	// Initialize Zed integration service
 	service.ZedIntegrationService = NewZedIntegrationService(
 		store,
-		controller,
 		pubsub,
 	)
 
@@ -366,14 +365,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Create the session in the database
-	if s.controller == nil || s.controller.Options.Store == nil {
-		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-		s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
-		return
-	}
+	// // Create the session in the database
+	// if s.controller == nil || s.controller.Options.Store == nil {
+	// 	log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
+	// 	s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
+	// 	return
+	// }
 
-	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
+	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create spec generation session: %v", err))
@@ -432,7 +431,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
-	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	_, err = s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
@@ -738,14 +737,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Create the session in the database
-	if s.controller == nil || s.controller.Options.Store == nil {
-		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for Just Do It mode")
-		s.markTaskFailed(ctx, task, "Controller or store not available")
-		return
-	}
-
-	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
+	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create Just Do It session")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create session: %v", err))
@@ -852,7 +844,7 @@ Follow these guidelines when making changes:
 		State:         types.InteractionStateWaiting,
 	}
 
-	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	_, err = s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
@@ -1029,7 +1021,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	}
 
 	// Send notification to user for spec review
-	if s.controller != nil && s.controller.Options.Notifier != nil {
+	if s.notifier != nil {
 		// Note: The notification system expects a session, but for task notifications we'll create a minimal one
 		session := &types.Session{
 			ID:    task.PlanningSessionID,
@@ -1041,7 +1033,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 			Event:   types.EventCronTriggerComplete,
 		}
 
-		if err := s.controller.Options.Notifier.Notify(ctx, notificationPayload); err != nil {
+		if err := s.notifier.Notify(ctx, notificationPayload); err != nil {
 			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to send spec review notification")
 			// Don't fail the whole operation if notification fails
 		}

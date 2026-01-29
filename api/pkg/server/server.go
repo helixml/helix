@@ -289,7 +289,7 @@ func NewServer(
 		anthropicProxy:    anthropicProxy,
 		specDrivenTaskService: services.NewSpecDrivenTaskService(
 			store,
-			controller,
+			controller.Options.Notifier,
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
@@ -382,7 +382,6 @@ func NewServer(
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
-		controller,
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management

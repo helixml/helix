@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -30,6 +31,7 @@ import (
 type Options struct {
 	Config                *config.ServerConfig
 	Store                 store.Store
+	GitRepositoryService  *services.GitRepositoryService
 	PubSub                pubsub.PubSub
 	Extractor             extract.Extractor
 	RAG                   rag.RAG
@@ -54,7 +56,7 @@ type Controller struct {
 
 	providerManager manager.ProviderManager
 
-	// dataprepOpenAIClient openai.Client
+	gitRepositoryService *services.GitRepositoryService
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
@@ -127,10 +129,11 @@ func NewController(
 	}
 
 	controller := &Controller{
-		Ctx:             ctx,
-		Options:         options,
-		providerManager: options.ProviderManager,
-		models:          models,
+		Ctx:                  ctx,
+		Options:              options,
+		providerManager:      options.ProviderManager,
+		gitRepositoryService: options.GitRepositoryService,
+		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},

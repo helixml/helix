@@ -17,10 +17,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+type TriggerManager interface {
+	ProcessGitPushEvent(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, commitHash string) error
+}
 
 // AuthorizationFunc is the function signature for authorization checks
 type AuthorizationFunc func(ctx context.Context, user *types.User, orgID string, resourceID string, resourceType types.Resource, action types.Action) error
@@ -77,7 +80,7 @@ type GitHTTPServer struct {
 	requestTimeout  time.Duration
 	testMode        bool
 	authorizeFn     AuthorizationFunc
-	triggerManager  *trigger.Manager
+	triggerManager  TriggerManager
 	wg              sync.WaitGroup
 }
 
@@ -97,7 +100,7 @@ func NewGitHTTPServer(
 	gitRepoService *GitRepositoryService,
 	config GitHTTPServerConfig,
 	authorizeFn AuthorizationFunc,
-	triggerManager *trigger.Manager,
+	triggerManager TriggerManager,
 ) *GitHTTPServer {
 	// Note: gitcmd is already initialized by GitRepositoryService.Initialize()
 	// which is called before NewGitHTTPServer. The initGitCmd function in
