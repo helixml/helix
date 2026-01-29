@@ -50,7 +50,7 @@ fi
 # Ensure yarn is installed (needed for frontend development/testing)
 if ! command -v yarn &> /dev/null; then
     echo "Installing yarn..."
-    npm install -g yarn
+    sudo npm install -g yarn
 fi
 
 # Check for privileged mode (host docker socket)
@@ -75,8 +75,24 @@ if [ ! -d "$HELIX_DIR" ]; then
     exit 1
 fi
 
+# Check that we have the stack script (ensures we're on main branch, not helix-specs)
+if [ ! -f "$HELIX_DIR/stack" ]; then
+    echo "Error: ./stack script not found in $HELIX_DIR"
+    echo "  This usually means the helix repo is on the wrong branch (e.g., helix-specs instead of main)"
+    echo "  The helix-specs branch only contains design docs, not code."
+    echo ""
+    echo "  To fix, run: cd $HELIX_DIR && git checkout main"
+    exit 1
+fi
+
 echo "Using helix directory: $HELIX_DIR"
 cd "$HELIX_DIR"
+
+# Kill any existing tmux session to ensure idempotency
+if tmux has-session -t helix 2>/dev/null; then
+    echo "Stopping existing helix tmux session..."
+    tmux kill-session -t helix
+fi
 
 # Build and start the stack
 echo ""

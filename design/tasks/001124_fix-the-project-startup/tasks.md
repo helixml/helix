@@ -27,7 +27,7 @@
 
 ## Fix Startup Script (helix-specs Worktree)
 
-- [ ] Edit `~/work/helix-specs/.helix/startup.sh` directly in the worktree
+- [~] Edit `~/work/helix-specs/.helix/startup.sh` directly in the worktree
 - [ ] Add check that `./stack` script exists before trying to run it
 - [ ] Handle existing tmux sessions gracefully
 - [ ] Improve error messages
