@@ -172,7 +172,12 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code[:20]+"...").Msg("Exchanging code for token")
+	// Log truncated code for debugging (avoid logging full code for security)
+	codePreview := code
+	if len(code) > 20 {
+		codePreview = code[:20] + "..."
+	}
+	log.Info().Str("code", codePreview).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
