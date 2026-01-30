@@ -2,7 +2,7 @@
 
 ## Backend API
 
-- [ ] Add `MoveProjectRequest` type in `api/pkg/types/project.go` with `OrganizationID` field
+- [~] Add `MoveProjectRequest` type in `api/pkg/types/project.go` with `OrganizationID` field
 - [ ] Add `moveProject` handler in `api/pkg/server/project_handlers.go`:
   - Validate user owns the project (`project.UserID == user.ID`)
   - Validate user is member of target org (`authorizeOrgMember`)
