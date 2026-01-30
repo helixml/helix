@@ -53,6 +53,12 @@ if ! command -v yarn &> /dev/null; then
     sudo npm install -g yarn
 fi
 
+# Ensure mockgen is installed (needed for Go mock generation)
+if ! command -v mockgen &> /dev/null; then
+    echo "Installing mockgen..."
+    go install go.uber.org/mock/mockgen@latest
+fi
+
 # Check for privileged mode (host docker socket)
 # NOTE: We do NOT set DOCKER_HOST here. The ./stack script has its own
 # Helix-in-Helix detection (detect_helix_in_helix) that properly handles:
