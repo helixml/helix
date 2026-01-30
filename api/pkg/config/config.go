@@ -417,8 +417,8 @@ type WebServer struct {
 	URL  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
-	// Can either be a URL to frontend or a path to static files
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:""`
+	// ServeProdFrontendInDev enables serving the production frontend build instead of the dev server
+	ServeProdFrontendInDev bool `envconfig:"SERVE_PROD_FRONTEND_IN_DEV" default:"false" description:"Serve production frontend build instead of dev server"`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
 	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.

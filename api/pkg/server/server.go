@@ -1132,21 +1132,15 @@ func getID(r *http.Request) string {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-
-	// if we are in prod - then the frontend has been burned into the filesystem of the container
-	// and the FrontendURL will actually have the value "/www"
-	// so this switch is "are we in dev or not"
-	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
-
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
-			apiServer.Cfg.WebServer.FrontendURL,
-		))
-	} else {
-		log.Info().Msgf("serving static UI files from %s", apiServer.Cfg.WebServer.FrontendURL)
-
-		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
-
+	if apiServer.Cfg.WebServer.ServeProdFrontendInDev {
+		const prodBuildPath = "/www"
+		log.Info().Msgf("serving production frontend from %s", prodBuildPath)
+		fileSystem := http.Dir(prodBuildPath)
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	} else {
+		const devServerURL = "http://frontend:8081"
+		log.Info().Msgf("proxying frontend requests to %s", devServerURL)
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(devServerURL))
 	}
 }
 
