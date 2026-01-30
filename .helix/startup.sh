@@ -54,9 +54,10 @@ if ! command -v yarn &> /dev/null; then
 fi
 
 # Ensure mockgen is installed (needed for Go mock generation)
+# Pin to v0.4.0 to match go.mod dependency
 if ! command -v mockgen &> /dev/null; then
-    echo "Installing mockgen..."
-    go install go.uber.org/mock/mockgen@latest
+    echo "Installing mockgen v0.4.0..."
+    go install go.uber.org/mock/mockgen@v0.4.0
 fi
 
 # Check for privileged mode (host docker socket)
