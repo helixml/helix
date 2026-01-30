@@ -106,17 +106,70 @@ Follow the existing Danger Zone pattern in `ProjectSettings.tsx` (lines 1085-112
 3. **Confirmation Dialog**: 
    - Warn about one-way operation
    - Show target organization name
-   - Show count of git repositories that will also be moved
+   - List actual git repository names that will be moved (not just a count)
    - Explain that repos will become accessible to org members
+   - Show any naming conflicts and proposed renames (if applicable)
 
 ### Data Flow
 
 1. Get user's organizations from `useAccount()` hook (`account.organizationTools.organizations`)
 2. Get project's linked repositories (already available via `useGitRepositories` or project data)
-3. On move button click, show confirmation dialog with repo count
-4. Call generated API client method (after running `./stack update_openapi`)
-5. On success, invalidate project query to refresh data
-6. Show success snackbar
+3. On org selection, call a "preview" endpoint to check for naming conflicts
+4. Show confirmation dialog with repo list and any proposed renames
+5. Call move API endpoint (which handles renames server-side)
+6. On success, invalidate project query to refresh data
+7. Show success snackbar
+
+## Naming Conflict Handling
+
+### Problem
+
+When moving a project to an org, the project name or repository names may conflict with existing names in the target org.
+
+### Solution
+
+Follow existing naming conventions:
+- **Projects**: Add `(1)`, `(2)`, etc. suffix (same as `createProject` in `project_handlers.go`)
+- **Repositories**: Add `-2`, `-3`, etc. suffix (same as `GetUniqueRepoName` in `git_repository_service.go`)
+
+### API: Preview Endpoint
+
+Add `POST /api/v1/projects/{id}/move/preview` to check conflicts before moving:
+
+```json
+// Request
+{ "organization_id": "org_01abc..." }
+
+// Response
+{
+  "project": {
+    "current_name": "My Project",
+    "new_name": "My Project (1)",  // null if no conflict
+    "has_conflict": true
+  },
+  "repositories": [
+    {
+      "id": "repo_01xyz...",
+      "current_name": "my-repo",
+      "new_name": null,           // null = no conflict
+      "has_conflict": false
+    },
+    {
+      "id": "repo_02abc...",
+      "current_name": "api",
+      "new_name": "api-2",        // proposed rename
+      "has_conflict": true
+    }
+  ]
+}
+```
+
+### UI Display
+
+In the confirmation dialog:
+- List each repository by name
+- If there's a conflict, show: `"api" → "api-2"` with a warning icon
+- If no conflicts, just show the list of repos that will be moved
 
 ## Data Changes
 
@@ -165,3 +218,5 @@ Wrap all updates in a database transaction to ensure atomicity. If updating git 
 | Don't update historical records | Audit logs and metrics should reflect state at time of creation |
 | Danger Zone placement | Matches existing pattern, signals irreversible action |
 | One-way move only | Simplifies implementation; moving back to personal is rare use case |
+| Auto-rename on conflict | Follow existing patterns: `(1)` for projects, `-2` for repos. Avoids blocking the move. |
+| Preview endpoint | Let users see conflicts before committing; better UX than surprise renames |

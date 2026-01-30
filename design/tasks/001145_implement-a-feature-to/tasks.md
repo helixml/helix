@@ -10,9 +10,17 @@
   - Update `project.OrganizationID` in a transaction
   - Update `git_repositories.organization_id` for linked repos
   - Update `project_repositories.organization_id` for junction entries
+  - Handle naming conflicts: rename project using `(1)`, `(2)` pattern if needed
+  - Handle naming conflicts: rename repos using `-2`, `-3` pattern if needed
   - Add audit log entry for the move operation
-- [ ] Register route `POST /api/v1/projects/{id}/move` in `api/pkg/server/server.go`
-- [ ] Add swagger annotations for the new endpoint
+- [ ] Add `moveProjectPreview` handler in `api/pkg/server/project_handlers.go`:
+  - Check for project name conflicts in target org
+  - Check for repository name conflicts in target org
+  - Return proposed renames without making changes
+- [ ] Register routes in `api/pkg/server/server.go`:
+  - `POST /api/v1/projects/{id}/move` - execute move
+  - `POST /api/v1/projects/{id}/move/preview` - check conflicts
+- [ ] Add swagger annotations for both endpoints
 
 ## Frontend UI
 
@@ -22,10 +30,14 @@
 - [ ] Add organization select dropdown:
   - Use `account.organizationTools.organizations` for options
   - Disable move button until org selected
+- [ ] Call preview endpoint when org is selected:
+  - Show loading state while checking conflicts
+  - Display list of actual repository names that will be moved
+  - Show any naming conflicts with proposed renames (e.g., "api" → "api-2")
 - [ ] Add confirmation dialog:
   - Warn that this is a one-way operation
   - Show target organization name
-  - Show count of git repositories that will also be moved
+  - List repositories by name (with rename arrows if conflicts exist)
   - Explain that repos will become accessible to org members
   - Require explicit confirmation
 - [ ] Call API on confirm:

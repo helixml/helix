@@ -50,9 +50,18 @@ Allow users to move a project from their personal workspace into an organization
 - [ ] Display dropdown to select target organization (user's memberships)
 - [ ] Show confirmation dialog before moving that includes:
   - Warning that this is a one-way operation (cannot move back to personal)
-  - Count of git repositories that will also be moved
+  - List of actual git repository names that will be moved
   - Explanation that repos will become accessible to org members
+  - Any naming conflicts with proposed renames (e.g., "api" → "api-2")
 - [ ] Refresh project data after successful move
+
+### AC-6: Naming Conflict Handling
+- [ ] Check for project name conflicts in target org before moving
+- [ ] Check for repository name conflicts in target org before moving
+- [ ] Auto-rename projects using `(1)`, `(2)` suffix pattern (existing convention)
+- [ ] Auto-rename repositories using `-2`, `-3` suffix pattern (existing convention)
+- [ ] Show proposed renames in confirmation dialog before user confirms
+- [ ] Preview endpoint returns conflict information without making changes
 
 ## Out of Scope (v1)
 
