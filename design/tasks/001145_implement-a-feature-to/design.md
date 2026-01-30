@@ -103,15 +103,20 @@ Follow the existing Danger Zone pattern in `ProjectSettings.tsx` (lines 1085-112
 
 1. **Organization Dropdown**: Use MUI `Select` with user's organizations from `account.organizationTools.organizations`
 2. **Move Button**: Outlined error button, disabled until org selected
-3. **Confirmation Dialog**: Warn about one-way operation, show target org name
+3. **Confirmation Dialog**: 
+   - Warn about one-way operation
+   - Show target organization name
+   - Show count of git repositories that will also be moved
+   - Explain that repos will become accessible to org members
 
 ### Data Flow
 
 1. Get user's organizations from `useAccount()` hook (`account.organizationTools.organizations`)
-2. On move button click, show confirmation dialog
-3. Call generated API client method (after running `./stack update_openapi`)
-4. On success, invalidate project query to refresh data
-5. Show success snackbar
+2. Get project's linked repositories (already available via `useGitRepositories` or project data)
+3. On move button click, show confirmation dialog with repo count
+4. Call generated API client method (after running `./stack update_openapi`)
+5. On success, invalidate project query to refresh data
+6. Show success snackbar
 
 ## Data Changes
 

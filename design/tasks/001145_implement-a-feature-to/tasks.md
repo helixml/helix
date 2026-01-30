@@ -25,6 +25,8 @@
 - [ ] Add confirmation dialog:
   - Warn that this is a one-way operation
   - Show target organization name
+  - Show count of git repositories that will also be moved
+  - Explain that repos will become accessible to org members
   - Require explicit confirmation
 - [ ] Call API on confirm:
   - Use generated client method after `./stack update_openapi`

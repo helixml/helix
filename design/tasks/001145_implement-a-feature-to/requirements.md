@@ -48,8 +48,10 @@ Allow users to move a project from their personal workspace into an organization
 - [ ] Show "Move to Organization" section in Danger Zone for personal projects only
 - [ ] Hide the section when project is already in an organization
 - [ ] Display dropdown to select target organization (user's memberships)
-- [ ] Show confirmation dialog before moving
-- [ ] Explain that this is a one-way operation (cannot move back to personal)
+- [ ] Show confirmation dialog before moving that includes:
+  - Warning that this is a one-way operation (cannot move back to personal)
+  - Count of git repositories that will also be moved
+  - Explanation that repos will become accessible to org members
 - [ ] Refresh project data after successful move
 
 ## Out of Scope (v1)
