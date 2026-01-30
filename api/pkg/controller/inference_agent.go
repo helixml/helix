@@ -160,6 +160,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 		if assistantTool.ToolType == types.ToolTypeProjectManager {
 			skills = append(skills, project.NewHelixProjectsSkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store))
+			skills = append(skills, repository.NewHelixRepositorySkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store, c.gitRepositoryService))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {
@@ -169,9 +170,6 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
 
-		if assistantTool.ToolType == types.ToolTypeGitRepository {
-			skills = append(skills, repository.NewHelixRepositorySkill(c.Options.Store, c.gitRepositoryService))
-		}
 	}
 
 	// Get assistant knowledge

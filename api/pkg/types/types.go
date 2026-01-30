@@ -1349,7 +1349,6 @@ const (
 	ToolTypeAzureDevOps    ToolType = "azure_devops"
 	ToolTypeMCP            ToolType = "mcp"
 	ToolTypeProjectManager ToolType = "project_manager"
-	ToolTypeGitRepository  ToolType = "git_repository"
 )
 
 type Tool struct {
@@ -1372,7 +1371,6 @@ type ToolConfig struct {
 	AzureDevOps    *ToolAzureDevOpsConfig    `json:"azure_devops"`
 	MCP            *ToolMCPClientConfig      `json:"mcp"`
 	ProjectManager *ToolProjectManagerConfig `json:"project"` // Helix project management skill
-	GitRepository  *ToolGitRepositoryConfig  `json:"git_repository"`
 }
 
 type ToolMCPClientConfig struct {
@@ -1386,11 +1384,6 @@ type ToolMCPClientConfig struct {
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
 
 	Tools []mcp.Tool `json:"tools" yaml:"tools"`
-}
-
-type ToolGitRepositoryConfig struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
-	// TODO: whitelist allowed repos, read-only or read-write
 }
 
 type ToolAzureDevOpsConfig struct {
@@ -1499,11 +1492,6 @@ type AssistantZapier struct {
 	APIKey        string `json:"api_key" yaml:"api_key"`
 	Model         string `json:"model" yaml:"model"`
 	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
-}
-
-type AssistantGitRepository struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
-	// TODO: whitelist allowed repos, read-only or read-write
 }
 
 type AssistantMCP struct {
@@ -1647,11 +1635,10 @@ type AssistantConfig struct {
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
 
-	Calculator    AssistantCalculator    `json:"calculator,omitempty" yaml:"calculator,omitempty"`
-	Email         AssistantEmail         `json:"email,omitempty" yaml:"email,omitempty"`
-	AzureDevOps   AssistantAzureDevOps   `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
-	GitRepository AssistantGitRepository `json:"git_repository,omitempty" yaml:"git_repository,omitempty"`
-	Tools         []*Tool                `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Calculator  AssistantCalculator  `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email       AssistantEmail       `json:"email,omitempty" yaml:"email,omitempty"`
+	AzureDevOps AssistantAzureDevOps `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Tools       []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
