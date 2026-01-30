@@ -35,6 +35,7 @@ services:
             - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
             - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
             - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
+            - FRONTEND_URL=http://frontend:8081
             - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
             - EVAL_USER_ID=${EVAL_USER_ID:-}
             - FILESTORE_LOCALFS_PATH=/filestore
@@ -76,20 +77,19 @@ services:
             - 30000-30100:30000-30100
         restart: always
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/go.mod:/app/go.mod
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/go.sum:/app/go.sum
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/api:/app/api
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/go.mod:/app/go.mod
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/go.sum:/app/go.sum
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/api:/app/api
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
             - ${FILESTORE_DATA:-helix-filestore}:/filestore
             - helix-socket:/socket
             - go-pkg-mod:/go/pkg/mod
             - go-build-cache:/root/.cache/go-build
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/dist:/www:ro
     chrome:
         image: ghcr.io/go-rod/rod:v0.115.0
         restart: always
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/integration-test/data/smoke:/integration-test/data/smoke
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/integration-test/data/smoke:/integration-test/data/smoke
     demos:
         build:
             context: .
@@ -105,9 +105,9 @@ services:
             - demos
         restart: always
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/go.mod:/app/go.mod
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/go.sum:/app/go.sum
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/demos:/app/demos
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/go.mod:/app/go.mod
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/go.sum:/app/go.sum
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/demos:/app/demos
     frontend:
         build:
             context: .
@@ -115,13 +115,13 @@ services:
             target: ui-dev-env
         restart: always
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/src:/app/src
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/assets:/app/assets
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/index.html:/app/index.html
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/tsconfig.json:/app/tsconfig.json
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/vite.config.ts:/app/vite.config.ts
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/package.json:/app/package.json
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/frontend/yarn.lock:/app/yarn.lock
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/src:/app/src
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/assets:/app/assets
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/index.html:/app/index.html
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/tsconfig.json:/app/tsconfig.json
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/vite.config.ts:/app/vite.config.ts
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/package.json:/app/package.json
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/frontend/yarn.lock:/app/yarn.lock
             - /app/node_modules
     haystack:
         build:
@@ -158,8 +158,8 @@ services:
         image: ${HAYSTACK_IMAGE:-helix-haystack:dev}
         restart: always
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/haystack_service/app:/app/app
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/haystack_service/main.py:/app/main.py
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/haystack_service/app:/app/app
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/haystack_service/main.py:/app/main.py
             - helix-socket:/socket
     kodit:
         command:
@@ -335,25 +335,25 @@ services:
             - code-amd-intel
         restart: unless-stopped
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop:/etc/helix/desktop/:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
             - /tmp/sockets:/tmp/sockets:rw
             - sandbox-docker-storage:/var/lib/docker
             - hydra-storage:/hydra-data
             - /dev:/dev/:rw
             - /run/udev:/run/udev:rw
             - /run/sandbox:/var/run/sandbox:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/zed-build:/helix-dev/zed-build:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config:/helix-dev/sway-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/kde-config:/helix-dev/kde-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/shared:/helix-dev/shared:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
             - sandbox-data:/data
             - /run/docker.sock:/var/run/host-docker.sock:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/sandbox-images:/opt/images:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/sandbox-images:/opt/images:ro
     sandbox-nvidia:
         cap_add:
             - SYS_PTRACE
@@ -405,25 +405,25 @@ services:
         restart: unless-stopped
         runtime: nvidia
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop:/etc/helix/desktop/:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
             - /tmp/sockets:/tmp/sockets:rw
             - sandbox-docker-storage:/var/lib/docker
             - hydra-storage:/hydra-data
             - /dev:/dev/:rw
             - /run/udev:/run/udev:rw
             - /run/sandbox:/var/run/sandbox:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/zed-build:/helix-dev/zed-build:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config:/helix-dev/sway-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/kde-config:/helix-dev/kde-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/shared:/helix-dev/shared:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
             - sandbox-data:/data
             - /run/docker.sock:/var/run/host-docker.sock:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/sandbox-images:/opt/images:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/sandbox-images:/opt/images:ro
     sandbox-software:
         cap_add:
             - SYS_PTRACE
@@ -467,24 +467,24 @@ services:
             - code-software
         restart: unless-stopped
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop:/etc/helix/desktop/:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop:/etc/helix/desktop/:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
             - /tmp/sockets:/tmp/sockets:rw
             - sandbox-docker-storage:/var/lib/docker
             - hydra-storage:/hydra-data
             - /run/udev:/run/udev:rw
             - /run/sandbox:/var/run/sandbox:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/zed-build:/helix-dev/zed-build:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config:/helix-dev/sway-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/kde-config:/helix-dev/kde-config:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/shared:/helix-dev/shared:ro
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/zed-build:/helix-dev/zed-build:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config:/helix-dev/sway-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/zorin-config:/helix-dev/zorin-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/xfce-config:/helix-dev/xfce-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/kde-config:/helix-dev/kde-config:rw
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/shared:/helix-dev/shared:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
             - sandbox-data:/data
             - /run/docker.sock:/var/run/host-docker.sock:rw
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/sandbox-images:/opt/images:ro
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/sandbox-images:/opt/images:ro
     searxng:
         environment:
             - BASE_URL=http://searxng:8080
@@ -493,8 +493,8 @@ services:
             - UWSGI_THREADS=4
         image: searxng/searxng:latest
         volumes:
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/searxng/settings.yml:/etc/searxng/settings.yml
-            - /data/workspaces/spec-tasks/spt_01kg74t5wevrp8srf5v5d5fmd1/helix/searxng/limiter.toml:/etc/searxng/limiter.toml
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/searxng/settings.yml:/etc/searxng/settings.yml
+            - /data/workspaces/spec-tasks/spt_01kg1rye1959d66n9e2qspn9zg/helix/searxng/limiter.toml:/etc/searxng/limiter.toml
     tika:
         image: apache/tika:2.9.2.1
     typesense:
