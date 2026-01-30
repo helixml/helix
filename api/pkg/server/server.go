@@ -299,12 +299,14 @@ func NewServer(
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
 
 	// Initialize git repository base directory
-	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+	if apiServer.gitRepositoryService != nil {
+		if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
+			return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+		}
 	}
 
 	// Initialize Kodit Service for code intelligence
-	if cfg.Kodit.Enabled {
+	if cfg.Kodit.Enabled && apiServer.gitRepositoryService != nil {
 		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
 		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
 		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
