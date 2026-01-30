@@ -150,6 +150,7 @@ func NewServer(
 	avatarsBucket *blob.Bucket,
 	trigger *trigger.Manager,
 	anthropicProxy *anthropic.Proxy,
+	gitRepositoryService *services.GitRepositoryService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -232,14 +233,6 @@ func NewServer(
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
-
-	gitRepositoryService := services.NewGitRepositoryService(
-		store,
-		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
-		cfg.WebServer.URL,         // Server base URL
-		"Helix System",            // Git user name
-		"system@helix.ml",         // Git user email
-	)
 
 	apiServer := &HelixAPIServer{
 		Cfg:                         cfg,
