@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -20,7 +19,6 @@ import (
 // Manages agent lifecycle and reuses sessions across Helix interactions
 type SpecTaskOrchestrator struct {
 	store                 store.Store
-	controller            *controller.Controller
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
@@ -40,14 +38,12 @@ type ContainerExecutor interface {
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
-	controller *controller.Controller,
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
 	containerExecutor ContainerExecutor, // Executor for external agent containers
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
 		store:                 store,
-		controller:            controller,
 		gitService:            gitService,
 		specTaskService:       specTaskService,
 		containerExecutor:     containerExecutor,

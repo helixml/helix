@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -20,12 +19,12 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	// Use nil controller since goroutine testing is complex and not critical for this unit test
-	mockController := (*controller.Controller)(nil)
+	// mockController := (*controller.Controller)(nil)
 	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
-		mockController,
+		nil,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
@@ -46,8 +45,8 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	// Mock expectations
 	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
-		ID:                 "test-project",
-		DefaultHelixAppID:  "test-app-id",
+		ID:                "test-project",
+		DefaultHelixAppID: "test-app-id",
 	}, nil)
 	mockStore.EXPECT().GetApp(ctx, "test-app-id").Return(&types.App{
 		ID: "test-app-id",
@@ -93,12 +92,12 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
-	mockController := (*controller.Controller)(nil)
+	// mockController := (*controller.Controller)(nil)
 	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
-		mockController,
+		nil,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,

@@ -34,6 +34,7 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -418,6 +419,14 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		BaseURL: cfg.Search.SearXNGBaseURL,
 	})
 
+	gitRepositoryService := services.NewGitRepositoryService(
+		postgresStore,
+		cfg.FileStore.LocalFSPath,
+		cfg.WebServer.URL,
+		"Helix System",
+		"system@helix.ml",
+	)
+
 	controllerOptions := controller.Options{
 		Config:                cfg,
 		Store:                 postgresStore,
@@ -433,6 +442,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		RunnerController:      runnerController,
 		Browser:               browserPool,
 		SearchProvider:        searchProvider,
+		GitRepositoryService:  gitRepositoryService,
 	}
 
 	// Create the OAuth manager
@@ -519,6 +529,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		avatarsBucket,
 		trigger,
 		anthropicProxy,
+		gitRepositoryService,
 	)
 	if err != nil {
 		return err
