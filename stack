@@ -730,6 +730,16 @@ function start() {
     }
   fi
 
+  # Check if SERVE_PROD_FRONTEND_IN_DEV is enabled but frontend not built
+  if grep -q "^SERVE_PROD_FRONTEND_IN_DEV=true" .env 2>/dev/null; then
+    if [ ! -f "./frontend/dist/index.html" ]; then
+      echo "🔨 SERVE_PROD_FRONTEND_IN_DEV enabled but frontend not built, building..."
+      build-frontend || {
+        echo "❌ Failed to build frontend. Please check the error messages above."
+        exit 1
+      }
+    fi
+  fi
 
   export MANUALRUN=1
   export LOG_LEVEL=debug
