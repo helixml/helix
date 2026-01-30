@@ -681,6 +681,13 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 				SubPath:       "qwen-code",
 				DefaultBranch: "main",
 			},
+			{
+				GitHubURL:     "github.com/helixml/docs",
+				IsPrimary:     false,
+				AllowFork:     true,
+				SubPath:       "docs",
+				DefaultBranch: "main",
+			},
 		},
 		TaskPrompts: []SampleTaskPrompt{
 			{
