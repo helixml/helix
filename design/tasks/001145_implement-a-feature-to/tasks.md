@@ -20,11 +20,11 @@
 - [x] Register routes in `api/pkg/server/server.go`:
   - `POST /api/v1/projects/{id}/move` - execute move
   - `POST /api/v1/projects/{id}/move/preview` - check conflicts
-- [~] Add swagger annotations for both endpoints
+- [x] Add swagger annotations for both endpoints
 
 ## Frontend UI
 
-- [ ] Add "Move to Organization" section in Danger Zone of `ProjectSettings.tsx`:
+- [~] Add "Move to Organization" section in Danger Zone of `ProjectSettings.tsx`:
   - Only render when `!project?.organization_id` (personal projects only)
   - Follow existing Danger Zone box styling pattern
 - [ ] Add organization select dropdown:
