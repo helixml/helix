@@ -175,6 +175,32 @@ type ProjectUpdateRequest struct {
 	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`
 }
 
+// MoveProjectRequest represents a request to move a project to an organization
+type MoveProjectRequest struct {
+	OrganizationID string `json:"organization_id"`
+}
+
+// MoveProjectPreviewResponse represents the preview of moving a project to an organization
+type MoveProjectPreviewResponse struct {
+	Project      MoveProjectPreviewItem      `json:"project"`
+	Repositories []MoveRepositoryPreviewItem `json:"repositories"`
+}
+
+// MoveProjectPreviewItem represents a project's naming conflict status
+type MoveProjectPreviewItem struct {
+	CurrentName string  `json:"current_name"`
+	NewName     *string `json:"new_name"` // nil if no conflict
+	HasConflict bool    `json:"has_conflict"`
+}
+
+// MoveRepositoryPreviewItem represents a repository's naming conflict status
+type MoveRepositoryPreviewItem struct {
+	ID          string  `json:"id"`
+	CurrentName string  `json:"current_name"`
+	NewName     *string `json:"new_name"` // nil if no conflict
+	HasConflict bool    `json:"has_conflict"`
+}
+
 // SampleProject represents a pre-built sample project that can be instantiated
 type SampleProject struct {
 	ID            string `json:"id" gorm:"primaryKey;type:varchar(255)"`

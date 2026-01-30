@@ -39,6 +39,28 @@ func (s *PostgresStore) CreateProjectRepository(ctx context.Context, projectID, 
 	return nil
 }
 
+// UpdateProjectRepository updates a project-repository relationship
+func (s *PostgresStore) UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error {
+	if pr.ProjectID == "" {
+		return fmt.Errorf("project_id not specified")
+	}
+	if pr.RepositoryID == "" {
+		return fmt.Errorf("repository_id not specified")
+	}
+
+	err := s.gdb.WithContext(ctx).
+		Model(&types.ProjectRepository{}).
+		Where("project_id = ? AND repository_id = ?", pr.ProjectID, pr.RepositoryID).
+		Updates(map[string]interface{}{
+			"organization_id": pr.OrganizationID,
+			"updated_at":      pr.UpdatedAt,
+		}).Error
+	if err != nil {
+		return fmt.Errorf("failed to update project repository: %w", err)
+	}
+	return nil
+}
+
 // DeleteProjectRepository removes a specific project-repository relationship
 func (s *PostgresStore) DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error {
 	if projectID == "" {

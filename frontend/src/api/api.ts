@@ -1381,6 +1381,8 @@ export interface TypesAssistantMCP {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
+  /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
+  transport?: string;
   url?: string;
 }
 
@@ -2791,6 +2793,30 @@ export enum TypesModelType {
   ModelTypeChat = "chat",
   ModelTypeImage = "image",
   ModelTypeEmbed = "embed",
+}
+
+export interface TypesMoveProjectPreviewItem {
+  current_name?: string;
+  has_conflict?: boolean;
+  /** nil if no conflict */
+  new_name?: string;
+}
+
+export interface TypesMoveProjectPreviewResponse {
+  project?: TypesMoveProjectPreviewItem;
+  repositories?: TypesMoveRepositoryPreviewItem[];
+}
+
+export interface TypesMoveProjectRequest {
+  organization_id?: string;
+}
+
+export interface TypesMoveRepositoryPreviewItem {
+  current_name?: string;
+  has_conflict?: boolean;
+  id?: string;
+  /** nil if no conflict */
+  new_name?: string;
 }
 
 export interface TypesOAuthConnection {
@@ -4755,6 +4781,8 @@ export interface TypesToolMCPClientConfig {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
+  /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
+  transport?: string;
   url?: string;
 }
 
@@ -4965,6 +4993,8 @@ export interface TypesUser {
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
+  /** Session this API key is scoped to (ephemeral keys) */
+  session_id?: string;
   /** When running in Helix Code sandbox */
   spec_task_id?: string;
   /** the actual token used and its type */
@@ -8462,6 +8492,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/guidelines-history`,
         method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Move a project from personal workspace to an organization
+     *
+     * @tags Projects
+     * @name V1ProjectsMoveCreate
+     * @summary Move a project to an organization
+     * @request POST:/api/v1/projects/{id}/move
+     * @secure
+     */
+    v1ProjectsMoveCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/move`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Check for naming conflicts before moving a project to an organization
+     *
+     * @tags Projects
+     * @name V1ProjectsMovePreviewCreate
+     * @summary Preview moving a project to an organization
+     * @request POST:/api/v1/projects/{id}/move/preview
+     * @secure
+     */
+    v1ProjectsMovePreviewCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesMoveProjectPreviewResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/move/preview`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
