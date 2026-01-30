@@ -14,6 +14,23 @@
 - [ ] Register route `POST /api/v1/projects/{id}/move` in `api/pkg/server/server.go`
 - [ ] Add swagger annotations for the new endpoint
 
+## Frontend UI
+
+- [ ] Add "Move to Organization" section in Danger Zone of `ProjectSettings.tsx`:
+  - Only render when `!project?.organization_id` (personal projects only)
+  - Follow existing Danger Zone box styling pattern
+- [ ] Add organization select dropdown:
+  - Use `account.organizationTools.organizations` for options
+  - Disable move button until org selected
+- [ ] Add confirmation dialog:
+  - Warn that this is a one-way operation
+  - Show target organization name
+  - Require explicit confirmation
+- [ ] Call API on confirm:
+  - Use generated client method after `./stack update_openapi`
+  - Invalidate project query on success
+  - Show success/error snackbar
+
 ## Testing
 
 - [ ] Add unit test for `moveProject` handler:
@@ -23,7 +40,7 @@
   - Error: project not found
   - Error: empty organization_id
 
-## API Client (Optional)
+## API Client
 
 - [ ] Run `./stack update_openapi` to regenerate TypeScript client
 - [ ] Add `MoveProject` method to Go client in `api/pkg/client/` if needed

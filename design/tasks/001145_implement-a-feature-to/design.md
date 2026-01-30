@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add a new API endpoint to move a project from a user's personal workspace into an organization. This enables RBAC and team sharing for previously personal projects.
+Add a new API endpoint to move a project from a user's personal workspace into an organization, enabling RBAC and team sharing for previously personal projects. Include UI in the Danger Zone section of project settings.
 
 ## Architecture
 
@@ -66,6 +66,53 @@ Content-Type: application/json
 | 403 | User is not member of target org |
 | 404 | Project not found |
 
+## UI Design
+
+### Location
+
+Add "Move to Organization" section in the **Danger Zone** of `ProjectSettings.tsx`, but **only for personal projects** (where `project.organization_id` is empty/null).
+
+### Pattern
+
+Follow the existing Danger Zone pattern in `ProjectSettings.tsx` (lines 1085-1120):
+
+```tsx
+{/* Move to Organization - only show for personal projects */}
+{!project?.organization_id && (
+  <Box sx={{
+    p: 2,
+    backgroundColor: 'rgba(211, 47, 47, 0.05)',
+    borderRadius: 1,
+    border: '1px solid',
+    borderColor: 'error.light',
+    mb: 2
+  }}>
+    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+      Move to Organization
+    </Typography>
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      Transfer this project to an organization to enable team sharing and RBAC roles.
+      This is a one-way operation and cannot be undone.
+    </Typography>
+    {/* Organization dropdown + Move button */}
+  </Box>
+)}
+```
+
+### Components
+
+1. **Organization Dropdown**: Use MUI `Select` with user's organizations from `account.organizationTools.organizations`
+2. **Move Button**: Outlined error button, disabled until org selected
+3. **Confirmation Dialog**: Warn about one-way operation, show target org name
+
+### Data Flow
+
+1. Get user's organizations from `useAccount()` hook (`account.organizationTools.organizations`)
+2. On move button click, show confirmation dialog
+3. Call generated API client method (after running `./stack update_openapi`)
+4. On success, invalidate project query to refresh data
+5. Show success snackbar
+
 ## Data Changes
 
 ### Tables Updated
@@ -111,3 +158,5 @@ Wrap all updates in a database transaction to ensure atomicity. If updating git 
 | Keep UserID unchanged | Original owner retains ownership, org membership provides team access |
 | Update git repo org IDs | Ensures consistent RBAC for repo access within the org |
 | Don't update historical records | Audit logs and metrics should reflect state at time of creation |
+| Danger Zone placement | Matches existing pattern, signals irreversible action |
+| One-way move only | Simplifies implementation; moving back to personal is rare use case |
