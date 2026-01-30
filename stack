@@ -1763,16 +1763,14 @@ function update_openapi() {
 }
 
 function build-frontend() {
-	echo "🔄 Building frontend for production..."
+	echo "🔄 Building production frontend for SERVE_PROD_FRONTEND_IN_DEV mode..."
 	cd "$DIR/frontend"
 	yarn build || {
 		echo "❌ Frontend build failed"
 		return 1
 	}
-	echo "✅ Frontend built successfully"
-	echo "📁 Output: frontend/dist/"
-	echo ""
-	echo "If SERVE_PROD_FRONTEND_IN_DEV=true, just refresh your browser."
+	echo "✅ Frontend built to frontend/dist/"
+	echo "   Refresh your browser to see changes."
 }
 
 function lint() {
