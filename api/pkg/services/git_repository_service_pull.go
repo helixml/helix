@@ -107,6 +107,15 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		// Get remote ref commit
 		remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 		if err != nil {
+			// If remote tracking ref doesn't exist either, the remote repo is empty
+			// This is fine - nothing to sync
+			if giteagit.IsErrNotExist(err) {
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("branch", branchName).
+					Msg("Remote repository appears to be empty (no tracking ref after fetch), nothing to sync")
+				return nil
+			}
 			return fmt.Errorf("failed to get remote branch reference: %w", err)
 		}
 
@@ -127,6 +136,15 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	// Get remote ref commit
 	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
+		// If remote tracking ref doesn't exist, the remote repo is empty
+		// Local branch exists but remote is empty - nothing to sync
+		if giteagit.IsErrNotExist(err) {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("branch", branchName).
+				Msg("Remote repository appears to be empty (no tracking ref), nothing to sync")
+			return nil
+		}
 		return fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
 
