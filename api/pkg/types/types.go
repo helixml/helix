@@ -1495,14 +1495,26 @@ type AssistantZapier struct {
 }
 
 type AssistantMCP struct {
-	Name          string            `json:"name" yaml:"name"`
-	Description   string            `json:"description" yaml:"description"`
-	URL           string            `json:"url" yaml:"url"`
-	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+
+	// Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+	// For stdio transport, use Command/Args/Env fields instead of URL
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+
+	// HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set)
+	URL           string            `json:"url,omitempty" yaml:"url,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
-	Tools         []mcp.Tool        `json:"tools" yaml:"tools"`
+
+	// Stdio transport fields (used when Transport is "stdio")
+	// The MCP server runs as a subprocess inside the dev container
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"` // Executable to run (e.g., "npx", "sh")
+	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`       // Command arguments
+	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // Environment variables for the subprocess
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
 
 type AssistantAPI struct {

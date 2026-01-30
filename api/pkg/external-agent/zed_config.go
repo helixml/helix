@@ -280,7 +280,18 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 
 // mcpToContextServerWithProxy converts Helix MCP config to Zed context server config,
 // routing HTTP MCPs through the Helix proxy for proper SSE endpoint handling.
+// Stdio MCPs run directly inside the dev container.
 func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken string) ContextServerConfig {
+	// Check for explicit stdio transport (new format with Command/Args/Env)
+	// This is used for MCPs that run inside the dev container via npx or other commands
+	if mcp.Transport == "stdio" || mcp.Command != "" {
+		return ContextServerConfig{
+			Command: mcp.Command,
+			Args:    mcp.Args,
+			Env:     mcp.Env,
+		}
+	}
+
 	// For HTTP/HTTPS MCPs, route through Helix proxy
 	// This is necessary because:
 	// 1. SSE protocol sends an endpoint URL that would point to the unreachable external server
@@ -302,8 +313,8 @@ func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken
 		}
 	}
 
-	// Stdio transport - direct command execution (runs locally in sandbox)
-	// Parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// Legacy stdio transport - parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// Kept for backward compatibility
 	cmd, args := parseStdioURL(mcp.URL)
 	return ContextServerConfig{
 		Command: cmd,
@@ -313,6 +324,11 @@ func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken
 }
 
 func buildMCPEnv(mcp types.AssistantMCP) map[string]string {
+	// Use the explicit Env field if set
+	if len(mcp.Env) > 0 {
+		return mcp.Env
+	}
+	// Legacy: convert Headers to env vars
 	env := make(map[string]string)
 	for k, v := range mcp.Headers {
 		env[fmt.Sprintf("MCP_HEADER_%s", strings.ToUpper(k))] = v
