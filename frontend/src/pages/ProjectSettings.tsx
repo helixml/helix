@@ -1,4 +1,11 @@
-import React, { FC, useState, useEffect, useRef, useContext, useMemo } from 'react'
+import React, {
+  FC,
+  useState,
+  useEffect,
+  useRef,
+  useContext,
+  useMemo,
+} from "react";
 import {
   Container,
   Box,
@@ -10,7 +17,7 @@ import {
   CircularProgress,
   Divider,
   List,
-  ListItem,  
+  ListItem,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,62 +29,69 @@ import {
   FormControlLabel,
   Checkbox,
   Chip,
-  Switch
-} from '@mui/material'
-import CodeIcon from '@mui/icons-material/Code'
-import ExploreIcon from '@mui/icons-material/Explore'
-import PeopleIcon from '@mui/icons-material/People'
-import AddIcon from '@mui/icons-material/Add'
-import WarningIcon from '@mui/icons-material/Warning'
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
-import DeleteIcon from '@mui/icons-material/Delete'
-import LinkIcon from '@mui/icons-material/Link'
-import StopIcon from '@mui/icons-material/Stop'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
-import EditIcon from '@mui/icons-material/Edit'
-import { Bot } from 'lucide-react'
-import HistoryIcon from '@mui/icons-material/History'
-import DescriptionIcon from '@mui/icons-material/Description'
-import VpnKeyIcon from '@mui/icons-material/VpnKey'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+  Switch,
+} from "@mui/material";
+import CodeIcon from "@mui/icons-material/Code";
+import ExploreIcon from "@mui/icons-material/Explore";
+import PeopleIcon from "@mui/icons-material/People";
+import AddIcon from "@mui/icons-material/Add";
+import WarningIcon from "@mui/icons-material/Warning";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
+import DeleteIcon from "@mui/icons-material/Delete";
+import LinkIcon from "@mui/icons-material/Link";
+import StopIcon from "@mui/icons-material/Stop";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import EditIcon from "@mui/icons-material/Edit";
+import { Bot } from "lucide-react";
+import HistoryIcon from "@mui/icons-material/History";
+import DescriptionIcon from "@mui/icons-material/Description";
+import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+import MoveUpIcon from "@mui/icons-material/MoveUp";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
-import Page from '../components/system/Page'
-import SavingToast from '../components/widgets/SavingToast'
-import AccessManagement from '../components/app/AccessManagement'
-import StartupScriptEditor from '../components/project/StartupScriptEditor'
-import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
-import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../contexts/apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
+import Page from "../components/system/Page";
+import SavingToast from "../components/widgets/SavingToast";
+import AccessManagement from "../components/app/AccessManagement";
+import StartupScriptEditor from "../components/project/StartupScriptEditor";
+import { AdvancedModelPicker } from "../components/create/AdvancedModelPicker";
+import {
+  AppsContext,
+  ICreateAgentParams,
+  CodeAgentRuntime,
+  generateAgentName,
+} from "../contexts/apps";
+import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
   // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-4-5-20250929",
+  "claude-haiku-4-5-20251001",
   // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
+  "openai/gpt-5.1-codex",
+  "openai/gpt-oss-120b",
   // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
   // Zhipu GLM
-  'glm-4.6',
+  "glm-4.6",
   // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
-import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
-import AgentDropdown from '../components/agent/AgentDropdown'
-import DesktopStreamViewer from '../components/external-agent/DesktopStreamViewer'
-import useAccount from '../hooks/useAccount'
-import useRouter from '../hooks/useRouter'
-import useSnackbar from '../hooks/useSnackbar'
-import useApi from '../hooks/useApi'
-import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
+  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+  "Qwen/Qwen3-235B-A22B-fp8-tput",
+];
+import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
+import AgentDropdown from "../components/agent/AgentDropdown";
+import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
+import useAccount from "../hooks/useAccount";
+import useRouter from "../hooks/useRouter";
+import useSnackbar from "../hooks/useSnackbar";
+import useApi from "../hooks/useApi";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
   useGetProject,
   useUpdateProject,
@@ -91,248 +105,349 @@ import {
   useStopProjectExploratorySession,
   projectExploratorySessionQueryKey,
   useGetProjectGuidelinesHistory,
-} from '../services'
-import { useGitRepositories } from '../services/gitRepositoryService'
+} from "../services";
+import { useGitRepositories } from "../services/gitRepositoryService";
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
   useDeleteProjectAccessGrant,
-} from '../services/projectAccessGrantService'
+} from "../services/projectAccessGrantService";
 
 const ProjectSettings: FC = () => {
-  const account = useAccount()
-  const { params, navigate } = useRouter()
-  const snackbar = useSnackbar()
-  const api = useApi()
-  const projectId = params.id as string
-  const queryClient = useQueryClient()
-  const { apps, loadApps, createAgent } = useContext(AppsContext)
+  const account = useAccount();
+  const { params, navigate } = useRouter();
+  const snackbar = useSnackbar();
+  const api = useApi();
+  const projectId = params.id as string;
+  const queryClient = useQueryClient();
+  const { apps, loadApps, createAgent } = useContext(AppsContext);
 
-  const { data: project, isLoading, error } = useGetProject(projectId)
-  const { data: repositories = [] } = useGetProjectRepositories(projectId)
+  const { data: project, isLoading, error } = useGetProject(projectId);
+  const { data: repositories = [] } = useGetProjectRepositories(projectId);
 
-  const updateProjectMutation = useUpdateProject(projectId)
-  const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId)
-  const attachRepoMutation = useAttachRepositoryToProject(projectId)
-  const detachRepoMutation = useDetachRepositoryFromProject(projectId)
-  const deleteProjectMutation = useDeleteProject()
+  const updateProjectMutation = useUpdateProject(projectId);
+  const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
+  const attachRepoMutation = useAttachRepositoryToProject(projectId);
+  const detachRepoMutation = useDetachRepositoryFromProject(projectId);
+  const deleteProjectMutation = useDeleteProject();
 
   // Get current org context for fetching repositories
-  const currentOrg = account.organizationTools.organization
+  const currentOrg = account.organizationTools.organization;
   // List repos by organization_id when in org context, or by owner_id for personal workspace
   const { data: allUserRepositories = [] } = useGitRepositories(
     currentOrg?.id
       ? { organizationId: currentOrg.id }
-      : { ownerId: account.user?.id }
-  )
+      : { ownerId: account.user?.id },
+  );
 
   // Access grants for RBAC
-  const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListProjectAccessGrants(projectId, !!project?.organization_id)
-  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId)
-  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId)
+  const { data: accessGrants = [], isLoading: accessGrantsLoading } =
+    useListProjectAccessGrants(projectId, !!project?.organization_id);
+  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId);
+  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId);
 
   // Exploratory session
-  const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
-  const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
-  const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
+  const { data: exploratorySessionData } =
+    useGetProjectExploratorySession(projectId);
+  const startExploratorySessionMutation =
+    useStartProjectExploratorySession(projectId);
+  const stopExploratorySessionMutation =
+    useStopProjectExploratorySession(projectId);
 
   // Create SpecTask mutation for "Fix Startup Script" feature
   // Uses branch_mode: "existing" with helix-specs branch to push directly (no PR)
   const createSpecTaskMutation = useMutation({
-    mutationFn: async (request: { prompt: string; branch_mode?: string; base_branch?: string; working_branch?: string }) => {
+    mutationFn: async (request: {
+      prompt: string;
+      branch_mode?: string;
+      base_branch?: string;
+      working_branch?: string;
+    }) => {
       const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
         project_id: projectId,
         prompt: request.prompt,
         branch_mode: request.branch_mode as any,
         base_branch: request.base_branch,
         working_branch: request.working_branch,
-      })
-      return response.data
+      });
+      return response.data;
     },
     onSuccess: (task) => {
-      snackbar.success('Created task to fix startup script')
+      snackbar.success("Created task to fix startup script");
       // Navigate to the kanban board with the new task highlighted
-      account.orgNavigate('project-specs', { id: projectId, highlight: task.id })
+      account.orgNavigate("project-specs", {
+        id: projectId,
+        highlight: task.id,
+      });
     },
     onError: () => {
-      snackbar.error('Failed to create task')
-    }
-  })
+      snackbar.error("Failed to create task");
+    },
+  });
 
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [startupScript, setStartupScript] = useState('')
-  const [guidelines, setGuidelines] = useState('')
-  const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
-  const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] = useState(false)
-  const [showTestSession, setShowTestSession] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deleteConfirmName, setDeleteConfirmName] = useState('')
-  const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false)
-  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('')
-  const [savingProject, setSavingProject] = useState(false)
-  const [testingStartupScript, setTestingStartupScript] = useState(false)
-  const [isSessionRestart, setIsSessionRestart] = useState(false)
-  const [guidelinesHistoryDialogOpen, setGuidelinesHistoryDialogOpen] = useState(false)
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [startupScript, setStartupScript] = useState("");
+  const [guidelines, setGuidelines] = useState("");
+  const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
+  const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
+    useState(false);
+  const [showTestSession, setShowTestSession] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false);
+  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState("");
+  const [savingProject, setSavingProject] = useState(false);
+  const [testingStartupScript, setTestingStartupScript] = useState(false);
+  const [isSessionRestart, setIsSessionRestart] = useState(false);
+  const [guidelinesHistoryDialogOpen, setGuidelinesHistoryDialogOpen] =
+    useState(false);
 
   // Guidelines history
-  const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(projectId, guidelinesHistoryDialogOpen)
+  const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(
+    projectId,
+    guidelinesHistoryDialogOpen,
+  );
+
+  // Move to organization state
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [selectedOrgToMove, setSelectedOrgToMove] = useState("");
+  const [movePreview, setMovePreview] = useState<{
+    project: { current_name: string; new_name?: string; has_conflict: boolean };
+    repositories: Array<{
+      id: string;
+      current_name: string;
+      new_name?: string;
+      has_conflict: boolean;
+    }>;
+  } | null>(null);
+  const [loadingMovePreview, setLoadingMovePreview] = useState(false);
 
   // Project secrets
-  const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false)
-  const [newSecretName, setNewSecretName] = useState('')
-  const [newSecretValue, setNewSecretValue] = useState('')
-  const [showSecretValue, setShowSecretValue] = useState(false)
+  const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false);
+  const [newSecretName, setNewSecretName] = useState("");
+  const [newSecretValue, setNewSecretValue] = useState("");
+  const [showSecretValue, setShowSecretValue] = useState(false);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
-    queryKey: ['project-secrets', projectId],
+    queryKey: ["project-secrets", projectId],
     queryFn: async () => {
-      const response = await api.getApiClient().v1ProjectsSecretsDetail(projectId)
-      return response.data || []
+      const response = await api
+        .getApiClient()
+        .v1ProjectsSecretsDetail(projectId);
+      return response.data || [];
     },
     enabled: !!projectId,
-  })
+  });
 
   // Create secret mutation
   const createSecretMutation = useMutation({
     mutationFn: async ({ name, value }: { name: string; value: string }) => {
-      const response = await api.getApiClient().v1ProjectsSecretsCreate(projectId, { name, value })
-      return response.data
+      const response = await api
+        .getApiClient()
+        .v1ProjectsSecretsCreate(projectId, { name, value });
+      return response.data;
     },
     onSuccess: () => {
-      snackbar.success('Secret created successfully')
-      setAddSecretDialogOpen(false)
-      setNewSecretName('')
-      setNewSecretValue('')
-      refetchSecrets()
+      snackbar.success("Secret created successfully");
+      setAddSecretDialogOpen(false);
+      setNewSecretName("");
+      setNewSecretValue("");
+      refetchSecrets();
     },
     onError: (err: any) => {
-      const message = err?.response?.data?.error || 'Failed to create secret'
-      snackbar.error(message)
+      const message = err?.response?.data?.error || "Failed to create secret";
+      snackbar.error(message);
     },
-  })
+  });
 
   // Delete secret mutation
   const deleteSecretMutation = useMutation({
     mutationFn: async (secretId: string) => {
-      await api.getApiClient().v1SecretsDelete(secretId)
+      await api.getApiClient().v1SecretsDelete(secretId);
     },
     onSuccess: () => {
-      snackbar.success('Secret deleted')
-      refetchSecrets()
+      snackbar.success("Secret deleted");
+      refetchSecrets();
     },
     onError: () => {
-      snackbar.error('Failed to delete secret')
+      snackbar.error("Failed to delete secret");
     },
-  })
+  });
+
+  // Move project mutation
+  const moveProjectMutation = useMutation({
+    mutationFn: async (organizationId: string) => {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsMoveCreate(projectId, {
+          organization_id: organizationId,
+        });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Project moved to organization successfully");
+      setMoveDialogOpen(false);
+      setSelectedOrgToMove("");
+      setMovePreview(null);
+      // Invalidate project query to refresh data
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (err: any) => {
+      const message = err?.response?.data?.error || "Failed to move project";
+      snackbar.error(message);
+    },
+  });
+
+  // Fetch move preview when org is selected
+  const handleOrgSelectForMove = async (orgId: string) => {
+    setSelectedOrgToMove(orgId);
+    if (!orgId) {
+      setMovePreview(null);
+      return;
+    }
+
+    setLoadingMovePreview(true);
+    try {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsMovePreviewCreate(projectId, {
+          organization_id: orgId,
+        });
+      setMovePreview(response.data as any);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.error || "Failed to check for conflicts";
+      snackbar.error(message);
+      setMovePreview(null);
+    } finally {
+      setLoadingMovePreview(false);
+    }
+  };
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
     planning: 3,
     review: 2,
     implementation: 5,
-  })
+  });
 
   // Default agent state
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
-  const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] = useState<string>('')
-  const [selectedPullRequestReviewerAgentId, setSelectedPullRequestReviewerAgentId] = useState<string>('')
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
-  const [selectedProvider, setSelectedProvider] = useState('')
-  const [selectedModel, setSelectedModel] = useState('')
-  const [newAgentName, setNewAgentName] = useState('-')
-  const [userModifiedName, setUserModifiedName] = useState(false)
-  const [creatingAgent, setCreatingAgent] = useState(false)
-  const [agentError, setAgentError] = useState('')
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] =
+    useState<string>("");
+  const [
+    selectedPullRequestReviewerAgentId,
+    setSelectedPullRequestReviewerAgentId,
+  ] = useState<string>("");
+  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
+  const [codeAgentRuntime, setCodeAgentRuntime] =
+    useState<CodeAgentRuntime>("zed_agent");
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [newAgentName, setNewAgentName] = useState("-");
+  const [userModifiedName, setUserModifiedName] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [agentError, setAgentError] = useState("");
 
   // Sort apps: zed_external first, then others
   const sortedApps = useMemo(() => {
-    if (!apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
+    if (!apps) return [];
+    const zedExternalApps: IApp[] = [];
+    const otherApps: IApp[] = [];
     apps.forEach((app) => {
-      const hasZedExternal = app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+      const hasZedExternal =
+        app.config?.helix?.assistants?.some(
+          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
+        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
       if (hasZedExternal) {
-        zedExternalApps.push(app)
+        zedExternalApps.push(app);
       } else {
-        otherApps.push(app)
+        otherApps.push(app);
       }
-    })
-    return [...zedExternalApps, ...otherApps]
-  }, [apps])
+    });
+    return [...zedExternalApps, ...otherApps];
+  }, [apps]);
 
   // Check if the primary repository is an external repository (has external_url set)
   const primaryRepoIsExternal = useMemo(() => {
-    if (!project?.default_repo_id || repositories.length === 0) return false
-    const primaryRepo = repositories.find(repo => repo.id === project.default_repo_id)
-    return primaryRepo?.external_url ? true : false
-  }, [project?.default_repo_id, repositories])
+    if (!project?.default_repo_id || repositories.length === 0) return false;
+    const primaryRepo = repositories.find(
+      (repo) => repo.id === project.default_repo_id,
+    );
+    return primaryRepo?.external_url ? true : false;
+  }, [project?.default_repo_id, repositories]);
 
   // Load apps when component mounts
   useEffect(() => {
-    loadApps()
-  }, [loadApps])
+    loadApps();
+  }, [loadApps]);
 
   // Auto-generate name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
     if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
   useEffect(() => {
     if (project) {
-      setName(project.name || '')
-      setDescription(project.description || '')
-      setStartupScript(project.startup_script || '')
-      setGuidelines(project.guidelines || '')
-      setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
-      setPullRequestReviewsEnabled(project.pull_request_reviews_enabled || false)
-      setSelectedAgentId(project.default_helix_app_id || '')
-      setSelectedProjectManagerAgentId(project.project_manager_helix_app_id || '')
-      setSelectedPullRequestReviewerAgentId(project.pull_request_reviewer_helix_app_id || '')
+      setName(project.name || "");
+      setDescription(project.description || "");
+      setStartupScript(project.startup_script || "");
+      setGuidelines(project.guidelines || "");
+      setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false);
+      setPullRequestReviewsEnabled(
+        project.pull_request_reviews_enabled || false,
+      );
+      setSelectedAgentId(project.default_helix_app_id || "");
+      setSelectedProjectManagerAgentId(
+        project.project_manager_helix_app_id || "",
+      );
+      setSelectedPullRequestReviewerAgentId(
+        project.pull_request_reviewer_helix_app_id || "",
+      );
 
       // Load WIP limits from project metadata
-      const projectWipLimits = project.metadata?.board_settings?.wip_limits
+      const projectWipLimits = project.metadata?.board_settings?.wip_limits;
       if (projectWipLimits) {
         setWipLimits({
           planning: projectWipLimits.planning || 3,
           review: projectWipLimits.review || 2,
           implementation: projectWipLimits.implementation || 5,
-        })
+        });
       }
     }
-  }, [project])
+  }, [project]);
 
   const handleSave = async (showSuccessMessage = true) => {
-    console.log('[ProjectSettings] handleSave called', {
+    console.log("[ProjectSettings] handleSave called", {
       showSuccessMessage,
       savingProject,
       hasProject: !!project,
       hasName: !!name,
       updatePending: updateProjectMutation.isPending,
-    })
+    });
 
     if (savingProject) {
-      console.warn('[ProjectSettings] Save already in progress, skipping')
-      return false // Indicate save didn't happen
+      console.warn("[ProjectSettings] Save already in progress, skipping");
+      return false; // Indicate save didn't happen
     }
 
     // Safety check: don't save if form hasn't been initialized yet
     if (!project || !name) {
-      console.warn('[ProjectSettings] Attempted to save before form initialized, ignoring')
-      return false // Indicate save didn't happen
+      console.warn(
+        "[ProjectSettings] Attempted to save before form initialized, ignoring",
+      );
+      return false; // Indicate save didn't happen
     }
 
     try {
-      setSavingProject(true)
-      console.log('[ProjectSettings] Saving project settings...')
+      setSavingProject(true);
+      console.log("[ProjectSettings] Saving project settings...");
 
       // Save project basic settings
       await updateProjectMutation.mutateAsync({
@@ -343,220 +458,236 @@ const ProjectSettings: FC = () => {
         auto_start_backlog_tasks: autoStartBacklogTasks,
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
         default_helix_app_id: selectedAgentId || undefined,
-        project_manager_helix_app_id: selectedProjectManagerAgentId || undefined,
+        project_manager_helix_app_id:
+          selectedProjectManagerAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
           },
         },
-      })
-      console.log('[ProjectSettings] Project settings saved to database')
+      });
+      console.log("[ProjectSettings] Project settings saved to database");
 
       if (showSuccessMessage) {
-        snackbar.success('Project settings saved')
+        snackbar.success("Project settings saved");
       }
-      console.log('[ProjectSettings] handleSave returning true')
-      return true // Indicate save succeeded
+      console.log("[ProjectSettings] handleSave returning true");
+      return true; // Indicate save succeeded
     } catch (err) {
-      console.error('[ProjectSettings] Failed to save:', err)
-      snackbar.error('Failed to save project settings')
-      throw err // Re-throw so caller knows it failed
+      console.error("[ProjectSettings] Failed to save:", err);
+      snackbar.error("Failed to save project settings");
+      throw err; // Re-throw so caller knows it failed
     } finally {
-      setSavingProject(false)
+      setSavingProject(false);
     }
-  }
+  };
 
   const handleFieldBlur = () => {
-    handleSave(false) // Auto-save without showing success message
-  }
+    handleSave(false); // Auto-save without showing success message
+  };
 
   const handleCreateAgent = async () => {
     if (!newAgentName.trim()) {
-      setAgentError('Please enter a name for the agent')
-      return
+      setAgentError("Please enter a name for the agent");
+      return;
     }
     if (!selectedModel) {
-      setAgentError('Please select a model')
-      return
+      setAgentError("Please select a model");
+      return;
     }
 
-    setCreatingAgent(true)
-    setAgentError('')
+    setCreatingAgent(true);
+    setAgentError("");
 
     try {
       const params: ICreateAgentParams = {
         name: newAgentName.trim(),
-        description: 'Code development agent for spec tasks',
+        description: "Code development agent for spec tasks",
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime,
         model: selectedModel,
         generationModelProvider: selectedProvider,
         generationModel: selectedModel,
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: 'none',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: 'none',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      }
+        reasoningModelProvider: "",
+        reasoningModel: "",
+        reasoningModelEffort: "none",
+        smallReasoningModelProvider: "",
+        smallReasoningModel: "",
+        smallReasoningModelEffort: "none",
+        smallGenerationModelProvider: "",
+        smallGenerationModel: "",
+      };
 
-      const newApp = await createAgent(params)
+      const newApp = await createAgent(params);
       if (newApp) {
-        setSelectedAgentId(newApp.id)
-        setShowCreateAgentForm(false)
+        setSelectedAgentId(newApp.id);
+        setShowCreateAgentForm(false);
         // Save directly with the new agent ID (don't rely on stale state)
         await updateProjectMutation.mutateAsync({
           default_helix_app_id: newApp.id,
-        })
-        snackbar.success('Agent created and set as default')
+        });
+        snackbar.success("Agent created and set as default");
       }
     } catch (err) {
-      console.error('Failed to create agent:', err)
-      setAgentError(err instanceof Error ? err.message : 'Failed to create agent')
+      console.error("Failed to create agent:", err);
+      setAgentError(
+        err instanceof Error ? err.message : "Failed to create agent",
+      );
     } finally {
-      setCreatingAgent(false)
+      setCreatingAgent(false);
     }
-  }
+  };
 
   const handleSetPrimaryRepo = async (repoId: string) => {
     try {
-      await setPrimaryRepoMutation.mutateAsync(repoId)
-      snackbar.success('Primary repository updated')
+      await setPrimaryRepoMutation.mutateAsync(repoId);
+      snackbar.success("Primary repository updated");
     } catch (err) {
-      snackbar.error('Failed to update primary repository')
+      snackbar.error("Failed to update primary repository");
     }
-  }
+  };
 
   const handleAttachRepository = async () => {
     if (!selectedRepoToAttach) {
-      snackbar.error('Please select a repository')
-      return
+      snackbar.error("Please select a repository");
+      return;
     }
 
     try {
-      await attachRepoMutation.mutateAsync(selectedRepoToAttach)
-      snackbar.success('Repository attached successfully')
-      setAttachRepoDialogOpen(false)
-      setSelectedRepoToAttach('')
+      await attachRepoMutation.mutateAsync(selectedRepoToAttach);
+      snackbar.success("Repository attached successfully");
+      setAttachRepoDialogOpen(false);
+      setSelectedRepoToAttach("");
     } catch (err) {
-      snackbar.error('Failed to attach repository')
+      snackbar.error("Failed to attach repository");
     }
-  }
+  };
 
   const handleDetachRepository = async (repoId: string) => {
     try {
-      await detachRepoMutation.mutateAsync(repoId)
-      snackbar.success('Repository detached successfully')
+      await detachRepoMutation.mutateAsync(repoId);
+      snackbar.success("Repository detached successfully");
     } catch (err) {
-      snackbar.error('Failed to detach repository')
+      snackbar.error("Failed to detach repository");
     }
-  }
+  };
 
   const handleTestStartupScript = async () => {
-    const isRestart = !!exploratorySessionData
-    setIsSessionRestart(isRestart)
-    setTestingStartupScript(true)
+    const isRestart = !!exploratorySessionData;
+    setIsSessionRestart(isRestart);
+    setTestingStartupScript(true);
 
     try {
       // 1. Save changes first
-      const saved = await handleSave(false)
+      const saved = await handleSave(false);
       if (!saved) {
-        snackbar.error('Failed to save settings before testing')
-        return
+        snackbar.error("Failed to save settings before testing");
+        return;
       }
 
       // 2. Stop existing session if running
       if (exploratorySessionData) {
         try {
-          await stopExploratorySessionMutation.mutateAsync()
+          await stopExploratorySessionMutation.mutateAsync();
           // Short delay to let stop complete
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         } catch (err: any) {
           // If session doesn't exist or already stopped, proceed anyway
-          const isNotFound = err?.response?.status === 404 ||
-                            err?.response?.status === 500 ||
-                            err?.message?.includes('not found');
+          const isNotFound =
+            err?.response?.status === 404 ||
+            err?.response?.status === 500 ||
+            err?.message?.includes("not found");
           if (!isNotFound) {
-            snackbar.error('Failed to stop existing session')
-            return
+            snackbar.error("Failed to stop existing session");
+            return;
           }
         }
       }
 
       // 3. Start new session with fresh startup script
-      const session = await startExploratorySessionMutation.mutateAsync()
-      snackbar.success('Testing startup script')
+      const session = await startExploratorySessionMutation.mutateAsync();
+      snackbar.success("Testing startup script");
 
       // 4. Wait for data to refetch with new lobby ID
-      await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) })
+      await queryClient.refetchQueries({
+        queryKey: projectExploratorySessionQueryKey(projectId),
+      });
 
       // 5. Show test session viewer
-      setShowTestSession(true)
+      setShowTestSession(true);
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session'
-      snackbar.error(errorMessage)
+      const errorMessage =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to start exploratory session";
+      snackbar.error(errorMessage);
     } finally {
       // Clear loading state after longer delay for restarts (connection takes time)
       // First start: 2 seconds, Restart: 7 seconds (needs time for reconnect retries)
-      const delay = isRestart ? 7000 : 2000
-      setTimeout(() => setTestingStartupScript(false), delay)
+      const delay = isRestart ? 7000 : 2000;
+      setTimeout(() => setTestingStartupScript(false), delay);
     }
-  }
+  };
 
   const handleDeleteProject = async () => {
     if (deleteConfirmName !== project?.name) {
-      snackbar.error('Project name does not match')
-      return
+      snackbar.error("Project name does not match");
+      return;
     }
 
     try {
-      await deleteProjectMutation.mutateAsync(projectId)
-      snackbar.success('Project deleted successfully')
-      setDeleteDialogOpen(false)
+      await deleteProjectMutation.mutateAsync(projectId);
+      snackbar.success("Project deleted successfully");
+      setDeleteDialogOpen(false);
       // Navigate back to projects list
-      account.orgNavigate('projects')
+      account.orgNavigate("projects");
     } catch (err) {
-      snackbar.error('Failed to delete project')
+      snackbar.error("Failed to delete project");
     }
-  }
+  };
 
   const handleCreateAccessGrant = async (request: any) => {
     try {
-      const result = await createAccessGrantMutation.mutateAsync(request)
+      const result = await createAccessGrantMutation.mutateAsync(request);
       if (result) {
-        snackbar.success('Access grant created successfully')
-        return result
+        snackbar.success("Access grant created successfully");
+        return result;
       }
-      return null
+      return null;
     } catch (err) {
-      snackbar.error('Failed to create access grant')
-      return null
+      snackbar.error("Failed to create access grant");
+      return null;
     }
-  }
+  };
 
   const handleDeleteAccessGrant = async (grantId: string) => {
     try {
-      await deleteAccessGrantMutation.mutateAsync(grantId)
-      snackbar.success('Access grant removed successfully')
-      return true
+      await deleteAccessGrantMutation.mutateAsync(grantId);
+      snackbar.success("Access grant removed successfully");
+      return true;
     } catch (err) {
-      snackbar.error('Failed to remove access grant')
-      return false
+      snackbar.error("Failed to remove access grant");
+      return false;
     }
-  }
+  };
 
   if (isLoading) {
     return (
       <Page breadcrumbTitle="Loading..." orgBreadcrumbs={true}>
         <Container maxWidth="md">
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              minHeight: "400px",
+            }}
+          >
             <CircularProgress />
           </Box>
         </Container>
       </Page>
-    )
+    );
   }
 
   if (error || !project) {
@@ -564,98 +695,124 @@ const ProjectSettings: FC = () => {
       <Page breadcrumbTitle="Project Settings" orgBreadcrumbs={true}>
         <Container maxWidth="md">
           <Alert severity="error" sx={{ mt: 4 }}>
-            {error instanceof Error ? error.message : 'Project not found'}
+            {error instanceof Error ? error.message : "Project not found"}
           </Alert>
         </Container>
       </Page>
-    )
+    );
   }
 
   const breadcrumbs = [
     {
-      title: 'Projects',
-      routeName: 'projects',
+      title: "Projects",
+      routeName: "projects",
     },
     {
       title: project.name,
-      routeName: 'project-specs',
+      routeName: "project-specs",
       params: { id: projectId },
     },
     {
-      title: 'Workspace Settings',
+      title: "Workspace Settings",
     },
-  ]
+  ];
 
   return (
     <Page
       breadcrumbs={breadcrumbs}
       orgBreadcrumbs={true}
-      topbarContent={(
-        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', width: '100%' }}>
+      topbarContent={
+        <Box
+          sx={{
+            display: "flex",
+            gap: 2,
+            justifyContent: "flex-end",
+            width: "100%",
+          }}
+        >
           {/* Save/Load indicator lozenge */}
           {(savingProject || isLoading) && (
             <Chip
-              icon={<CircularProgress size={16} sx={{ color: 'inherit !important' }} />}
-              label={savingProject ? 'Saving...' : 'Loading...'}
+              icon={
+                <CircularProgress
+                  size={16}
+                  sx={{ color: "inherit !important" }}
+                />
+              }
+              label={savingProject ? "Saving..." : "Loading..."}
               size="small"
               sx={{
                 height: 28,
-                backgroundColor: savingProject ? 'rgba(46, 125, 50, 0.1)' : 'rgba(25, 118, 210, 0.1)',
-                color: savingProject ? 'success.main' : 'primary.main',
+                backgroundColor: savingProject
+                  ? "rgba(46, 125, 50, 0.1)"
+                  : "rgba(25, 118, 210, 0.1)",
+                color: savingProject ? "success.main" : "primary.main",
                 borderRadius: 20,
               }}
             />
           )}
         </Box>
-      )}
+      }
     >
-      <Container maxWidth={showTestSession ? false : 'md'} sx={{ px: showTestSession ? 3 : 3 }}>
-        <Box sx={{ mt: 4, display: 'flex', flexDirection: 'row', gap: 3, width: '100%' }}>
-          {/* Left column: Settings sections */}
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
+      <Container
+        maxWidth={showTestSession ? false : "md"}
+        sx={{ px: showTestSession ? 3 : 3 }}
+      >
+        <Box
+          sx={{
+            mt: 4,
+            display: "flex",
+            flexDirection: "row",
             gap: 3,
-            width: showTestSession ? '600px' : '100%',
-            flexShrink: 0,
-          }}>
-          {/* Basic Information */}
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Basic Information
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <TextField
-                label="Project Name"
-                fullWidth
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={handleFieldBlur}
-                required
-              />
-              <TextField
-                label="Description"
-                fullWidth
-                multiline
-                rows={3}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onBlur={handleFieldBlur}
-              />
-            </Box>
-          </Paper>
+            width: "100%",
+          }}
+        >
+          {/* Left column: Settings sections */}
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 3,
+              width: showTestSession ? "600px" : "100%",
+              flexShrink: 0,
+            }}
+          >
+            {/* Basic Information */}
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Basic Information
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <TextField
+                  label="Project Name"
+                  fullWidth
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={handleFieldBlur}
+                  required
+                />
+                <TextField
+                  label="Description"
+                  fullWidth
+                  multiline
+                  rows={3}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  onBlur={handleFieldBlur}
+                />
+              </Box>
+            </Paper>
 
-          {/* Startup Script */}
-          <Paper sx={{ p: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            {/* Startup Script */}
+            <Paper sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <CodeIcon sx={{ mr: 1 }} />
-                <Typography variant="h6">
-                  Startup Script
-                </Typography>
+                <Typography variant="h6">Startup Script</Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This script runs when an agent starts working on this project. Use it to install dependencies, start dev servers, etc.
+                This script runs when an agent starts working on this project.
+                Use it to install dependencies, start dev servers, etc.
               </Typography>
               <Divider sx={{ mb: 3 }} />
 
@@ -666,517 +823,709 @@ const ProjectSettings: FC = () => {
                 onSave={() => handleSave(true)}
                 testDisabled={startExploratorySessionMutation.isPending}
                 testLoading={testingStartupScript}
-                testTooltip={exploratorySessionData ? 'Will restart the running exploratory session' : undefined}
+                testTooltip={
+                  exploratorySessionData
+                    ? "Will restart the running exploratory session"
+                    : undefined
+                }
                 projectId={projectId}
               />
             </Paper>
 
-          {/* Repositories */}
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  Repositories
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Repositories attached to this project. The primary repository is opened by default when agents start.
-                </Typography>
-              </Box>
-              <Button
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => setAttachRepoDialogOpen(true)}
-                size="small"
+            {/* Repositories */}
+            <Paper sx={{ p: 3 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  mb: 2,
+                }}
               >
-                Attach Repository
-              </Button>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
-
-            {/* User Code Repositories Section */}
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
-              Code Repositories
-            </Typography>
-
-            {repositories.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                No code repositories attached to this project yet. Click "Attach Repository" to add one.
-              </Typography>
-            ) : (
-              <ProjectRepositoriesList
-                repositories={repositories}
-                primaryRepoId={project.default_repo_id}
-                onSetPrimaryRepo={handleSetPrimaryRepo}
-                onDetachRepo={handleDetachRepository}
-                setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
-                detachRepoPending={detachRepoMutation.isPending}
-              />
-            )}
-          </Paper>
-
-          {/* Default Agent */}
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <Bot size={24} style={{ marginRight: 8 }} />
-              <Typography variant="h6">
-                Agent configuration
-              </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Set agents for this project. Agents are used for working on spec tasks, managing the project and reviewing pull requests.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-
-            {!showCreateAgentForm ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <AgentDropdown
-                  value={selectedAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedAgentId(newAgentId)
-                    updateProjectMutation.mutate({
-                      default_helix_app_id: newAgentId || undefined,
-                    })
-                  }}
-                  agents={sortedApps}
-                  label="Default Agent"
-                />
-                <AgentDropdown
-                  value={selectedProjectManagerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedProjectManagerAgentId(newAgentId)
-                    updateProjectMutation.mutate({
-                      project_manager_helix_app_id: newAgentId || undefined,
-                    })
-                  }}
-                  agents={sortedApps}
-                  label="Project Manager Agent"
-                />
-                <AgentDropdown
-                  value={selectedPullRequestReviewerAgentId}
-                  onChange={(newAgentId) => {
-                    setSelectedPullRequestReviewerAgentId(newAgentId)
-                    updateProjectMutation.mutate({
-                      pull_request_reviewer_helix_app_id: newAgentId || undefined,
-                    })
-                  }}
-                  agents={sortedApps}
-                  label="Pull Request Reviewer Agent"
-                  disabled={!primaryRepoIsExternal}
-                  helperText={!primaryRepoIsExternal ? 'Requires an external repository (GitHub, GitLab, etc.) as the primary repository' : undefined}
-                />
+                <Box>
+                  <Typography variant="h6" gutterBottom>
+                    Repositories
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Repositories attached to this project. The primary
+                    repository is opened by default when agents start.
+                  </Typography>
+                </Box>
                 <Button
-                  size="small"
+                  variant="outlined"
                   startIcon={<AddIcon />}
-                  onClick={() => setShowCreateAgentForm(true)}
-                  sx={{ alignSelf: 'flex-start' }}
+                  onClick={() => setAttachRepoDialogOpen(true)}
+                  size="small"
                 >
-                  Create new agent
+                  Attach Repository
                 </Button>
               </Box>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Typography variant="subtitle2">Create New Agent</Typography>
+              <Divider sx={{ mb: 2 }} />
 
-                <Typography variant="body2" color="text.secondary">
-                  Code Agent Runtime
-                </Typography>
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={codeAgentRuntime}
-                    onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                    disabled={creatingAgent}
-                  >
-                    <MenuItem value="zed_agent">
-                      <Box>
-                        <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses Zed's native agent panel with direct API integration
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                    <MenuItem value="qwen_code">
-                      <Box>
-                        <Typography variant="body2">Qwen Code</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  </Select>
-                </FormControl>
+              {/* User Code Repositories Section */}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: 600, mb: 1, display: "block" }}
+              >
+                Code Repositories
+              </Typography>
 
-                <Typography variant="body2" color="text.secondary">
-                  Code Agent Model
+              {repositories.length === 0 ? (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ textAlign: "center", py: 4 }}
+                >
+                  No code repositories attached to this project yet. Click
+                  "Attach Repository" to add one.
                 </Typography>
-                <AdvancedModelPicker
-                  recommendedModels={RECOMMENDED_MODELS}
-                  hint="Choose a capable model for agentic coding."
-                  selectedProvider={selectedProvider}
-                  selectedModelId={selectedModel}
-                  onSelectModel={(provider, model) => {
-                    setSelectedProvider(provider)
-                    setSelectedModel(model)
-                  }}
-                  currentType="text"
-                  displayMode="short"
-                  disabled={creatingAgent}
+              ) : (
+                <ProjectRepositoriesList
+                  repositories={repositories}
+                  primaryRepoId={project.default_repo_id}
+                  onSetPrimaryRepo={handleSetPrimaryRepo}
+                  onDetachRepo={handleDetachRepository}
+                  setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
+                  detachRepoPending={detachRepoMutation.isPending}
                 />
+              )}
+            </Paper>
 
-                <Typography variant="body2" color="text.secondary">
-                  Agent Name
-                </Typography>
-                <TextField
-                  value={newAgentName}
-                  onChange={(e) => {
-                    setNewAgentName(e.target.value)
-                    setUserModifiedName(true)
-                  }}
-                  size="small"
-                  fullWidth
-                  disabled={creatingAgent}
-                  helperText="Auto-generated from model and runtime. Edit to customize."
-                />
+            {/* Default Agent */}
+            <Paper sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                <Bot size={24} style={{ marginRight: 8 }} />
+                <Typography variant="h6">Agent configuration</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Set agents for this project. Agents are used for working on spec
+                tasks, managing the project and reviewing pull requests.
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
 
-                {agentError && (
-                  <Alert severity="error">{agentError}</Alert>
-                )}
-
-                <Box sx={{ display: 'flex', gap: 1 }}>
+              {!showCreateAgentForm ? (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <AgentDropdown
+                    value={selectedAgentId}
+                    onChange={(newAgentId) => {
+                      setSelectedAgentId(newAgentId);
+                      updateProjectMutation.mutate({
+                        default_helix_app_id: newAgentId || undefined,
+                      });
+                    }}
+                    agents={sortedApps}
+                    label="Default Agent"
+                  />
+                  <AgentDropdown
+                    value={selectedProjectManagerAgentId}
+                    onChange={(newAgentId) => {
+                      setSelectedProjectManagerAgentId(newAgentId);
+                      updateProjectMutation.mutate({
+                        project_manager_helix_app_id: newAgentId || undefined,
+                      });
+                    }}
+                    agents={sortedApps}
+                    label="Project Manager Agent"
+                  />
+                  <AgentDropdown
+                    value={selectedPullRequestReviewerAgentId}
+                    onChange={(newAgentId) => {
+                      setSelectedPullRequestReviewerAgentId(newAgentId);
+                      updateProjectMutation.mutate({
+                        pull_request_reviewer_helix_app_id:
+                          newAgentId || undefined,
+                      });
+                    }}
+                    agents={sortedApps}
+                    label="Pull Request Reviewer Agent"
+                    disabled={!primaryRepoIsExternal}
+                    helperText={
+                      !primaryRepoIsExternal
+                        ? "Requires an external repository (GitHub, GitLab, etc.) as the primary repository"
+                        : undefined
+                    }
+                  />
                   <Button
-                    variant="contained"
-                    onClick={handleCreateAgent}
-                    disabled={creatingAgent || !newAgentName.trim() || !selectedModel}
-                    startIcon={creatingAgent ? <CircularProgress size={16} /> : undefined}
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={() => setShowCreateAgentForm(true)}
+                    sx={{ alignSelf: "flex-start" }}
                   >
-                    {creatingAgent ? 'Creating...' : 'Create Agent'}
+                    Create new agent
                   </Button>
-                  {sortedApps.length > 0 && (
-                    <Button
-                      onClick={() => setShowCreateAgentForm(false)}
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <Typography variant="subtitle2">Create New Agent</Typography>
+
+                  <Typography variant="body2" color="text.secondary">
+                    Code Agent Runtime
+                  </Typography>
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={codeAgentRuntime}
+                      onChange={(e) =>
+                        setCodeAgentRuntime(e.target.value as CodeAgentRuntime)
+                      }
                       disabled={creatingAgent}
                     >
-                      Cancel
+                      <MenuItem value="zed_agent">
+                        <Box>
+                          <Typography variant="body2">
+                            Zed Agent (Built-in)
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Uses Zed's native agent panel with direct API
+                            integration
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="qwen_code">
+                        <Box>
+                          <Typography variant="body2">Qwen Code</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Uses qwen-code CLI as a custom agent server
+                            (OpenAI-compatible)
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <Typography variant="body2" color="text.secondary">
+                    Code Agent Model
+                  </Typography>
+                  <AdvancedModelPicker
+                    recommendedModels={RECOMMENDED_MODELS}
+                    hint="Choose a capable model for agentic coding."
+                    selectedProvider={selectedProvider}
+                    selectedModelId={selectedModel}
+                    onSelectModel={(provider, model) => {
+                      setSelectedProvider(provider);
+                      setSelectedModel(model);
+                    }}
+                    currentType="text"
+                    displayMode="short"
+                    disabled={creatingAgent}
+                  />
+
+                  <Typography variant="body2" color="text.secondary">
+                    Agent Name
+                  </Typography>
+                  <TextField
+                    value={newAgentName}
+                    onChange={(e) => {
+                      setNewAgentName(e.target.value);
+                      setUserModifiedName(true);
+                    }}
+                    size="small"
+                    fullWidth
+                    disabled={creatingAgent}
+                    helperText="Auto-generated from model and runtime. Edit to customize."
+                  />
+
+                  {agentError && <Alert severity="error">{agentError}</Alert>}
+
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button
+                      variant="contained"
+                      onClick={handleCreateAgent}
+                      disabled={
+                        creatingAgent || !newAgentName.trim() || !selectedModel
+                      }
+                      startIcon={
+                        creatingAgent ? (
+                          <CircularProgress size={16} />
+                        ) : undefined
+                      }
+                    >
+                      {creatingAgent ? "Creating..." : "Create Agent"}
                     </Button>
-                  )}
-                </Box>
-              </Box>
-            )}
-          </Paper>
-
-          {/* Board Settings */}
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Kanban Board Settings
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Configure work-in-progress (WIP) limits for the Kanban board columns.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
-              <TextField
-                label="Planning Column Limit"
-                value={wipLimits.planning}
-                onChange={(e) => setWipLimits({ ...wipLimits, planning: parseInt(e.target.value) || 0 })}
-                onBlur={handleFieldBlur}
-                helperText="Maximum tasks allowed in Planning column"
-              />
-              <TextField
-                label="Review Column Limit"
-                value={wipLimits.review}
-                onChange={(e) => setWipLimits({ ...wipLimits, review: parseInt(e.target.value) || 0 })}
-                onBlur={handleFieldBlur}
-                helperText="Maximum tasks allowed in Review column"
-              />
-              <TextField
-                label="Implementation Column Limit"
-                value={wipLimits.implementation}
-                onChange={(e) => setWipLimits({ ...wipLimits, implementation: parseInt(e.target.value) || 0 })}
-                onBlur={handleFieldBlur}
-                helperText="Maximum tasks allowed in Implementation column"
-              />
-            </Box>
-          </Paper>
-
-          {/* Automations */}
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Automations
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Configure automatic task scheduling and workflow automation.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ flex: 1, mr: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Auto-start backlog tasks
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Automatically move tasks from backlog to planning when the WIP limit allows.
-                  </Typography>
-                </Box>
-                <Switch
-                  checked={autoStartBacklogTasks}
-                  onChange={(e) => {
-                    const newValue = e.target.checked
-                    setAutoStartBacklogTasks(newValue)
-                    updateProjectMutation.mutate({
-                      auto_start_backlog_tasks: newValue,
-                    })
-                  }}
-                />
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ flex: 1, mr: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Pull request reviews
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Automatically review pull requests using the configured reviewer agent.
-                  </Typography>
-                </Box>
-                <Switch
-                  checked={pullRequestReviewsEnabled}
-                  onChange={(e) => {
-                    const newValue = e.target.checked
-                    setPullRequestReviewsEnabled(newValue)
-                    updateProjectMutation.mutate({
-                      pull_request_reviews_enabled: newValue,
-                    })
-                  }}
-                  disabled={!primaryRepoIsExternal}
-                />
-              </Box>
-              {!primaryRepoIsExternal && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
-                  Pull request reviews require an external repository (GitHub, GitLab, etc.) as the primary repository.
-                </Typography>
-              )}
-            </Box>
-          </Paper>
-
-          {/* Project Secrets */}
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <VpnKeyIcon sx={{ mr: 1 }} />
-                <Typography variant="h6">
-                  Secrets
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => setAddSecretDialogOpen(true)}
-              >
-                Add Secret
-              </Button>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Secrets are encrypted and injected as environment variables when agents work on this project.
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-            {projectSecrets.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                No secrets configured. Add secrets like API keys that agents need access to.
-              </Typography>
-            ) : (
-              <List dense>
-                {projectSecrets.map((secret) => (
-                  <ListItem
-                    key={secret.id}
-                    sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
-                    secondaryAction={
+                    {sortedApps.length > 0 && (
                       <Button
-                        size="small"
-                        color="error"
-                        onClick={() => secret.id && deleteSecretMutation.mutate(secret.id)}
-                        disabled={deleteSecretMutation.isPending}
-                        startIcon={<DeleteIcon />}
+                        onClick={() => setShowCreateAgentForm(false)}
+                        disabled={creatingAgent}
                       >
-                        Delete
+                        Cancel
                       </Button>
-                    }
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <VpnKeyIcon fontSize="small" color="action" />
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                        {secret.name}
-                      </Typography>
-                      <Chip label="encrypted" size="small" sx={{ ml: 1, fontSize: '0.7rem' }} />
-                    </Box>
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Paper>
+                    )}
+                  </Box>
+                </Box>
+              )}
+            </Paper>
 
-          {/* Project Guidelines */}
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <DescriptionIcon sx={{ mr: 1 }} />
-                <Typography variant="h6">
-                  Project Guidelines
-                </Typography>
+            {/* Board Settings */}
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Kanban Board Settings
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Configure work-in-progress (WIP) limits for the Kanban board
+                columns.
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: 2,
+                }}
+              >
+                <TextField
+                  label="Planning Column Limit"
+                  value={wipLimits.planning}
+                  onChange={(e) =>
+                    setWipLimits({
+                      ...wipLimits,
+                      planning: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  onBlur={handleFieldBlur}
+                  helperText="Maximum tasks allowed in Planning column"
+                />
+                <TextField
+                  label="Review Column Limit"
+                  value={wipLimits.review}
+                  onChange={(e) =>
+                    setWipLimits({
+                      ...wipLimits,
+                      review: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  onBlur={handleFieldBlur}
+                  helperText="Maximum tasks allowed in Review column"
+                />
+                <TextField
+                  label="Implementation Column Limit"
+                  value={wipLimits.implementation}
+                  onChange={(e) =>
+                    setWipLimits({
+                      ...wipLimits,
+                      implementation: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  onBlur={handleFieldBlur}
+                  helperText="Maximum tasks allowed in Implementation column"
+                />
               </Box>
-              {project.guidelines_version && project.guidelines_version > 0 && (
+            </Paper>
+
+            {/* Automations */}
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Automations
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Configure automatic task scheduling and workflow automation.
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box sx={{ flex: 1, mr: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Auto-start backlog tasks
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Automatically move tasks from backlog to planning when the
+                      WIP limit allows.
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={autoStartBacklogTasks}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      setAutoStartBacklogTasks(newValue);
+                      updateProjectMutation.mutate({
+                        auto_start_backlog_tasks: newValue,
+                      });
+                    }}
+                  />
+                </Box>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box sx={{ flex: 1, mr: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Pull request reviews
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Automatically review pull requests using the configured
+                      reviewer agent.
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={pullRequestReviewsEnabled}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      setPullRequestReviewsEnabled(newValue);
+                      updateProjectMutation.mutate({
+                        pull_request_reviews_enabled: newValue,
+                      });
+                    }}
+                    disabled={!primaryRepoIsExternal}
+                  />
+                </Box>
+                {!primaryRepoIsExternal && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: -1 }}
+                  >
+                    Pull request reviews require an external repository (GitHub,
+                    GitLab, etc.) as the primary repository.
+                  </Typography>
+                )}
+              </Box>
+            </Paper>
+
+            {/* Project Secrets */}
+            <Paper sx={{ p: 3 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  <VpnKeyIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6">Secrets</Typography>
+                </Box>
                 <Button
                   size="small"
-                  startIcon={<HistoryIcon />}
-                  onClick={() => setGuidelinesHistoryDialogOpen(true)}
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => setAddSecretDialogOpen(true)}
                 >
-                  History (v{project.guidelines_version})
+                  Add Secret
                 </Button>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Secrets are encrypted and injected as environment variables when
+                agents work on this project.
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              {projectSecrets.length === 0 ? (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ textAlign: "center", py: 4 }}
+                >
+                  No secrets configured. Add secrets like API keys that agents
+                  need access to.
+                </Typography>
+              ) : (
+                <List dense>
+                  {projectSecrets.map((secret) => (
+                    <ListItem
+                      key={secret.id}
+                      sx={{ borderBottom: "1px solid", borderColor: "divider" }}
+                      secondaryAction={
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() =>
+                            secret.id && deleteSecretMutation.mutate(secret.id)
+                          }
+                          disabled={deleteSecretMutation.isPending}
+                          startIcon={<DeleteIcon />}
+                        >
+                          Delete
+                        </Button>
+                      }
+                    >
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <VpnKeyIcon fontSize="small" color="action" />
+                        <Typography
+                          variant="body2"
+                          sx={{ fontFamily: "monospace", fontWeight: 600 }}
+                        >
+                          {secret.name}
+                        </Typography>
+                        <Chip
+                          label="encrypted"
+                          size="small"
+                          sx={{ ml: 1, fontSize: "0.7rem" }}
+                        />
+                      </Box>
+                    </ListItem>
+                  ))}
+                </List>
               )}
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Guidelines specific to this project. These are combined with organization guidelines and sent to AI agents during planning, implementation, and exploratory sessions.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            <TextField
-              fullWidth
-              multiline
-              minRows={4}
-              maxRows={12}
-              placeholder="Example:
+            </Paper>
+
+            {/* Project Guidelines */}
+            <Paper sx={{ p: 3 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  <DescriptionIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6">Project Guidelines</Typography>
+                </Box>
+                {project.guidelines_version &&
+                  project.guidelines_version > 0 && (
+                    <Button
+                      size="small"
+                      startIcon={<HistoryIcon />}
+                      onClick={() => setGuidelinesHistoryDialogOpen(true)}
+                    >
+                      History (v{project.guidelines_version})
+                    </Button>
+                  )}
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Guidelines specific to this project. These are combined with
+                organization guidelines and sent to AI agents during planning,
+                implementation, and exploratory sessions.
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              <TextField
+                fullWidth
+                multiline
+                minRows={4}
+                maxRows={12}
+                placeholder="Example:
 - Use React Query for all API calls
 - Follow the existing component patterns in src/components
 - Always add unit tests for new features
 - Use MUI components for UI elements"
-              value={guidelines}
-              onChange={(e) => setGuidelines(e.target.value)}
-              onBlur={handleFieldBlur}
-            />
-            {project.guidelines_updated_at && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                Last updated: {new Date(project.guidelines_updated_at).toLocaleDateString()}
-                {project.guidelines_version ? ` (v${project.guidelines_version})` : ''}
-              </Typography>
-            )}
-          </Paper>
-
-          {/* Members & Access Control */}
-          {project?.organization_id ? (
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <PeopleIcon sx={{ mr: 1 }} />
-              <Typography variant="h6">
-                Members & Access
-              </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Manage who has access to this project and their roles.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-
-              <AccessManagement
-                appId={projectId}
-                accessGrants={accessGrants}
-                isLoading={accessGrantsLoading}
-                isReadOnly={project.user_id !== account.user?.id && !account.user?.admin}
-                onCreateGrant={handleCreateAccessGrant}
-                onDeleteGrant={handleDeleteAccessGrant}
+                value={guidelines}
+                onChange={(e) => setGuidelines(e.target.value)}
+                onBlur={handleFieldBlur}
               />
-          </Paper>
-          ) : null}
-          {/* Danger Zone */}
-          <Paper sx={{ p: 3, mb: 3, border: '2px solid', borderColor: 'error.main' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <WarningIcon sx={{ mr: 1, color: 'error.main' }} />
-              <Typography variant="h6" color="error">
-                Danger Zone
-              </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Irreversible and destructive actions.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
+              {project.guidelines_updated_at && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  Last updated:{" "}
+                  {new Date(project.guidelines_updated_at).toLocaleDateString()}
+                  {project.guidelines_version
+                    ? ` (v${project.guidelines_version})`
+                    : ""}
+                </Typography>
+              )}
+            </Paper>
 
-            <Box sx={{
-              p: 2,
-              backgroundColor: 'rgba(211, 47, 47, 0.05)',
-              borderRadius: 1,
-              border: '1px solid',
-              borderColor: 'error.light'
-            }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                Delete Project
-              </Typography>
+            {/* Members & Access Control */}
+            {project?.organization_id ? (
+              <Paper sx={{ p: 3 }}>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                  <PeopleIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6">Members & Access</Typography>
+                </Box>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Manage who has access to this project and their roles.
+                </Typography>
+                <Divider sx={{ mb: 3 }} />
+
+                <AccessManagement
+                  appId={projectId}
+                  accessGrants={accessGrants}
+                  isLoading={accessGrantsLoading}
+                  isReadOnly={
+                    project.user_id !== account.user?.id && !account.user?.admin
+                  }
+                  onCreateGrant={handleCreateAccessGrant}
+                  onDeleteGrant={handleDeleteAccessGrant}
+                />
+              </Paper>
+            ) : null}
+            {/* Danger Zone */}
+            <Paper
+              sx={{
+                p: 3,
+                mb: 3,
+                border: "2px solid",
+                borderColor: "error.main",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                <WarningIcon sx={{ mr: 1, color: "error.main" }} />
+                <Typography variant="h6" color="error">
+                  Danger Zone
+                </Typography>
+              </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Once you delete a project, there is no going back. This will permanently delete the project, all its tasks, and associated data.
+                Irreversible and destructive actions.
               </Typography>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<DeleteForeverIcon />}
-                onClick={() => setDeleteDialogOpen(true)}
+              <Divider sx={{ mb: 3 }} />
+
+              {/* Move to Organization - only show for personal projects */}
+              {!project?.organization_id &&
+                account.organizationTools.organizations.length > 0 && (
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: "rgba(211, 47, 47, 0.05)",
+                      borderRadius: 1,
+                      border: "1px solid",
+                      borderColor: "error.light",
+                      mb: 2,
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle1"
+                      sx={{ fontWeight: 600, mb: 1 }}
+                    >
+                      Move to Organization
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 2 }}
+                    >
+                      Transfer this project to an organization to enable team
+                      sharing and RBAC roles. This is a one-way operation and
+                      cannot be undone.
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      startIcon={<MoveUpIcon />}
+                      onClick={() => setMoveDialogOpen(true)}
+                    >
+                      Move to Organization
+                    </Button>
+                  </Box>
+                )}
+
+              <Box
+                sx={{
+                  p: 2,
+                  backgroundColor: "rgba(211, 47, 47, 0.05)",
+                  borderRadius: 1,
+                  border: "1px solid",
+                  borderColor: "error.light",
+                }}
               >
-                Delete This Project
-              </Button>
-            </Box>
-          </Paper>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                  Delete Project
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Once you delete a project, there is no going back. This will
+                  permanently delete the project, all its tasks, and associated
+                  data.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteForeverIcon />}
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  Delete This Project
+                </Button>
+              </Box>
+            </Paper>
           </Box>
           {/* End of left column */}
 
           {/* Test session viewer - fills width, natural height */}
           {showTestSession && exploratorySessionData && (
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
               {/* Spacer to align with Startup Script section (Basic Info section ~180px) */}
-              <Box sx={{ height: '310px' }} />
+              <Box sx={{ height: "310px" }} />
 
-            <Paper sx={{ p: 4 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6" sx={{ flex: 1 }}>
-                  Test Session
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setShowTestSession(false)}
+              <Paper sx={{ p: 4 }}>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                  <Typography variant="h6" sx={{ flex: 1 }}>
+                    Test Session
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setShowTestSession(false)}
+                  >
+                    Hide
+                  </Button>
+                </Box>
+                <Divider sx={{ mb: 3 }} />
+                {/* Stream viewer - 16:9 aspect ratio based on dynamic width */}
+                <Box
+                  sx={{
+                    aspectRatio: "16 / 9",
+                    backgroundColor: "#000",
+                    overflow: "hidden",
+                  }}
                 >
-                  Hide
-                </Button>
-              </Box>
-              <Divider sx={{ mb: 3 }} />
-              {/* Stream viewer - 16:9 aspect ratio based on dynamic width */}
-              <Box
-                sx={{
-                  aspectRatio: '16 / 9',
-                  backgroundColor: '#000',
-                  overflow: 'hidden',
-                }}
-              >
-                <DesktopStreamViewer
-                  sessionId={exploratorySessionData.id}
-                  sandboxId={exploratorySessionData.config?.sandbox_id || ''}
-                  showLoadingOverlay={testingStartupScript}
-                  isRestart={isSessionRestart}
-                />
-              </Box>
-              <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Having trouble with your startup script?
-                </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={createSpecTaskMutation.isPending ? <CircularProgress size={16} /> : <AutoFixHighIcon />}
-                  onClick={() => createSpecTaskMutation.mutate({
-                    prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
-                    // Push directly to helix-specs, no PR needed
-                    branch_mode: 'existing',
-                    base_branch: 'helix-specs',
-                    working_branch: 'helix-specs',
-                  })}
-                  disabled={createSpecTaskMutation.isPending}
+                  <DesktopStreamViewer
+                    sessionId={exploratorySessionData.id}
+                    sandboxId={exploratorySessionData.config?.sandbox_id || ""}
+                    showLoadingOverlay={testingStartupScript}
+                    isRestart={isSessionRestart}
+                  />
+                </Box>
+                <Box
+                  sx={{
+                    mt: 2,
+                    p: 2,
+                    backgroundColor: "action.hover",
+                    borderRadius: 1,
+                  }}
                 >
-                  {createSpecTaskMutation.isPending ? 'Creating task...' : 'Get AI to fix it'}
-                </Button>
-              </Box>
-            </Paper>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1 }}
+                  >
+                    Having trouble with your startup script?
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={
+                      createSpecTaskMutation.isPending ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <AutoFixHighIcon />
+                      )
+                    }
+                    onClick={() =>
+                      createSpecTaskMutation.mutate({
+                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
+                        // Push directly to helix-specs, no PR needed
+                        branch_mode: "existing",
+                        base_branch: "helix-specs",
+                        working_branch: "helix-specs",
+                      })
+                    }
+                    disabled={createSpecTaskMutation.isPending}
+                  >
+                    {createSpecTaskMutation.isPending
+                      ? "Creating task..."
+                      : "Get AI to fix it"}
+                  </Button>
+                </Box>
+              </Paper>
             </Box>
           )}
         </Box>
@@ -1186,21 +1535,23 @@ const ProjectSettings: FC = () => {
       <Dialog
         open={attachRepoDialogOpen}
         onClose={() => {
-          setAttachRepoDialogOpen(false)
-          setSelectedRepoToAttach('')
+          setAttachRepoDialogOpen(false);
+          setSelectedRepoToAttach("");
         }}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <LinkIcon />
             Attach Repository to Project
           </Box>
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Select a repository from your account to attach to this project. Attached repositories will be cloned into the agent workspace when working on this project.
+            Select a repository from your account to attach to this project.
+            Attached repositories will be cloned into the agent workspace when
+            working on this project.
           </Typography>
           <FormControl fullWidth>
             <InputLabel>Select Repository</InputLabel>
@@ -1217,8 +1568,14 @@ const ProjectSettings: FC = () => {
                   </MenuItem>
                 ))}
             </Select>
-            {allUserRepositories.filter((repo) => !repositories.some((pr) => pr.id === repo.id)).length === 0 && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+            {allUserRepositories.filter(
+              (repo) => !repositories.some((pr) => pr.id === repo.id),
+            ).length === 0 && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 1 }}
+              >
                 All your repositories are already attached to this project.
               </Typography>
             )}
@@ -1227,8 +1584,8 @@ const ProjectSettings: FC = () => {
         <DialogActions>
           <Button
             onClick={() => {
-              setAttachRepoDialogOpen(false)
-              setSelectedRepoToAttach('')
+              setAttachRepoDialogOpen(false);
+              setSelectedRepoToAttach("");
             }}
           >
             Cancel
@@ -1237,9 +1594,17 @@ const ProjectSettings: FC = () => {
             onClick={handleAttachRepository}
             variant="contained"
             disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
-            startIcon={attachRepoMutation.isPending ? <CircularProgress size={16} /> : <LinkIcon />}
+            startIcon={
+              attachRepoMutation.isPending ? (
+                <CircularProgress size={16} />
+              ) : (
+                <LinkIcon />
+              )
+            }
           >
-            {attachRepoMutation.isPending ? 'Attaching...' : 'Attach Repository'}
+            {attachRepoMutation.isPending
+              ? "Attaching..."
+              : "Attach Repository"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1249,13 +1614,13 @@ const ProjectSettings: FC = () => {
         open={deleteDialogOpen}
         onClose={() => {
           setDeleteDialogOpen(false);
-          setDeleteConfirmName('');
+          setDeleteConfirmName("");
         }}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <WarningIcon color="error" />
             <span>Delete Project</span>
           </Box>
@@ -1266,12 +1631,15 @@ const ProjectSettings: FC = () => {
               This action cannot be undone!
             </Typography>
             <Typography variant="body2">
-              This will permanently delete the project <strong>{project?.name}</strong>, all its tasks, work sessions, and associated data.
+              This will permanently delete the project{" "}
+              <strong>{project?.name}</strong>, all its tasks, work sessions,
+              and associated data.
             </Typography>
           </Alert>
 
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Please type the project name <strong>{project?.name}</strong> to confirm:
+            Please type the project name <strong>{project?.name}</strong> to
+            confirm:
           </Typography>
 
           <TextField
@@ -1286,7 +1654,7 @@ const ProjectSettings: FC = () => {
           <Button
             onClick={() => {
               setDeleteDialogOpen(false);
-              setDeleteConfirmName('');
+              setDeleteConfirmName("");
             }}
           >
             Cancel
@@ -1295,10 +1663,19 @@ const ProjectSettings: FC = () => {
             onClick={handleDeleteProject}
             variant="contained"
             color="error"
-            disabled={deleteConfirmName !== project?.name || deleteProjectMutation.isPending}
-            startIcon={deleteProjectMutation.isPending ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
+            disabled={
+              deleteConfirmName !== project?.name ||
+              deleteProjectMutation.isPending
+            }
+            startIcon={
+              deleteProjectMutation.isPending ? (
+                <CircularProgress size={16} />
+              ) : (
+                <DeleteForeverIcon />
+              )
+            }
           >
-            {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+            {deleteProjectMutation.isPending ? "Deleting..." : "Delete Project"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1307,29 +1684,34 @@ const ProjectSettings: FC = () => {
       <Dialog
         open={addSecretDialogOpen}
         onClose={() => {
-          setAddSecretDialogOpen(false)
-          setNewSecretName('')
-          setNewSecretValue('')
+          setAddSecretDialogOpen(false);
+          setNewSecretName("");
+          setNewSecretValue("");
         }}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <VpnKeyIcon />
             Add Project Secret
           </Box>
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Secrets are encrypted at rest and injected as environment variables when agents work on this project.
+            Secrets are encrypted at rest and injected as environment variables
+            when agents work on this project.
           </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <TextField
               label="Secret Name"
               fullWidth
               value={newSecretName}
-              onChange={(e) => setNewSecretName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+              onChange={(e) =>
+                setNewSecretName(
+                  e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"),
+                )
+              }
               placeholder="ANTHROPIC_API_KEY"
               helperText="Will be available as an environment variable with this name"
             />
@@ -1338,16 +1720,20 @@ const ProjectSettings: FC = () => {
               fullWidth
               value={newSecretValue}
               onChange={(e) => setNewSecretValue(e.target.value)}
-              type={showSecretValue ? 'text' : 'password'}
+              type={showSecretValue ? "text" : "password"}
               placeholder="sk-ant-api03-..."
               InputProps={{
                 endAdornment: (
                   <Button
                     size="small"
                     onClick={() => setShowSecretValue(!showSecretValue)}
-                    sx={{ minWidth: 'auto' }}
+                    sx={{ minWidth: "auto" }}
                   >
-                    {showSecretValue ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    {showSecretValue ? (
+                      <VisibilityOffIcon />
+                    ) : (
+                      <VisibilityIcon />
+                    )}
                   </Button>
                 ),
               }}
@@ -1357,20 +1743,35 @@ const ProjectSettings: FC = () => {
         <DialogActions>
           <Button
             onClick={() => {
-              setAddSecretDialogOpen(false)
-              setNewSecretName('')
-              setNewSecretValue('')
+              setAddSecretDialogOpen(false);
+              setNewSecretName("");
+              setNewSecretValue("");
             }}
           >
             Cancel
           </Button>
           <Button
-            onClick={() => createSecretMutation.mutate({ name: newSecretName, value: newSecretValue })}
+            onClick={() =>
+              createSecretMutation.mutate({
+                name: newSecretName,
+                value: newSecretValue,
+              })
+            }
             variant="contained"
-            disabled={!newSecretName.trim() || !newSecretValue.trim() || createSecretMutation.isPending}
-            startIcon={createSecretMutation.isPending ? <CircularProgress size={16} /> : <AddIcon />}
+            disabled={
+              !newSecretName.trim() ||
+              !newSecretValue.trim() ||
+              createSecretMutation.isPending
+            }
+            startIcon={
+              createSecretMutation.isPending ? (
+                <CircularProgress size={16} />
+              ) : (
+                <AddIcon />
+              )
+            }
           >
-            {createSecretMutation.isPending ? 'Adding...' : 'Add Secret'}
+            {createSecretMutation.isPending ? "Adding..." : "Add Secret"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1383,15 +1784,20 @@ const ProjectSettings: FC = () => {
         fullWidth
       >
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <HistoryIcon />
             Guidelines Version History
           </Box>
         </DialogTitle>
         <DialogContent>
           {guidelinesHistory.length === 0 ? (
-            <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No previous versions found. History is created when guidelines are modified.
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ py: 4, textAlign: "center" }}
+            >
+              No previous versions found. History is created when guidelines are
+              modified.
             </Typography>
           ) : (
             <List>
@@ -1399,39 +1805,60 @@ const ProjectSettings: FC = () => {
                 <ListItem
                   key={entry.id}
                   sx={{
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    borderBottom: index < guidelinesHistory.length - 1 ? '1px solid' : 'none',
-                    borderColor: 'divider',
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    borderBottom:
+                      index < guidelinesHistory.length - 1
+                        ? "1px solid"
+                        : "none",
+                    borderColor: "divider",
                     py: 2,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, width: '100%' }}>
-                    <Chip label={`v${entry.version}`} size="small" color="primary" variant="outlined" />
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      mb: 1,
+                      width: "100%",
+                    }}
+                  >
+                    <Chip
+                      label={`v${entry.version}`}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                    />
                     <Typography variant="body2" color="text.secondary">
-                      {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : 'Unknown date'}
+                      {entry.updated_at
+                        ? new Date(entry.updated_at).toLocaleString()
+                        : "Unknown date"}
                     </Typography>
                     {(entry.updated_by_name || entry.updated_by_email) && (
                       <Typography variant="caption" color="text.secondary">
-                        by {entry.updated_by_name || 'Unknown'}{entry.updated_by_email ? ` (${entry.updated_by_email})` : ''}
+                        by {entry.updated_by_name || "Unknown"}
+                        {entry.updated_by_email
+                          ? ` (${entry.updated_by_email})`
+                          : ""}
                       </Typography>
                     )}
                   </Box>
                   <Typography
                     variant="body2"
                     sx={{
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'monospace',
-                      fontSize: '0.85rem',
-                      backgroundColor: 'action.hover',
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "monospace",
+                      fontSize: "0.85rem",
+                      backgroundColor: "action.hover",
                       p: 1.5,
                       borderRadius: 1,
-                      width: '100%',
+                      width: "100%",
                       maxHeight: 200,
-                      overflow: 'auto',
+                      overflow: "auto",
                     }}
                   >
-                    {entry.guidelines || '(empty)'}
+                    {entry.guidelines || "(empty)"}
                   </Typography>
                 </ListItem>
               ))}
@@ -1445,10 +1872,197 @@ const ProjectSettings: FC = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Move to Organization Dialog */}
+      <Dialog
+        open={moveDialogOpen}
+        onClose={() => {
+          setMoveDialogOpen(false);
+          setSelectedOrgToMove("");
+          setMovePreview(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <MoveUpIcon color="error" />
+            <span>Move Project to Organization</span>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              This is a one-way operation!
+            </Typography>
+            <Typography variant="body2">
+              Once moved to an organization, this project cannot be moved back
+              to your personal workspace.
+            </Typography>
+          </Alert>
+
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <InputLabel>Select Organization</InputLabel>
+            <Select
+              value={selectedOrgToMove}
+              label="Select Organization"
+              onChange={(e) => handleOrgSelectForMove(e.target.value)}
+            >
+              {account.organizationTools.organizations.map((org) => (
+                <MenuItem key={org.id} value={org.id}>
+                  {org.display_name || org.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {loadingMovePreview && (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
+
+          {movePreview && !loadingMovePreview && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                The following will be moved:
+              </Typography>
+
+              {/* Project */}
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 1.5,
+                  backgroundColor: "action.hover",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Project
+                </Typography>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    mt: 0.5,
+                  }}
+                >
+                  <Typography variant="body2">
+                    {movePreview.project.current_name}
+                  </Typography>
+                  {movePreview.project.has_conflict &&
+                    movePreview.project.new_name && (
+                      <>
+                        <ArrowForwardIcon fontSize="small" color="warning" />
+                        <Typography variant="body2" color="warning.main">
+                          {movePreview.project.new_name}
+                        </Typography>
+                        <Chip
+                          label="renamed"
+                          size="small"
+                          color="warning"
+                          sx={{ fontSize: "0.7rem" }}
+                        />
+                      </>
+                    )}
+                </Box>
+              </Box>
+
+              {/* Repositories */}
+              {movePreview.repositories &&
+                movePreview.repositories.length > 0 && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      backgroundColor: "action.hover",
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                      Repositories ({movePreview.repositories.length})
+                    </Typography>
+                    {movePreview.repositories.map((repo) => (
+                      <Box
+                        key={repo.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          py: 0.5,
+                        }}
+                      >
+                        <Typography variant="body2">
+                          {repo.current_name}
+                        </Typography>
+                        {repo.has_conflict && repo.new_name && (
+                          <>
+                            <ArrowForwardIcon
+                              fontSize="small"
+                              color="warning"
+                            />
+                            <Typography variant="body2" color="warning.main">
+                              {repo.new_name}
+                            </Typography>
+                            <Chip
+                              label="renamed"
+                              size="small"
+                              color="warning"
+                              sx={{ fontSize: "0.7rem" }}
+                            />
+                          </>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mt: 2 }}
+              >
+                These repositories will become accessible to all members of the
+                organization based on their roles.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setMoveDialogOpen(false);
+              setSelectedOrgToMove("");
+              setMovePreview(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => moveProjectMutation.mutate(selectedOrgToMove)}
+            variant="contained"
+            color="error"
+            disabled={
+              !selectedOrgToMove ||
+              !movePreview ||
+              moveProjectMutation.isPending
+            }
+            startIcon={
+              moveProjectMutation.isPending ? (
+                <CircularProgress size={16} />
+              ) : (
+                <MoveUpIcon />
+              )
+            }
+          >
+            {moveProjectMutation.isPending ? "Moving..." : "Move Project"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Saving toast - bottom right indicator */}
       <SavingToast isSaving={savingProject} />
     </Page>
-  )
-}
+  );
+};
 
-export default ProjectSettings
+export default ProjectSettings;
