@@ -1,8 +1,8 @@
-# Requirements: Continue Existing Branch Should Resume Active Task
+# Requirements: Allow Multiple Tasks on Same Branch
 
 ## Problem Statement
 
-When a user selects "Continue existing" / "Resume work on a branch" in the new task form, the system incorrectly tries to create a **new** task and then fails because the branch already has an active task.
+When a user selects "Continue existing" / "Resume work on a branch", the system blocks task creation if there's already an active task on that branch. This is overly restrictive - there are legitimate reasons to create multiple tasks on the same branch (e.g., different aspects of work, changed requirements, starting fresh with a new agent conversation).
 
 **Current error:**
 ```
@@ -11,39 +11,35 @@ Fix the project startup script at /home/retro/work/helix-... (spt_01kg43ybqf95mm
 Complete or archive that task first, or create a new branch
 ```
 
-**Expected behavior:** The system should detect the existing active task and navigate/redirect the user to it, rather than attempting to create a new task.
+**Expected behavior:** Allow the user to create a new task on the branch. Multiple tasks can coexist on the same branch.
 
 ## User Stories
 
-### US1: Resume Work on Existing Task
+### US1: Create New Task on Branch With Existing Task
 **As a** developer  
-**I want to** select a branch with an existing task and continue working on it  
-**So that** I can pick up where I left off without remembering the task ID
+**I want to** create a new task on a branch that already has an active task  
+**So that** I can start fresh or work on a different aspect without archiving my previous work
 
-### US2: Clear Feedback When Resuming
+### US2: Resume Work With New Context
 **As a** developer  
-**I want to** see a message that I'm being redirected to the existing task  
-**So that** I understand what's happening
+**I want to** continue on an existing branch with a new prompt/task  
+**So that** I can provide updated requirements or start a new conversation with the agent
 
 ## Acceptance Criteria
 
-### AC1: Detect and Redirect to Existing Task
+### AC1: Remove Branch-Task Uniqueness Validation
 - [ ] When user selects "Continue existing" mode with a branch that has an active task
-- [ ] System should find the existing active task instead of failing
-- [ ] User should be redirected to that task's detail page
-- [ ] A toast/notification should inform the user: "Resuming existing task: {task name}"
+- [ ] System should create the new task without error
+- [ ] The new task should be associated with the selected branch
+- [ ] Existing tasks on that branch remain unchanged
 
-### AC2: Only Create New Task When Branch Has No Active Task
-- [ ] If branch exists but has no active task (all tasks completed/archived), create new task
-- [ ] If branch has never been used by any task, create new task
-- [ ] New task creation should work as before in these cases
-
-### AC3: Handle Edge Case - Multiple Inactive Tasks
-- [ ] If branch has multiple completed/archived tasks, creating a new task should still work
-- [ ] The validation should only block when there's an **active** task
+### AC2: Multiple Active Tasks Per Branch Allowed
+- [ ] A branch can have multiple active tasks simultaneously
+- [ ] Each task maintains its own state (status, specs, session, etc.)
+- [ ] Tasks are independent - completing/archiving one doesn't affect others
 
 ## Out of Scope
 
-- Changing how "Start fresh" (new branch) mode works
-- Adding ability to work on same branch with multiple active tasks
-- Modifying branch selection UI
+- Merging or linking related tasks on the same branch
+- Warning users about existing tasks (they chose "Continue existing" deliberately)
+- Changing task list filtering or display
