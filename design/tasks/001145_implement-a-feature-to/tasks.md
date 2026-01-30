@@ -17,10 +17,10 @@
   - Check for project name conflicts in target org
   - Check for repository name conflicts in target org
   - Return proposed renames without making changes
-- [~] Register routes in `api/pkg/server/server.go`:
+- [x] Register routes in `api/pkg/server/server.go`:
   - `POST /api/v1/projects/{id}/move` - execute move
   - `POST /api/v1/projects/{id}/move/preview` - check conflicts
-- [ ] Add swagger annotations for both endpoints
+- [~] Add swagger annotations for both endpoints
 
 ## Frontend UI
 
