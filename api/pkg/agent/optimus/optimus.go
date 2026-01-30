@@ -55,6 +55,7 @@ func NewOptimusAgentApp(cfg OptimusConfig) *types.App {
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:             appName,
+				Description:      "Feel free to edit me and give me more skills!",
 				Assistants:       []types.AssistantConfig{assistant},
 				DefaultAgentType: types.AgentTypeHelixAgent,
 			},

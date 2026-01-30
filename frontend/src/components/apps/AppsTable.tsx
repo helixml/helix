@@ -212,6 +212,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
       const creator = app.user?.full_name || app.user?.username || app.user?.email || 'Unknown'
 
+      const description = app.config.helix?.description || ''
+
       const baseRow = {
         id: app.id,
         _data: app,
@@ -221,23 +223,37 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
             </Cell>
             <Cell grow>
-              <Typography variant="body1">                
-                <a
-                  style={{
-                    textDecoration: 'none',
-                    fontWeight: 'bold',
-                    color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                  }}
-                  href="#"
-                  onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
-                  }}
-                >
-                  { getAppName(app) }
-                </a>
-              </Typography>
+              <Box>
+                <Typography variant="body1">                
+                  <a
+                    style={{
+                      textDecoration: 'none',
+                      fontWeight: 'bold',
+                      color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                    }}
+                    href="#"
+                    onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
+                    }}
+                  >
+                    { getAppName(app) }
+                  </a>
+                </Typography>
+                {description && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: theme.palette.text.secondary,
+                      display: 'block',
+                      mt: 0.25,
+                    }}
+                  >
+                    {description}
+                  </Typography>
+                )}
+              </Box>
             </Cell>
           </Row>
         ),
