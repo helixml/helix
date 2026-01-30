@@ -693,12 +693,13 @@ func (s *GitIntegrationSuite) TestSyncAllBranches_EmptyRepo() {
 	s.NoError(err, "SyncAllBranches should handle empty repos gracefully")
 }
 
-func (s *GitIntegrationSuite) TestFetch_EmptyRepo() {
-	// Test that Fetch handles empty repos (no refs) gracefully
+func (s *GitIntegrationSuite) TestFetch_EmptyRepo_Wildcard() {
+	// Test that Fetch with wildcard refspec handles empty repos gracefully
+	// Note: Wildcard refspec on empty repos succeeds silently (git behavior)
 	require := s.Require()
 
 	// Create empty bare repo
-	emptyDir := filepath.Join(s.testDir, "fetch-empty-upstream")
+	emptyDir := filepath.Join(s.testDir, "fetch-empty-upstream-wc")
 	err := os.MkdirAll(emptyDir, 0755)
 	require.NoError(err)
 
@@ -706,19 +707,71 @@ func (s *GitIntegrationSuite) TestFetch_EmptyRepo() {
 	require.NoError(err)
 
 	// Create local repo to fetch into
-	localDir := filepath.Join(s.testDir, "fetch-empty-local")
+	localDir := filepath.Join(s.testDir, "fetch-empty-local-wc")
 	err = os.MkdirAll(localDir, 0755)
 	require.NoError(err)
 
 	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
 	require.NoError(err)
 
-	// Fetch from empty repo should not error
+	// Fetch with wildcard from empty repo should not error (git succeeds silently)
 	err = Fetch(s.ctx, localDir, FetchOptions{
 		Remote:   emptyDir,
 		RefSpecs: []string{"refs/heads/*:refs/heads/*"},
 	})
-	s.NoError(err, "Fetch should handle empty repos gracefully")
+	s.NoError(err, "Fetch with wildcard should handle empty repos gracefully")
+}
+
+func (s *GitIntegrationSuite) TestFetch_EmptyRepo_SpecificBranch() {
+	// Test that Fetch with specific branch handles empty repos gracefully
+	// This triggers the "couldn't find remote ref" error that we handle
+	require := s.Require()
+
+	// Create empty bare repo
+	emptyDir := filepath.Join(s.testDir, "fetch-empty-upstream-sb")
+	err := os.MkdirAll(emptyDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyDir, true, "sha1")
+	require.NoError(err)
+
+	// Create local repo to fetch into
+	localDir := filepath.Join(s.testDir, "fetch-empty-local-sb")
+	err = os.MkdirAll(localDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
+	require.NoError(err)
+
+	// Fetch specific branch from empty repo should not error
+	// (our fix catches "couldn't find remote ref" and returns nil)
+	err = Fetch(s.ctx, localDir, FetchOptions{
+		Remote:   emptyDir,
+		RefSpecs: []string{"refs/heads/main:refs/heads/main"},
+	})
+	s.NoError(err, "Fetch with specific branch should handle empty repos gracefully")
+}
+
+func (s *GitIntegrationSuite) TestFetch_InvalidRemote_StillErrors() {
+	// Verify that actual errors still propagate (negative test)
+	// Empty repo handling should not swallow real errors
+	require := s.Require()
+
+	// Create local repo
+	localDir := filepath.Join(s.testDir, "fetch-invalid-local")
+	err := os.MkdirAll(localDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
+	require.NoError(err)
+
+	// Fetch from non-existent path should still error
+	err = Fetch(s.ctx, localDir, FetchOptions{
+		Remote:   "/nonexistent/path/that/does/not/exist",
+		RefSpecs: []string{"refs/heads/main:refs/heads/main"},
+	})
+	s.Error(err, "Fetch from invalid remote should still error")
+	s.NotContains(err.Error(), "couldn't find remote ref", "Error should not be about missing ref")
 }
 
 func (s *GitIntegrationSuite) TestLoadStartupScript_EmptyRepo() {
