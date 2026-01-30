@@ -16596,8 +16596,26 @@ const docTemplate = `{
         "types.AssistantMCP": {
             "type": "object",
             "properties": {
+                "args": {
+                    "description": "Command arguments",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "description": "Stdio transport fields (used when Transport is \"stdio\")\nThe MCP server runs as a subprocess inside the dev container",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
+                },
+                "env": {
+                    "description": "Environment variables for the subprocess",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "headers": {
                     "type": "object",
@@ -16626,10 +16644,11 @@ const docTemplate = `{
                     }
                 },
                 "transport": {
-                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "description": "Transport type: \"http\" (default, Streamable HTTP), \"sse\" (legacy SSE), or \"stdio\" (command execution)\nFor stdio transport, use Command/Args/Env fields instead of URL",
                     "type": "string"
                 },
                 "url": {
+                    "description": "HTTP/SSE transport fields (used when Transport is \"http\" or \"sse\", or URL is set)",
                     "type": "string"
                 }
             }

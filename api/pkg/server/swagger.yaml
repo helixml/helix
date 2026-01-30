@@ -2198,8 +2198,23 @@ definitions:
     type: object
   types.AssistantMCP:
     properties:
+      args:
+        description: Command arguments
+        items:
+          type: string
+        type: array
+      command:
+        description: |-
+          Stdio transport fields (used when Transport is "stdio")
+          The MCP server runs as a subprocess inside the dev container
+        type: string
       description:
         type: string
+      env:
+        additionalProperties:
+          type: string
+        description: Environment variables for the subprocess
+        type: object
       headers:
         additionalProperties:
           type: string
@@ -2219,9 +2234,13 @@ definitions:
           $ref: '#/definitions/mcp.Tool'
         type: array
       transport:
-        description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
+        description: |-
+          Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+          For stdio transport, use Command/Args/Env fields instead of URL
         type: string
       url:
+        description: HTTP/SSE transport fields (used when Transport is "http" or "sse",
+          or URL is set)
         type: string
     type: object
   types.AssistantProjectManager:

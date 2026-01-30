@@ -1373,7 +1373,16 @@ export interface TypesAssistantKnowledge {
 }
 
 export interface TypesAssistantMCP {
+  /** Command arguments */
+  args?: string[];
+  /**
+   * Stdio transport fields (used when Transport is "stdio")
+   * The MCP server runs as a subprocess inside the dev container
+   */
+  command?: string;
   description?: string;
+  /** Environment variables for the subprocess */
+  env?: Record<string, string>;
   headers?: Record<string, string>;
   name?: string;
   /** The name of the OAuth provider to use for authentication */
@@ -1381,8 +1390,12 @@ export interface TypesAssistantMCP {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
-  /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
+  /**
+   * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+   * For stdio transport, use Command/Args/Env fields instead of URL
+   */
   transport?: string;
+  /** HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set) */
   url?: string;
 }
 
