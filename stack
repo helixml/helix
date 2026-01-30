@@ -1762,6 +1762,19 @@ function update_openapi() {
 	echo "✅ OpenAPI update complete"
 }
 
+function build-frontend() {
+	echo "🔄 Building frontend for production..."
+	cd "$DIR/frontend"
+	yarn build || {
+		echo "❌ Frontend build failed"
+		return 1
+	}
+	echo "✅ Frontend built successfully"
+	echo "📁 Output: frontend/dist/"
+	echo ""
+	echo "If SERVE_PROD_FRONTEND_IN_DEV=true, just refresh your browser."
+}
+
 function lint() {
         golangci-lint run
 }
