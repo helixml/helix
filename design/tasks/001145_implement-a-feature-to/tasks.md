@@ -3,7 +3,7 @@
 ## Backend API
 
 - [x] Add `MoveProjectRequest` type in `api/pkg/types/project.go` with `OrganizationID` field
-- [~] Add `moveProject` handler in `api/pkg/server/project_handlers.go`:
+- [x] Add `moveProject` handler in `api/pkg/server/project_handlers.go`:
   - Validate user owns the project (`project.UserID == user.ID`)
   - Validate user is member of target org (`authorizeOrgMember`)
   - Validate `organization_id` is not empty
@@ -13,11 +13,11 @@
   - Handle naming conflicts: rename project using `(1)`, `(2)` pattern if needed
   - Handle naming conflicts: rename repos using `-2`, `-3` pattern if needed
   - Add audit log entry for the move operation
-- [ ] Add `moveProjectPreview` handler in `api/pkg/server/project_handlers.go`:
+- [x] Add `moveProjectPreview` handler in `api/pkg/server/project_handlers.go`:
   - Check for project name conflicts in target org
   - Check for repository name conflicts in target org
   - Return proposed renames without making changes
-- [ ] Register routes in `api/pkg/server/server.go`:
+- [~] Register routes in `api/pkg/server/server.go`:
   - `POST /api/v1/projects/{id}/move` - execute move
   - `POST /api/v1/projects/{id}/move/preview` - check conflicts
 - [ ] Add swagger annotations for both endpoints
