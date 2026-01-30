@@ -47,12 +47,14 @@
 
 ## Testing
 
-- [ ] Add unit test for `moveProject` handler (future work):
-  - Success case: personal project moved to org
-  - Error: user not project owner
-  - Error: user not org member
-  - Error: project not found
-  - Error: empty organization_id
+- [x] Add unit tests for move project functionality:
+  - Test ownership checks (owner vs non-owner vs admin)
+  - Test project already in org detection
+  - Test personal project detection
+  - Test getUniqueProjectName with conflicts
+  - Test GetUniqueRepoName with conflicts
+  - Test preview item conflict detection
+  - Test OrganizationID gets set on project, repos, and junction table
 
 ## API Client
 
