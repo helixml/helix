@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/agent/optimus"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -160,12 +161,21 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("primary repository (default_repo_id) is required")
 	}
 
+	if req.DefaultHelixAppID == "" {
+		return nil, system.NewHTTPError400("default helix app ID is required")
+	}
+
 	if req.OrganizationID != "" {
 		// Check if user is a member of the organization
 		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+	}
+
+	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
 
 	// Deduplicate project name within the workspace (org or personal)
@@ -278,6 +288,38 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				Str("project_id", created.ID).
 				Str("primary_repo_id", req.DefaultRepoID).
 				Msg("Startup script initialized in primary code repo")
+		}
+	}
+
+	// Create project manager agent (Optimus)
+	optimusApp := optimus.NewOptimusAgentApp(optimus.OptimusConfig{
+		ProjectID:      created.ID,
+		ProjectName:    created.Name,
+		OrganizationID: req.OrganizationID,
+		OwnerID:        user.ID,
+		OwnerType:      user.Type,
+		DefaultApp:     defaultApp,
+	})
+
+	createdOptimus, optimusErr := s.Store.CreateApp(r.Context(), optimusApp)
+	if optimusErr != nil {
+		log.Warn().
+			Err(optimusErr).
+			Str("project_id", created.ID).
+			Msg("failed to create optimus agent app (continuing)")
+	} else {
+		created.ProjectManagerHelixAppID = createdOptimus.ID
+		if updateErr := s.Store.UpdateProject(r.Context(), created); updateErr != nil {
+			log.Warn().
+				Err(updateErr).
+				Str("project_id", created.ID).
+				Str("optimus_app_id", createdOptimus.ID).
+				Msg("failed to update project with optimus agent app ID (continuing)")
+		} else {
+			log.Info().
+				Str("project_id", created.ID).
+				Str("optimus_app_id", createdOptimus.ID).
+				Msg("optimus agent app created and linked to project")
 		}
 	}
 
@@ -1298,8 +1340,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.DesktopAgent{
-		SessionID: createdSession.ID,
-		UserID:    user.ID,
+		SessionID:           createdSession.ID,
+		UserID:              user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),
 		ProjectPath:         "workspace",
 		SpecTaskID:          "",        // No task - exploratory mode
