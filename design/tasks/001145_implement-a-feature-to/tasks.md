@@ -47,7 +47,7 @@
 
 ## Testing
 
-- [ ] Add unit test for `moveProject` handler:
+- [ ] Add unit test for `moveProject` handler (future work):
   - Success case: personal project moved to org
   - Error: user not project owner
   - Error: user not org member
