@@ -220,3 +220,35 @@ Wrap all updates in a database transaction to ensure atomicity. If updating git 
 | One-way move only | Simplifies implementation; moving back to personal is rare use case |
 | Auto-rename on conflict | Follow existing patterns: `(1)` for projects, `-2` for repos. Avoids blocking the move. |
 | Preview endpoint | Let users see conflicts before committing; better UX than surprise renames |
+
+## Implementation Notes
+
+### Files Modified
+
+**Backend (Go):**
+- `api/pkg/types/project.go` - Added `MoveProjectRequest`, `MoveProjectPreviewResponse`, `MoveProjectPreviewItem`, `MoveRepositoryPreviewItem` types
+- `api/pkg/server/project_handlers.go` - Added `moveProject` and `moveProjectPreview` handlers with `getUniqueProjectName` helper
+- `api/pkg/server/server.go` - Registered routes at lines 984-985
+- `api/pkg/store/store.go` - Added `UpdateProjectRepository` to Store interface
+- `api/pkg/store/project_repository.go` - Implemented `UpdateProjectRepository`
+- `api/pkg/store/store_mocks.go` - Added mock for `UpdateProjectRepository`
+
+**Frontend (TypeScript/React):**
+- `frontend/src/pages/ProjectSettings.tsx` - Added Move to Organization section in Danger Zone with:
+  - State: `moveDialogOpen`, `selectedOrgToMove`, `movePreview`, `loadingMovePreview`
+  - Mutation: `moveProjectMutation` using generated `v1ProjectsMoveCreate`
+  - Handler: `handleOrgSelectForMove` calls preview endpoint
+  - UI: Conditional rendering only when `!project?.organization_id` and user has orgs
+
+### Patterns Used
+
+- **Naming deduplication**: Reused existing patterns from `createProject` (project names) and `GetUniqueRepoName` from `services.GetUniqueRepoName` (repo names)
+- **Authorization**: Used `authorizeOrgMember` to verify user can access target org
+- **Generated API client**: Used `v1ProjectsMoveCreate` and `v1ProjectsMovePreviewCreate` from auto-generated TypeScript client
+- **React Query**: Used `useMutation` with `queryClient.invalidateQueries` for cache invalidation
+
+### Gotchas
+
+- The `store_mocks.go` file is auto-generated but needed manual addition of `UpdateProjectRepository` mock since `mockgen` wasn't available in the sandbox
+- The preview endpoint fetches conflicts on org selection (not on dialog open) to provide immediate feedback
+- Admin users bypass ownership check (`user.Admin` check in handlers)
