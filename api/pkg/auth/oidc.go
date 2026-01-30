@@ -165,7 +165,9 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce))
+	// Add prompt=select_account to force the account picker (useful for Google)
+	// This ensures users can choose which account to use instead of auto-selecting
+	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("prompt", "select_account"))
 }
 
 // Exchange converts an authorization code into tokens
