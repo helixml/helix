@@ -6662,6 +6662,134 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/move": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Move a project from personal workspace to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Move a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/move/preview": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Check for naming conflicts before moving a project to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Preview moving a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectPreviewResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -16497,6 +16625,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -19813,6 +19945,61 @@ const docTemplate = `{
                 "ModelTypeImage",
                 "ModelTypeEmbed"
             ]
+        },
+        "types.MoveProjectPreviewItem": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveProjectPreviewResponse": {
+            "type": "object",
+            "properties": {
+                "project": {
+                    "$ref": "#/definitions/types.MoveProjectPreviewItem"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MoveRepositoryPreviewItem"
+                    }
+                }
+            }
+        },
+        "types.MoveProjectRequest": {
+            "type": "object",
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveRepositoryPreviewItem": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
         },
         "types.OAuthConnection": {
             "type": "object",
@@ -24470,6 +24657,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -24958,6 +25149,10 @@ const docTemplate = `{
                 },
                 "sb": {
                     "type": "boolean"
+                },
+                "session_id": {
+                    "description": "Session this API key is scoped to (ephemeral keys)",
+                    "type": "string"
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",

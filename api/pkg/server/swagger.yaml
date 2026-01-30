@@ -2218,6 +2218,9 @@ definitions:
         items:
           $ref: '#/definitions/mcp.Tool'
         type: array
+      transport:
+        description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
+        type: string
       url:
         type: string
     type: object
@@ -4550,6 +4553,42 @@ definitions:
     - ModelTypeChat
     - ModelTypeImage
     - ModelTypeEmbed
+  types.MoveProjectPreviewItem:
+    properties:
+      current_name:
+        type: string
+      has_conflict:
+        type: boolean
+      new_name:
+        description: nil if no conflict
+        type: string
+    type: object
+  types.MoveProjectPreviewResponse:
+    properties:
+      project:
+        $ref: '#/definitions/types.MoveProjectPreviewItem'
+      repositories:
+        items:
+          $ref: '#/definitions/types.MoveRepositoryPreviewItem'
+        type: array
+    type: object
+  types.MoveProjectRequest:
+    properties:
+      organization_id:
+        type: string
+    type: object
+  types.MoveRepositoryPreviewItem:
+    properties:
+      current_name:
+        type: string
+      has_conflict:
+        type: boolean
+      id:
+        type: string
+      new_name:
+        description: nil if no conflict
+        type: string
+    type: object
   types.OAuthConnection:
     properties:
       access_token:
@@ -7877,6 +7916,9 @@ definitions:
         items:
           $ref: '#/definitions/mcp.Tool'
         type: array
+      transport:
+        description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
+        type: string
       url:
         type: string
     type: object
@@ -8217,6 +8259,9 @@ definitions:
         type: string
       sb:
         type: boolean
+      session_id:
+        description: Session this API key is scoped to (ephemeral keys)
+        type: string
       spec_task_id:
         description: When running in Helix Code sandbox
         type: string
@@ -12666,6 +12711,88 @@ paths:
       security:
       - BearerAuth: []
       summary: Get project guidelines history
+      tags:
+      - Projects
+  /api/v1/projects/{id}/move:
+    post:
+      consumes:
+      - application/json
+      description: Move a project from personal workspace to an organization
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Move project request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.MoveProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Move a project to an organization
+      tags:
+      - Projects
+  /api/v1/projects/{id}/move/preview:
+    post:
+      consumes:
+      - application/json
+      description: Check for naming conflicts before moving a project to an organization
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Move project request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.MoveProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.MoveProjectPreviewResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Preview moving a project to an organization
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
