@@ -409,7 +409,7 @@ steps:
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: [unit-test]
 
   - name: upload-oauth-outlook-test-artifacts
     image: golang:1.25
