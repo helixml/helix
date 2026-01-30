@@ -11,6 +11,7 @@ import (
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/rs/zerolog/log"
 )
 
 // FetchOptions contains options for git fetch operations
@@ -67,6 +68,14 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 	if err != nil {
 		// Check for "already up to date" which isn't an error
 		if strings.Contains(stderr, "Already up to date") || strings.Contains(stderr, "already up-to-date") {
+			return nil
+		}
+		// Handle empty repositories gracefully - if remote has no refs, that's not an error
+		if strings.Contains(stderr, "couldn't find remote ref") {
+			log.Debug().
+				Str("repo_path", repoPath).
+				Str("stderr", stderr).
+				Msg("Remote repository appears to be empty (no refs found)")
 			return nil
 		}
 		return fmt.Errorf("fetch failed: %w - %s", err, stderr)

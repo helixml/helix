@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
@@ -63,6 +64,10 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 	// Get commit for HEAD branch
 	commit, err := repo.GetBranchCommit(headBranch)
 	if err != nil {
+		// Empty repo - HEAD branch exists but has no commits yet (unborn branch)
+		if strings.Contains(err.Error(), "object does not exist") {
+			return "", nil
+		}
 		return "", fmt.Errorf("failed to get commit: %w", err)
 	}
 
