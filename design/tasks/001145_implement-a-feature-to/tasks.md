@@ -24,23 +24,23 @@
 
 ## Frontend UI
 
-- [~] Add "Move to Organization" section in Danger Zone of `ProjectSettings.tsx`:
+- [x] Add "Move to Organization" section in Danger Zone of `ProjectSettings.tsx`:
   - Only render when `!project?.organization_id` (personal projects only)
   - Follow existing Danger Zone box styling pattern
-- [ ] Add organization select dropdown:
+- [x] Add organization select dropdown:
   - Use `account.organizationTools.organizations` for options
   - Disable move button until org selected
-- [ ] Call preview endpoint when org is selected:
+- [x] Call preview endpoint when org is selected:
   - Show loading state while checking conflicts
   - Display list of actual repository names that will be moved
   - Show any naming conflicts with proposed renames (e.g., "api" → "api-2")
-- [ ] Add confirmation dialog:
+- [x] Add confirmation dialog:
   - Warn that this is a one-way operation
   - Show target organization name
   - List repositories by name (with rename arrows if conflicts exist)
   - Explain that repos will become accessible to org members
   - Require explicit confirmation
-- [ ] Call API on confirm:
+- [x] Call API on confirm:
   - Use generated client method after `./stack update_openapi`
   - Invalidate project query on success
   - Show success/error snackbar
@@ -56,5 +56,5 @@
 
 ## API Client
 
-- [ ] Run `./stack update_openapi` to regenerate TypeScript client
-- [ ] Add `MoveProject` method to Go client in `api/pkg/client/` if needed
+- [x] Run `./stack update_openapi` to regenerate TypeScript client
+- [x] Add `MoveProject` method to Go client in `api/pkg/client/` if needed (not needed - generated client sufficient)
