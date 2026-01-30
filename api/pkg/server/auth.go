@@ -741,13 +741,20 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	// Remove cookies
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
+	// Use redirect_uri from query param if provided (set by frontend from window.location.origin)
+	// This allows the logout redirect to work correctly regardless of which hostname is used
+	postLogoutRedirect := r.URL.Query().Get("redirect_uri")
+	if postLogoutRedirect == "" {
+		postLogoutRedirect = s.Cfg.WebServer.URL
+	}
+
 	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
 		// If get_url=true query param is set, return the URL as JSON instead of redirecting
 		if r.URL.Query().Get("get_url") == "true" {
-			writeResponse(w, map[string]string{"url": s.Cfg.WebServer.URL}, http.StatusOK)
+			writeResponse(w, map[string]string{"url": postLogoutRedirect}, http.StatusOK)
 			return
 		}
-		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
+		http.Redirect(w, r, postLogoutRedirect, http.StatusFound)
 		return
 	}
 
@@ -766,7 +773,7 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	// Add post_logout_redirect_uri to redirect back to Helix after OIDC logout
 	// This is part of OIDC RP-Initiated Logout spec and works with most providers
 	// Also add client_id which some providers require
-	redirectURI := url.QueryEscape(s.Cfg.WebServer.URL)
+	redirectURI := url.QueryEscape(postLogoutRedirect)
 	clientID := url.QueryEscape(s.Cfg.Auth.OIDC.ClientID)
 	if strings.Contains(logoutURL, "?") {
 		logoutURL = logoutURL + "&post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
