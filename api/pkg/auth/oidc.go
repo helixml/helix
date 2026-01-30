@@ -134,20 +134,16 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 		}
 		endpoint := provider.Endpoint()
 
-		// Override token URL for internal API access
-		// If TokenURL is set explicitly, use it. Otherwise, derive from ProviderURL
-		// (useful when discovery returns browser URLs but API needs internal URLs)
-		tokenURL := c.cfg.TokenURL
-		if tokenURL == "" && c.cfg.ProviderURL != "" {
-			// Auto-derive token URL from provider URL (works for Keycloak and most OIDC providers)
-			tokenURL = c.cfg.ProviderURL + "/protocol/openid-connect/token"
-		}
-		if tokenURL != "" && tokenURL != endpoint.TokenURL {
+		// Override token URL only if explicitly configured via OIDC_TOKEN_URL
+		// This is for rare cases where the API needs to reach the token endpoint
+		// via a different URL than what OIDC discovery returns (e.g., internal Docker networking)
+		// For most deployments (Google, Auth0, standard Keycloak), use discovered URL
+		if c.cfg.TokenURL != "" && c.cfg.TokenURL != endpoint.TokenURL {
 			log.Info().
 				Str("original_token_url", endpoint.TokenURL).
-				Str("override_token_url", tokenURL).
-				Msg("Overriding token endpoint URL")
-			endpoint.TokenURL = tokenURL
+				Str("override_token_url", c.cfg.TokenURL).
+				Msg("Overriding token endpoint URL (OIDC_TOKEN_URL configured)")
+			endpoint.TokenURL = c.cfg.TokenURL
 		}
 
 		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
@@ -174,13 +170,23 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code).Msg("Exchanging code for token")
+	log.Info().Str("code", code[:20]+"...").Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("code", code).Msg("Exchanged code for token")
-	return oauth2Config.Exchange(ctx, code)
+	log.Info().
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Str("client_id", oauth2Config.ClientID).
+		Str("token_endpoint", oauth2Config.Endpoint.TokenURL).
+		Msg("Token exchange config")
+	token, err := oauth2Config.Exchange(ctx, code)
+	if err != nil {
+		log.Error().Err(err).Str("redirect_url", oauth2Config.RedirectURL).Msg("Token exchange failed")
+		return nil, err
+	}
+	log.Info().Msg("Token exchange successful")
+	return token, nil
 }
 
 // VerifyIDToken verifies the ID token and returns the claims
