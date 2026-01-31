@@ -15,12 +15,9 @@
   - Extract domain from email
   - Call `GetOrganizationByDomain`
   - If org found and user not member, create membership with `member` role
-- [ ] Only trigger auto-join if OIDC `email_verified` claim is true
+- [ ] Only trigger auto-join for OIDC users with `email_verified` claim true
+- [ ] Skip auto-join entirely for Helix native auth users
 - [ ] Add logging for auto-join events (user ID, org ID, domain)
-
-## Helix Native Auth Protection
-- [ ] In `api/pkg/server/auth.go:register`, log warning if user email matches an org domain
-- [ ] Do NOT auto-join for Helix auth users (no email verification)
 
 ## Admin Endpoint
 - [ ] Add `GET /api/v1/admin/organization-domains` endpoint
@@ -32,8 +29,9 @@
 
 ## Testing
 - [ ] Unit test: domain validation (valid cases, invalid cases)
-- [ ] Unit test: auto-join triggers for OIDC with verified email
-- [ ] Unit test: auto-join skipped for unverified email
+- [ ] Unit test: auto-join triggers for OIDC user with verified email
+- [ ] Unit test: auto-join skipped for OIDC user with unverified email
+- [ ] Unit test: auto-join skipped for Helix native auth users
 - [ ] Integration test: create org with domain, login with matching email, verify membership created
 
 ## Documentation

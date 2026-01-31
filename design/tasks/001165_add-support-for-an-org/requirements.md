@@ -27,31 +27,15 @@ As an admin, I want to see which organizations have claimed which domains to pre
 - [ ] Works for both new user registration and existing users logging in who aren't yet members
 
 ### Security Requirements
-- [ ] **CRITICAL**: Email must be verified before auto-join triggers
-  - OIDC: Only auto-join if `email_verified` claim is `true`
-  - Helix auth: **Currently does NOT verify emails** - this is a security gap that must be addressed
+- [ ] **Only OIDC users eligible for auto-join** - Helix native auth users are excluded
+- [ ] OIDC: Only auto-join if `email_verified` claim is `true`
 - [ ] Rate limit domain additions to prevent abuse
 - [ ] Audit log when auto-join occurs
 
-## Security Analysis: Email Verification
+## Security Note
 
-### Current State (Security Gap)
-The Helix registration flow (`api/pkg/server/auth.go:register`) creates users without email verification:
-- User provides any email address
-- Account is created immediately
-- No verification email is sent
-
-This means a malicious user could:
-1. Register with `victim@company.com`
-2. If company.com is claimed by an org, they'd be auto-added
-3. Gain access to org resources
-
-### Mitigation Options
-1. **Option A**: Only enable domain auto-join when OIDC is the sole auth method (recommended for MVP)
-2. **Option B**: Add email verification to Helix auth (larger scope, future work)
-3. **Option C**: Allow org owners to choose whether to require OIDC for domain auto-join
+Auto-join is restricted to OIDC authentication only. OIDC providers (Google, Azure AD, etc.) verify email addresses, so we can trust the email domain. Helix native auth does not verify emails, so those users must be manually invited to organizations.
 
 ## Out of Scope
-- Email verification flow for Helix auth (separate task)
 - Domain ownership verification (DNS TXT record, etc.)
 - Multiple domains per org (start with single domain, extend later if needed)

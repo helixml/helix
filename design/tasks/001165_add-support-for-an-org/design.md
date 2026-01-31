@@ -40,9 +40,9 @@ When a user authenticates:
 3. If org found AND user not already a member → create membership with `member` role
 
 ### 3. Security Gate
-**OIDC only (MVP)**: Only trigger auto-join when `email_verified: true` claim is present.
+**OIDC only**: Only trigger auto-join for OIDC-authenticated users when `email_verified: true` claim is present.
 
-For Helix native auth: Skip auto-join entirely until email verification is implemented. Log a warning if a domain-matched user registers via Helix auth.
+Helix native auth users are not eligible for auto-join (OIDC providers verify emails, Helix auth does not).
 
 ## API Changes
 
@@ -108,7 +108,7 @@ User Login (OIDC)
 
 | Decision | Rationale |
 |----------|-----------|
-| OIDC-only auto-join for MVP | Helix auth lacks email verification; OIDC providers (Google, etc.) verify emails |
+| OIDC-only auto-join | OIDC providers (Google, Azure AD, etc.) verify email addresses; Helix native auth does not |
 | Member role only | Prevents privilege escalation; owners can promote later |
 | Unique domain constraint | Prevents domain hijacking conflicts |
 | No DNS verification | Complexity vs. value tradeoff; trust org owners for now |
