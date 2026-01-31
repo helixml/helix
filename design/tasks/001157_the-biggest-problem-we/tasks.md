@@ -5,18 +5,18 @@
 - [x] Add `WaitingInteractionID` field to `SessionMetadata` struct in `api/pkg/types/session.go`
 - [x] In `session_handlers.go:streamFromExternalAgent`, persist `WaitingInteractionID` to database when setting `sessionToWaitingInteraction`
 - [x] In `websocket_external_agent_sync.go:handleExternalAgentSync`, restore `sessionToWaitingInteraction` from `session.Metadata.WaitingInteractionID` on reconnect
-- [~] Clear `WaitingInteractionID` in metadata when interaction completes (in `handleMessageCompleted`)
+- [x] Clear `WaitingInteractionID` in metadata when interaction completes (in `handleMessageCompleted`)
 
 ## Phase 2: Persist RequestID Mapping
 
-- [ ] Add `LastRequestID` field to `SessionMetadata` struct
-- [ ] Persist `LastRequestID` when storing `requestToSessionMapping`
-- [ ] Restore `requestToSessionMapping` on agent reconnect
+- [x] Add `LastRequestID` field to `SessionMetadata` struct (done in Phase 1)
+- [x] Persist `LastRequestID` when storing `requestToSessionMapping` (done in Phase 1)
+- [x] Restore `requestToSessionMapping` on agent reconnect (done in Phase 1)
 
 ## Phase 3: Handle Stale Requests
 
-- [ ] Add `RequestStartedAt` timestamp to `SessionMetadata`
-- [ ] On reconnect, check if `WaitingInteractionID` is stale (>5 min old)
+- [x] Add `RequestStartedAt` timestamp to `SessionMetadata` (done in Phase 1)
+- [~] On reconnect, check if `WaitingInteractionID` is stale (>5 min old)
 - [ ] If stale, mark interaction as failed and clear mappings
 - [ ] Log warning when detecting stale requests
 
