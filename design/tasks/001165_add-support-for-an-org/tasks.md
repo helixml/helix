@@ -20,8 +20,8 @@
 - [x] Add logging for auto-join events (user ID, org ID, domain)
 
 ## Admin Endpoint
-- [ ] Add `GET /api/v1/admin/organization-domains` endpoint
-- [ ] Return list of `{org_id, org_name, auto_join_domain}` for all orgs with domains set
+- [~] Add `GET /api/v1/admin/organization-domains` endpoint
+- [~] Return list of `{org_id, org_name, auto_join_domain}` for all orgs with domains set
 
 ## Frontend
 - [ ] Add domain field to organization settings page
