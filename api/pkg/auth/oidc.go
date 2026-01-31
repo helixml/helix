@@ -135,19 +135,16 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 		endpoint := provider.Endpoint()
 
 		// Override token URL for internal API access
-		// If TokenURL is set explicitly, use it. Otherwise, derive from ProviderURL
-		// (useful when discovery returns browser URLs but API needs internal URLs)
-		tokenURL := c.cfg.TokenURL
-		if tokenURL == "" && c.cfg.ProviderURL != "" {
-			// Auto-derive token URL from provider URL (works for Keycloak and most OIDC providers)
-			tokenURL = c.cfg.ProviderURL + "/protocol/openid-connect/token"
-		}
-		if tokenURL != "" && tokenURL != endpoint.TokenURL {
+		// If TokenURL is set explicitly, use it (useful when discovery returns browser URLs
+		// but API needs internal URLs, e.g., Keycloak behind a proxy)
+		// IMPORTANT: Do NOT auto-derive Keycloak-style URLs - this breaks Google and other
+		// standard OIDC providers. Only override if explicitly configured.
+		if c.cfg.TokenURL != "" && c.cfg.TokenURL != endpoint.TokenURL {
 			log.Info().
 				Str("original_token_url", endpoint.TokenURL).
-				Str("override_token_url", tokenURL).
-				Msg("Overriding token endpoint URL")
-			endpoint.TokenURL = tokenURL
+				Str("override_token_url", c.cfg.TokenURL).
+				Msg("Overriding token endpoint URL with explicit OIDC_TOKEN_URL")
+			endpoint.TokenURL = c.cfg.TokenURL
 		}
 
 		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
@@ -169,18 +166,35 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce))
+	// Add prompt=select_account to force the account picker (useful for Google)
+	// This ensures users can choose which account to use instead of auto-selecting
+	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("prompt", "select_account"))
 }
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code).Msg("Exchanging code for token")
+	// Log truncated code for debugging (avoid logging full code for security)
+	codePreview := code
+	if len(code) > 20 {
+		codePreview = code[:20] + "..."
+	}
+	log.Info().Str("code", codePreview).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("code", code).Msg("Exchanged code for token")
-	return oauth2Config.Exchange(ctx, code)
+	log.Info().
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Str("client_id", oauth2Config.ClientID).
+		Str("token_endpoint", oauth2Config.Endpoint.TokenURL).
+		Msg("Token exchange config")
+	token, err := oauth2Config.Exchange(ctx, code)
+	if err != nil {
+		log.Error().Err(err).Str("redirect_url", oauth2Config.RedirectURL).Msg("Token exchange failed")
+		return nil, err
+	}
+	log.Info().Msg("Token exchange successful")
+	return token, nil
 }
 
 // VerifyIDToken verifies the ID token and returns the claims

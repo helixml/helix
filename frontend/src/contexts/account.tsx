@@ -303,7 +303,8 @@ export const useAccountContext = (): IAccountContext => {
       // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
       // We can't read the Location header, so we make another request to get the redirect URL as JSON
       if (response.type === 'opaqueredirect') {
-        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true`, {
+        const redirectUri = encodeURIComponent(window.location.origin);
+        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true&redirect_uri=${redirectUri}`, {
           method: 'POST',
         });
         if (urlResponse.ok) {

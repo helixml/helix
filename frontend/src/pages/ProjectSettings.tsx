@@ -49,8 +49,13 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+import MoveUpIcon from "@mui/icons-material/MoveUp";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import HubIcon from "@mui/icons-material/Hub";
 
 import Page from "../components/system/Page";
+import Skills from "../components/app/Skills";
+import { TypesAssistantSkills, TypesProject } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import AccessManagement from "../components/app/AccessManagement";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
@@ -61,7 +66,7 @@ import {
   CodeAgentRuntime,
   generateAgentName,
 } from "../contexts/apps";
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -208,11 +213,28 @@ const ProjectSettings: FC = () => {
     guidelinesHistoryDialogOpen,
   );
 
+  // Move to organization state
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [selectedOrgToMove, setSelectedOrgToMove] = useState("");
+  const [movePreview, setMovePreview] = useState<{
+    project: { current_name: string; new_name?: string; has_conflict: boolean };
+    repositories: Array<{
+      id: string;
+      current_name: string;
+      new_name?: string;
+      has_conflict: boolean;
+    }>;
+  } | null>(null);
+  const [loadingMovePreview, setLoadingMovePreview] = useState(false);
+
   // Project secrets
   const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false);
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [showSecretValue, setShowSecretValue] = useState(false);
+
+  // Project skills
+  const [projectSkills, setProjectSkills] = useState<TypesAssistantSkills | undefined>(undefined);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
@@ -260,6 +282,56 @@ const ProjectSettings: FC = () => {
       snackbar.error("Failed to delete secret");
     },
   });
+
+  // Move project mutation
+  const moveProjectMutation = useMutation({
+    mutationFn: async (organizationId: string) => {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsMoveCreate(projectId, {
+          organization_id: organizationId,
+        });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Project moved to organization successfully");
+      setMoveDialogOpen(false);
+      setSelectedOrgToMove("");
+      setMovePreview(null);
+      // Invalidate project query to refresh data
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (err: any) => {
+      const message = err?.response?.data?.error || "Failed to move project";
+      snackbar.error(message);
+    },
+  });
+
+  // Fetch move preview when org is selected
+  const handleOrgSelectForMove = async (orgId: string) => {
+    setSelectedOrgToMove(orgId);
+    if (!orgId) {
+      setMovePreview(null);
+      return;
+    }
+
+    setLoadingMovePreview(true);
+    try {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsMovePreviewCreate(projectId, {
+          organization_id: orgId,
+        });
+      setMovePreview(response.data as any);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.error || "Failed to check for conflicts";
+      snackbar.error(message);
+      setMovePreview(null);
+    } finally {
+      setLoadingMovePreview(false);
+    }
+  };
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
@@ -355,6 +427,9 @@ const ProjectSettings: FC = () => {
           implementation: projectWipLimits.implementation || 5,
         });
       }
+
+      // Load project skills
+      setProjectSkills(project.skills);
     }
   }, [project]);
 
@@ -606,6 +681,43 @@ const ProjectSettings: FC = () => {
     }
   };
 
+  // Adapter to convert project skills to IAppFlatState format for the Skills component
+  const skillsFlatState: IAppFlatState = useMemo(() => ({
+    // Map project skills to IAppFlatState fields
+    apiTools: projectSkills?.apis,
+    mcpTools: projectSkills?.mcps,
+    browserTool: projectSkills?.browser,
+    webSearchTool: projectSkills?.web_search,
+    calculatorTool: projectSkills?.calculator,
+    emailTool: projectSkills?.email,
+    projectManagerTool: projectSkills?.project_manager,
+    azureDevOpsTool: projectSkills?.azure_devops,
+    zapierTools: projectSkills?.zapier,
+    // Always use zed_external agent type for project skills
+    // This enables local MCP support in the Skills component
+    default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
+  }), [projectSkills]);
+
+  // Handler for skills updates from the Skills component
+  const handleSkillsUpdate = async (updates: IAppFlatState) => {
+    // Extract skill-related fields and convert back to AssistantSkills format
+    const newSkills: TypesAssistantSkills = {
+      apis: updates.apiTools,
+      mcps: updates.mcpTools,
+      browser: updates.browserTool,
+      web_search: updates.webSearchTool,
+      calculator: updates.calculatorTool,
+      email: updates.emailTool,
+      project_manager: updates.projectManagerTool,
+      azure_devops: updates.azureDevOpsTool,
+      zapier: updates.zapierTools,
+    };
+    setProjectSkills(newSkills);
+    await updateProjectMutation.mutateAsync({
+      skills: newSkills,
+    });
+  };
+
   if (isLoading) {
     return (
       <Page breadcrumbTitle="Loading..." orgBreadcrumbs={true}>
@@ -648,7 +760,7 @@ const ProjectSettings: FC = () => {
       params: { id: projectId },
     },
     {
-      title: "Workspace Settings",
+      title: "Project Settings",
     },
   ];
 
@@ -1203,6 +1315,25 @@ const ProjectSettings: FC = () => {
               )}
             </Paper>
 
+            {/* Project Skills */}
+            <Paper sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                <HubIcon sx={{ mr: 1, color: "#10B981" }} />
+                <Typography variant="h6">Skills</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Configure skills for this project. These overlay on top of agent-level skills.
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Skills
+                app={skillsFlatState}
+                onUpdate={handleSkillsUpdate}
+                hideHeader
+                defaultCategory="Core"
+                compactGrid
+              />
+            </Paper>
+
             {/* Project Guidelines */}
             <Paper sx={{ p: 3 }}>
               <Box
@@ -1310,6 +1441,45 @@ const ProjectSettings: FC = () => {
                 Irreversible and destructive actions.
               </Typography>
               <Divider sx={{ mb: 3 }} />
+
+              {/* Move to Organization - only show for personal projects */}
+              {!project?.organization_id &&
+                account.organizationTools.organizations.length > 0 && (
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: "rgba(211, 47, 47, 0.05)",
+                      borderRadius: 1,
+                      border: "1px solid",
+                      borderColor: "error.light",
+                      mb: 2,
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle1"
+                      sx={{ fontWeight: 600, mb: 1 }}
+                    >
+                      Move to Organization
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 2 }}
+                    >
+                      Transfer this project to an organization to enable team
+                      sharing and RBAC roles. This is a one-way operation and
+                      cannot be undone.
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      startIcon={<MoveUpIcon />}
+                      onClick={() => setMoveDialogOpen(true)}
+                    >
+                      Move to Organization
+                    </Button>
+                  </Box>
+                )}
 
               <Box
                 sx={{
@@ -1763,6 +1933,193 @@ const ProjectSettings: FC = () => {
         <DialogActions>
           <Button onClick={() => setGuidelinesHistoryDialogOpen(false)}>
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Move to Organization Dialog */}
+      <Dialog
+        open={moveDialogOpen}
+        onClose={() => {
+          setMoveDialogOpen(false);
+          setSelectedOrgToMove("");
+          setMovePreview(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <MoveUpIcon color="error" />
+            <span>Move Project to Organization</span>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              This is a one-way operation!
+            </Typography>
+            <Typography variant="body2">
+              Once moved to an organization, this project cannot be moved back
+              to your personal workspace.
+            </Typography>
+          </Alert>
+
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <InputLabel>Select Organization</InputLabel>
+            <Select
+              value={selectedOrgToMove}
+              label="Select Organization"
+              onChange={(e) => handleOrgSelectForMove(e.target.value)}
+            >
+              {account.organizationTools.organizations.map((org) => (
+                <MenuItem key={org.id} value={org.id}>
+                  {org.display_name || org.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {loadingMovePreview && (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
+
+          {movePreview && !loadingMovePreview && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                The following will be moved:
+              </Typography>
+
+              {/* Project */}
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 1.5,
+                  backgroundColor: "action.hover",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Project
+                </Typography>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    mt: 0.5,
+                  }}
+                >
+                  <Typography variant="body2">
+                    {movePreview.project.current_name}
+                  </Typography>
+                  {movePreview.project.has_conflict &&
+                    movePreview.project.new_name && (
+                      <>
+                        <ArrowForwardIcon fontSize="small" color="warning" />
+                        <Typography variant="body2" color="warning.main">
+                          {movePreview.project.new_name}
+                        </Typography>
+                        <Chip
+                          label="renamed"
+                          size="small"
+                          color="warning"
+                          sx={{ fontSize: "0.7rem" }}
+                        />
+                      </>
+                    )}
+                </Box>
+              </Box>
+
+              {/* Repositories */}
+              {movePreview.repositories &&
+                movePreview.repositories.length > 0 && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      backgroundColor: "action.hover",
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                      Repositories ({movePreview.repositories.length})
+                    </Typography>
+                    {movePreview.repositories.map((repo) => (
+                      <Box
+                        key={repo.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          py: 0.5,
+                        }}
+                      >
+                        <Typography variant="body2">
+                          {repo.current_name}
+                        </Typography>
+                        {repo.has_conflict && repo.new_name && (
+                          <>
+                            <ArrowForwardIcon
+                              fontSize="small"
+                              color="warning"
+                            />
+                            <Typography variant="body2" color="warning.main">
+                              {repo.new_name}
+                            </Typography>
+                            <Chip
+                              label="renamed"
+                              size="small"
+                              color="warning"
+                              sx={{ fontSize: "0.7rem" }}
+                            />
+                          </>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mt: 2 }}
+              >
+                These repositories will become accessible to all members of the
+                organization based on their roles.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setMoveDialogOpen(false);
+              setSelectedOrgToMove("");
+              setMovePreview(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => moveProjectMutation.mutate(selectedOrgToMove)}
+            variant="contained"
+            color="error"
+            disabled={
+              !selectedOrgToMove ||
+              !movePreview ||
+              moveProjectMutation.isPending
+            }
+            startIcon={
+              moveProjectMutation.isPending ? (
+                <CircularProgress size={16} />
+              ) : (
+                <MoveUpIcon />
+              )
+            }
+          >
+            {moveProjectMutation.isPending ? "Moving..." : "Move Project"}
           </Button>
         </DialogActions>
       </Dialog>

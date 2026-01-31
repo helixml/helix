@@ -150,6 +150,7 @@ func NewServer(
 	avatarsBucket *blob.Bucket,
 	trigger *trigger.Manager,
 	anthropicProxy *anthropic.Proxy,
+	gitRepositoryService *services.GitRepositoryService,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -233,14 +234,6 @@ func NewServer(
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
-	gitRepositoryService := services.NewGitRepositoryService(
-		store,
-		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
-		cfg.WebServer.URL,         // Server base URL
-		"Helix System",            // Git user name
-		"system@helix.ml",         // Git user email
-	)
-
 	apiServer := &HelixAPIServer{
 		Cfg:                         cfg,
 		Store:                       store,
@@ -289,7 +282,7 @@ func NewServer(
 		anthropicProxy:    anthropicProxy,
 		specDrivenTaskService: services.NewSpecDrivenTaskService(
 			store,
-			controller,
+			controller.Options.Notifier,
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
@@ -306,12 +299,14 @@ func NewServer(
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
 
 	// Initialize git repository base directory
-	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+	if apiServer.gitRepositoryService != nil {
+		if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
+			return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+		}
 	}
 
 	// Initialize Kodit Service for code intelligence
-	if cfg.Kodit.Enabled {
+	if cfg.Kodit.Enabled && apiServer.gitRepositoryService != nil {
 		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
 		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
 		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
@@ -382,7 +377,6 @@ func NewServer(
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
-		controller,
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management
@@ -988,6 +982,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
@@ -1138,21 +1134,15 @@ func getID(r *http.Request) string {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-
-	// if we are in prod - then the frontend has been burned into the filesystem of the container
-	// and the FrontendURL will actually have the value "/www"
-	// so this switch is "are we in dev or not"
-	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
-
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
-			apiServer.Cfg.WebServer.FrontendURL,
-		))
-	} else {
-		log.Info().Msgf("serving static UI files from %s", apiServer.Cfg.WebServer.FrontendURL)
-
-		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
-
+	if apiServer.Cfg.WebServer.ServeProdFrontendInDev {
+		const prodBuildPath = "/www"
+		log.Info().Msgf("serving production frontend from %s", prodBuildPath)
+		fileSystem := http.Dir(prodBuildPath)
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	} else {
+		const devServerURL = "http://frontend:8081"
+		log.Info().Msgf("proxying frontend requests to %s", devServerURL)
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(devServerURL))
 	}
 }
 
