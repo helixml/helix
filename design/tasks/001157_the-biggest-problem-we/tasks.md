@@ -27,8 +27,11 @@
 - [x] Remove initialization in `NewServer`
 - [x] Remove any read references (also removed `externalAgentUserMapping` - same issue)
 
-## Phase 5: Testing
+## Phase 5: Testing (User Verification Required)
 
 - [ ] Manual test: start session, restart API, verify messages route correctly
 - [ ] Verify logs show "Restored sessionToWaitingInteraction" message
 - [ ] Test streaming request interrupted by restart times out with error (not hang)
+
+Note: These tests require a running Helix environment with an active agent session.
+Code changes are complete - ready for user to verify behavior.
