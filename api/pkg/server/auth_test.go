@@ -69,6 +69,9 @@ func (suite *AuthSuite) SetupTest() {
 // Helper functions
 func (suite *AuthSuite) createTestRequest(method, path string, body []byte) *http.Request {
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	// Set the Host header to match testServerURL (localhost:8080)
+	// This is needed for redirect_uri validation which compares against r.Host
+	req.Host = "localhost:8080"
 	return req.WithContext(suite.authCtx)
 }
 
@@ -182,15 +185,20 @@ func (suite *AuthSuite) TestLogin() {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "empty web server url",
+			name:   "empty web server url works with host validation",
 			method: "POST",
 			body: types.LoginRequest{
 				RedirectURI: testServerURL + "/callback",
 			},
 			setupMocks: func() {
+				// WebServer.URL is no longer used for redirect validation
+				// Instead, redirect_uri host is validated against request host
 				suite.server.Cfg.WebServer.URL = ""
+				suite.oidcClient.EXPECT().
+					GetAuthURL(gomock.Any(), gomock.Any()).
+					Return("http://mock-auth-url")
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusFound,
 		},
 		{
 			name:   "empty redirect uri",
@@ -577,6 +585,49 @@ func (suite *AuthSuite) TestLogout() {
 				return suite.createTestRequest("OPTIONS", "/api/v1/auth/logout", nil)
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Logout without end_session_endpoint (Google-like providers)",
+			setupRequest: func() *http.Request {
+				return suite.createTestRequest("POST", "/api/v1/auth/logout", nil)
+			},
+			setupMocks: func() {
+				// Google and some other providers don't have an end_session_endpoint
+				// The new code gracefully handles this by redirecting to post_logout_redirect_uri
+				suite.oidcClient.EXPECT().
+					GetLogoutURL().
+					Return("", errors.New("no end_session_endpoint"))
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				res := rec.Result()
+				defer res.Body.Close()
+				// Should redirect to the post-logout URL (WebServer.URL)
+				suite.Equal(testServerURL, rec.Header().Get("Location"))
+				// Verify cookies are still deleted
+				cookies := res.Cookies()
+				for _, cookie := range cookies {
+					suite.Equal(-1, cookie.MaxAge, "Cookie should be deleted")
+					suite.Empty(cookie.Value, "Cookie value should be empty")
+				}
+			},
+		},
+		{
+			name: "Logout with empty logout URL",
+			setupRequest: func() *http.Request {
+				return suite.createTestRequest("POST", "/api/v1/auth/logout", nil)
+			},
+			setupMocks: func() {
+				// Provider returns empty URL instead of error
+				suite.oidcClient.EXPECT().
+					GetLogoutURL().
+					Return("", nil)
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				// Should redirect to the post-logout URL (WebServer.URL)
+				suite.Equal(testServerURL, rec.Header().Get("Location"))
+			},
 		},
 	}
 
