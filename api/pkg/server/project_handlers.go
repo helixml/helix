@@ -443,6 +443,10 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata
 	}
+	// MCPs can be set directly (no pointer, nil means "don't update", empty slice means "clear")
+	if req.MCPs != nil {
+		project.MCPs = req.MCPs
+	}
 
 	// DON'T update StartupScript in database - Git repo is source of truth
 	// It will be saved to git repo below and loaded from there on next fetch

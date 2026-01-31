@@ -31,6 +31,10 @@ type SimpleSampleProject struct {
 	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
 
+	// MCPs configures project-level MCP servers that will be added when the project is created
+	// These run inside dev containers and overlay on top of agent-level MCPs
+	MCPs []types.AssistantMCP `json:"mcps,omitempty"`
+
 	// RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
 	// When set, the project creation flow will:
 	// 1. Check if user has GitHub OAuth connected
@@ -655,6 +659,22 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		Category:      "infrastructure",
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 
+		// MCP servers for CI integration - agents can check build logs after PRs
+		MCPs: []types.AssistantMCP{
+			{
+				Name:        "drone-ci",
+				Description: "Access Drone CI build logs and pipeline info",
+				Transport:   "stdio",
+				Command:     "npx",
+				Args:        []string{"-y", "drone-ci-mcp@0.0.3"},
+				Env: map[string]string{
+					// Users should configure these in project settings with their Drone credentials
+					"DRONE_SERVER_URL":   "",
+					"DRONE_ACCESS_TOKEN": "",
+				},
+			},
+		},
+
 		// Require GitHub authentication for push access to make PRs
 		RequiresGitHubAuth: true,
 		// Scopes needed: repo (for cloning/pushing/PRs), read:user (for identity)
@@ -923,6 +943,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Technologies:   sampleProject.Technologies,
 		StartupScript:  startupScript, // Use sample's startup script
 		Status:         "active",
+		MCPs:           sampleProject.MCPs, // Copy project-level MCP servers from sample
 	}
 
 	createdProject, err := s.Store.CreateProject(ctx, project)

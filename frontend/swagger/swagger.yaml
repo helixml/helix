@@ -5088,6 +5088,13 @@ definitions:
         type: integer
       id:
         type: string
+      mcps:
+        description: |-
+          Project-level MCP servers - these overlay on top of agent MCPs
+          Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -5174,6 +5181,11 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      mcps:
+        description: Project-level MCP servers
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
       name:
         type: string
       organization_id:
@@ -5208,6 +5220,11 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      mcps:
+        description: Project-level MCP servers
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:

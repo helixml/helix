@@ -3109,6 +3109,11 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  /**
+   * Project-level MCP servers - these overlay on top of agent MCPs
+   * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+   */
+  mcps?: TypesAssistantMCP[];
   metadata?: TypesProjectMetadata;
   name?: string;
   /**
@@ -3159,6 +3164,8 @@ export interface TypesProjectCreateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Project-level MCP servers */
+  mcps?: TypesAssistantMCP[];
   name?: string;
   organization_id?: string;
   startup_script?: string;
@@ -3179,6 +3186,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Project-level MCP servers */
+  mcps?: TypesAssistantMCP[];
   metadata?: TypesProjectMetadata;
   name?: string;
   /** Project manager agent */

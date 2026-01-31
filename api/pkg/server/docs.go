@@ -20710,6 +20710,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "mcps": {
+                    "description": "Project-level MCP servers - these overlay on top of agent MCPs\nUseful for project-specific tools like CI integration (e.g., drone-ci-mcp)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
@@ -20833,6 +20840,13 @@ const docTemplate = `{
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
+                "mcps": {
+                    "description": "Project-level MCP servers",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20883,6 +20897,13 @@ const docTemplate = `{
                 "guidelines": {
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
+                },
+                "mcps": {
+                    "description": "Project-level MCP servers",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
                 },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"

@@ -57,7 +57,7 @@ For demos or slow connections, serve the production build instead of Vite dev se
 cd frontend && yarn build && cd ..
 
 # 2. Enable production mode (add to .env)
-echo "FRONTEND_URL=/www" >> .env
+echo "SERVE_PROD_FRONTEND_IN_DEV=true" >> .env
 
 # 3. Restart API to pick up the change
 docker compose -f docker-compose.dev.yaml up -d api
@@ -69,13 +69,15 @@ cd frontend && yarn build
 # Then just refresh the browser - no container restart needed
 ```
 
+**IMPORTANT for Claude**: When in production frontend mode (`SERVE_PROD_FRONTEND_IN_DEV=true` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
+
 **Cache headers** are automatically set:
 - `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
 - `/assets/*`: `max-age=1year, immutable` (Vite hashes filenames)
 
 **To switch back to dev mode** (Vite HMR):
 ```bash
-sed -i '/^FRONTEND_URL=/d' .env
+sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
 
@@ -165,6 +167,7 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 
 ### Go
 - Fail fast: `return fmt.Errorf("failed: %w", err)` — never log and continue
+- **Error on missing configuration**: If something is expected to be available (project settings, MCP servers, database records), fail with an error rather than silently continuing without it. Users expect configured features to work — logging a warning and continuing leaves them wondering why things are broken.
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
