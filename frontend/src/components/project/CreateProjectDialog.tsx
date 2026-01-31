@@ -947,7 +947,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               </Button>
                             }
                           >
-                            Connect GitHub to browse your repos directly.
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              Connect via OAuth
+                              <Chip label="Recommended" size="small" color="primary" sx={{ height: 20 }} />
+                            </Box>
                           </Alert>
                         )}
                         <TextField
