@@ -24,11 +24,11 @@
 - [x] Return list of `{org_id, org_name, auto_join_domain}` for all orgs with domains set
 
 ## Frontend
-- [~] Add domain field to organization settings page
-- [~] Show validation errors for invalid/duplicate domains
+- [x] Add domain field to organization settings page
+- [x] Show validation errors for invalid/duplicate domains
 
 ## Testing
-- [ ] Unit test: domain validation (valid cases, invalid cases)
+- [~] Unit test: domain validation (valid cases, invalid cases)
 - [ ] Unit test: auto-join triggers for OIDC user with verified email
 - [ ] Unit test: auto-join skipped for OIDC user with unverified email
 - [ ] Unit test: auto-join skipped for Helix native auth users
