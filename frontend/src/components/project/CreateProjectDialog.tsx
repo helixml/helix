@@ -48,14 +48,7 @@ import useApi from '../../hooks/useApi'
 import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
-
-// Helper to check if an OAuth connection has the required scopes
-const hasRequiredScopes = (connectionScopes: string[] | undefined, requiredScopes: string[]): boolean => {
-  if (!connectionScopes || connectionScopes.length === 0) return false
-  return requiredScopes.every(required =>
-    connectionScopes.some(scope => scope === required || scope.startsWith(required + ':'))
-  )
-}
+import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -146,13 +139,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [repoSearchQuery, setRepoSearchQuery] = useState('')
 
   // Check if GitHub OAuth is connected with repo scope
-  // Check both type and name since providers may be configured with type="custom"
   const githubConnection = useMemo(() => {
-    return oauthConnections?.find(conn => {
-      const connType = conn.provider?.type?.toLowerCase()
-      const connName = conn.provider?.name?.toLowerCase()
-      return connType === 'github' || connName === 'github' || connName?.includes('github')
-    })
+    return findOAuthConnectionForProvider(oauthConnections, PROVIDER_TYPES.GITHUB)
   }, [oauthConnections])
 
   const githubHasRepoScope = useMemo(() => {
@@ -160,14 +148,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     return hasRequiredScopes(githubConnection.scopes, ['repo'])
   }, [githubConnection])
 
-  // Check both type and name since providers may be configured with type="custom"
   const githubProvider = useMemo(() => {
-    return oauthProviders?.find(p => {
-      if (p.enabled === false) return false
-      const pType = p.type?.toLowerCase()
-      const pName = p.name?.toLowerCase()
-      return pType === 'github' || pName === 'github' || pName?.includes('github')
-    })
+    return findOAuthProviderForType(oauthProviders, PROVIDER_TYPES.GITHUB)
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope

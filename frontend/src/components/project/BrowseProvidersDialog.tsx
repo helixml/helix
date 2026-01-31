@@ -44,6 +44,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import { matchesProviderType, mapProviderToRepoType, PROVIDER_TYPES } from '../../utils/oauthProviders'
 
 interface BrowseProvidersDialogProps {
   open: boolean
@@ -184,17 +185,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     }
 
     // Check if a connection now exists for the selected provider
-    const connection = oauthConnections?.find(conn => {
-      const connType = conn.provider?.type?.toLowerCase()
-      const connName = conn.provider?.name?.toLowerCase()
-      if (selectedProvider === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado' || connName?.includes('azure') || connName?.includes('ado')
-      }
-      if (selectedProvider === 'bitbucket') {
-        return connType === 'bitbucket' || connName?.includes('bitbucket')
-      }
-      return connType === selectedProvider || connName === selectedProvider || connName?.includes(selectedProvider)
-    })
+    const connection = oauthConnections?.find(conn =>
+      matchesProviderType(conn.provider?.type, conn.provider?.name, selectedProvider)
+    )
 
     if (connection) {
       // Connection established - navigate to repo browser
@@ -205,34 +198,17 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }, [oauthConnections, viewMode, selectedProvider])
 
   // Find OAuth connection for a provider type
-  // Checks both type and name since providers may be configured with type="custom"
   const getOAuthConnectionForProvider = (providerType: ProviderType) => {
-    return oauthConnections?.find(conn => {
-      const connType = conn.provider?.type?.toLowerCase()
-      const connName = conn.provider?.name?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado' || connName?.includes('azure') || connName?.includes('ado')
-      }
-      if (providerType === 'bitbucket') {
-        return connType === 'bitbucket' || connName?.includes('bitbucket')
-      }
-      // Check both type and name - providers may have type="custom" but name indicates the actual service
-      return connType === providerType || connName === providerType || connName?.includes(providerType)
-    })
+    return oauthConnections?.find(conn =>
+      matchesProviderType(conn.provider?.type, conn.provider?.name, providerType)
+    )
   }
 
   // Find PAT connection for a provider type
   const getPatConnectionForProvider = (providerType: ProviderType) => {
-    return patConnections?.find(conn => {
-      const connType = conn.provider_type?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado'
-      }
-      if (providerType === 'bitbucket') {
-        return connType === 'bitbucket'
-      }
-      return connType === providerType
-    })
+    return patConnections?.find(conn =>
+      matchesProviderType(conn.provider_type, null, providerType)
+    )
   }
 
   // Get any connection (OAuth or PAT) for a provider type
@@ -241,37 +217,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }
 
   // Find provider ID for OAuth flow (must be enabled or enabled not explicitly set to false)
-  // Checks both type and name since providers may be configured with type="custom"
   const getProviderIdForType = (providerType: ProviderType) => {
     const provider = providers?.find(p => {
-      // Skip if explicitly disabled
       if (p.enabled === false) return false
-      const pType = p.type?.toLowerCase()
-      const pName = p.name?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return pType === 'azure-devops' || pType === 'ado' || pName?.includes('azure') || pName?.includes('ado')
-      }
-      if (providerType === 'bitbucket') {
-        return pType === 'bitbucket' || pName?.includes('bitbucket')
-      }
-      // Check both type and name - providers may have type="custom" but name indicates the actual service
-      return pType === providerType || pName === providerType || pName?.includes(providerType)
+      return matchesProviderType(p.type, p.name, providerType)
     })
     return provider?.id
-  }
-
-  // Map frontend provider type to API provider type
-  const mapProviderType = (provider: ProviderType): TypesExternalRepositoryType => {
-    switch (provider) {
-      case 'github':
-        return 'github' as TypesExternalRepositoryType
-      case 'gitlab':
-        return 'gitlab' as TypesExternalRepositoryType
-      case 'azure-devops':
-        return 'ado' as TypesExternalRepositoryType
-      case 'bitbucket':
-        return 'bitbucket' as TypesExternalRepositoryType
-    }
   }
 
   // Fetch repos using PAT via backend API
@@ -283,7 +234,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     try {
       const apiClient = api.getApiClient()
       const response = await apiClient.v1GitBrowseRemoteCreate({
-        provider_type: mapProviderType(provider),
+        provider_type: mapProviderToRepoType(provider),
         token: creds.pat,
         username: creds.username,
         organization_url: creds.orgUrl,
@@ -409,7 +360,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     if (saveConnection) {
       try {
         await createPatConnection.mutateAsync({
-          provider_type: mapProviderType(selectedProvider) as any,
+          provider_type: mapProviderToRepoType(selectedProvider) as any,
           token: pat,
           auth_username: creds.username,
           organization_url: creds.orgUrl,
