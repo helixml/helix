@@ -2215,6 +2215,10 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		Str("error", errorMsg).
 		Msg("❌ [HELIX] Thread load failed in Zed - session may be active via UI click")
 
+	// Check if this is a permanent failure (entity released = thread is gone forever)
+	// In this case, clear ZedThreadID so next message creates a new thread
+	isEntityReleased := strings.Contains(errorMsg, "entity released")
+
 	// Look up helix_session_id from context mapping (if thread was previously mapped)
 	var helixSessionID string
 	if acpThreadID != "" {
@@ -2285,6 +2289,30 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 							Msg("✅ [HELIX] Marked interaction as error due to thread load failure")
 						break
 					}
+				}
+			}
+
+			// If entity was released, clear ZedThreadID so next message creates a new thread
+			// This prevents infinite loop of trying to load a thread that no longer exists
+			if isEntityReleased && helixSession.Metadata.ZedThreadID != "" {
+				log.Warn().
+					Str("helix_session_id", helixSessionID).
+					Str("old_zed_thread_id", helixSession.Metadata.ZedThreadID).
+					Msg("🧹 [HELIX] Clearing ZedThreadID after entity released error - next message will create new thread")
+
+				helixSession.Metadata.ZedThreadID = ""
+				helixSession.Updated = time.Now()
+				if _, updateErr := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession); updateErr != nil {
+					log.Warn().Err(updateErr).
+						Str("session_id", helixSessionID).
+						Msg("Failed to clear ZedThreadID after entity released error")
+				}
+
+				// Also clear from in-memory contextMappings
+				if acpThreadID != "" {
+					apiServer.contextMappingsMutex.Lock()
+					delete(apiServer.contextMappings, acpThreadID)
+					apiServer.contextMappingsMutex.Unlock()
 				}
 			}
 		}
