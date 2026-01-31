@@ -161,9 +161,11 @@ func (s *PostgresStore) autoMigrate() error {
 			return err
 		}
 
-		// Create marker file to signal completion
+		// Create marker file to signal completion.
+		// This must succeed - if it fails, other processes won't know migrations
+		// are done and may try to run them again, causing duplicate key errors.
 		if err := os.WriteFile(markerPath, []byte("done"), 0600); err != nil {
-			log.Warn().Err(err).Msg("failed to create migration marker file")
+			return fmt.Errorf("failed to create migration marker file: %w", err)
 		}
 
 		return nil
