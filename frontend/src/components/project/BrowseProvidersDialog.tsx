@@ -172,16 +172,19 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }, [queryClient])
 
   // Find OAuth connection for a provider type
+  // Checks both type and name since providers may be configured with type="custom"
   const getOAuthConnectionForProvider = (providerType: ProviderType) => {
     return oauthConnections?.find(conn => {
       const connType = conn.provider?.type?.toLowerCase()
+      const connName = conn.provider?.name?.toLowerCase()
       if (providerType === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado'
+        return connType === 'azure-devops' || connType === 'ado' || connName?.includes('azure') || connName?.includes('ado')
       }
       if (providerType === 'bitbucket') {
-        return connType === 'bitbucket'
+        return connType === 'bitbucket' || connName?.includes('bitbucket')
       }
-      return connType === providerType
+      // Check both type and name - providers may have type="custom" but name indicates the actual service
+      return connType === providerType || connName === providerType || connName?.includes(providerType)
     })
   }
 
@@ -205,15 +208,21 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }
 
   // Find provider ID for OAuth flow (must be enabled or enabled not explicitly set to false)
+  // Checks both type and name since providers may be configured with type="custom"
   const getProviderIdForType = (providerType: ProviderType) => {
     const provider = providers?.find(p => {
       // Skip if explicitly disabled
       if (p.enabled === false) return false
       const pType = p.type?.toLowerCase()
+      const pName = p.name?.toLowerCase()
       if (providerType === 'azure-devops') {
-        return pType === 'azure-devops' || pType === 'ado'
+        return pType === 'azure-devops' || pType === 'ado' || pName?.includes('azure') || pName?.includes('ado')
       }
-      return pType === providerType
+      if (providerType === 'bitbucket') {
+        return pType === 'bitbucket' || pName?.includes('bitbucket')
+      }
+      // Check both type and name - providers may have type="custom" but name indicates the actual service
+      return pType === providerType || pName === providerType || pName?.includes(providerType)
     })
     return provider?.id
   }
