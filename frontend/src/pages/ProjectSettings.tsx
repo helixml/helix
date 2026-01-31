@@ -759,7 +759,7 @@ const ProjectSettings: FC = () => {
       params: { id: projectId },
     },
     {
-      title: "Workspace Settings",
+      title: "Project Settings",
     },
   ];
 
