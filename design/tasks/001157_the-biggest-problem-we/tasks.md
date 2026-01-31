@@ -22,7 +22,7 @@
 
 ## Phase 4: Cleanup Dead Code
 
-- [ ] Verify `externalAgentSessionMapping` is unused (grep for writes)
+- [~] Verify `externalAgentSessionMapping` is unused (grep for writes)
 - [ ] Remove `externalAgentSessionMapping` field from `HelixAPIServer` struct
 - [ ] Remove initialization in `NewServer`
 - [ ] Remove any read references
