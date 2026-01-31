@@ -224,7 +224,7 @@ steps:
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Use pre-built binary from build-api-binary step
-      - cp ./helix-bin $GOPATH/bin/helix
+      - mkdir -p $GOPATH/bin && cp ./helix-bin $GOPATH/bin/helix
       # Debug: verify binary was copied and test server startup
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
