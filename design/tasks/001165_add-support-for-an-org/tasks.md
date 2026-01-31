@@ -23,7 +23,7 @@
 - [ ] Add `GET /api/v1/admin/organization-domains` endpoint
 - [ ] Return list of `{org_id, org_name, auto_join_domain}` for all orgs with domains set
 
-## Frontend (if time permits)
+## Frontend
 - [ ] Add domain field to organization settings page
 - [ ] Show validation errors for invalid/duplicate domains
 
