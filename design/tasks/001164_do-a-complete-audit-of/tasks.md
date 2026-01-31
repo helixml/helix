@@ -2,7 +2,7 @@
 
 ## Phase 1: Setup & Tooling
 
-- [ ] Install Go analysis tools:
+- [~] Install Go analysis tools:
   ```bash
   go install golang.org/x/tools/cmd/deadcode@latest
   go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
