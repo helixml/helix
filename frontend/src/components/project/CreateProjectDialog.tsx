@@ -148,8 +148,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [repoSearchQuery, setRepoSearchQuery] = useState('')
 
   // Check if GitHub OAuth is connected with repo scope
+  // Check both type and name since providers may be configured with type="custom"
   const githubConnection = useMemo(() => {
-    return oauthConnections?.find(conn => conn.provider?.type?.toLowerCase() === 'github')
+    return oauthConnections?.find(conn => {
+      const connType = conn.provider?.type?.toLowerCase()
+      const connName = conn.provider?.name?.toLowerCase()
+      return connType === 'github' || connName === 'github' || connName?.includes('github')
+    })
   }, [oauthConnections])
 
   const githubHasRepoScope = useMemo(() => {
@@ -157,8 +162,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     return hasRequiredScopes(githubConnection.scopes, ['repo'])
   }, [githubConnection])
 
+  // Check both type and name since providers may be configured with type="custom"
   const githubProvider = useMemo(() => {
-    return oauthProviders?.find(p => p.type?.toLowerCase() === 'github' && p.enabled)
+    return oauthProviders?.find(p => {
+      if (p.enabled === false) return false
+      const pType = p.type?.toLowerCase()
+      const pName = p.name?.toLowerCase()
+      return pType === 'github' || pName === 'github' || pName?.includes('github')
+    })
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
