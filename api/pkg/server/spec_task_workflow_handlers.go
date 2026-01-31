@@ -95,8 +95,22 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Send message to agent to push a commit (triggers PR creation)
-		// The git handler will create the PR when it receives a push in pull_request status
+		// Check if branch already has commits - if so, create PR immediately
+		hasCommits, err := s.branchHasCommitsAhead(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to check if branch has commits ahead - will wait for agent push")
+		} else if hasCommits {
+			log.Info().Str("task_id", specTask.ID).Str("branch", specTask.BranchName).Msg("Branch has commits ahead - creating PR immediately")
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				if err := s.ensurePullRequestForTask(context.Background(), repo, specTask); err != nil {
+					log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to auto-create PR on approval")
+				}
+			}()
+		}
+
+		// Always send message to agent to commit and push any remaining uncommitted changes
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -107,7 +121,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 					Err(err).
 					Str("task_id", specTask.ID).
 					Str("planning_session_id", specTask.PlanningSessionID).
-					Msg("Failed to send PR instruction to agent via WebSocket")
+					Msg("Failed to generate push instruction for agent")
+				return
 			}
 
 			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
@@ -116,12 +131,12 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 					Err(err).
 					Str("task_id", specTask.ID).
 					Str("planning_session_id", specTask.PlanningSessionID).
-					Msg("Failed to send PR instruction to agent via WebSocket")
+					Msg("Failed to send push instruction to agent via WebSocket")
 			} else {
 				log.Info().
 					Str("task_id", specTask.ID).
 					Str("branch_name", specTask.BranchName).
-					Msg("Implementation approved - sent PR instruction to agent via WebSocket")
+					Msg("Implementation approved - sent push instruction to agent via WebSocket")
 			}
 		}()
 
@@ -272,6 +287,68 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
+}
+
+// branchHasCommitsAhead checks if a feature branch has commits ahead of the default branch
+func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, featureBranch, defaultBranch string) (bool, error) {
+	ahead, _, err := services.GetDivergence(ctx, repoPath, featureBranch, defaultBranch)
+	if err != nil {
+		return false, err
+	}
+	return ahead > 0, nil
+}
+
+// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist
+func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+	if repo.ExternalURL == "" {
+		return nil
+	}
+
+	branch := task.BranchName
+	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for task")
+
+	// Push branch to remote first
+	if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false)
+	}); err != nil {
+		return fmt.Errorf("failed to push branch: %w", err)
+	}
+
+	// Check if PR already exists
+	prs, err := s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list PRs: %w", err)
+	}
+
+	sourceBranchRef := "refs/heads/" + branch
+	for _, pr := range prs {
+		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
+			if task.PullRequestID != pr.ID {
+				task.PullRequestID = pr.ID
+				task.UpdatedAt = time.Now()
+				if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with existing PR ID")
+				}
+			}
+			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Msg("Pull request already exists")
+			return nil
+		}
+	}
+
+	// Create new PR
+	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
+	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	if err != nil {
+		return fmt.Errorf("failed to create PR: %w", err)
+	}
+
+	task.PullRequestID = prID
+	task.UpdatedAt = time.Now()
+	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with new PR ID")
+	}
+	log.Info().Str("pr_id", prID).Str("branch", branch).Str("task_id", task.ID).Msg("Created pull request for task")
+	return nil
 }
 
 func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
