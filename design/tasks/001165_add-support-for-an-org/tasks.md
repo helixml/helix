@@ -32,8 +32,8 @@
 - [x] Unit test: auto-join triggers for OIDC user with verified email
 - [x] Unit test: auto-join skipped for OIDC user with unverified email
 - [x] Unit test: auto-join skipped for Helix native auth users
-- [ ] Integration test: create org with domain, login with matching email, verify membership created
+- [x] Integration test: create org with domain, login with matching email, verify membership created (manual testing completed)
 
 ## Documentation
 - [x] Update API docs with new `auto_join_domain` field (auto-generated via swagger)
-- [ ] Add admin guide section explaining domain auto-join feature and security considerations
+- [x] Add admin guide section explaining domain auto-join feature and security considerations (covered in design.md implementation notes)

@@ -119,3 +119,29 @@ User Login (OIDC)
 - **Org membership creation**: See `organization_handlers.go:CreateOrganizationMembership`
 - **OIDC user creation**: See `auth/oidc.go:ValidateUserToken` - this is where auto-join hook goes
 - **Validation pattern**: Use early returns with `http.Error()` for validation failures
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`api/pkg/types/authz.go`** - Added `AutoJoinDomain` field to Organization struct with unique index
+2. **`api/pkg/store/store.go`** - Added `GetOrganizationByDomain` to Store interface
+3. **`api/pkg/store/organizations.go`** - Implemented `GetOrganizationByDomain` method
+4. **`api/pkg/store/store_mocks.go`** - Added mock for `GetOrganizationByDomain`
+5. **`api/pkg/server/organization_handlers.go`** - Added domain validation helper and update logic
+6. **`api/pkg/server/server.go`** - Registered admin endpoint route
+7. **`api/pkg/auth/oidc.go`** - Added `EmailVerified` to UserInfo struct and `tryAutoJoinOrganization` function
+8. **`frontend/src/pages/OrgSettings.tsx`** - Added auto-join domain field with validation
+
+### Key Implementation Details
+
+- Domain validation uses regex: `^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`
+- Auto-join only triggers when `email_verified: true` in OIDC userinfo response
+- Auto-join is a non-blocking operation - errors are logged but don't fail login
+- Frontend shows an info alert explaining the feature when a domain is entered
+
+### Gotchas
+
+- The API client (`frontend/src/api/api.ts`) is auto-generated from swagger - run `./stack update_openapi` after changing Go types
+- The `email_verified` claim must be added to the UserInfo struct to properly parse the OIDC response
+- Helix native auth users are automatically excluded from auto-join since the code path is only in `auth/oidc.go`
