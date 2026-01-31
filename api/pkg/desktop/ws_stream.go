@@ -691,9 +691,10 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			// Add videorate for headless GNOME to handle damage-based rendering
 			// In headless mode, Mutter only sends frames when screen content changes (damage events)
-			// videorate duplicates the last frame to maintain smooth video on static screens (~10 FPS)
-			// while allowing up to max-rate (60 FPS) when content is actively changing
+			// videorate duplicates the last frame to maintain smooth video on static screens
+			// Caps at 2-60 FPS: 2 FPS minimum on static screens, up to 60 FPS when content changes
 			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
+			"video/x-raw,framerate=[2/1,60/1]",
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
