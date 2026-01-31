@@ -16,9 +16,9 @@
 ## Phase 3: Handle Stale Requests
 
 - [x] Add `RequestStartedAt` timestamp to `SessionMetadata` (done in Phase 1)
-- [~] On reconnect, check if `WaitingInteractionID` is stale (>5 min old)
-- [ ] If stale, mark interaction as failed and clear mappings
-- [ ] Log warning when detecting stale requests
+- [x] On reconnect, check if `WaitingInteractionID` is stale (>5 min old)
+- [x] If stale, mark interaction as failed and clear mappings
+- [x] Log warning when detecting stale requests
 
 ## Phase 4: Cleanup Dead Code
 
