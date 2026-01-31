@@ -634,12 +634,14 @@ const OAuthProvidersTable: React.FC = () => {
         </CardContent>
         <CardActions>
           <Tooltip title={isTemplate ? "Configure" : "Edit"}>
-            <IconButton 
+            <IconButton
               onClick={(e) => {
                 e.stopPropagation(); // Prevent the card click from triggering
-                handleOpenDialog(isTemplate ? undefined : provider);
-              }} 
-              size="small" 
+                // Pass the provider for both templates and existing providers
+                // so that the type is preserved correctly
+                handleOpenDialog(provider);
+              }}
+              size="small"
               color={isTemplate ? "primary" : "default"}
             >
               {isTemplate ? <AddIcon /> : <EditIcon />}
