@@ -641,6 +641,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.UserShortTitle != nil {
 		task.UserShortTitle = *updateReq.UserShortTitle
 	}
+	// Update public design docs setting (pointer allows explicit false)
+	if updateReq.PublicDesignDocs != nil {
+		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
 
 	// Update in store
 	err = s.Store.UpdateSpecTask(r.Context(), task)

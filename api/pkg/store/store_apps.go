@@ -214,12 +214,12 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 				ToolType:    types.ToolTypeProjectManager,
 				Config: types.ToolConfig{
 					ProjectManager: &types.ToolProjectManagerConfig{
-						Enabled: assistant.ProjectManager.Enabled,
+						Enabled:   assistant.ProjectManager.Enabled,
 						ProjectID: assistant.ProjectManager.ProjectID,
 					},
 				},
 			})
-		}		
+		}
 
 		if assistant.Calculator.Enabled {
 			tools = append(tools, &types.Tool{
@@ -298,6 +298,7 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 						Name:          mcp.Name,
 						Description:   mcp.Description,
 						URL:           mcp.URL,
+						Transport:     mcp.Transport,
 						Headers:       mcp.Headers,
 						OAuthProvider: mcp.OAuthProvider,
 						OAuthScopes:   mcp.OAuthScopes,

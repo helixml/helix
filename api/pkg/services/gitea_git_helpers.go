@@ -316,33 +316,77 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "1"
+const PreReceiveHookVersion = "4"
 
-// preReceiveHookScript is the shell script that protects helix-specs from force push.
-// It reads ref updates from stdin, checks if helix-specs is being force-pushed,
-// and rejects with a GitHub-style error message if so.
+// preReceiveHookScript is the shell script that:
+// 1. Protects helix-specs branch from force pushes
+// 2. Enforces branch restrictions for agent API keys via HELIX_ALLOWED_BRANCHES env var
+// It reads ref updates from stdin and rejects unauthorized pushes with GitHub-style error messages.
 const preReceiveHookScript = `#!/bin/sh
 # Helix pre-receive hook v` + PreReceiveHookVersion + `
-# Protects helix-specs branch from force pushes.
+# Protects helix-specs from force pushes and enforces agent branch restrictions.
 
 ZERO="0000000000000000000000000000000000000000"
 
+# HELIX_ALLOWED_BRANCHES is set by the git HTTP server for agent API keys.
+# Format: comma-separated list of branch names, e.g., "helix-specs,feature/001062-my-task"
+# If unset or empty, all branches are allowed (normal user behavior).
+ALLOWED_BRANCHES="$HELIX_ALLOWED_BRANCHES"
+
+# Helper function to check if a branch is in the allowed list
+branch_allowed() {
+    local branch="$1"
+    local allowed="$2"
+
+    # If no restrictions, allow all
+    if [ -z "$allowed" ]; then
+        return 0
+    fi
+
+    # Use case statement for exact matching (avoids subshell issues with pipes)
+    # Add commas to both ends so we match whole branch names only
+    case ",$allowed," in
+        *",$branch,"*) return 0 ;;
+    esac
+    return 1
+}
+
 while read oldrev newrev refname; do
-    # Only check helix-specs branch
-    if [ "$refname" = "refs/heads/helix-specs" ]; then
-        # Skip if this is a new branch (old is all zeros)
-        if [ "$oldrev" = "$ZERO" ]; then
-            continue
-        fi
-        # Skip if this is a branch deletion (new is all zeros)
+    # Extract branch name from ref (refs/heads/branch-name -> branch-name)
+    branch="${refname#refs/heads/}"
+
+    # Skip if not a branch ref (e.g., tags)
+    case "$refname" in
+        refs/heads/*) ;;
+        *) continue ;;
+    esac
+
+    # Check 1: Force-push and deletion protection for helix-specs
+    if [ "$branch" = "helix-specs" ]; then
+        # Block deletion of helix-specs
         if [ "$newrev" = "$ZERO" ]; then
-            continue
+            echo "error: refusing to delete protected branch 'helix-specs'" >&2
+            echo "hint: helix-specs contains design documents and cannot be deleted." >&2
+            exit 1
         fi
-        # Check if old is ancestor of new (fast-forward)
-        if ! git merge-base --is-ancestor "$oldrev" "$newrev" 2>/dev/null; then
-            echo "error: refusing to force-push to protected branch 'helix-specs'" >&2
-            echo "hint: helix-specs is a forward-only branch to protect design documents." >&2
-            echo "hint: If you need to revert changes, create a new commit instead." >&2
+        # Skip force-push check if this is a new branch (old is all zeros)
+        if [ "$oldrev" != "$ZERO" ]; then
+            # Check if old is ancestor of new (fast-forward)
+            if ! git merge-base --is-ancestor "$oldrev" "$newrev" 2>/dev/null; then
+                echo "error: refusing to force-push to protected branch 'helix-specs'" >&2
+                echo "hint: helix-specs is a forward-only branch to protect design documents." >&2
+                echo "hint: If you need to revert changes, create a new commit instead." >&2
+                exit 1
+            fi
+        fi
+    fi
+
+    # Check 2: Branch restriction for agent API keys
+    if [ -n "$ALLOWED_BRANCHES" ]; then
+        if ! branch_allowed "$branch" "$ALLOWED_BRANCHES"; then
+            echo "error: refusing to update refs/heads/$branch" >&2
+            echo "hint: This push is restricted to: $ALLOWED_BRANCHES" >&2
+            echo "hint: Push to your assigned feature branch instead." >&2
             exit 1
         fi
     fi

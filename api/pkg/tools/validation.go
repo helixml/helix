@@ -129,7 +129,7 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 			return system.NewHTTPError400("Project Manager config is required for Project Manager tools")
 		}
 
-		if tool.Config.ProjectManager.ProjectID != "" {			
+		if tool.Config.ProjectManager.ProjectID != "" {
 			// TODO: implement
 		}
 
@@ -160,6 +160,7 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		mcpConfig := &types.AssistantMCP{
 			Name:          tool.Config.MCP.Name,
 			URL:           tool.Config.MCP.URL,
+			Transport:     tool.Config.MCP.Transport,
 			Headers:       tool.Config.MCP.Headers,
 			OAuthProvider: tool.Config.MCP.OAuthProvider,
 			OAuthScopes:   tool.Config.MCP.OAuthScopes,

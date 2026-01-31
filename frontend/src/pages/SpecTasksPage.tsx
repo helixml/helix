@@ -1131,6 +1131,7 @@ const SpecTasksPage: FC = () => {
               <SpecTaskKanbanBoard
                 userId={account.user?.id}
                 projectId={projectId}
+                wipLimits={project?.metadata?.board_settings?.wip_limits}
                 onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
                   // Navigate to task detail page

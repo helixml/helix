@@ -915,15 +915,6 @@ definitions:
       task_id:
         type: string
     type: object
-  server.DesignDocsShareLinkResponse:
-    properties:
-      expires_at:
-        type: string
-      share_url:
-        type: string
-      token:
-        type: string
-    type: object
   server.DesignDocument:
     properties:
       content:
@@ -1415,6 +1406,12 @@ definitions:
         description: RequiresGitHubAuth indicates this sample project needs GitHub
           OAuth for push access
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: |-
+          Skills configures project-level skills that will be added when the project is created
+          These overlay on top of agent-level skills
       task_prompts:
         items:
           $ref: '#/definitions/server.SampleTaskPrompt'
@@ -2207,8 +2204,23 @@ definitions:
     type: object
   types.AssistantMCP:
     properties:
+      args:
+        description: Command arguments
+        items:
+          type: string
+        type: array
+      command:
+        description: |-
+          Stdio transport fields (used when Transport is "stdio")
+          The MCP server runs as a subprocess inside the dev container
+        type: string
       description:
         type: string
+      env:
+        additionalProperties:
+          type: string
+        description: Environment variables for the subprocess
+        type: object
       headers:
         additionalProperties:
           type: string
@@ -2227,7 +2239,14 @@ definitions:
         items:
           $ref: '#/definitions/mcp.Tool'
         type: array
+      transport:
+        description: |-
+          Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+          For stdio transport, use Command/Args/Env fields instead of URL
+        type: string
       url:
+        description: HTTP/SSE transport fields (used when Transport is "http" or "sse",
+          or URL is set)
         type: string
     type: object
   types.AssistantProjectManager:
@@ -2236,6 +2255,33 @@ definitions:
         type: boolean
       project_id:
         type: string
+    type: object
+  types.AssistantSkills:
+    properties:
+      apis:
+        items:
+          $ref: '#/definitions/types.AssistantAPI'
+        type: array
+      azure_devops:
+        $ref: '#/definitions/types.AssistantAzureDevOps'
+      browser:
+        $ref: '#/definitions/types.AssistantBrowser'
+      calculator:
+        $ref: '#/definitions/types.AssistantCalculator'
+      email:
+        $ref: '#/definitions/types.AssistantEmail'
+      mcps:
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
+      project_manager:
+        $ref: '#/definitions/types.AssistantProjectManager'
+      web_search:
+        $ref: '#/definitions/types.AssistantWebSearch'
+      zapier:
+        items:
+          $ref: '#/definitions/types.AssistantZapier'
+        type: array
     type: object
   types.AssistantWebSearch:
     properties:
@@ -2649,6 +2695,30 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CloneProgress:
+    properties:
+      bytes_received:
+        description: Bytes received so far
+        type: integer
+      current:
+        description: Current object count
+        type: integer
+      percentage:
+        description: 0-100
+        type: integer
+      phase:
+        description: '"counting", "compressing", "receiving", "resolving", "done"'
+        type: string
+      speed:
+        description: e.g., "1.25 MiB/s"
+        type: string
+      started_at:
+        description: When clone started
+        type: string
+      total:
+        description: Total object count
+        type: integer
+    type: object
   types.CloneTaskCreateProjectSpec:
     properties:
       name:
@@ -2723,6 +2793,16 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      max_output_tokens:
+        description: |-
+          MaxOutputTokens is the model's max completion tokens
+          Looked up from model_info.json, 0 if not found
+        type: integer
+      max_tokens:
+        description: |-
+          MaxTokens is the model's context window size (max input tokens)
+          Looked up from model_info.json, 0 if not found
+        type: integer
       model:
         description: Model is the model identifier (e.g., "claude-sonnet-4-5-latest",
           "gpt-4o")
@@ -3572,6 +3652,13 @@ definitions:
         items:
           type: string
         type: array
+      clone_error:
+        description: Clone progress tracking for async cloning
+        type: string
+      clone_progress:
+        allOf:
+        - $ref: '#/definitions/types.CloneProgress'
+        description: Live progress during cloning
       clone_url:
         description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
         type: string
@@ -3707,11 +3794,18 @@ definitions:
   types.GitRepositoryStatus:
     enum:
     - active
+    - cloning
+    - error
     - archived
     - deleted
     type: string
+    x-enum-comments:
+      GitRepositoryStatusCloning: Clone in progress
+      GitRepositoryStatusError: Clone or sync failed
     x-enum-varnames:
     - GitRepositoryStatusActive
+    - GitRepositoryStatusCloning
+    - GitRepositoryStatusError
     - GitRepositoryStatusArchived
     - GitRepositoryStatusDeleted
   types.GitRepositoryTreeResponse:
@@ -4511,6 +4605,42 @@ definitions:
     - ModelTypeChat
     - ModelTypeImage
     - ModelTypeEmbed
+  types.MoveProjectPreviewItem:
+    properties:
+      current_name:
+        type: string
+      has_conflict:
+        type: boolean
+      new_name:
+        description: nil if no conflict
+        type: string
+    type: object
+  types.MoveProjectPreviewResponse:
+    properties:
+      project:
+        $ref: '#/definitions/types.MoveProjectPreviewItem'
+      repositories:
+        items:
+          $ref: '#/definitions/types.MoveRepositoryPreviewItem'
+        type: array
+    type: object
+  types.MoveProjectRequest:
+    properties:
+      organization_id:
+        type: string
+    type: object
+  types.MoveRepositoryPreviewItem:
+    properties:
+      current_name:
+        type: string
+      has_conflict:
+        type: boolean
+      id:
+        type: string
+      new_name:
+        description: nil if no conflict
+        type: string
+    type: object
   types.OAuthConnection:
     properties:
       access_token:
@@ -4589,16 +4719,12 @@ definitions:
       discovery_url:
         type: string
       enabled:
+        description: Misc configuration
         type: boolean
       id:
         type: string
       name:
         type: string
-      scopes:
-        description: Misc configuration
-        items:
-          type: string
-        type: array
       token_url:
         type: string
       type:
@@ -5012,6 +5138,12 @@ definitions:
         type: string
       pull_request_reviews_enabled:
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: |-
+          Project-level skills - these overlay on top of agent skills
+          Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
@@ -5025,6 +5157,9 @@ definitions:
         type: array
       updated_at:
         type: string
+      use_host_docker:
+        description: Sandbox settings
+        type: boolean
       user_id:
         type: string
     type: object
@@ -5082,6 +5217,10 @@ definitions:
         type: string
       organization_id:
         type: string
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: Project-level skills
       startup_script:
         type: string
       technologies:
@@ -5125,6 +5264,10 @@ definitions:
       pull_request_reviews_enabled:
         description: Whether pull request reviews are enabled
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: Project-level skills
       startup_script:
         type: string
       status:
@@ -6775,6 +6918,9 @@ definitions:
         type: string
       project_path:
         type: string
+      public_design_docs:
+        description: Public sharing
+        type: boolean
       pull_request_id:
         type: string
       pull_request_url:
@@ -7146,6 +7292,9 @@ definitions:
         type: string
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
+      public_design_docs:
+        description: Pointer to allow explicit false
+        type: boolean
       status:
         $ref: '#/definitions/types.SpecTaskStatus'
       user_short_title:
@@ -7270,6 +7419,9 @@ definitions:
         type: string
       project_path:
         type: string
+      public_design_docs:
+        description: Public sharing
+        type: boolean
       pull_request_id:
         type: string
       pull_request_url:
@@ -7830,6 +7982,9 @@ definitions:
         items:
           $ref: '#/definitions/mcp.Tool'
         type: array
+      transport:
+        description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
+        type: string
       url:
         type: string
     type: object
@@ -8170,6 +8325,9 @@ definitions:
         type: string
       sb:
         type: boolean
+      session_id:
+        description: Session this API key is scoped to (ephemeral keys)
+        type: string
       spec_task_id:
         description: When running in Helix Code sandbox
         type: string
@@ -10185,7 +10343,8 @@ paths:
       - git-repositories
   /api/v1/git/repositories:
     get:
-      description: List all git repositories, optionally filtered by owner and type
+      description: List all git repositories, optionally filtered by owner, type,
+        and project
       parameters:
       - description: Filter by owner ID
         in: query
@@ -10198,6 +10357,10 @@ paths:
       - description: Filter by organization ID
         in: query
         name: organization_id
+        type: string
+      - description: Filter by project ID
+        in: query
+        name: project_id
         type: string
       produces:
       - application/json
@@ -12614,6 +12777,88 @@ paths:
       security:
       - BearerAuth: []
       summary: Get project guidelines history
+      tags:
+      - Projects
+  /api/v1/projects/{id}/move:
+    post:
+      consumes:
+      - application/json
+      description: Move a project from personal workspace to an organization
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Move project request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.MoveProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Move a project to an organization
+      tags:
+      - Projects
+  /api/v1/projects/{id}/move/preview:
+    post:
+      consumes:
+      - application/json
+      description: Check for naming conflicts before moving a project to an organization
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Move project request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.MoveProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.MoveProjectPreviewResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Preview moving a project to an organization
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
@@ -15222,36 +15467,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
-  /api/v1/spec-tasks/{id}/design-docs/share:
-    post:
-      description: Generate a token-based shareable link for viewing design documents
-        on any device
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsShareLinkResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Generate shareable design docs link
       tags:
       - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -142,16 +143,6 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		return nil, fmt.Errorf("failed to get target project: %w", err)
 	}
 
-	var initialStatus types.SpecTaskStatus = "backlog"
-
-	if autoStart {
-		if source.JustDoItMode {
-			initialStatus = types.TaskStatusQueuedImplementation
-		} else {
-			initialStatus = types.TaskStatusQueuedSpecGeneration
-		}
-	}
-
 	// Get the latest design review specs if available - these contain learnings
 	// from implementation that were pushed to helix-specs during the task.
 	// Fall back to the original specs on the task if no design review exists.
@@ -177,6 +168,22 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 			Msg("Using updated specs from design review for clone")
 	}
 
+	// Determine initial status. Cloned tasks go through spec generation
+	// so the agent can adapt specs to the new project context.
+	var initialStatus types.SpecTaskStatus = "backlog"
+	var designDocsPushedAt *time.Time // Will be set when agent pushes specs
+
+	if autoStart {
+		if source.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else {
+			// Always go through spec generation to boot the desktop.
+			// For cloned tasks with specs, the agent will read the pre-populated
+			// specs from helix-specs/ and adapt them to the new project context.
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                  system.GenerateSpecTaskID(),
@@ -195,10 +202,27 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,
+		DesignDocsPushedAt:  designDocsPushedAt,
 		CreatedBy:           userID,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
+
+	// Assign task number immediately at creation time so it's always visible in UI
+	// Task numbers are globally unique across the entire deployment
+	taskNumber, err := s.Store.IncrementGlobalTaskNumber(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get global task number for cloned task, using fallback")
+		taskNumber = 1
+	}
+	newTask.TaskNumber = taskNumber
+	// Generate design doc path based on task name and number
+	newTask.DesignDocPath = services.GenerateDesignDocPath(newTask, taskNumber)
+	log.Info().
+		Str("task_id", newTask.ID).
+		Int("task_number", taskNumber).
+		Str("design_doc_path", newTask.DesignDocPath).
+		Msg("Assigned task number and design doc path to cloned task")
 
 	if err := s.Store.CreateSpecTask(ctx, newTask); err != nil {
 		return nil, fmt.Errorf("failed to create cloned task: %w", err)

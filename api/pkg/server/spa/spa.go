@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 )
@@ -29,13 +30,32 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set cache headers based on path:
+	// - index.html and SPA fallback: never cache (ensures fresh deploys work)
+	// - /assets/* with hashed filenames: cache forever (content-addressed)
+	setCacheHeaders := func(isIndexHTML bool) {
+		if isIndexHTML {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
+			// Vite hashes asset filenames, so they can be cached indefinitely
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+	}
+
 	if f, err := s.fileSystem.Open(path); err == nil {
 		if err = f.Close(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		// Serving actual file - check if it's index.html
+		isIndex := r.URL.Path == "/" || r.URL.Path == "/index.html"
+		setCacheHeaders(isIndex)
 		s.fileServer.ServeHTTP(w, r)
 	} else if os.IsNotExist(err) {
+		// SPA fallback - serving index.html for client-side routing
+		setCacheHeaders(true)
 		r.URL.Path = ""
 		s.fileServer.ServeHTTP(w, r)
 		return

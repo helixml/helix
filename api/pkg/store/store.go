@@ -548,6 +548,7 @@ type Store interface {
 
 	// Project-Repository junction table methods (many-to-many relationship)
 	CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error
+	UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error
 	DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error
 	DeleteProjectRepositoriesByProject(ctx context.Context, projectID string) error
 	DeleteProjectRepositoriesByRepository(ctx context.Context, repositoryID string) error

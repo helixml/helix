@@ -60,8 +60,8 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 	}
 
 	switch {
-	case strings.HasSuffix(cfg.URL, "sse"):
-
+	case cfg.Transport == "sse" || strings.HasSuffix(cfg.URL, "sse"):
+		// Use SSE transport if explicitly configured or URL ends with "sse"
 		sse, err := transport.NewSSE(
 			cfg.URL,
 			transport.WithHeaders(headers),

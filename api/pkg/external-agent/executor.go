@@ -28,6 +28,9 @@ type Executor interface {
 
 	// Reconciliation support
 	HasRunningContainer(ctx context.Context, sessionID string) bool
+
+	// Container discovery from sandbox
+	DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error
 }
 
 // Shared types used by all executor implementations

@@ -31,6 +31,10 @@ type SimpleSampleProject struct {
 	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
 
+	// Skills configures project-level skills that will be added when the project is created
+	// These overlay on top of agent-level skills
+	Skills *types.AssistantSkills `json:"skills,omitempty"`
+
 	// RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
 	// When set, the project creation flow will:
 	// 1. Check if user has GitHub OAuth connected
@@ -655,6 +659,26 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		Category:      "infrastructure",
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 
+		// Skills for CI integration - agents can check build logs after PRs
+		// Uses drone-ci-mcp: https://github.com/madappa-sharath/drone-ci-mcp
+		Skills: &types.AssistantSkills{
+			MCPs: []types.AssistantMCP{
+				{
+					Name:        "drone-ci",
+					Description: "Access Drone CI build logs and pipeline info for helixml repos",
+					Transport:   "stdio",
+					Command:     "npx",
+					Args:        []string{"-y", "drone-ci-mcp"},
+					Env: map[string]string{
+						// Pre-configured for Helix CI - users just need to add their Drone API token
+						// Get your token from: https://drone.lukemarsden.net/account
+						"DRONE_SERVER_URL":   "https://drone.lukemarsden.net",
+						"DRONE_ACCESS_TOKEN": "", // User should add their token in Project Settings
+					},
+				},
+			},
+		},
+
 		// Require GitHub authentication for push access to make PRs
 		RequiresGitHubAuth: true,
 		// Scopes needed: repo (for cloning/pushing/PRs), read:user (for identity)
@@ -679,6 +703,13 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 				IsPrimary:     false,
 				AllowFork:     true,
 				SubPath:       "qwen-code",
+				DefaultBranch: "main",
+			},
+			{
+				GitHubURL:     "github.com/helixml/docs",
+				IsPrimary:     false,
+				AllowFork:     true,
+				SubPath:       "docs",
 				DefaultBranch: "main",
 			},
 		},
@@ -916,6 +947,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Technologies:   sampleProject.Technologies,
 		StartupScript:  startupScript, // Use sample's startup script
 		Status:         "active",
+		Skills:         sampleProject.Skills, // Copy project-level skills from sample
 	}
 
 	createdProject, err := s.Store.CreateProject(ctx, project)
@@ -1263,6 +1295,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 						"sample_project": sampleProject.ID,
 						"clone_demo":     true,
 					}
+
+					// Assign task number immediately at creation time
+					taskNumber, numErr := s.Store.IncrementGlobalTaskNumber(ctx)
+					if numErr != nil {
+						log.Warn().Err(numErr).Msg("Failed to get global task number for clone demo task")
+						taskNumber = 1
+					}
+					task.TaskNumber = taskNumber
+					task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
 
 					if taskErr := s.Store.CreateSpecTask(ctx, task); taskErr != nil {
 						log.Warn().Err(taskErr).Msg("Failed to create clone demo task")
@@ -1655,6 +1696,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			"sample_project": sampleProject.ID,
 		}
 
+		// Assign task number immediately at creation time
+		taskNumber, numErr := s.Store.IncrementGlobalTaskNumber(ctx)
+		if numErr != nil {
+			log.Warn().Err(numErr).Msg("Failed to get global task number for sample project task")
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = services.GenerateDesignDocPath(task, taskNumber)
+
 		err := s.Store.CreateSpecTask(ctx, task)
 		if err != nil {
 			log.Warn().Err(err).
@@ -1707,4 +1757,3 @@ func inferTaskType(labels []string) string {
 	}
 	return "task"
 }
-

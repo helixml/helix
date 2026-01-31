@@ -28,6 +28,7 @@ import {
   DialogActions,
   ToggleButton,
   ToggleButtonGroup,
+  Switch,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -36,6 +37,7 @@ import Description from "@mui/icons-material/Description";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
@@ -43,8 +45,9 @@ import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
+import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
-import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
+import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
 import ChatStatsOverlay, { ChatStatsToggle } from "../session/ChatStatsOverlay";
 
 import DiffViewer from "./DiffViewer";
@@ -90,6 +93,7 @@ import {
   GitCompare,
   MonitorPlay,
   Wand2,
+  Copy,
 } from "lucide-react";
 
 interface SpecTaskDetailContentProps {
@@ -285,6 +289,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
 
+  // Session stop state
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+
   // Just Do It mode state
   const [justDoItMode, setJustDoItMode] = useState(false);
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false);
@@ -302,6 +311,44 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Archive state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+
+  // Public design docs state
+  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(task?.public_design_docs ?? false);
+  const [updatingPublic, setUpdatingPublic] = useState(false);
+
+  // Sync public state when task data changes
+  useEffect(() => {
+    if (task?.public_design_docs !== undefined) {
+      setIsPublicDesignDocs(task.public_design_docs);
+    }
+  }, [task?.public_design_docs]);
+
+  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+
+  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = event.target.checked;
+    setUpdatingPublic(true);
+    try {
+      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+        public_design_docs: newValue,
+      });
+      setIsPublicDesignDocs(newValue);
+      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
+    } catch (err: any) {
+      snackbar.error(err.message || 'Failed to update visibility');
+    } finally {
+      setUpdatingPublic(false);
+    }
+  };
+
+  const copyPublicLink = async () => {
+    try {
+      await navigator.clipboard.writeText(publicLink);
+      snackbar.success('Link copied to clipboard!');
+    } catch (err) {
+      snackbar.error('Failed to copy link');
+    }
+  };
 
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId);
@@ -325,6 +372,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = task?.planning_session_id;
+
+  // Track sandbox/desktop state for stop/start buttons
+  const { isRunning: isDesktopRunning, isPaused: isDesktopPaused, isStarting: isDesktopStarting } = useSandboxState(activeSessionId || '');
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -473,6 +523,51 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsRestarting(false);
     }
   }, [activeSessionId, isRestarting, api, snackbar]);
+
+  // Handle session stop
+  const handleStopSession = useCallback(async () => {
+    if (!activeSessionId || isStopping) return;
+
+    setIsStopping(true);
+    setStopConfirmOpen(false);
+
+    try {
+      snackbar.info("Stopping desktop...");
+      await api
+        .getApiClient()
+        .v1SessionsStopExternalAgentDelete(activeSessionId);
+      queryClient.invalidateQueries({
+        queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
+      });
+      snackbar.success("Desktop stopped");
+    } catch (err: any) {
+      console.error("Failed to stop session:", err);
+      snackbar.error(err?.message || "Failed to stop desktop");
+    } finally {
+      setIsStopping(false);
+    }
+  }, [activeSessionId, isStopping, api, snackbar, queryClient]);
+
+  // Handle session start (resume from stopped state)
+  const handleStartSession = useCallback(async () => {
+    if (!activeSessionId || isStarting) return;
+
+    setIsStarting(true);
+
+    try {
+      snackbar.info("Starting desktop...");
+      await api.getApiClient().v1SessionsResumeCreate(activeSessionId);
+      queryClient.invalidateQueries({
+        queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
+      });
+      snackbar.success("Desktop started");
+    } catch (err: any) {
+      console.error("Failed to start session:", err);
+      snackbar.error(err?.message || "Failed to start desktop");
+    } finally {
+      setIsStarting(false);
+    }
+  }, [activeSessionId, isStarting, api, snackbar, queryClient]);
 
   // Toggle Just Do It mode
   const handleToggleJustDoIt = useCallback(async () => {
@@ -744,7 +839,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <TextField
             fullWidth
             multiline
-            rows={4}
+            minRows={4}
+            maxRows={20}
             value={editFormData.description}
             onChange={(e) =>
               setEditFormData((prev) => ({
@@ -752,7 +848,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 description: e.target.value,
               }))
             }
-            onBlur={handleSaveEdit}
             autoFocus
             placeholder="Task description"
           />
@@ -781,7 +876,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   : {},
             }}
           >
-            <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+            <Typography
+              variant="body1"
+              sx={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflow: "visible",
+              }}
+            >
               {task?.description ||
                 task?.original_prompt ||
                 "No description provided"}
@@ -915,7 +1017,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     setSelectedCloneGroupId(task.clone_group_id || null)
                   }
                 >
-                  <Wand2 size={16} style={{ color: "inherit", opacity: 0.7 }} />
+                  <AccountTree sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }} />
                   <Typography variant="caption" color="text.secondary">
                     Batch Progress
                   </Typography>
@@ -983,6 +1085,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         >
           Task ID: {task?.id || "N/A"}
         </Typography>
+        <Typography
+          variant="caption"
+          color="grey.300"
+          sx={{ fontFamily: "monospace", display: "block" }}
+        >
+          Task #:{" "}
+          {task?.task_number
+            ? `#${String(task.task_number).padStart(6, "0")}`
+            : "N/A"}
+        </Typography>
         {task?.branch_name && (
           <Tooltip title="Spectask branches push changes to upstream repository">
             <Typography
@@ -1011,6 +1123,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Typography>
           </Tooltip>
         )}
+        <Typography
+          variant="caption"
+          color="grey.300"
+          sx={{ fontFamily: "monospace", display: "block" }}
+        >
+          Specs Folder: {task?.design_doc_path || "N/A"}
+        </Typography>
         {activeSessionId && (
           <Typography
             variant="caption"
@@ -1048,26 +1167,77 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Typography>
         )}
 
-        {/* Archive button */}
-        <Tooltip title="Hold Shift to skip confirmation">
-          <Button
+        {/* Public Design Docs Toggle */}
+        <Divider sx={{ my: 2 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+          <Box>
+            <Typography variant="subtitle2">
+              Share Design Docs
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Anyone with the link can view
+            </Typography>
+          </Box>
+          <Switch
+            checked={isPublicDesignDocs}
+            onChange={handlePublicToggle}
+            disabled={updatingPublic}
             size="small"
-            variant="outlined"
-            color="error"
-            startIcon={
-              isArchiving ? (
-                <CircularProgress size={14} color="inherit" />
-              ) : (
-                <ArchiveIcon />
-              )
-            }
-            onClick={handleArchiveClick}
-            disabled={isArchiving || task?.archived}
-            sx={{ mt: 2, fontSize: "0.75rem" }}
-          >
-            {isArchiving ? "Archiving..." : "Archive Task"}
-          </Button>
-        </Tooltip>
+          />
+        </Box>
+        {isPublicDesignDocs && (
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1, 
+            mb: 1,
+            p: 1,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+          }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                flex: 1, 
+                fontFamily: 'monospace',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: 'text.secondary',
+              }}
+            >
+              {publicLink}
+            </Typography>
+            <Tooltip title="Copy link">
+              <IconButton size="small" onClick={copyPublicLink}>
+                <Copy size={14} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+
+        {/* Archive button */}
+        <Box sx={{ mt: 2 }}>
+          <Tooltip title="Hold Shift to skip confirmation">
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={
+                isArchiving ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <ArchiveIcon />
+                )
+              }
+              onClick={handleArchiveClick}
+              disabled={isArchiving || task?.archived}
+              sx={{ fontSize: "0.75rem" }}
+            >
+              {isArchiving ? "Archiving..." : "Archive Task"}
+            </Button>
+          </Tooltip>
+        </Box>
       </Box>
     </>
   );
@@ -1307,19 +1477,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
-                  {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
-                  {task.design_docs_pushed_at &&
-                    task.status !== "spec_review" && (
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<Description />}
-                        onClick={handleReviewSpec}
-                        sx={{ ml: 1, fontSize: "0.75rem" }}
-                      >
-                        View Spec
-                      </Button>
-                    )}
 
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
@@ -1363,7 +1520,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={() => setShowCloneDialog(true)}
                             >
-                              <Wand2 size={18} />
+                              <Wand2 size={16} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1378,38 +1535,78 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               }
                               sx={{ color: "primary.main" }}
                             >
-                              <Wand2 size={18} />
+                              <AccountTree sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
                         )}
-                        <Tooltip title="Restart agent session">
-                          <IconButton
-                            size="small"
-                            onClick={() => setRestartConfirmOpen(true)}
-                            disabled={isRestarting}
-                            color="warning"
-                          >
-                            {isRestarting ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              <RestartAltIcon sx={{ fontSize: 18 }} />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Upload files to sandbox">
-                          <IconButton
-                            size="small"
-                            onClick={handleUploadClick}
-                            disabled={isUploading}
-                            color="primary"
-                          >
-                            {isUploading ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              <CloudUploadIcon sx={{ fontSize: 18 }} />
-                            )}
-                          </IconButton>
-                        </Tooltip>
+                        {/* Show Start button when desktop is paused */}
+                        {isDesktopPaused && (
+                          <Tooltip title="Start desktop">
+                            <IconButton
+                              size="small"
+                              onClick={handleStartSession}
+                              disabled={isStarting || isDesktopStarting}
+                              color="success"
+                            >
+                              {isStarting || isDesktopStarting ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <PlayArrow sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {/* Show Stop button when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip title="Stop desktop">
+                            <IconButton
+                              size="small"
+                              onClick={() => setStopConfirmOpen(true)}
+                              disabled={isStopping}
+                              color="error"
+                            >
+                              {isStopping ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <StopIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {/* Show Restart button only when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip title="Restart agent session">
+                            <IconButton
+                              size="small"
+                              onClick={() => setRestartConfirmOpen(true)}
+                              disabled={isRestarting}
+                              color="warning"
+                            >
+                              {isRestarting ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <RestartAltIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {/* Show Upload button only when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip title="Upload files to sandbox">
+                            <IconButton
+                              size="small"
+                              onClick={handleUploadClick}
+                              disabled={isUploading}
+                              color="primary"
+                            >
+                              {isUploading ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <CloudUploadIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </>
                     )}
                     {onClose && (
@@ -1597,18 +1794,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
-              {/* View Spec button - always show when spec exists (except when Review Spec button is already showing) */}
-              {task.design_docs_pushed_at && task.status !== "spec_review" && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<Description />}
-                  onClick={handleReviewSpec}
-                  sx={{ fontSize: "0.75rem" }}
-                >
-                  View Spec
-                </Button>
-              )}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
               <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
@@ -1658,7 +1843,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={() => setShowCloneDialog(true)}
                         >
-                          <Wand2 size={18} />
+                          <Wand2 size={16} />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -1671,11 +1856,46 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           }
                           sx={{ color: "primary.main" }}
                         >
-                          <Wand2 size={18} />
+                          <AccountTree sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
                     )}
-                    {activeSessionId && (
+                    {/* Show Start button when desktop is paused */}
+                    {activeSessionId && isDesktopPaused && (
+                      <Tooltip title="Start desktop">
+                        <IconButton
+                          size="small"
+                          onClick={handleStartSession}
+                          disabled={isStarting || isDesktopStarting}
+                          color="success"
+                        >
+                          {isStarting || isDesktopStarting ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <PlayArrow sx={{ fontSize: 18 }} />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {/* Show Stop button when desktop is running */}
+                    {activeSessionId && isDesktopRunning && (
+                      <Tooltip title="Stop desktop">
+                        <IconButton
+                          size="small"
+                          onClick={() => setStopConfirmOpen(true)}
+                          disabled={isStopping}
+                          color="error"
+                        >
+                          {isStopping ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <StopIcon sx={{ fontSize: 18 }} />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {/* Show Restart button only when desktop is running */}
+                    {activeSessionId && isDesktopRunning && (
                       <Tooltip title="Restart agent session">
                         <IconButton
                           size="small"
@@ -1691,18 +1911,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </IconButton>
                       </Tooltip>
                     )}
-                    <Tooltip
-                      title={
-                        activeSessionId
-                          ? "Upload files to sandbox"
-                          : "Start task to enable file upload"
-                      }
-                    >
-                      <span>
+                    {/* Show Upload button only when desktop is running */}
+                    {activeSessionId && isDesktopRunning && (
+                      <Tooltip title="Upload files to sandbox">
                         <IconButton
                           size="small"
                           onClick={handleUploadClick}
-                          disabled={isUploading || !activeSessionId}
+                          disabled={isUploading}
                           color="primary"
                         >
                           {isUploading ? (
@@ -1711,8 +1926,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             <CloudUploadIcon sx={{ fontSize: 18 }} />
                           )}
                         </IconButton>
-                      </span>
-                    </Tooltip>
+                      </Tooltip>
+                    )}
                   </>
                 )}
                 {onClose && (
@@ -1911,6 +2126,34 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             }
           >
             Restart
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Stop Session Confirmation */}
+      <Dialog
+        open={stopConfirmOpen}
+        onClose={() => setStopConfirmOpen(false)}
+      >
+        <DialogTitle>Stop Desktop?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will stop the desktop environment. Any unsaved files in memory
+            (e.g., IDE buffers) may be lost. You can start it again later.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStopConfirmOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleStopSession}
+            color="error"
+            variant="contained"
+            disabled={isStopping}
+            startIcon={
+              isStopping ? <CircularProgress size={16} /> : <StopIcon />
+            }
+          >
+            Stop
           </Button>
         </DialogActions>
       </Dialog>
