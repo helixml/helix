@@ -859,6 +859,18 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError404("repository not found")
 	}
 
+	// Validate org scoping: project and repo must be in the same org scope
+	if project.OrganizationID != repo.OrganizationID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("project_org", project.OrganizationID).
+			Str("repo_id", repoID).
+			Str("repo_org", repo.OrganizationID).
+			Msg("cannot attach repository from different org scope")
+		return nil, system.NewHTTPError400("repository must be in the same organization as the project")
+	}
+
 	err = s.Store.AttachRepositoryToProject(r.Context(), projectID, repoID)
 	if err != nil {
 		log.Error().
@@ -1663,7 +1675,7 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 		existingRepoNames[repo.Name] = true
 	}
 
-	// Check each repository for conflicts
+	// Check each repository for conflicts and shared usage
 	var repoPreview []types.MoveRepositoryPreviewItem
 	for _, repoID := range repoIDs {
 		repo, err := s.Store.GetGitRepository(r.Context(), repoID)
@@ -1680,12 +1692,41 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 			newName := services.GetUniqueRepoName(repo.Name, existingRepoNames)
 			item.NewName = &newName
 		}
+
+		// Check if this repo is shared with other personal workspace projects that will lose access
+		// Only personal workspace projects (no org) can share repos with this project
+		allProjectIDs, err := s.Store.GetProjectsForRepository(r.Context(), repoID)
+		if err == nil && len(allProjectIDs) > 1 {
+			for _, otherProjectID := range allProjectIDs {
+				if otherProjectID == projectID {
+					continue // Skip the project being moved
+				}
+				otherProject, err := s.Store.GetProject(r.Context(), otherProjectID)
+				if err == nil {
+					// Only include personal workspace projects (no org set)
+					if otherProject.OrganizationID != "" {
+						continue
+					}
+					item.AffectedProjects = append(item.AffectedProjects, types.AffectedProjectInfo{
+						ID:   otherProject.ID,
+						Name: otherProject.Name,
+					})
+				}
+			}
+		}
+
 		repoPreview = append(repoPreview, item)
+	}
+
+	// Add warning about agents not being moved
+	warnings := []string{
+		"Agents configured on this project will not be moved. You'll need to create new agents in the target organization and update the project settings.",
 	}
 
 	return &types.MoveProjectPreviewResponse{
 		Project:      projectPreview,
 		Repositories: repoPreview,
+		Warnings:     warnings,
 	}, nil
 }
 
@@ -1832,6 +1873,29 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 					Msg("failed to update project repository organization")
 			}
 		}
+	}
+
+	// Update sessions to belong to the new organization
+	sessions, _, err := s.Store.ListSessions(r.Context(), store.ListSessionsQuery{
+		ProjectID: projectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list sessions for move")
+	} else {
+		for _, session := range sessions {
+			session.OrganizationID = req.OrganizationID
+			session.Updated = time.Now()
+			if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", session.ID).
+					Str("project_id", projectID).
+					Msg("failed to update session organization")
+			}
+		}
+		log.Info().
+			Int("session_count", len(sessions)).
+			Str("project_id", projectID).
+			Msg("updated sessions for project move")
 	}
 
 	// Log audit event

@@ -79,12 +79,19 @@ func NewServeCmd() *cobra.Command {
 
 	envHelpText := generateEnvHelpText(serveConfig, "")
 
+	var migrateOnly bool
+
 	serveCmd := &cobra.Command{
 		Use:     "serve",
 		Short:   "Start the helix api server.",
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// If --migrate-only is set, just run migrations and exit
+			if migrateOnly {
+				return runMigrationsOnly(serveConfig)
+			}
+
 			err := serve(cmd, serveConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to run server")
@@ -93,9 +100,32 @@ func NewServeCmd() *cobra.Command {
 		},
 	}
 
+	serveCmd.Flags().BoolVar(&migrateOnly, "migrate-only", false, "Run database migrations and exit (for CI)")
 	serveCmd.Long += "\n\nEnvironment Variables:\n\n" + envHelpText
 
 	return serveCmd
+}
+
+// runMigrationsOnly runs database migrations and exits without starting the server.
+// This is used by CI to run migrations once before parallel test steps.
+func runMigrationsOnly(cfg *config.ServerConfig) error {
+	// Ensure AutoMigrate runs (don't skip it)
+	os.Unsetenv("HELIX_SKIP_AUTOMIGRATE")
+
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		return err
+	}
+	defer ps.Close()
+
+	db, err := store.NewPostgresStore(cfg.Store, ps)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	log.Info().Msg("migrations completed successfully")
+	return nil
 }
 
 func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.FileStore, error) {

@@ -304,12 +304,12 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       try {
         const newRepo = await onCreateRepo(autoRepoName, description || `Files for ${name}`)
         if (!newRepo?.id) {
-          setRepoError('Failed to create file storage')
+          setRepoError('Failed to create repository')
           return
         }
         repoIdToUse = newRepo.id
       } catch (err) {
-        setRepoError(err instanceof Error ? err.message : 'Failed to create file storage')
+        setRepoError(err instanceof Error ? err.message : 'Failed to create repository')
         return
       } finally {
         setCreatingRepo(false)

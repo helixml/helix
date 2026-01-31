@@ -15948,6 +15948,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AffectedProjectInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -20054,6 +20065,13 @@ const docTemplate = `{
         "types.MoveRepositoryPreviewItem": {
             "type": "object",
             "properties": {
+                "affected_projects": {
+                    "description": "Other projects that will lose this repo",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AffectedProjectInfo"
+                    }
+                },
                 "current_name": {
                     "type": "string"
                 },

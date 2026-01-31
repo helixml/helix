@@ -1720,6 +1720,13 @@ definitions:
       new_password:
         type: string
     type: object
+  types.AffectedProjectInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   types.AgentType:
     enum:
     - helix_basic
@@ -4631,6 +4638,11 @@ definitions:
     type: object
   types.MoveRepositoryPreviewItem:
     properties:
+      affected_projects:
+        description: Other projects that will lose this repo
+        items:
+          $ref: '#/definitions/types.AffectedProjectInfo'
+        type: array
       current_name:
         type: string
       has_conflict:

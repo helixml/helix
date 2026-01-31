@@ -187,6 +187,11 @@ type OIDC struct {
 	// (e.g., http://keycloak:8080/auth/realms/helix/protocol/openid-connect/token)
 	// while the discovery response contains a browser-accessible URL (localhost:8180).
 	TokenURL string `envconfig:"OIDC_TOKEN_URL"`
+	// OfflineAccess requests offline access for refresh tokens (access_type=offline).
+	// Required for Google OIDC to return refresh tokens, which allow sessions to persist
+	// beyond the 1-hour access token lifetime. Enabled by default since it's harmless for
+	// providers that don't need it (like Keycloak) and required for providers that do (like Google).
+	OfflineAccess bool `envconfig:"OIDC_OFFLINE_ACCESS" default:"true"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

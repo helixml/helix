@@ -128,8 +128,18 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Check ownership - return 404 instead of 403 to avoid leaking existence of secret
-	if existing.Owner != user.ID {
+	// Check authorization: either user owns the secret OR has access to the project
+	authorized := false
+	if existing.Owner == user.ID {
+		authorized = true
+	} else if existing.ProjectID != "" {
+		// For project secrets, check if user has update access to the project
+		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionUpdate); err == nil {
+			authorized = true
+		}
+	}
+	if !authorized {
+		// Return 404 instead of 403 to avoid leaking existence of secret
 		return nil, system.NewHTTPError404("Secret not found")
 	}
 
@@ -155,8 +165,11 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	secret.ID = id
-	secret.Owner = user.ID
-	secret.OwnerType = types.OwnerTypeUser
+	// Preserve original ownership - don't let users change owner/project via update
+	secret.Owner = existing.Owner
+	secret.OwnerType = existing.OwnerType
+	secret.ProjectID = existing.ProjectID
+	secret.AppID = existing.AppID
 
 	updatedSecret, err := s.Store.UpdateSecret(ctx, &secret)
 	if err != nil {
@@ -197,8 +210,18 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
-		return nil, system.NewHTTPError403("Secret not found")
+	// Check authorization: either user owns the secret OR has access to the project
+	authorized := false
+	if existing.Owner == user.ID {
+		authorized = true
+	} else if existing.ProjectID != "" {
+		// For project secrets, check if user has delete access to the project
+		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionDelete); err == nil {
+			authorized = true
+		}
+	}
+	if !authorized {
+		return nil, system.NewHTTPError403("Access denied")
 	}
 
 	err = s.Store.DeleteSecret(ctx, id)
@@ -235,17 +258,11 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 		return nil, system.NewHTTPError400("project ID required")
 	}
 
-	// Verify user has access to the project
-	project, err := s.Store.GetProject(ctx, projectID)
-	if err != nil {
+	// Verify user has access to the project (owner or org member)
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("Project not found")
 		}
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	// Check if user owns the project (or is in the org)
-	if project.UserID != user.ID {
 		return nil, system.NewHTTPError403("Access denied")
 	}
 
@@ -284,16 +301,11 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 		return nil, system.NewHTTPError400("project ID required")
 	}
 
-	// Verify user has access to the project
-	project, err := s.Store.GetProject(ctx, projectID)
-	if err != nil {
+	// Verify user has access to the project (owner or org member with create permission)
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionCreate); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("Project not found")
 		}
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	if project.UserID != user.ID {
 		return nil, system.NewHTTPError403("Access denied")
 	}
 

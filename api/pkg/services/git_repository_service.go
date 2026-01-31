@@ -347,24 +347,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
 
 	// Resolve organization ID
+	// Only set if explicitly provided or if the project has an organization.
+	// Personal projects (no org) should have repos with no organization_id.
 	orgID := request.OrganizationID
-	if orgID == "" {
-		// If attached to a project, use project's organization
-		if request.ProjectID != "" {
-			project, err := s.store.GetProject(ctx, request.ProjectID)
-			if err == nil && project.OrganizationID != "" {
-				orgID = project.OrganizationID
-			}
-		}
-
-		// If still no org, get owner's first organization
-		if orgID == "" {
-			memberships, err := s.store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
-				UserID: request.OwnerID,
-			})
-			if err == nil && len(memberships) > 0 {
-				orgID = memberships[0].OrganizationID
-			}
+	if orgID == "" && request.ProjectID != "" {
+		// If attached to a project, use project's organization (may be empty for personal projects)
+		project, err := s.store.GetProject(ctx, request.ProjectID)
+		if err == nil && project.OrganizationID != "" {
+			orgID = project.OrganizationID
 		}
 	}
 
