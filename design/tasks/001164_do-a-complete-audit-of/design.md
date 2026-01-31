@@ -2,97 +2,235 @@
 
 ## Architecture Overview
 
-The Helix codebase consists of:
-- **Backend (Go)**: `api/` - main API server, CLI, types, services
-- **Frontend (TypeScript/React)**: `frontend/src/` - 311+ components, router5-based routing
-- **Supporting services**: `operator/`, `haystack_service/`, `runner/`, `sandbox/`
-- **Desktop streaming**: `api/pkg/desktop/`, `api/pkg/external-agent/`
+The Helix monorepo contains multiple services and components:
+
+### Core Services
+| Directory | Language | Purpose | Build Artifact |
+|-----------|----------|---------|----------------|
+| `api/` | Go | Main API server, CLI, all business logic | `helix` binary |
+| `frontend/` | TypeScript/React | Web UI | Static assets |
+| `operator/` | Go | Kubernetes operator for Helix deployment | `helix-operator` |
+| `haystack_service/` | Python | RAG/document processing service | Docker image |
+| `runner/` | Python | Fine-tuning scripts (axolotl, SDXL) | Used by runner image |
+| `runner-cmd/` | Go | Runner command wrapper | Part of runner image |
+
+### Desktop/Sandbox Services
+| Directory | Language | Purpose |
+|-----------|----------|---------|
+| `sandbox/` | Shell/Config | Container sandbox orchestration |
+| `desktop/` | Rust/Config | GStreamer plugin for video streaming |
+| `api/pkg/desktop/` | Go | Desktop streaming server (WebSocket H.264) |
+| `api/pkg/hydra/` | Go | Dev container lifecycle management |
+| `api/pkg/external-agent/` | Go | Zed agent communication |
+
+### Supporting Services
+| Directory | Language | Purpose | Status |
+|-----------|----------|---------|--------|
+| `demos/` | Go | Demo data generator service | Active |
+| `searxng/` | Config | SearXNG search integration | Active |
+| `tts-server/` | Unknown | Text-to-speech | Needs audit |
+| `zed-config/` | Config | Zed IDE configuration templates | Active |
+| `zed_integration/` | Go | Integration tests for Zed | Needs audit |
+
+### Build Artifacts
+| Dockerfile | Purpose | Used By |
+|------------|---------|---------|
+| `Dockerfile` | Main API image | docker-compose.yaml |
+| `Dockerfile.runner` | Runner image | docker-compose.runner.yaml |
+| `Dockerfile.sandbox` | Sandbox container | docker-compose.dev.yaml |
+| `Dockerfile.ubuntu-helix` | Desktop Ubuntu image | Sandbox |
+| `Dockerfile.sway-helix` | Desktop Sway image | Sandbox |
+| `Dockerfile.zed-build` | Zed IDE build | Desktop images |
+| `Dockerfile.qwen-code-build` | Qwen Code agent build | Desktop images |
+| `Dockerfile.demos` | Demo service | docker-compose.demos.yaml |
+| `Dockerfile.typesense` | Search service | Unknown |
+| `Dockerfile.lint` | Linting container | CI |
+| `Dockerfile.hyprland-helix` | Hyprland desktop | Needs audit |
 
 ## Static Analysis Tools
 
 ### Go (Backend)
-1. **golangci-lint** (already configured in `.golangci.yml`)
-   - `unused` linter enabled - detects unused code
-   - `deadcode` can be added for additional coverage
-   
-2. **go-deadcode** (golang.org/x/tools/cmd/deadcode)
-   - Whole-program analysis for unreachable functions
-   - Run: `go install golang.org/x/tools/cmd/deadcode@latest && deadcode ./...`
+
+1. **golangci-lint** (already configured)
+   - `unused` linter - detects unused code
+   - `deadcode` - additional dead code detection
+   ```bash
+   ./script/clippy
+   ```
+
+2. **go-deadcode** (whole-program analysis)
+   ```bash
+   go install golang.org/x/tools/cmd/deadcode@latest
+   cd api && deadcode -test ./...
+   ```
+
+3. **go-callvis** (call graph visualization)
+   ```bash
+   go install github.com/ofabry/go-callvis@latest
+   go-callvis -group pkg ./api/...
+   ```
+
+4. **gocyclo** (complexity analysis)
+   ```bash
+   go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+   gocyclo -over 15 api/
+   ```
 
 ### TypeScript (Frontend)
-1. **ts-prune** - finds unused exports
-   - Run: `npx ts-prune --project tsconfig.json`
 
-2. **depcheck** - finds unused dependencies in package.json
-   - Run: `npx depcheck`
+1. **ts-prune** (unused exports)
+   ```bash
+   cd frontend && npx ts-prune --project tsconfig.json
+   ```
 
-3. **Manual grep analysis** - verify component imports
+2. **depcheck** (unused npm packages)
+   ```bash
+   cd frontend && npx depcheck
+   ```
+
+3. **madge** (dependency graph)
+   ```bash
+   cd frontend && npx madge --circular --extensions ts,tsx src/
+   ```
+
+4. **unimported** (unused files)
+   ```bash
+   cd frontend && npx unimported
+   ```
+
+### General
+
+1. **tokei** (lines of code by language)
+   ```bash
+   tokei .
+   ```
+
+2. **Custom scripts** for cross-referencing routes with API client
+
+## Mapping Strategy
+
+### Phase 1: Entry Point Identification
+
+**Backend Entry Points:**
+- `main.go` → `api/cmd/` commands
+- `api/pkg/server/server.go` → HTTP routes
+- `api/pkg/cli/` → CLI commands
+- Background goroutines started in `NewServer()`
+- Scheduled jobs via `scheduler`
+- WebSocket handlers
+- Webhook handlers
+
+**Frontend Entry Points:**
+- `index.tsx` → `App.tsx` → `router.tsx`
+- All routes in `router.tsx` are reachable pages
+
+**Service Entry Points:**
+- Each Dockerfile's `ENTRYPOINT`/`CMD`
+- docker-compose service definitions
+
+### Phase 2: Dependency Graph Building
+
+For each entry point, trace all dependencies:
+
+```
+Entry Point
+    └── Package A
+        ├── Function A1 (used)
+        │   └── Type T1 (used)
+        └── Function A2 (unused - no callers)
+    └── Package B
+        └── ...
+```
+
+### Phase 3: Cross-Reference Analysis
+
+**Backend routes ↔ Frontend API client:**
+- Parse `api/pkg/server/server.go` for all route definitions
+- Parse `frontend/src/api/api.ts` (generated) for all API methods
+- Identify routes not called by frontend or CLI
+
+**Backend routes ↔ CLI:**
+- Parse `api/pkg/cli/` for API calls
+- Match against route definitions
+
+**Backend routes ↔ External callers:**
+- `insecureRouter` routes (webhooks, callbacks)
+- Runner-authenticated routes
+- WebSocket endpoints
+- Document these as "externally called"
+
+### Phase 4: Service Dependency Mapping
+
+```
+docker-compose.yaml
+    └── api (Dockerfile)
+        └── depends on: postgres, vectorchord
+    └── frontend (proxied by api in dev)
+    └── ...
+
+docker-compose.dev.yaml
+    └── sandbox-nvidia (Dockerfile.sandbox)
+        └── pulls: helix-ubuntu, helix-sway
+    └── ...
+```
 
 ## Key Decisions
 
-### Decision 1: Route Analysis Approach
-**Choice**: Cross-reference `server.go` routes with `frontend/src/api/api.ts` (generated client) and CLI commands.
+### Decision 1: Definition of "Dead Code"
+Code is dead if it cannot be reached from ANY entry point:
+- Not called from HTTP routes
+- Not called from CLI commands
+- Not called from startup/initialization
+- Not called from background jobs
+- Not used via reflection (document separately)
 
-**Rationale**: The generated API client is the source of truth for frontend calls. Any route not in the client AND not called by CLI is potentially dead.
+Code is NOT dead if:
+- Called by runners (runner-token authenticated)
+- Called by webhooks (externally triggered)
+- Called by scheduled jobs
+- Used in tests (but test-only code should be in `_test.go`)
 
-### Decision 2: Frontend Component Analysis
-**Choice**: Build import graph from `router.tsx` and trace all component dependencies.
+### Decision 2: Marking Convention
+Each item in the codebase map gets one of:
+- ✅ **KEEP** - Confirmed active, traced from entry point
+- ⚠️ **REVIEW** - No direct trace found, may be reflection/dynamic
+- ❌ **REMOVE** - Confirmed unreachable, safe to delete
 
-**Rationale**: Router defines all reachable pages. Components not transitively imported from these pages are unreachable.
-
-### Decision 3: Output Format
-**Choice**: Create a codebase map in `design/codebase-map.md` documenting:
-- All API routes and their callers
-- All frontend routes and their components
-- Identified dead code with removal recommendations
-
-**Rationale**: User requested a "complete map" - this provides documentation value beyond just deletion.
-
-### Decision 4: Type Analysis
-**Choice**: Focus on `api/pkg/types/` and compare with `frontend/src/api/api.ts` generated types.
-
-**Rationale**: Generated API types should be the single source of truth. Manual frontend type definitions that duplicate these are candidates for removal.
+### Decision 3: Removal Strategy
+1. Generate complete map first (don't delete anything)
+2. Human review of all ⚠️ REVIEW items
+3. Small, focused PRs for removal (one service/package at a time)
+4. Run full test suite after each removal
 
 ## Discovered Patterns
 
-### Already Deprecated Code (found via grep)
+### Already Deprecated (found via grep)
 - `settings-sync-daemon`: `DEPRECATED_FIELDS` for Zed settings
-- `desktop/ws_input.go`: Deprecated touch/mouse handlers
+- `desktop/ws_input.go`: Deprecated touch/mouse handlers  
 - `desktop/ws_stream.go`: Deprecated SPS patching function
-- `external-agent/executor.go`: `ContainerAppID` field marked deprecated
+- `external-agent/executor.go`: `ContainerAppID` field deprecated
 - `memory/estimate.go`: `EstimateGPULayers` deprecated
+- `cli/spectask/spectask.go`: `getContainerAppID` deprecated
 
-### Potentially Dead Directories
-- `runner/` - Python scripts for fine-tuning (may be superseded)
-- `zed_integration/` - single test file, may be obsolete
-- `examples/` - YAML examples that may reference old API patterns
-- `demos/` - separate demo service
+### Duplicate Naming (needs consolidation)
+- `frontend/src/components/spec-tasks/` AND `frontend/src/components/specTask/`
 
-### Frontend Component Clusters (311+ files)
-- `components/app/` - App/Agent configuration (54 files)
-- `components/spec-tasks/` and `components/specTask/` - duplicate naming!
-- `components/finetune/` - fine-tuning UI (may be dead if feature removed)
-- `components/fleet/` - runner fleet management
+### Potential Dead Services (needs verification)
+- `tts-server/` - No references found in main codebase
+- `zed_integration/` - Single test file only
+- `Dockerfile.hyprland-helix` - May be superseded by sway/ubuntu
 
-## Implementation Strategy
+### Large Component Counts (need pruning)
+- `frontend/src/components/` - 311+ files
+- `api/pkg/` - 50+ packages
 
-1. **Phase 1: Analysis** (generate the map)
-   - Run static analysis tools
-   - Build route-to-caller mapping
-   - Build component import graph
-   
-2. **Phase 2: Review** (human verification)
-   - Review generated map with stakeholders
-   - Mark items as "remove" or "keep with reason"
-
-3. **Phase 3: Removal** (surgical deletion)
-   - Remove confirmed dead code in small, reviewable PRs
-   - Run tests after each removal batch
-
-## Risks
+## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| False positives (code used via reflection/dynamic calls) | Manual review before deletion |
-| Breaking external consumers | Routes not in generated client may still be called externally - check for `insecureRouter` routes |
-| Runner-token authenticated routes | These are called by runners, not frontend/CLI - exclude from "dead" analysis |
+| False positives from reflection | Manual review, search for string-based function calls |
+| External API consumers | Document all public routes, consider deprecation period |
+| Runner-authenticated routes | Trace from runner codebase separately |
+| Webhook endpoints | Mark as externally-called, don't remove |
+| Test-only code | Allow `_test.go` files, but audit test utilities |
+| Build-time only code | Trace from Dockerfiles and CI configs |
