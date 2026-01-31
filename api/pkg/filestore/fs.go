@@ -40,7 +40,10 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
-		return []Item{}, nil
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, prefix)
+		}
+		return nil, fmt.Errorf("error reading directory: %w", err)
 	}
 
 	items := []Item{}
@@ -73,6 +76,9 @@ func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return Item{}, fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
 		return Item{}, fmt.Errorf("error fetching file info: %w", err)
 	}
 	return Item{
@@ -125,6 +131,9 @@ func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadClo
 
 	file, err := os.Open(fullPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
 		return nil, fmt.Errorf("error opening file: %w", err)
 	}
 
