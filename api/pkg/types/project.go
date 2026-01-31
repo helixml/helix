@@ -48,9 +48,9 @@ type Project struct {
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"` // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"` // User ID who last updated guidelines
 
-	// Project-level MCP servers - these overlay on top of agent MCPs
+	// Project-level skills - these overlay on top of agent skills
 	// Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
-	MCPs []AssistantMCP `json:"mcps,omitempty" gorm:"type:jsonb;serializer:json"`
+	Skills *AssistantSkills `json:"skills,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Auto-incrementing task number for human-readable directory names
 	// Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
@@ -156,9 +156,9 @@ type ProjectCreateRequest struct {
 	Technologies      []string `json:"technologies,omitempty"`
 	DefaultRepoID     string   `json:"default_repo_id,omitempty"`
 	StartupScript     string   `json:"startup_script,omitempty"`
-	DefaultHelixAppID string         `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
-	Guidelines        string         `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
-	MCPs              []AssistantMCP `json:"mcps,omitempty"`                 // Project-level MCP servers
+	DefaultHelixAppID string           `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
+	Guidelines        string           `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
+	Skills            *AssistantSkills `json:"skills,omitempty"`               // Project-level skills
 }
 
 // ProjectUpdateRequest represents a request to update a project
@@ -176,9 +176,9 @@ type ProjectUpdateRequest struct {
 	ProjectManagerHelixAppID      *string          `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
 	PullRequestReviewerHelixAppID *string          `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
 	PullRequestReviewsEnabled     *bool            `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
-	Guidelines                    *string          `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
-	MCPs                          []AssistantMCP   `json:"mcps,omitempty"`                               // Project-level MCP servers
-	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`
+	Guidelines                    *string           `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                        *AssistantSkills  `json:"skills,omitempty"`                             // Project-level skills
+	Metadata                      *ProjectMetadata  `json:"metadata,omitempty"`
 }
 
 // MoveProjectRequest represents a request to move a project to an organization

@@ -51,12 +51,11 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import TerminalIcon from "@mui/icons-material/Terminal";
 import HubIcon from "@mui/icons-material/Hub";
 
 import Page from "../components/system/Page";
-import AddLocalMcpSkillDialog from "../components/app/AddLocalMcpSkillDialog";
-import { TypesAssistantMCP, TypesProject } from "../api/api";
+import Skills from "../components/app/Skills";
+import { TypesAssistantSkills, TypesProject } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import AccessManagement from "../components/app/AccessManagement";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
@@ -67,7 +66,7 @@ import {
   CodeAgentRuntime,
   generateAgentName,
 } from "../contexts/apps";
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -233,12 +232,8 @@ const ProjectSettings: FC = () => {
   const [newSecretValue, setNewSecretValue] = useState("");
   const [showSecretValue, setShowSecretValue] = useState(false);
 
-  // Project MCP servers
-  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
-  const [selectedMcp, setSelectedMcp] = useState<TypesAssistantMCP | undefined>(
-    undefined,
-  );
-  const [projectMcps, setProjectMcps] = useState<TypesAssistantMCP[]>([]);
+  // Project skills
+  const [projectSkills, setProjectSkills] = useState<TypesAssistantSkills | undefined>(undefined);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
@@ -432,8 +427,8 @@ const ProjectSettings: FC = () => {
         });
       }
 
-      // Load project MCPs
-      setProjectMcps(project.mcps || []);
+      // Load project skills
+      setProjectSkills(project.skills);
     }
   }, [project]);
 
@@ -685,23 +680,42 @@ const ProjectSettings: FC = () => {
     }
   };
 
-  // Handler for MCP updates from the dialog
-  // The dialog expects an IAppFlatState-like object with mcpTools
-  // We create an adapter that converts between project MCPs and the dialog's expected interface
-  const handleMcpUpdate = async (updates: { mcpTools?: TypesAssistantMCP[] }) => {
-    const newMcps = updates.mcpTools || [];
-    setProjectMcps(newMcps);
+  // Adapter to convert project skills to IAppFlatState format for the Skills component
+  const skillsFlatState: IAppFlatState = useMemo(() => ({
+    // Map project skills to IAppFlatState fields
+    apiTools: projectSkills?.apis,
+    mcpTools: projectSkills?.mcps,
+    browserTool: projectSkills?.browser,
+    webSearchTool: projectSkills?.web_search,
+    calculatorTool: projectSkills?.calculator,
+    emailTool: projectSkills?.email,
+    projectManagerTool: projectSkills?.project_manager,
+    azureDevOpsTool: projectSkills?.azure_devops,
+    zapierTools: projectSkills?.zapier,
+    // Always use zed_external agent type for project skills
+    // This enables local MCP support in the Skills component
+    default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
+  }), [projectSkills]);
+
+  // Handler for skills updates from the Skills component
+  const handleSkillsUpdate = async (updates: IAppFlatState) => {
+    // Extract skill-related fields and convert back to AssistantSkills format
+    const newSkills: TypesAssistantSkills = {
+      apis: updates.apiTools,
+      mcps: updates.mcpTools,
+      browser: updates.browserTool,
+      web_search: updates.webSearchTool,
+      calculator: updates.calculatorTool,
+      email: updates.emailTool,
+      project_manager: updates.projectManagerTool,
+      azure_devops: updates.azureDevOpsTool,
+      zapier: updates.zapierTools,
+    };
+    setProjectSkills(newSkills);
     await updateProjectMutation.mutateAsync({
-      mcps: newMcps,
+      skills: newSkills,
     });
   };
-
-  // Create a pseudo "app" object for the MCP dialog
-  // This allows us to reuse AddLocalMcpSkillDialog for project MCPs
-  const mcpDialogApp = {
-    mcpTools: projectMcps,
-    default_agent_type: AGENT_TYPE_ZED_EXTERNAL, // Enable local MCP features
-  } as any;
 
   if (isLoading) {
     return (
@@ -1300,106 +1314,20 @@ const ProjectSettings: FC = () => {
               )}
             </Paper>
 
-            {/* Project MCP Servers */}
+            {/* Project Skills */}
             <Paper sx={{ p: 3 }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  mb: 1,
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center" }}>
-                  <HubIcon sx={{ mr: 1, color: "#10B981" }} />
-                  <Typography variant="h6">MCP Servers</Typography>
-                </Box>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setSelectedMcp(undefined);
-                    setMcpDialogOpen(true);
-                  }}
-                >
-                  Add MCP Server
-                </Button>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                <HubIcon sx={{ mr: 1, color: "#10B981" }} />
+                <Typography variant="h6">Skills</Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Configure MCP servers that run inside dev containers for this
-                project. These overlay on top of agent-level MCPs.
+                Configure skills for this project. These overlay on top of agent-level skills.
               </Typography>
               <Divider sx={{ mb: 2 }} />
-              {projectMcps.length === 0 ? (
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ textAlign: "center", py: 4 }}
-                >
-                  No MCP servers configured. Add servers like drone-ci-mcp to
-                  give agents access to project-specific tools.
-                </Typography>
-              ) : (
-                <List dense>
-                  {projectMcps.map((mcp, index) => (
-                    <ListItem
-                      key={mcp.name || index}
-                      sx={{
-                        borderBottom: "1px solid",
-                        borderColor: "divider",
-                        cursor: "pointer",
-                        "&:hover": {
-                          backgroundColor: "action.hover",
-                        },
-                      }}
-                      onClick={() => {
-                        setSelectedMcp(mcp);
-                        setMcpDialogOpen(true);
-                      }}
-                      secondaryAction={
-                        <Button
-                          size="small"
-                          color="error"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const updatedMcps = projectMcps.filter(
-                              (_, i) => i !== index,
-                            );
-                            setProjectMcps(updatedMcps);
-                            updateProjectMutation.mutate({ mcps: updatedMcps });
-                          }}
-                          startIcon={<DeleteIcon />}
-                        >
-                          Remove
-                        </Button>
-                      }
-                    >
-                      <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                      >
-                        <TerminalIcon fontSize="small" sx={{ color: "#10B981" }} />
-                        <Box>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600 }}
-                          >
-                            {mcp.name}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ fontFamily: "monospace" }}
-                          >
-                            {mcp.command}
-                            {mcp.args?.length ? ` ${mcp.args.join(" ")}` : ""}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </ListItem>
-                  ))}
-                </List>
-              )}
+              <Skills
+                app={skillsFlatState}
+                onUpdate={handleSkillsUpdate}
+              />
             </Paper>
 
             {/* Project Guidelines */}
@@ -2192,17 +2120,6 @@ const ProjectSettings: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* MCP Server Dialog */}
-      <AddLocalMcpSkillDialog
-        open={mcpDialogOpen}
-        onClose={() => setMcpDialogOpen(false)}
-        onClosed={() => setSelectedMcp(undefined)}
-        skill={selectedMcp}
-        app={mcpDialogApp}
-        onUpdate={handleMcpUpdate}
-        isEnabled={!!selectedMcp}
-      />
 
       {/* Saving toast - bottom right indicator */}
       <SavingToast isSaving={savingProject} />

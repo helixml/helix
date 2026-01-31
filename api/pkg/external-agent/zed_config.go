@@ -73,7 +73,7 @@ type ContextServerConfig struct {
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
-// projectMCPs are optional project-level MCPs that overlay on top of app MCPs
+// projectSkills are optional project-level skills that overlay on top of agent skills
 func GenerateZedMCPConfig(
 	app *types.App,
 	userID string,
@@ -81,7 +81,7 @@ func GenerateZedMCPConfig(
 	helixAPIURL string,
 	helixToken string,
 	koditEnabled bool,
-	projectMCPs []types.AssistantMCP,
+	projectSkills *types.AssistantSkills,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -260,9 +260,11 @@ func GenerateZedMCPConfig(
 
 	// Add project-level MCPs (these overlay on top of agent MCPs)
 	// Project MCPs with the same name will override agent MCPs
-	for _, mcp := range projectMCPs {
-		serverName := sanitizeName(mcp.Name)
-		config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+	if projectSkills != nil {
+		for _, mcp := range projectSkills.MCPs {
+			serverName := sanitizeName(mcp.Name)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+		}
 	}
 
 	return config, nil
@@ -487,14 +489,14 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 
-	// Get project if session has one (for project-level MCP overlays)
-	var projectMCPs []types.AssistantMCP
+	// Get project if session has one (for project-level skill overlays)
+	var projectSkills *types.AssistantSkills
 	if session.ProjectID != "" {
 		project, err := s.GetProject(ctx, session.ProjectID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get project %s for MCP config: %w", session.ProjectID, err)
+			return nil, fmt.Errorf("failed to get project %s for skills config: %w", session.ProjectID, err)
 		}
-		projectMCPs = project.MCPs
+		projectSkills = project.Skills
 	}
 
 	// Get Helix API URL from environment
@@ -519,7 +521,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Check if Kodit is enabled (defaults to true)
 	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
 
-	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectMCPs)
+	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

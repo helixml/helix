@@ -443,9 +443,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata
 	}
-	// MCPs can be set directly (no pointer, nil means "don't update", empty slice means "clear")
-	if req.MCPs != nil {
-		project.MCPs = req.MCPs
+	// Skills can be set directly (nil means "don't update")
+	if req.Skills != nil {
+		project.Skills = req.Skills
 	}
 
 	// DON'T update StartupScript in database - Git repo is source of truth

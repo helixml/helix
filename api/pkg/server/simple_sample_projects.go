@@ -31,9 +31,9 @@ type SimpleSampleProject struct {
 	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
 
-	// MCPs configures project-level MCP servers that will be added when the project is created
-	// These run inside dev containers and overlay on top of agent-level MCPs
-	MCPs []types.AssistantMCP `json:"mcps,omitempty"`
+	// Skills configures project-level skills that will be added when the project is created
+	// These overlay on top of agent-level skills
+	Skills *types.AssistantSkills `json:"skills,omitempty"`
 
 	// RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
 	// When set, the project creation flow will:
@@ -659,18 +659,20 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		Category:      "infrastructure",
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 
-		// MCP servers for CI integration - agents can check build logs after PRs
-		MCPs: []types.AssistantMCP{
-			{
-				Name:        "drone-ci",
-				Description: "Access Drone CI build logs and pipeline info",
-				Transport:   "stdio",
-				Command:     "npx",
-				Args:        []string{"-y", "drone-ci-mcp@0.0.3"},
-				Env: map[string]string{
-					// Users should configure these in project settings with their Drone credentials
-					"DRONE_SERVER_URL":   "",
-					"DRONE_ACCESS_TOKEN": "",
+		// Skills for CI integration - agents can check build logs after PRs
+		Skills: &types.AssistantSkills{
+			MCPs: []types.AssistantMCP{
+				{
+					Name:        "drone-ci",
+					Description: "Access Drone CI build logs and pipeline info",
+					Transport:   "stdio",
+					Command:     "npx",
+					Args:        []string{"-y", "drone-ci-mcp@0.0.3"},
+					Env: map[string]string{
+						// Users should configure these in project settings with their Drone credentials
+						"DRONE_SERVER_URL":   "",
+						"DRONE_ACCESS_TOKEN": "",
+					},
 				},
 			},
 		},
@@ -943,7 +945,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Technologies:   sampleProject.Technologies,
 		StartupScript:  startupScript, // Use sample's startup script
 		Status:         "active",
-		MCPs:           sampleProject.MCPs, // Copy project-level MCP servers from sample
+		Skills:         sampleProject.Skills, // Copy project-level skills from sample
 	}
 
 	createdProject, err := s.Store.CreateProject(ctx, project)

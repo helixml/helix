@@ -1550,6 +1550,20 @@ type AssistantAzureDevOps struct {
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
 }
 
+// AssistantSkills groups all skill-related configuration.
+// Used for project-level skills that overlay on top of agent skills.
+type AssistantSkills struct {
+	APIs           []AssistantAPI           `json:"apis,omitempty" yaml:"apis,omitempty"`
+	Zapier         []AssistantZapier        `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs           []AssistantMCP           `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	Browser        *AssistantBrowser        `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch      *AssistantWebSearch      `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Calculator     *AssistantCalculator     `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email          *AssistantEmail          `json:"email,omitempty" yaml:"email,omitempty"`
+	ProjectManager *AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+	AzureDevOps    *AssistantAzureDevOps    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+}
+
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
