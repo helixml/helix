@@ -108,3 +108,27 @@ If all your changes are already committed and pushed, no action is needed.
 1. Create task, push commits to feature branch, approve → PR created immediately
 2. Create task, no commits, approve → agent pushes → PR created
 3. Create task, push some commits, have uncommitted changes, approve → PR created immediately, agent pushes more commits
+
+## Implementation Notes
+
+### Files Modified
+
+1. `api/pkg/server/spec_task_workflow_handlers.go`:
+   - Added `branchHasCommitsAhead` helper using `services.GetDivergence`
+   - Added `ensurePullRequestForTask` method that pushes branch, checks for existing PR, creates if needed
+   - Modified `approveImplementation` to check for commits and create PR immediately if found
+
+2. `api/pkg/prompts/templates/agent_implementation_approved_push.tmpl`:
+   - Removed empty commit instruction entirely
+   - Now just instructs agent to commit and push any uncommitted changes
+   - Added note that if everything is already pushed, no action needed
+
+3. `api/pkg/prompts/helix_code_prompts_test.go`:
+   - Updated assertion to match new prompt wording
+
+### Key Decisions
+
+- PR creation runs in goroutine (async) to not block the API response
+- Agent message is still always sent - it handles the case where agent has uncommitted work
+- The `ensurePullRequestForTask` method on `HelixAPIServer` mirrors the logic from `GitHTTPServer.ensurePullRequest` but with proper error handling for the task update
+- Used existing `services.GetDivergence` from `gitea_git_helpers.go` rather than creating new git logic
