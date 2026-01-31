@@ -152,6 +152,7 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
             autoHeight={true}
             onSave={onSave}
             onTest={onTest}
+            onBlur={onSave}
           />
         </Box>
 

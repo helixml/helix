@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/agent/optimus"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -160,12 +161,21 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("primary repository (default_repo_id) is required")
 	}
 
+	if req.DefaultHelixAppID == "" {
+		return nil, system.NewHTTPError400("default helix app ID is required")
+	}
+
 	if req.OrganizationID != "" {
 		// Check if user is a member of the organization
 		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+	}
+
+	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
 
 	// Deduplicate project name within the workspace (org or personal)
@@ -278,6 +288,38 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				Str("project_id", created.ID).
 				Str("primary_repo_id", req.DefaultRepoID).
 				Msg("Startup script initialized in primary code repo")
+		}
+	}
+
+	// Create project manager agent (Optimus)
+	optimusApp := optimus.NewOptimusAgentApp(optimus.OptimusConfig{
+		ProjectID:      created.ID,
+		ProjectName:    created.Name,
+		OrganizationID: req.OrganizationID,
+		OwnerID:        user.ID,
+		OwnerType:      user.Type,
+		DefaultApp:     defaultApp,
+	})
+
+	createdOptimus, optimusErr := s.Store.CreateApp(r.Context(), optimusApp)
+	if optimusErr != nil {
+		log.Warn().
+			Err(optimusErr).
+			Str("project_id", created.ID).
+			Msg("failed to create optimus agent app (continuing)")
+	} else {
+		created.ProjectManagerHelixAppID = createdOptimus.ID
+		if updateErr := s.Store.UpdateProject(r.Context(), created); updateErr != nil {
+			log.Warn().
+				Err(updateErr).
+				Str("project_id", created.ID).
+				Str("optimus_app_id", createdOptimus.ID).
+				Msg("failed to update project with optimus agent app ID (continuing)")
+		} else {
+			log.Info().
+				Str("project_id", created.ID).
+				Str("optimus_app_id", createdOptimus.ID).
+				Msg("optimus agent app created and linked to project")
 		}
 	}
 
@@ -400,6 +442,10 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata
+	}
+	// Skills can be set directly (nil means "don't update")
+	if req.Skills != nil {
+		project.Skills = req.Skills
 	}
 
 	// DON'T update StartupScript in database - Git repo is source of truth
@@ -1298,8 +1344,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.DesktopAgent{
-		SessionID: createdSession.ID,
-		UserID:    user.ID,
+		SessionID:           createdSession.ID,
+		UserID:              user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),
 		ProjectPath:         "workspace",
 		SpecTaskID:          "",        // No task - exploratory mode
@@ -1525,4 +1571,276 @@ func (s *HelixAPIServer) getProjectGuidelinesHistory(_ http.ResponseWriter, r *h
 	}
 
 	return history, nil
+}
+
+// moveProjectPreview godoc
+// @Summary Preview moving a project to an organization
+// @Description Check for naming conflicts before moving a project to an organization
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param request body types.MoveProjectRequest true "Move project request"
+// @Success 200 {object} types.MoveProjectPreviewResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/move/preview [post]
+func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Request) (*types.MoveProjectPreviewResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	var req types.MoveProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+
+	if req.OrganizationID == "" {
+		return nil, system.NewHTTPError400("organization_id is required")
+	}
+
+	// Get the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Check user owns the project
+	if project.UserID != user.ID && !user.Admin {
+		return nil, system.NewHTTPError403("you must be the project owner to move it")
+	}
+
+	// Check project is not already in an organization
+	if project.OrganizationID != "" {
+		return nil, system.NewHTTPError400("project is already in an organization")
+	}
+
+	// Check user is a member of the target organization
+	_, err = s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+	if err != nil {
+		return nil, system.NewHTTPError403("you must be a member of the target organization")
+	}
+
+	// Check for project name conflicts in target org
+	existingProjects, err := s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
+		OrganizationID: req.OrganizationID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list org projects: %v", err))
+	}
+
+	existingProjectNames := make(map[string]bool)
+	for _, p := range existingProjects {
+		existingProjectNames[p.Name] = true
+	}
+
+	projectPreview := types.MoveProjectPreviewItem{
+		CurrentName: project.Name,
+		HasConflict: existingProjectNames[project.Name],
+	}
+	if projectPreview.HasConflict {
+		newName := getUniqueProjectName(project.Name, existingProjectNames)
+		projectPreview.NewName = &newName
+	}
+
+	// Get project repositories
+	repoIDs, err := s.Store.GetRepositoriesForProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get project repositories: %v", err))
+	}
+
+	// Get existing repo names in target org
+	existingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		OrganizationID: req.OrganizationID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list org repositories: %v", err))
+	}
+
+	existingRepoNames := make(map[string]bool)
+	for _, repo := range existingRepos {
+		existingRepoNames[repo.Name] = true
+	}
+
+	// Check each repository for conflicts
+	var repoPreview []types.MoveRepositoryPreviewItem
+	for _, repoID := range repoIDs {
+		repo, err := s.Store.GetGitRepository(r.Context(), repoID)
+		if err != nil {
+			continue // Skip repos that can't be found
+		}
+
+		item := types.MoveRepositoryPreviewItem{
+			ID:          repo.ID,
+			CurrentName: repo.Name,
+			HasConflict: existingRepoNames[repo.Name],
+		}
+		if item.HasConflict {
+			newName := services.GetUniqueRepoName(repo.Name, existingRepoNames)
+			item.NewName = &newName
+		}
+		repoPreview = append(repoPreview, item)
+	}
+
+	return &types.MoveProjectPreviewResponse{
+		Project:      projectPreview,
+		Repositories: repoPreview,
+	}, nil
+}
+
+// getUniqueProjectName returns a unique project name by appending (1), (2), etc. if needed.
+func getUniqueProjectName(baseName string, existingNames map[string]bool) string {
+	name := baseName
+	suffix := 1
+	for existingNames[name] {
+		name = fmt.Sprintf("%s (%d)", baseName, suffix)
+		suffix++
+	}
+	return name
+}
+
+// moveProject godoc
+// @Summary Move a project to an organization
+// @Description Move a project from personal workspace to an organization
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param request body types.MoveProjectRequest true "Move project request"
+// @Success 200 {object} types.Project
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/move [post]
+func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	var req types.MoveProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+
+	if req.OrganizationID == "" {
+		return nil, system.NewHTTPError400("organization_id is required")
+	}
+
+	// Get the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Check user owns the project
+	if project.UserID != user.ID && !user.Admin {
+		return nil, system.NewHTTPError403("you must be the project owner to move it")
+	}
+
+	// Check project is not already in an organization
+	if project.OrganizationID != "" {
+		return nil, system.NewHTTPError400("project is already in an organization")
+	}
+
+	// Check user is a member of the target organization
+	_, err = s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+	if err != nil {
+		return nil, system.NewHTTPError403("you must be a member of the target organization")
+	}
+
+	// Check for project name conflicts in target org
+	existingProjects, err := s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
+		OrganizationID: req.OrganizationID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list org projects: %v", err))
+	}
+
+	existingProjectNames := make(map[string]bool)
+	for _, p := range existingProjects {
+		existingProjectNames[p.Name] = true
+	}
+
+	// Rename project if there's a conflict
+	if existingProjectNames[project.Name] {
+		project.Name = getUniqueProjectName(project.Name, existingProjectNames)
+	}
+
+	// Get project repositories
+	repoIDs, err := s.Store.GetRepositoriesForProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get project repositories: %v", err))
+	}
+
+	// Get existing repo names in target org
+	existingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		OrganizationID: req.OrganizationID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list org repositories: %v", err))
+	}
+
+	existingRepoNames := make(map[string]bool)
+	for _, repo := range existingRepos {
+		existingRepoNames[repo.Name] = true
+	}
+
+	// Update project organization ID
+	project.OrganizationID = req.OrganizationID
+	project.UpdatedAt = time.Now()
+
+	if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update project: %v", err))
+	}
+
+	// Update each repository's organization ID
+	for _, repoID := range repoIDs {
+		repo, err := s.Store.GetGitRepository(r.Context(), repoID)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to get repository for move")
+			continue
+		}
+
+		// Rename repo if there's a conflict
+		if existingRepoNames[repo.Name] {
+			repo.Name = services.GetUniqueRepoName(repo.Name, existingRepoNames)
+		}
+
+		repo.OrganizationID = req.OrganizationID
+		repo.UpdatedAt = time.Now()
+
+		if err := s.Store.UpdateGitRepository(r.Context(), repo); err != nil {
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to update repository organization")
+		}
+	}
+
+	// Update project_repositories junction table
+	projectRepos, err := s.Store.ListProjectRepositories(r.Context(), &types.ListProjectRepositoriesQuery{
+		ProjectID: projectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list project repositories for move")
+	} else {
+		for _, pr := range projectRepos {
+			pr.OrganizationID = req.OrganizationID
+			pr.UpdatedAt = time.Now()
+			if err := s.Store.UpdateProjectRepository(r.Context(), pr); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", pr.ProjectID).
+					Str("repo_id", pr.RepositoryID).
+					Msg("failed to update project repository organization")
+			}
+		}
+	}
+
+	// Log audit event
+	log.Info().
+		Str("user_id", user.ID).
+		Str("project_id", projectID).
+		Str("organization_id", req.OrganizationID).
+		Str("project_name", project.Name).
+		Msg("project moved to organization")
+
+	return project, nil
 }

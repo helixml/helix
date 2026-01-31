@@ -36,7 +36,10 @@ export const useSandboxState = (sessionId: string) => {
           const hasContainer = !!response.data.config?.container_name;
 
           // Map session metadata to sandbox state
-          if (status === 'running' || (hasContainer && desiredState === 'running')) {
+          // Check stopped status first - it takes priority from the backend check
+          if (status === 'stopped') {
+            setSandboxState('absent');
+          } else if (status === 'running' || (hasContainer && desiredState === 'running')) {
             setSandboxState('running');
           } else if (status === 'starting') {
             setSandboxState('starting');

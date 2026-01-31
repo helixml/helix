@@ -143,16 +143,6 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		return nil, fmt.Errorf("failed to get target project: %w", err)
 	}
 
-	var initialStatus types.SpecTaskStatus = "backlog"
-
-	if autoStart {
-		if source.JustDoItMode {
-			initialStatus = types.TaskStatusQueuedImplementation
-		} else {
-			initialStatus = types.TaskStatusQueuedSpecGeneration
-		}
-	}
-
 	// Get the latest design review specs if available - these contain learnings
 	// from implementation that were pushed to helix-specs during the task.
 	// Fall back to the original specs on the task if no design review exists.
@@ -178,6 +168,22 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 			Msg("Using updated specs from design review for clone")
 	}
 
+	// Determine initial status. Cloned tasks go through spec generation
+	// so the agent can adapt specs to the new project context.
+	var initialStatus types.SpecTaskStatus = "backlog"
+	var designDocsPushedAt *time.Time // Will be set when agent pushes specs
+
+	if autoStart {
+		if source.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else {
+			// Always go through spec generation to boot the desktop.
+			// For cloned tasks with specs, the agent will read the pre-populated
+			// specs from helix-specs/ and adapt them to the new project context.
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                  system.GenerateSpecTaskID(),
@@ -196,6 +202,7 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,
+		DesignDocsPushedAt:  designDocsPushedAt,
 		CreatedBy:           userID,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -16,7 +15,6 @@ import (
 // ZedIntegrationService manages Zed instances and threads for multi-session SpecTasks
 type ZedIntegrationService struct {
 	store          store.Store
-	controller     *controller.Controller
 	pubsub         pubsub.PubSub
 	protocolClient *pubsub.ZedProtocolClient
 	testMode       bool
@@ -25,14 +23,12 @@ type ZedIntegrationService struct {
 // NewZedIntegrationService creates a new Zed integration service
 func NewZedIntegrationService(
 	store store.Store,
-	controller *controller.Controller,
 	ps pubsub.PubSub,
 ) *ZedIntegrationService {
 	service := &ZedIntegrationService{
-		store:      store,
-		controller: controller,
-		pubsub:     ps,
-		testMode:   false,
+		store:    store,
+		pubsub:   ps,
+		testMode: false,
 	}
 
 	// Initialize protocol client
@@ -619,11 +615,4 @@ func (s *ZedIntegrationService) StopDesktop(ctx context.Context, sessionID strin
 	// For now, just log the stop request
 	log.Info().Str("session_id", sessionID).Msg("Stop Zed agent requested")
 	return nil
-}
-
-func (s *ZedIntegrationService) IntegrateWithSessionManager(sessionManager *controller.Controller) {
-	// This method would be called during service initialization to ensure
-	// the ZedIntegrationService is available to the session manager
-	// The session manager can then call this service when launching Zed agents
-	log.Info().Msg("ZedIntegrationService integrated with session manager")
 }

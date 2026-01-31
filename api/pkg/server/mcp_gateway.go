@@ -15,6 +15,13 @@ type MCPBackend interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request, user *types.User)
 }
 
+// StoppableMCPBackend is an optional interface for backends that need cleanup
+type StoppableMCPBackend interface {
+	MCPBackend
+	// Stop stops the backend and cleans up resources
+	Stop()
+}
+
 // MCPGateway routes authenticated MCP requests to registered backends
 type MCPGateway struct {
 	backends map[string]MCPBackend
@@ -74,6 +81,17 @@ func (g *MCPGateway) listBackends(w http.ResponseWriter) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"backends":["` + strings.Join(names, `","`) + `"]}`))
+}
+
+// Stop stops all backends that implement StoppableMCPBackend
+func (g *MCPGateway) Stop() {
+	for name, backend := range g.backends {
+		if stoppable, ok := backend.(StoppableMCPBackend); ok {
+			log.Info().Str("backend", name).Msg("Stopping MCP backend")
+			stoppable.Stop()
+		}
+	}
+	log.Info().Msg("MCP Gateway stopped")
 }
 
 // mcpGatewayHandler wraps the gateway for use with auth middleware

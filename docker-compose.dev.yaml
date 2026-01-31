@@ -56,7 +56,6 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
-      - FRONTEND_URL=http://frontend:8081
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - EVAL_USER_ID=${EVAL_USER_ID:-}
@@ -112,6 +111,8 @@ services:
       # Go caches for faster air rebuilds (shared with runner config)
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+      # Production frontend build (used when SERVE_PROD_FRONTEND_IN_DEV=true)
+      - ./frontend/dist:/www:ro
     depends_on:
       - postgres
       - postgres-mcp
@@ -142,6 +143,7 @@ services:
       - "5000:5000"
     volumes:
       - registry-data:/var/lib/registry
+
   # Example/test MCP server
   postgres-mcp:
     image: crystaldba/postgres-mcp:latest
