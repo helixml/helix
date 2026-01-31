@@ -6,5 +6,5 @@
 - [x] Update `agent_implementation_approved_push.tmpl` to remove empty commit instruction, just say "commit and push any remaining changes"
 - [x] Update test for new prompt content
 - [x] Add logging for auto-PR creation path (already done in implementation)
-- [~] Build and verify no compile errors
+- [x] Build and verify no compile errors
 - [ ] Manual test: approve task with commits already pushed → PR created immediately
