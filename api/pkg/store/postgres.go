@@ -95,10 +95,11 @@ type MigrationScript struct {
 }
 
 func (s *PostgresStore) autoMigrate() error {
-	// Skip migrations entirely if HELIX_SKIP_AUTOMIGRATE is set.
+	// Skip migrations for the public schema if HELIX_SKIP_AUTOMIGRATE is set.
 	// This is used in CI where migrations run in a separate step before parallel tests.
-	if os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" {
-		log.Debug().Msg("skipping automigrate (HELIX_SKIP_AUTOMIGRATE=1)")
+	// We only skip for public schema - tests that create their own schemas still need migrations.
+	if os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (s.cfg.Schema == "" || s.cfg.Schema == "public") {
+		log.Debug().Msg("skipping automigrate for public schema (HELIX_SKIP_AUTOMIGRATE=1)")
 		return nil
 	}
 
