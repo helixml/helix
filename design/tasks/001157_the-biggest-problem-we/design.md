@@ -145,3 +145,69 @@ Recommendation: Remove it. Current code uses `ses_*` prefixed session IDs direct
 - `🔧 [HELIX] Restored requestToSessionMapping from session metadata` - Mapping restored on reconnect
 - `⚠️ [HELIX] Detected stale waiting interaction on reconnect` - Old request detected and cleaned up
 - `🧹 [HELIX] Cleared session restart recovery metadata` - Cleanup on interaction complete
+
+## CRITICAL: Zed-Side Bug Discovered
+
+### The Real Root Cause
+
+After extensive debugging, we discovered that the "entity released" error after Zed restart is actually a **Zed-side bug**, not a Helix issue.
+
+**Error observed:** `Thread load failed: Failed to load thread: entity released`
+
+### Root Cause Analysis
+
+When Helix sends a `chat_message` with an existing `acp_thread_id` after Zed restarts:
+
+1. WebSocket code checks `THREAD_REGISTRY` → not found (Zed restarted, registry empty)
+2. Calls `load_thread_from_agent()` → creates new `Rc<NativeAgentConnection>`
+3. Calls `connection.load_thread()` which takes `self: Rc<Self>` (consuming the Rc)
+4. Inside `load_thread`, it calls `self.0.update(cx, |agent, cx| agent.open_thread(...))`
+5. `open_thread` spawns an async task with `cx.spawn(async move |this, cx| ...)` where `this` is a **WeakEntity**
+6. After `load_thread` returns, the `Rc<NativeAgentConnection>` is dropped
+7. This drops the only strong reference to `Entity<NativeAgent>`
+8. The async task runs, calls `this.update()` on the dead weak reference → **"entity released"**
+
+### Why It Works On First Run
+
+In `new_thread` (used for creating new threads), the code does:
+```rust
+fn new_thread(self: Rc<Self>, ...) -> Task<...> {
+    let agent = self.0.clone();  // <-- CLONES the Entity (strong ref)
+    cx.spawn(async move |cx| {
+        agent.update(cx, ...)?;  // Uses strong reference
+    })
+}
+```
+
+But in `load_thread`:
+```rust
+fn load_thread(self: Rc<Self>, ...) -> Task<...> {
+    self.0.update(cx, |agent, cx| agent.open_thread(...))
+    // <-- Does NOT clone! open_thread captures weak ref internally
+}
+```
+
+### The Fix (Zed-side)
+
+In `zed/crates/agent/src/agent.rs`, `NativeAgentConnection::load_thread` needs to clone the entity:
+
+```rust
+fn load_thread(
+    self: Rc<Self>,
+    session_id: acp::SessionId,
+    _project: Entity<Project>,
+    _cwd: &Path,
+    cx: &mut App,
+) -> Task<Result<Entity<AcpThread>>> {
+    // Clone the Entity<NativeAgent> to keep it alive for the duration of the async task.
+    let agent = self.0.clone();
+    cx.spawn(async move |_cx| {
+        let task = agent.update(_cx, |a, cx| a.open_thread(session_id, cx))?;
+        task.await
+    })
+}
+```
+
+### Helix-Side Safety Net
+
+Added code in `handleThreadLoadError` to clear `ZedThreadID` when receiving "entity released" error. This allows recovery by creating a new thread on retry, even if the Zed fix isn't deployed yet.

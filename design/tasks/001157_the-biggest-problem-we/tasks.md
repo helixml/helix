@@ -35,3 +35,15 @@
 
 Note: These tests require a running Helix environment with an active agent session.
 Code changes are complete - ready for user to verify behavior.
+
+## Phase 6: Zed-Side Fix (ROOT CAUSE)
+
+**Critical Discovery:** The "entity released" error after Zed restart is a Zed bug, not Helix.
+
+- [x] Identified root cause: `NativeAgentConnection::load_thread` doesn't keep `Entity<NativeAgent>` alive
+- [x] Created fix in `zed/crates/agent/src/agent.rs` (clone entity before spawning async task)
+- [ ] Deploy Zed fix to resolve "Failed to load thread: entity released" errors
+
+**File:** `zed/crates/agent/src/agent.rs` - `NativeAgentConnection::load_thread` method
+
+The Helix-side changes (clearing ZedThreadID on "entity released") serve as a safety net for recovery.
