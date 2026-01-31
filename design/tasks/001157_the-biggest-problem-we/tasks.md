@@ -4,8 +4,8 @@
 
 - [x] Add `WaitingInteractionID` field to `SessionMetadata` struct in `api/pkg/types/session.go`
 - [x] In `session_handlers.go:streamFromExternalAgent`, persist `WaitingInteractionID` to database when setting `sessionToWaitingInteraction`
-- [~] In `websocket_external_agent_sync.go:handleExternalAgentSync`, restore `sessionToWaitingInteraction` from `session.Metadata.WaitingInteractionID` on reconnect
-- [ ] Clear `WaitingInteractionID` in metadata when interaction completes (in `handleMessageCompleted`)
+- [x] In `websocket_external_agent_sync.go:handleExternalAgentSync`, restore `sessionToWaitingInteraction` from `session.Metadata.WaitingInteractionID` on reconnect
+- [~] Clear `WaitingInteractionID` in metadata when interaction completes (in `handleMessageCompleted`)
 
 ## Phase 2: Persist RequestID Mapping
 
