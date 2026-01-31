@@ -95,94 +95,16 @@ type MigrationScript struct {
 
 func (s *PostgresStore) autoMigrate() error {
 	// If schema is specified, check if it exists and if not - create it
-	// This must run for each store instance as different schemas may be used.
 	if s.cfg.Schema != "" {
-		if err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error; err != nil {
+		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
+		if err != nil {
 			return err
 		}
 	}
 
-	return s.runMigrations()
-}
-
-// runMigrations performs the actual database migrations.
-// This is separated from autoMigrate so it can be wrapped in sync.Once.
-func (s *PostgresStore) runMigrations() error {
-	// Use PostgreSQL advisory lock to serialize migrations across processes.
-	// This prevents duplicate constraint errors when multiple test packages
-	// (running as separate processes) try to create tables simultaneously.
-	// The lock is held for the duration of migration and released when the
-	// connection is closed.
-	//
-	// The lock ID is derived from the schema name so that processes using
-	// different schemas don't block each other. Processes using the same
-	// schema will still serialize, which is the desired behavior.
-	schemaForLock := s.cfg.Schema
-	if schemaForLock == "" {
-		schemaForLock = "public" // default PostgreSQL schema
-	}
-	// Use a hash of the schema name as the lock ID (int64 range for pg_advisory_lock)
-	h := sha256.Sum256([]byte("helix-migration-" + schemaForLock))
-	migrationLockID := int64(h[0])<<56 | int64(h[1])<<48 | int64(h[2])<<40 | int64(h[3])<<32 |
-		int64(h[4])<<24 | int64(h[5])<<16 | int64(h[6])<<8 | int64(h[7])
-
-	sqlDB, err := s.gdb.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	// Get a dedicated connection for the advisory lock.
-	// This connection holds the lock until we're done with migration.
-	lockConn, err := sqlDB.Conn(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to get lock connection: %w", err)
-	}
-	defer lockConn.Close()
-
-	// Try to acquire the advisory lock without blocking.
-	// If another process is already running migrations, we wait up to 5 seconds
-	// then proceed anyway (migrations are mostly idempotent).
-	var acquired bool
-	err = lockConn.QueryRowContext(context.Background(), "SELECT pg_try_advisory_lock($1)", migrationLockID).Scan(&acquired)
-	if err != nil {
-		return fmt.Errorf("failed to try advisory lock: %w", err)
-	}
-
-	if !acquired {
-		// Lock not immediately available. Wait briefly with polling.
-		log.Debug().Str("schema", schemaForLock).Msg("migration lock held by another process, waiting...")
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			time.Sleep(100 * time.Millisecond)
-			err = lockConn.QueryRowContext(context.Background(), "SELECT pg_try_advisory_lock($1)", migrationLockID).Scan(&acquired)
-			if err != nil {
-				return fmt.Errorf("failed to try advisory lock: %w", err)
-			}
-			if acquired {
-				break
-			}
-		}
-		if !acquired {
-			// Proceed without lock after timeout - migrations are mostly idempotent
-			log.Debug().Str("schema", schemaForLock).Msg("proceeding with migration without lock (timeout)")
-		}
-	}
-
-	if acquired {
-		log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("acquired migration advisory lock")
-		// Explicitly release the lock when we're done.
-		defer func() {
-			if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID); err != nil {
-				log.Warn().Err(err).Msg("failed to release migration advisory lock")
-			} else {
-				log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("released migration advisory lock")
-			}
-		}()
-	}
-
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
-	err = s.MigrateUp()
+	err := s.MigrateUp()
 	if err != nil {
 		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
 		return fmt.Errorf("failed to run version migrations: %w", err)
@@ -497,7 +419,6 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		sqlSettings = "sslmode=require"
 	}
 
-	// Set schema in search_path for migration queries
 	if s.cfg.Schema != "" {
 		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
 	}
@@ -515,7 +436,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&x-migrations-table=helix_migrations", connectionString),
+		fmt.Sprintf("%s&&x-migrations-table=helix_migrations", connectionString),
 	)
 	if err != nil {
 		return nil, err
