@@ -3219,7 +3219,6 @@ Wait for the user to provide the exact color before making changes.
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Circle Shape Viewer</title>
-    <meta http-equiv="refresh" content="1">
     <style>
         body {
             display: flex;
@@ -3246,9 +3245,15 @@ Wait for the user to provide the exact color before making changes.
 <body>
     <h1>Circle</h1>
     <div class="shape-container">
-        <img src="shape.svg" alt="Circle shape">
+        <img id="shape" src="shape.svg" alt="Circle shape">
     </div>
     <p class="hint">This page refreshes every second to show changes</p>
+    <script>
+        setInterval(function() {
+            var img = document.getElementById('shape');
+            img.src = 'shape.svg?t=' + Date.now();
+        }, 1000);
+    </script>
 </body>
 </html>
 `,
@@ -3289,7 +3294,6 @@ The brand color should already be specified in the task spec from the cloned tas
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Square Shape Viewer</title>
-    <meta http-equiv="refresh" content="1">
     <style>
         body {
             display: flex;
@@ -3316,9 +3320,15 @@ The brand color should already be specified in the task spec from the cloned tas
 <body>
     <h1>Square</h1>
     <div class="shape-container">
-        <img src="shape.svg" alt="Square shape">
+        <img id="shape" src="shape.svg" alt="Square shape">
     </div>
     <p class="hint">This page refreshes every second to show changes</p>
+    <script>
+        setInterval(function() {
+            var img = document.getElementById('shape');
+            img.src = 'shape.svg?t=' + Date.now();
+        }, 1000);
+    </script>
 </body>
 </html>
 `,
@@ -3359,7 +3369,6 @@ The brand color should already be specified in the task spec from the cloned tas
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Triangle Shape Viewer</title>
-    <meta http-equiv="refresh" content="1">
     <style>
         body {
             display: flex;
@@ -3386,9 +3395,15 @@ The brand color should already be specified in the task spec from the cloned tas
 <body>
     <h1>Triangle</h1>
     <div class="shape-container">
-        <img src="shape.svg" alt="Triangle shape">
+        <img id="shape" src="shape.svg" alt="Triangle shape">
     </div>
     <p class="hint">This page refreshes every second to show changes</p>
+    <script>
+        setInterval(function() {
+            var img = document.getElementById('shape');
+            img.src = 'shape.svg?t=' + Date.now();
+        }, 1000);
+    </script>
 </body>
 </html>
 `,
@@ -3429,7 +3444,6 @@ The brand color should already be specified in the task spec from the cloned tas
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hexagon Shape Viewer</title>
-    <meta http-equiv="refresh" content="1">
     <style>
         body {
             display: flex;
@@ -3456,9 +3470,15 @@ The brand color should already be specified in the task spec from the cloned tas
 <body>
     <h1>Hexagon</h1>
     <div class="shape-container">
-        <img src="shape.svg" alt="Hexagon shape">
+        <img id="shape" src="shape.svg" alt="Hexagon shape">
     </div>
     <p class="hint">This page refreshes every second to show changes</p>
+    <script>
+        setInterval(function() {
+            var img = document.getElementById('shape');
+            img.src = 'shape.svg?t=' + Date.now();
+        }, 1000);
+    </script>
 </body>
 </html>
 `,
@@ -3499,7 +3519,6 @@ The brand color should already be specified in the task spec from the cloned tas
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Star Shape Viewer</title>
-    <meta http-equiv="refresh" content="1">
     <style>
         body {
             display: flex;
@@ -3526,9 +3545,15 @@ The brand color should already be specified in the task spec from the cloned tas
 <body>
     <h1>Star</h1>
     <div class="shape-container">
-        <img src="shape.svg" alt="Star shape">
+        <img id="shape" src="shape.svg" alt="Star shape">
     </div>
     <p class="hint">This page refreshes every second to show changes</p>
+    <script>
+        setInterval(function() {
+            var img = document.getElementById('shape');
+            img.src = 'shape.svg?t=' + Date.now();
+        }, 1000);
+    </script>
 </body>
 </html>
 `,

@@ -34,11 +34,11 @@ Never inline interface type assertions:
 ```go
 // ❌ WRONG
 if toolsPlanner, ok := t.planner.(interface {
-    GetTokenForApp(ctx context.Context, userID string) (string, error)
+    GetTokenForTool(ctx context.Context, userID, provider string, scopes []string) (string, error)
 }); ok { ... }
 
 // ✅ CORRECT: Add to interface first
-t.planner.GetTokenForApp(ctx, user, provider)
+t.oauthManager.GetTokenForTool(ctx, user, provider, scopes)
 ```
 
 

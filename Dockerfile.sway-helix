@@ -6,10 +6,10 @@
 # Developers can switch between Sway and KDE without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-14).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.24  -> sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e
+# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
 
 # ====================================================================
 # Build grim from source with JPEG support
@@ -33,9 +33,9 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.24 as of 2026-01-13)
+# Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.24@sha256:ea97c7a1ab2d6b3cfb3152d077c062ebac6ee9e8d5f324e4c492069e2ed7ff3e AS go-build-env
+FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -57,14 +57,15 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
+COPY desktop/docker-shim ./desktop/docker-shim
 WORKDIR /app/api
-# GO_HASH busts the build cache when api/ code changes (passed from CI)
-ARG GO_HASH=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    echo "Building Go binaries (GO_HASH=${GO_HASH})" && \
+    echo "Building Go binaries..." && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    cd /app/desktop/docker-shim && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
@@ -390,6 +391,16 @@ PINEOF
 
 _INSTALL_BASE
 
+# Install Go (version extracted from go.mod)
+# This makes Go available for agents running inside the container (Helix-in-Helix)
+COPY go.mod /tmp/go.mod
+RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+    echo "Installing Go ${GO_VERSION}..." && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz && \
+    rm /tmp/go.mod && \
+    /usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # Enable the keyboard layout fix - this tells wlroots to preserve Sway's
 # own keyboard layout instead of syncing to the parent compositor's layout.
 ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
@@ -527,21 +538,28 @@ RUN apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker wrappers for Hydra compatibility
-COPY desktop/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
-COPY desktop/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+# Docker shim for Hydra compatibility and shared BuildKit cache
+# The Go-based docker-shim replaces the bash wrappers with:
+# - Path translation for Hydra bind mounts
+# - BuildKit cache injection for shared caching across sessions
+# - Docker Compose project isolation per session
+COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
 RUN mv /usr/bin/docker /usr/bin/docker.real \
-    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
-    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && ln -s /usr/local/bin/docker-shim /usr/bin/docker \
+    && chmod 755 /usr/bin/docker.real /usr/local/bin/docker-shim \
     && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
-    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
-    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+    && ln -s /usr/local/bin/docker-shim /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Utilities (Sway-specific + common)
+# Utilities and dev tools (Sway-specific + common)
 RUN apt-get update && apt-get install -y \
     lsof libjpeg-turbo8 \
     evtest evemu-tools \
     bash git openssh-client vim \
+    htop tmux less tree \
+    ripgrep fd-find ncdu \
+    strace net-tools dnsutils iproute2 \
+    silversearcher-ag \
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
     imagemagick \
     kitty \
@@ -772,11 +790,9 @@ ENV NVD_BACKEND=direct \
 # Rationale: Go binaries and startup scripts change most often, so they're at the very end
 
 # Qwen Code
-ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    chmod +x dist/cli.js && \
+RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 # Sway configuration (GOW pattern)
@@ -793,14 +809,16 @@ COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
 # Zed desktop file and icon
-COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed.desktop
-RUN chmod 644 /usr/share/applications/dev.zed.Zed.desktop
-COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed.png
+# Use dev.zed.Zed-Dev.desktop to match StartupWMClass (dev build reports as Zed-Dev)
+# Use simple "zed" icon name for universal compatibility
+COPY desktop/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/zed.png
 RUN for size in 16 24 32 48 64 128 256; do \
         mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
-        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed.png \
+        convert /usr/share/icons/hicolor/512x512/apps/zed.png \
             -resize ${size}x${size} \
-            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed.png; \
+            /usr/share/icons/hicolor/${size}x${size}/apps/zed.png; \
     done
 
 # Helix startup script
@@ -827,4 +845,3 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh \
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-

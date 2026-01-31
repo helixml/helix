@@ -300,6 +300,19 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		s.auditLogService.LogTaskApproved(ctx, existingTask, user.ID, user.Email)
 	}
 
+	// Process approval immediately in goroutine (don't wait for orchestrator polling)
+	// This sends the implementation instruction to the agent right away
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), existingTask); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", taskID).
+				Msg("Failed to process spec approval (orchestrator will retry)")
+		}
+	}()
+
 	log.Info().
 		Str("task_id", taskID).
 		Str("user_id", user.ID).
@@ -628,6 +641,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.UserShortTitle != nil {
 		task.UserShortTitle = *updateReq.UserShortTitle
 	}
+	// Update public design docs setting (pointer allows explicit false)
+	if updateReq.PublicDesignDocs != nil {
+		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
 
 	// Update in store
 	err = s.Store.UpdateSpecTask(r.Context(), task)
@@ -932,10 +949,12 @@ func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.S
 		return nil
 	}
 
-	// Parse task progress from tasks.md in helix-specs branch
-	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID, task.DesignDocPath)
-	if err != nil {
-		log.Debug().Err(err).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
+	// Parse task progress from tasks.md in helix-specs branch.
+	// No need to sync from upstream - helix-specs is only written by Helix agents,
+	// so our middle repo always has the latest data.
+	taskProgress, parseErr := services.ParseTaskProgress(repo.LocalPath, task.ID, task.DesignDocPath)
+	if parseErr != nil {
+		log.Debug().Err(parseErr).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
 		return nil
 	}
 

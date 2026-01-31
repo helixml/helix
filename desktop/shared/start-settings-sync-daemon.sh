@@ -22,6 +22,12 @@ if [ -z "$HELIX_SESSION_ID" ] || [ -z "$HELIX_API_URL" ]; then
     exit 0
 fi
 
+# Check for USER_API_TOKEN - required for authenticating with the Helix API
+# Note: daemon has retry logic if token isn't immediately available
+if [ -z "$USER_API_TOKEN" ]; then
+    log "WARNING: USER_API_TOKEN not set - daemon will retry but may fail"
+fi
+
 # D-Bus session is inherited from dbus-run-session (both Sway and GNOME use this pattern)
 if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
     log "ERROR: DBUS_SESSION_BUS_ADDRESS not set - must be launched from dbus-run-session"
@@ -66,6 +72,13 @@ fi
 
 log "Environment: HELIX_SESSION_ID=${HELIX_SESSION_ID}"
 log "Environment: HELIX_API_URL=${HELIX_API_URL}"
+if [ -n "$USER_API_TOKEN" ]; then
+    # Show first 8 chars of token (POSIX-compatible)
+    TOKEN_PREFIX=$(echo "$USER_API_TOKEN" | cut -c1-8)
+    log "Environment: USER_API_TOKEN=${TOKEN_PREFIX}..."
+else
+    log "Environment: USER_API_TOKEN=NOT SET"
+fi
 
 # Start settings-sync-daemon with log prefix (stdout goes to docker logs)
 log "Starting settings-sync-daemon"

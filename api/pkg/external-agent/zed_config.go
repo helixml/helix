@@ -64,12 +64,16 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	// Zed expects "url" field for HTTP context_servers (untagged union)
+	// Zed uses "source" field to distinguish transport type:
+	// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
+	// - "sse" = Legacy SSE transport (MCP 2024-11-05)
+	Source  string            `json:"source,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
+// projectSkills are optional project-level skills that overlay on top of agent skills
 func GenerateZedMCPConfig(
 	app *types.App,
 	userID string,
@@ -77,6 +81,7 @@ func GenerateZedMCPConfig(
 	helixAPIURL string,
 	helixToken string,
 	koditEnabled bool,
+	projectSkills *types.AssistantSkills,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -166,8 +171,8 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
-			APIURL: helixAPIURL,  // Zed appends /v1/messages
-			APIKey: helixToken,   // Helix token for authentication
+			APIURL: helixAPIURL, // Zed appends /v1/messages
+			APIKey: helixToken,  // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
@@ -194,7 +199,8 @@ func GenerateZedMCPConfig(
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
 		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			URL: koditMCPURL,
+			Source: "http",
+			URL:    koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -206,7 +212,8 @@ func GenerateZedMCPConfig(
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: "http://localhost:9877/mcp",
+		Source: "http",
+		URL:    "http://localhost:9877/mcp",
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -215,7 +222,8 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		URL: sessionMCPURL,
+		Source: "http",
+		URL:    sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
@@ -237,11 +245,25 @@ func GenerateZedMCPConfig(
 		},
 	}
 
-	// 6. Pass-through external MCP servers
+	// 6. Route external MCP servers through Helix proxy
+	// HTTP/HTTPS MCPs go through /api/v1/mcp/external/{mcp_name} for:
+	// - SSE endpoint URL rewriting (external server's endpoint isn't reachable from sandbox)
+	// - Transport adaptation (can convert between SSE and Streamable HTTP if needed)
+	// - Centralized authentication and authorization
+	// Stdio MCPs are passed through directly (they run locally in the sandbox)
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
-			config.ContextServers[serverName] = mcpToContextServer(mcp)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+		}
+	}
+
+	// Add project-level MCPs (these overlay on top of agent MCPs)
+	// Project MCPs with the same name will override agent MCPs
+	if projectSkills != nil {
+		for _, mcp := range projectSkills.MCPs {
+			serverName := sanitizeName(mcp.Name)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
 		}
 	}
 
@@ -267,19 +289,43 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 	return hasAPIs || hasRAG || hasKnowledge || hasNativeToolConfigs
 }
 
-// mcpToContextServer converts Helix MCP config to Zed context server config
-func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
-	// Parse MCP URL to determine connection type
-	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
-		// HTTP/SSE transport - direct HTTP connection
+// mcpToContextServerWithProxy converts Helix MCP config to Zed context server config,
+// routing HTTP MCPs through the Helix proxy for proper SSE endpoint handling.
+// Stdio MCPs run directly inside the dev container.
+func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken string) ContextServerConfig {
+	// Check for explicit stdio transport (new format with Command/Args/Env)
+	// This is used for MCPs that run inside the dev container via npx or other commands
+	if mcp.Transport == "stdio" || mcp.Command != "" {
 		return ContextServerConfig{
-			URL:     mcp.URL,
-			Headers: mcp.Headers,
+			Command: mcp.Command,
+			Args:    mcp.Args,
+			Env:     mcp.Env,
 		}
 	}
 
-	// Stdio transport - direct command execution
-	// Parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// For HTTP/HTTPS MCPs, route through Helix proxy
+	// This is necessary because:
+	// 1. SSE protocol sends an endpoint URL that would point to the unreachable external server
+	// 2. The sandbox can't reach external MCP servers directly
+	// 3. We want centralized auth and transport adaptation
+	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
+		// Route through Helix external MCP proxy
+		// The proxy will connect to the actual MCP server and forward requests
+		proxyURL := fmt.Sprintf("%s/api/v1/mcp/external/%s", helixAPIURL, sanitizeName(mcp.Name))
+
+		// The proxy always exposes as Streamable HTTP (the modern protocol)
+		// It handles SSE transport internally when connecting to legacy servers
+		return ContextServerConfig{
+			Source: "http",
+			URL:    proxyURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
+		}
+	}
+
+	// Legacy stdio transport - parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// Kept for backward compatibility
 	cmd, args := parseStdioURL(mcp.URL)
 	return ContextServerConfig{
 		Command: cmd,
@@ -289,6 +335,11 @@ func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
 }
 
 func buildMCPEnv(mcp types.AssistantMCP) map[string]string {
+	// Use the explicit Env field if set
+	if len(mcp.Env) > 0 {
+		return mcp.Env
+	}
+	// Legacy: convert Headers to env vars
 	env := make(map[string]string)
 	for k, v := range mcp.Headers {
 		env[fmt.Sprintf("MCP_HEADER_%s", strings.ToUpper(k))] = v
@@ -438,6 +489,16 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 
+	// Get project if session has one (for project-level skill overlays)
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := s.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project %s for skills config: %w", session.ProjectID, err)
+		}
+		projectSkills = project.Skills
+	}
+
 	// Get Helix API URL from environment
 	// For production, use SANDBOX_API_URL if set, else SERVER_URL, else fallback
 	helixAPIURL := os.Getenv("SANDBOX_API_URL")
@@ -460,7 +521,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Check if Kodit is enabled (defaults to true)
 	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
 
-	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled)
+	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

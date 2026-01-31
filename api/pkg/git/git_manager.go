@@ -3,14 +3,14 @@ package git
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/transport/http"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/go-diff/diff"
@@ -28,31 +28,46 @@ func NewGitManager(remoteURL, token string) *GitManager {
 	}
 }
 
-func (g *GitManager) CloneRepository(_ context.Context, repoPath string) (*git.Repository, error) {
-	repo, err := git.PlainClone(repoPath, &git.CloneOptions{
-		URL:      g.remoteURL,
-		Auth:     &http.BasicAuth{Username: "helixml", Password: g.token},
-		Progress: os.Stdout,
-	})
+// CloneRepository clones a repository to the given path.
+// Returns the path to the cloned repository (same as repoPath).
+func (g *GitManager) CloneRepository(ctx context.Context, repoPath string) (string, error) {
+	// Build authenticated URL
+	authURL := g.buildAuthenticatedURL()
+
+	err := giteagit.Clone(ctx, authURL, repoPath, giteagit.CloneRepoOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to clone repository: %w", err)
+		return "", fmt.Errorf("failed to clone repository: %w", err)
 	}
 
-	return repo, err
+	return repoPath, nil
 }
 
-func (g *GitManager) CheckoutCommit(_ context.Context, repo *git.Repository, commitID string) error {
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
+// buildAuthenticatedURL embeds credentials into the remote URL
+func (g *GitManager) buildAuthenticatedURL() string {
+	if g.token == "" {
+		return g.remoteURL
 	}
 
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Hash:  plumbing.NewHash(commitID),
-		Force: true,
-	})
+	u, err := url.Parse(g.remoteURL)
 	if err != nil {
-		return fmt.Errorf("failed to checkout commit '%s': %w", commitID, err)
+		return g.remoteURL
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return g.remoteURL
+	}
+
+	u.User = url.UserPassword("helixml", g.token)
+	return u.String()
+}
+
+// CheckoutCommit checks out a specific commit in the repository at repoPath.
+func (g *GitManager) CheckoutCommit(ctx context.Context, repoPath string, commitID string) error {
+	_, stderr, err := gitcmd.NewCommand("checkout", "--force").
+		AddDynamicArguments(commitID).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return fmt.Errorf("failed to checkout commit '%s': %w - %s", commitID, err, stderr)
 	}
 
 	return nil

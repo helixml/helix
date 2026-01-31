@@ -118,6 +118,7 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 	log.Info().Str("provider_name", template.config.ProviderName).Msg("Setting up OAuth provider")
 
 	// Create OAuth provider with all required fields
+	// Note: Scopes are not stored on the provider - they're specified per-flow by the consumer
 	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
 	provider := &types.OAuthProvider{
 		Name:         template.config.ProviderName,
@@ -129,7 +130,6 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 		TokenURL:     template.config.TokenURL,
 		UserInfoURL:  template.config.UserInfoURL,
 		CallbackURL:  callbackURL,
-		Scopes:       template.config.Scopes,
 		CreatorID:    template.baseSuite.testUser.ID,
 		CreatorType:  types.OwnerTypeUser,
 	}
@@ -247,8 +247,11 @@ func (template *OAuthProviderTestTemplate) TestPerformOAuthFlow(t *testing.T) {
 	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("Testing Helix OAuth flow")
 
 	// Step 1: Start OAuth flow using Helix's endpoint
+	// Use scopes from the skill YAML - these are the scopes the skill needs to function
 	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
-	authURL, state, err := template.baseSuite.StartOAuthFlow(template.oauthProvider.ID, callbackURL)
+	scopes := template.skillConfig.OAuthScopes
+	template.baseSuite.logger.Info().Strs("scopes", scopes).Msg("Using scopes from skill YAML")
+	authURL, state, err := template.baseSuite.StartOAuthFlow(template.oauthProvider.ID, callbackURL, scopes)
 	require.NoError(t, err, "Failed to start Helix OAuth flow")
 
 	template.baseSuite.logger.Info().

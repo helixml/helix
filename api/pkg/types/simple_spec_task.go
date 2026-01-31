@@ -130,9 +130,9 @@ type SpecTask struct {
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch
 	LastPushAt         *time.Time `json:"last_push_at,omitempty"`              // When branch was last pushed
 	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`     // When design docs were pushed to helix-specs branch
-	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
-	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
-	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
+	MergedToMain    bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
+	MergedAt        *time.Time `json:"merged_at,omitempty"`                 // When merge happened
+	MergeCommitHash string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
@@ -147,6 +147,9 @@ type SpecTask struct {
 	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
 	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+
+	// Public sharing
+	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
@@ -215,13 +218,14 @@ type SpecTaskFilters struct {
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
 type SpecTaskUpdateRequest struct {
-	Status         SpecTaskStatus   `json:"status,omitempty"`
-	Priority       SpecTaskPriority `json:"priority,omitempty"`
-	Name           string           `json:"name,omitempty"`
-	Description    string           `json:"description,omitempty"`
-	JustDoItMode   *bool            `json:"just_do_it_mode,omitempty"`  // Pointer to allow explicit false
-	HelixAppID     string           `json:"helix_app_id,omitempty"`     // Agent to use for this task
-	UserShortTitle *string          `json:"user_short_title,omitempty"` // User override for tab title (pointer to allow clearing with empty string)
+	Status           SpecTaskStatus   `json:"status,omitempty"`
+	Priority         SpecTaskPriority `json:"priority,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	Description      string           `json:"description,omitempty"`
+	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`     // Pointer to allow explicit false
+	HelixAppID       string           `json:"helix_app_id,omitempty"`        // Agent to use for this task
+	UserShortTitle   *string          `json:"user_short_title,omitempty"`    // User override for tab title (pointer to allow clearing with empty string)
+	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"`  // Pointer to allow explicit false
 }
 
 type SpecTaskStatus string

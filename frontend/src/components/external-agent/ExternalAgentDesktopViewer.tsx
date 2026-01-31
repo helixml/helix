@@ -18,7 +18,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
 
 // Hook to track sandbox container state for external agent sessions
-const useSandboxState = (sessionId: string) => {
+// Exported for use in SpecTaskDetailContent.tsx toolbar buttons
+export const useSandboxState = (sessionId: string) => {
   const api = useApi();
   const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
@@ -35,7 +36,10 @@ const useSandboxState = (sessionId: string) => {
           const hasContainer = !!response.data.config?.container_name;
 
           // Map session metadata to sandbox state
-          if (status === 'running' || (hasContainer && desiredState === 'running')) {
+          // Check stopped status first - it takes priority from the backend check
+          if (status === 'stopped') {
+            setSandboxState('absent');
+          } else if (status === 'running' || (hasContainer && desiredState === 'running')) {
             setSandboxState('running');
           } else if (status === 'starting') {
             setSandboxState('starting');
@@ -224,6 +228,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // For stream mode (floating window), keep stream mounted to prevent fullscreen exit on hiccups
 
   // Screenshot mode: use traditional early-return rendering
+  // Use height prop if provided, otherwise fill parent container (for aspect-ratio containers)
+  const screenshotHeight = height ?? '100%';
+
   if (mode === 'screenshot') {
     // Starting state - show spinner
     if (isStarting) {
@@ -231,7 +238,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         <Box
           sx={{
             width: '100%',
-            height: height,
+            height: screenshotHeight,
             position: 'relative',
             border: '1px solid',
             borderColor: 'divider',
@@ -259,7 +266,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         <Box
           sx={{
             width: '100%',
-            height: height,
+            height: screenshotHeight,
             position: 'relative',
             border: '1px solid',
             borderColor: 'divider',
@@ -318,7 +325,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
     return (
       <Box sx={{
-        height: height,
+        height: screenshotHeight,
         width: '100%',
         overflow: 'hidden'
       }}>
@@ -329,7 +336,6 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
-          height={height}
         />
       </Box>
     );

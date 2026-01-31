@@ -9,18 +9,46 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/config"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
-	"github.com/go-git/go-git/v6/plumbing/transport"
-	"github.com/go-git/go-git/v6/plumbing/transport/http"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
+	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+var gitCmdInitialized bool
+var gitCmdInitMu sync.Mutex
+
+// initGitCmd initializes gitea's gitcmd module once.
+// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
+// This is separate from where the actual git repositories are stored.
+func initGitCmd(gitHomePath string) error {
+	gitCmdInitMu.Lock()
+	defer gitCmdInitMu.Unlock()
+
+	if gitCmdInitialized {
+		return nil
+	}
+
+	// Set the git home path for gitea's setting module.
+	// This is where git will store its global config (not where repos are stored).
+	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
+	setting.Git.HomePath = gitHomePath
+	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
+
+	// Find and set the git executable path
+	if err := gitcmd.SetExecutablePath(""); err != nil {
+		return fmt.Errorf("failed to find git executable: %w", err)
+	}
+
+	gitCmdInitialized = true
+	log.Info().Msg("Initialized gitea gitcmd module")
+	return nil
+}
 
 // GitRepositoryService manages git repositories hosted on the Helix server
 // Uses the filestore mount for persistent storage of git repositories
@@ -35,6 +63,13 @@ type GitRepositoryService struct {
 	enableGitServer bool          // Whether to enable git server functionality
 	testMode        bool          // Test mode for unit tests
 	koditService    *KoditService // Optional Kodit service for code intelligence
+
+	// Per-repository locks to serialize git operations and prevent race conditions.
+	// All compound operations (read+sync, write+push, receive-pack+push) must hold
+	// the lock for the entire duration to prevent concurrent syncs from overwriting
+	// commits between receive-pack and upstream push.
+	repoLocks map[string]*sync.Mutex
+	locksMu   sync.Mutex // protects repoLocks map
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -61,7 +96,32 @@ func NewGitRepositoryService(
 		gitUserEmail:    gitUserEmail,
 		enableGitServer: true,
 		testMode:        false,
+		repoLocks:       make(map[string]*sync.Mutex),
 	}
+}
+
+// GetRepoLock returns the mutex for a specific repository.
+// Used by GitHTTPServer to serialize push operations with other git operations.
+func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+
+	lock, ok := s.repoLocks[repoID]
+	if !ok {
+		lock = &sync.Mutex{}
+		s.repoLocks[repoID] = lock
+	}
+	return lock
+}
+
+// WithRepoLock executes a function while holding the repository lock.
+// This serializes all git operations on the same repository to prevent
+// race conditions between concurrent syncs and pushes.
+func (s *GitRepositoryService) WithRepoLock(repoID string, fn func() error) error {
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
 }
 
 // SetTestMode enables or disables test mode
@@ -80,6 +140,12 @@ func (s *GitRepositoryService) SetKoditGitURL(url string) {
 	s.koditGitURL = strings.TrimSuffix(url, "/")
 }
 
+// GetGitHomePath returns the path where git stores its global config (.gitconfig).
+// This is separate from where git repositories are stored.
+func (s *GitRepositoryService) GetGitHomePath() string {
+	return filepath.Join(s.filestoreBase, "git-home")
+}
+
 // Initialize creates the git repository base directory and sets up git server
 func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Create git repositories base directory
@@ -88,12 +154,153 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create git repositories directory: %w", err)
 	}
 
+	// Create git home directory for git global config (.gitconfig)
+	// This is used by gitea's gitcmd module as the HOME for git commands
+	gitHomePath := s.GetGitHomePath()
+	err = os.MkdirAll(gitHomePath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create git home directory: %w", err)
+	}
+
+	// Initialize gitea's gitcmd module BEFORE any git commands are used.
+	// This must happen before recoverIncompletePushes() which uses gitcmd.
+	if err := initGitCmd(gitHomePath); err != nil {
+		return fmt.Errorf("failed to initialize gitcmd: %w", err)
+	}
+
+	// Install/update pre-receive hooks on all existing repositories.
+	// This ensures force-push protection for helix-specs is always active,
+	// even for repos created before this feature was added.
+	if err := InstallPreReceiveHooksForAllRepos(s.gitRepoBase); err != nil {
+		log.Warn().Err(err).Msg("Failed to install pre-receive hooks on existing repos")
+	} else {
+		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
+	}
+
+	// Recover incomplete pushes from before a crash.
+	// If we crashed between receive-pack and upstream push, the commit is in the
+	// middle repo but not upstream. Push any such commits now to prevent data loss.
+	s.recoverIncompletePushes(ctx)
+
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
+		Str("git_home", gitHomePath).
 		Str("server_base_url", s.serverBaseURL).
 		Msg("Initialized git repository service")
 
 	return nil
+}
+
+// recoverIncompletePushes checks all external repos for commits that are in the
+// middle repo but not pushed to upstream. This can happen if we crash between
+// receive-pack completing and the upstream push completing.
+func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	// List all repos from database
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list repos for crash recovery")
+		return
+	}
+
+	recoveredCount := 0
+	for _, repo := range repos {
+		// Only check external repos
+		if repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check if repo directory exists
+		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Check for unpushed commits on each branch
+		branches, err := s.listLocalBranches(ctx, repo.LocalPath)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list branches for recovery check")
+			continue
+		}
+
+		for _, branch := range branches {
+			ahead, err := s.isBranchAheadOfRemote(ctx, repo.LocalPath, branch)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Str("branch", branch).Msg("Failed to check if branch is ahead")
+				continue
+			}
+
+			if ahead {
+				log.Info().
+					Str("repo_id", repo.ID).
+					Str("branch", branch).
+					Msg("Found unpushed commits from before crash - pushing to upstream")
+
+				// Acquire lock and push
+				if err := s.WithRepoLock(repo.ID, func() error {
+					return s.PushBranchToRemote(ctx, repo.ID, branch, false)
+				}); err != nil {
+					log.Error().Err(err).
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Failed to recover unpushed commits")
+				} else {
+					recoveredCount++
+					log.Info().
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Successfully recovered unpushed commits")
+				}
+			}
+		}
+	}
+
+	if recoveredCount > 0 {
+		log.Info().Int("count", recoveredCount).Msg("Recovered incomplete pushes from before crash")
+	}
+}
+
+// listLocalBranches returns all local branch names in a repository
+func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath string) ([]string, error) {
+	stdout, _, err := gitcmd.NewCommand("for-each-ref").
+		AddArguments("--format=%(refname:short)").
+		AddDynamicArguments("refs/heads/").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return nil, err
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// isBranchAheadOfRemote checks if a local branch has commits not in the remote
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Check if remote tracking ref exists
+	remoteRef := "refs/remotes/origin/" + branch
+	_, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments(remoteRef).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		// Remote ref doesn't exist - could be a new branch, check if local has commits
+		return false, nil
+	}
+
+	// Count commits in local that aren't in remote
+	// git rev-list origin/branch..branch --count
+	stdout, _, err := gitcmd.NewCommand("rev-list").
+		AddArguments("--count").
+		AddDynamicArguments("origin/"+branch+".."+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, err
+	}
+
+	count := strings.TrimSpace(stdout)
+	return count != "0", nil
 }
 
 // CreateRepository creates a new git repository
@@ -133,15 +340,8 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Auto-increment name if it already exists
-	baseName := request.Name
-	uniqueName := baseName
-	suffix := 1
-	for existingNames[uniqueName] {
-		uniqueName = fmt.Sprintf("%s-%d", baseName, suffix)
-		suffix++
-	}
-	request.Name = uniqueName
+	// Auto-increment name if it already exists (e.g., repo -> repo-2 -> repo-3)
+	request.Name = GetUniqueRepoName(request.Name, existingNames)
 
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
@@ -234,42 +434,42 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 			Str("repo_id", repoID).
 			Str("external_url", gitRepo.ExternalURL).
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
-			Msg("Cloning external repository...")
+			Msg("Cloning external repository using native git...")
 
-		cloneOptions := &git.CloneOptions{
-			URL:      gitRepo.ExternalURL,
-			Progress: os.Stdout,
-			Bare:     true,
-			Mirror:   true, // Clone ALL branches, tags, and refs
-		}
-		cloneOptions.Auth = s.GetAuthConfig(gitRepo)
+		// Build authenticated URL for clone
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
-		repo, err := git.PlainClone(repoPath, cloneOptions)
+		// Use native git clone via gitea/git module
+		err = giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to clone external repository: %w", err)
 		}
 
-		// Detect default branch from HEAD
-		headRef, err := repo.Head()
-		if err == nil && headRef.Name().IsBranch() {
-			gitRepo.DefaultBranch = headRef.Name().Short()
-			log.Info().
-				Str("repo_id", repoID).
-				Str("default_branch", gitRepo.DefaultBranch).
-				Msg("Detected default branch from external repository")
-		}
+		// Open cloned repo to get metadata
+		repo, err := giteagit.OpenRepository(ctx, repoPath)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to open cloned repository for metadata")
+		} else {
+			defer repo.Close()
 
-		// Populate branches list
-		refs, err := repo.References()
-		if err == nil {
-			var branches []string
-			refs.ForEach(func(ref *plumbing.Reference) error {
-				if ref.Name().IsBranch() {
-					branches = append(branches, ref.Name().Short())
-				}
-				return nil
-			})
-			gitRepo.Branches = branches
+			// Detect default branch from HEAD
+			defaultBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+			if err == nil && defaultBranch != "" {
+				gitRepo.DefaultBranch = defaultBranch
+				log.Info().
+					Str("repo_id", repoID).
+					Str("default_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from external repository")
+			}
+
+			// Populate branches list
+			branches, _, err := repo.GetBranchNames(0, 0)
+			if err == nil {
+				gitRepo.Branches = branches
+			}
 		}
 
 		log.Info().
@@ -363,13 +563,124 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	return gitRepo, nil
 }
 
+// CloneRepositoryAsync starts an async clone for an external repository that's already in the database.
+// The repository should have Status=cloning when this is called.
+// On success, updates status to active. On failure, updates status to error with CloneError.
+func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository) {
+	if gitRepo.ExternalURL == "" {
+		log.Error().Str("repo_id", gitRepo.ID).Msg("CloneRepositoryAsync called for non-external repo")
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+
+		// Update progress to show we're starting
+		gitRepo.CloneProgress = &types.CloneProgress{
+			Phase:     "starting",
+			StartedAt: time.Now(),
+		}
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update clone progress")
+		}
+
+		// Determine repo path
+		repoPath := gitRepo.LocalPath
+		if repoPath == "" {
+			repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Str("repo_path", repoPath).
+			Msg("Starting async clone using native git")
+
+		// Build authenticated URL for clone
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+		// Use native git clone via gitea/git module
+		// Note: gitea's Clone doesn't support progress callback, but native git is much faster
+		cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs
+		})
+		if cloneErr != nil {
+			// Clone failed - update status to error
+			gitRepo.Status = types.GitRepositoryStatusError
+			gitRepo.CloneError = cloneErr.Error()
+			gitRepo.CloneProgress = nil
+			if updateErr := s.store.UpdateGitRepository(ctx, gitRepo); updateErr != nil {
+				log.Error().Err(updateErr).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to error")
+			}
+			log.Error().Err(cloneErr).Str("repo_id", gitRepo.ID).Msg("Async clone failed")
+			return
+		}
+
+		// Open cloned repo to get metadata
+		repo, err := giteagit.OpenRepository(ctx, repoPath)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to open cloned repository for metadata")
+		} else {
+			defer repo.Close()
+
+			// Detect default branch from HEAD
+			defaultBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+			if err == nil && defaultBranch != "" {
+				gitRepo.DefaultBranch = defaultBranch
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("default_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from external repository")
+			}
+
+			// Populate branches list
+			branches, _, err := repo.GetBranchNames(0, 0)
+			if err == nil {
+				gitRepo.Branches = branches
+			}
+		}
+
+		// Update status to active, set local path, clear progress
+		gitRepo.Status = types.GitRepositoryStatusActive
+		gitRepo.LocalPath = repoPath
+		gitRepo.CloneProgress = nil
+		gitRepo.CloneError = ""
+		gitRepo.UpdatedAt = time.Now()
+
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to active after clone")
+			return
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Async clone completed successfully")
+
+		// Register with Kodit if enabled (non-blocking)
+		// Note: This requires an API key which we don't have in the async context
+		// Kodit registration will happen when user accesses the repo
+	}()
+}
+
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
 
-	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions when updateRepositoryFromGit
+	// mutates fields like Branches, LastActivity, etc.
+	gitRepo := *storedRepo
+	// Deep copy the Branches slice to avoid shared backing array
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
 	}
 
 	// Got from database - verify the LocalPath exists if this is not external
@@ -389,14 +700,16 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	// Update with current git information (clones external repos if needed, detects default branch)
-	err = s.updateRepositoryFromGit(ctx, gitRepo)
+	err = s.updateRepositoryFromGit(ctx, &gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
 	}
 
-	return gitRepo, nil
+	return &gitRepo, nil
 }
 
+// GetExternalRepoStatus returns the status of the local repo compared to the external remote.
+// Uses gitea/git module for native git operations.
 func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID string, branchName string) (*types.ExternalStatus, error) {
 	status := &types.ExternalStatus{}
 
@@ -409,11 +722,6 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 		return nil, fmt.Errorf("repository is not external")
 	}
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open repository: %w", err)
-	}
-
 	if branchName == "" {
 		branchName = gitRepo.DefaultBranch
 	}
@@ -421,40 +729,45 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 		return nil, fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
-	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent fetch operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Get local branch commit
+	localCommit, err := GetBranchCommitID(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local branch reference: %w", err)
 	}
-	localHash := localRef.Hash()
 
-	auth := s.GetAuthConfig(gitRepo)
+	// Build authenticated URL for fetch
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
 
-	refSpec := config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName))
-	fetchOpts := &git.FetchOptions{
-		RemoteName: "origin",
-		RefSpecs:   []config.RefSpec{refSpec},
-		Force:      true,
-	}
-	if auth != nil {
-		fetchOpts.Auth = auth
-	}
-
-	err = repo.Fetch(fetchOpts)
-	if err != nil && err != git.NoErrAlreadyUpToDate {
+	// Fetch from remote to update remote-tracking ref
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
+	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		RefSpecs: []string{refSpec},
+		Force:    true,
+		Timeout:  2 * time.Minute,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
-	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
+	// Get remote tracking commit
+	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
-	remoteHash := remoteRef.Hash()
 
-	if localHash == remoteHash {
+	if localCommit == remoteCommit {
 		return status, nil
 	}
 
-	ahead, behind, err := s.countCommitsDiff(repo, localHash, remoteHash)
+	// Get divergence using the helper
+	ahead, behind, err := GetDivergence(ctx, gitRepo.LocalPath, "refs/heads/"+branchName, "refs/remotes/origin/"+branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count commits diff: %w", err)
 	}
@@ -463,86 +776,6 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	status.CommitsBehind = behind
 
 	return status, nil
-}
-
-func (s *GitRepositoryService) countCommitsDiff(repo *git.Repository, localHash, remoteHash plumbing.Hash) (ahead, behind int, err error) {
-	mergeBase, err := s.findMergeBase(repo, localHash, remoteHash)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	ahead, err = s.countCommitsBetween(repo, mergeBase, localHash)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to count ahead commits: %w", err)
-	}
-
-	behind, err = s.countCommitsBetween(repo, mergeBase, remoteHash)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to count behind commits: %w", err)
-	}
-
-	return ahead, behind, nil
-}
-
-func (s *GitRepositoryService) findMergeBase(repo *git.Repository, hash1, hash2 plumbing.Hash) (plumbing.Hash, error) {
-	ancestors1 := make(map[plumbing.Hash]bool)
-	ancestors1[hash1] = true
-
-	iter1, err := repo.Log(&git.LogOptions{From: hash1})
-	if err != nil {
-		return plumbing.ZeroHash, err
-	}
-
-	_ = iter1.ForEach(func(c *object.Commit) error {
-		ancestors1[c.Hash] = true
-		return nil
-	})
-
-	if ancestors1[hash2] {
-		return hash2, nil
-	}
-
-	iter2, err := repo.Log(&git.LogOptions{From: hash2})
-	if err != nil {
-		return plumbing.ZeroHash, err
-	}
-
-	var mergeBase plumbing.Hash
-	_ = iter2.ForEach(func(c *object.Commit) error {
-		if ancestors1[c.Hash] {
-			mergeBase = c.Hash
-			return fmt.Errorf("found")
-		}
-		return nil
-	})
-
-	if mergeBase.IsZero() {
-		return plumbing.ZeroHash, fmt.Errorf("no common ancestor found")
-	}
-
-	return mergeBase, nil
-}
-
-func (s *GitRepositoryService) countCommitsBetween(repo *git.Repository, from, to plumbing.Hash) (int, error) {
-	if from == to {
-		return 0, nil
-	}
-
-	count := 0
-	iter, err := repo.Log(&git.LogOptions{From: to})
-	if err != nil {
-		return 0, err
-	}
-
-	iter.ForEach(func(c *object.Commit) error {
-		if c.Hash == from {
-			return fmt.Errorf("stop")
-		}
-		count++
-		return nil
-	})
-
-	return count, nil
 }
 
 // UpdateRepository updates an existing repository's metadata
@@ -706,6 +939,20 @@ func incrementRepositoryName(name string) string {
 	return fmt.Sprintf("%s-2", name)
 }
 
+// GetUniqueRepoName returns a unique repository name by appending -2, -3, etc. if needed.
+// The existingNames map is updated with the returned name marked as used.
+// Examples: "helix" -> "helix", "helix" (if exists) -> "helix-2", etc.
+func GetUniqueRepoName(baseName string, existingNames map[string]bool) string {
+	name := baseName
+	suffix := 2
+	for existingNames[name] {
+		name = fmt.Sprintf("%s-%d", baseName, suffix)
+		suffix++
+	}
+	existingNames[name] = true
+	return name
+}
+
 // CreateSampleRepository creates a sample/demo repository
 // Automatically handles name conflicts by appending -2, -3, -4, etc.
 func (s *GitRepositoryService) CreateSampleRepository(
@@ -809,6 +1056,8 @@ func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string)
 
 // initializeGitRepository initializes a new git repository with initial files
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+//
+// Uses native git via gitea's wrappers for reliable operations.
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
 	defaultBranch string,
@@ -818,9 +1067,12 @@ func (s *GitRepositoryService) initializeGitRepository(
 	userName string,
 	userEmail string,
 ) error {
+	ctx := context.Background()
+
 	if userName == "" || userEmail == "" {
 		return fmt.Errorf("userName and userEmail are required for commits")
 	}
+
 	// Create repository directory
 	err := os.MkdirAll(repoPath, 0755)
 	if err != nil {
@@ -829,10 +1081,14 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 	// For bare repos with initial files, we need to create a temp clone, commit files, then push
 	if isBare && len(initialFiles) > 0 {
-		// Initialize bare repository
-		_, err := git.PlainInit(repoPath, true)
-		if err != nil {
+		// Initialize bare repository using gitea's wrapper
+		if err := giteagit.InitRepository(ctx, repoPath, true, "sha1"); err != nil {
 			return fmt.Errorf("failed to initialize bare git repository: %w", err)
+		}
+
+		// Set HEAD to default branch
+		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
+			log.Warn().Err(err).Str("default_branch", defaultBranch).Msg("Failed to set HEAD in bare repo")
 		}
 
 		// Create temporary working directory to add initial files
@@ -840,11 +1096,10 @@ func (s *GitRepositoryService) initializeGitRepository(
 		if err != nil {
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}
-		defer os.RemoveAll(tempClone) // Cleanup temp clone
+		defer os.RemoveAll(tempClone)
 
 		// Initialize a new non-bare repo in the temp directory
-		repo, err := git.PlainInit(tempClone, false)
-		if err != nil {
+		if err := giteagit.InitRepository(ctx, tempClone, false, "sha1"); err != nil {
 			return fmt.Errorf("failed to initialize temp repository: %w", err)
 		}
 
@@ -867,90 +1122,55 @@ func (s *GitRepositoryService) initializeGitRepository(
 			}
 		}
 
-		// Commit and push to bare repo
-		worktree, err := repo.Worktree()
-		if err != nil {
-			return fmt.Errorf("failed to get worktree: %w", err)
-		}
-
-		if _, err := worktree.Add("."); err != nil {
+		// Add all files using gitea's wrapper
+		if err := giteagit.AddChanges(ctx, tempClone, true); err != nil {
 			return fmt.Errorf("failed to add files: %w", err)
 		}
 
-		_, err = worktree.Commit("Initial commit", &git.CommitOptions{
-			Author: &object.Signature{
+		// Commit using gitea's wrapper
+		if err := giteagit.CommitChanges(ctx, tempClone, giteagit.CommitChangesOptions{
+			Committer: &giteagit.Signature{
 				Name:  userName,
 				Email: userEmail,
 				When:  time.Now(),
 			},
-		})
-		if err != nil {
+			Author: &giteagit.Signature{
+				Name:  userName,
+				Email: userEmail,
+				When:  time.Now(),
+			},
+			Message: "Initial commit",
+		}); err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
 
-		// Rename master to main if needed (same fix for temp clone)
-		headRef, err := repo.Head()
-		if err == nil {
-			currentBranch := headRef.Name().Short()
-			if currentBranch == "master" && defaultBranch == "main" {
-				// Checkout main branch
-				mainRef := plumbing.NewBranchReferenceName("main")
-				if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, headRef.Hash())); err != nil {
-					log.Warn().Err(err).Msg("Failed to create main branch in temp clone")
-				} else {
-					// Checkout main
-					worktree, _ := repo.Worktree()
-					if worktree != nil {
-						worktree.Checkout(&git.CheckoutOptions{
-							Branch: mainRef,
-							Create: false,
-						})
-					}
-					// Delete master
-					repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master"))
-					log.Info().Msg("Renamed temp clone branch from master to main")
-				}
+		// Rename branch if needed (native git init creates 'master' by default)
+		currentBranch, err := GetHEADBranch(ctx, tempClone)
+		if err == nil && currentBranch == "master" && defaultBranch == "main" {
+			if err := GitRenameBranch(ctx, tempClone, "master", "main"); err != nil {
+				log.Warn().Err(err).Msg("Failed to rename master to main in temp clone")
+			} else {
+				log.Info().Msg("Renamed temp clone branch from master to main")
 			}
 		}
 
-		// Add the bare repo as a remote
-		_, err = repo.CreateRemote(&config.RemoteConfig{
-			Name: "origin",
-			URLs: []string{repoPath},
-		})
-		if err != nil {
+		// Add the bare repo as a remote and push
+		if err := AddRemote(ctx, tempClone, "origin", repoPath); err != nil {
 			return fmt.Errorf("failed to add remote: %w", err)
 		}
 
-		// Push to bare repo
-		err = repo.Push(&git.PushOptions{
-			RemoteName: "origin",
-			RefSpecs: []config.RefSpec{
-				config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", defaultBranch, defaultBranch)),
-			},
-		})
-		if err != nil {
+		// Push to bare repo using gitea's Push
+		refspec := fmt.Sprintf("+refs/heads/%s:refs/heads/%s", defaultBranch, defaultBranch)
+		if err := giteagit.Push(ctx, tempClone, giteagit.PushOptions{
+			Remote: "origin",
+			Branch: refspec,
+		}); err != nil {
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
-		// Open the bare repo to set HEAD and clean up master branch
-		bareRepo, err := git.PlainOpen(repoPath)
-		if err == nil {
-			// Set HEAD to point to the default branch (important for clients to determine origin/HEAD)
-			headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(defaultBranch))
-			if err := bareRepo.Storer.SetReference(headRef); err != nil {
-				log.Warn().Err(err).Str("default_branch", defaultBranch).Msg("Failed to set HEAD in bare repo")
-			} else {
-				log.Info().Str("default_branch", defaultBranch).Msg("Set HEAD to default branch in bare repository")
-			}
-
-			// Delete master branch if it exists
-			masterRef := plumbing.NewBranchReferenceName("master")
-			if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
-				log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")
-			} else if err == nil {
-				log.Info().Msg("Removed master branch from bare repository")
-			}
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
 		}
 
 		log.Info().
@@ -962,23 +1182,19 @@ func (s *GitRepositoryService) initializeGitRepository(
 	}
 
 	// For non-bare repos or bare repos without initial files
-	repo, err := git.PlainInit(repoPath, isBare)
-	if err != nil {
+	if err := giteagit.InitRepository(ctx, repoPath, isBare, "sha1"); err != nil {
 		return fmt.Errorf("failed to initialize git repository: %w", err)
 	}
 
-	// If bare repo with no initial files, we're done
+	// If bare repo with no initial files, just set HEAD
 	if isBare {
-		// Set HEAD to main instead of master
-		headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(defaultBranch))
-		if err := repo.Storer.SetReference(headRef); err != nil {
-			log.Warn().Err(err).Msg("Failed to set HEAD to main branch")
+		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
+			log.Warn().Err(err).Msg("Failed to set HEAD to default branch")
 		}
 
-		// Delete master branch if it exists
-		masterRef := plumbing.NewBranchReferenceName("master")
-		if err := repo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
-			log.Warn().Err(err).Msg("Failed to remove master branch")
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
 		}
 
 		log.Info().
@@ -998,71 +1214,44 @@ func (s *GitRepositoryService) initializeGitRepository(
 	// Write initial files
 	for filePath, content := range initialFiles {
 		fullPath := filepath.Join(repoPath, filePath)
-
-		// Create directory if needed
 		dir := filepath.Dir(fullPath)
-		err = os.MkdirAll(dir, 0755)
-		if err != nil {
+		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
-
-		// Write file
-		err = os.WriteFile(fullPath, []byte(content), 0644)
-		if err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", filePath, err)
 		}
 	}
 
-	// Add files to git
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Add all files
-	_, err = worktree.Add(".")
-	if err != nil {
+	// Add all files using gitea's wrapper
+	if err := giteagit.AddChanges(ctx, repoPath, true); err != nil {
 		return fmt.Errorf("failed to add files to git: %w", err)
 	}
 
-	// Initial commit
-	signature := &object.Signature{
-		Name:  userName,
-		Email: userEmail,
-		When:  time.Now(),
-	}
-
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
-		Author:    signature,
-		Committer: signature,
-	})
-	if err != nil {
+	// Commit using gitea's wrapper
+	if err := giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+		Committer: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Author: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Message: "Initial commit",
+	}); err != nil {
 		return fmt.Errorf("failed to create initial commit: %w", err)
 	}
 
-	// Rename master to main if needed (go-git defaults to master)
-	// Get current branch name
-	headRef, err := repo.Head()
-	if err == nil {
-		currentBranch := headRef.Name().Short()
-		if currentBranch == "master" && defaultBranch == "main" {
-			// Create main branch pointing to same commit
-			mainRef := plumbing.NewBranchReferenceName("main")
-			if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, headRef.Hash())); err != nil {
-				log.Warn().Err(err).Msg("Failed to create main branch")
-			} else {
-				// Set HEAD to main
-				newHead := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
-				if err := repo.Storer.SetReference(newHead); err != nil {
-					log.Warn().Err(err).Msg("Failed to set HEAD to main")
-				} else {
-					// Delete master branch
-					if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
-						log.Warn().Err(err).Msg("Failed to remove master branch")
-					}
-					log.Info().Msg("Renamed default branch from master to main")
-				}
-			}
+	// Rename branch if needed (native git init creates 'master' by default)
+	currentBranch, err := GetHEADBranch(ctx, repoPath)
+	if err == nil && currentBranch == "master" && defaultBranch == "main" {
+		if err := GitRenameBranch(ctx, repoPath, "master", "main"); err != nil {
+			log.Warn().Err(err).Msg("Failed to rename master to main")
+		} else {
+			log.Info().Msg("Renamed default branch from master to main")
 		}
 	}
 
@@ -1078,47 +1267,49 @@ func (s *GitRepositoryService) initializeGitRepository(
 // default branch from HEAD (preserving 'master' if that's what the remote uses).
 // If the default branch is detected/changed, it persists the change to the database.
 func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
-	var (
-		repo *git.Repository
-		err  error
-	)
+	repoPath := gitRepo.LocalPath
 
-	if gitRepo.ExternalURL != "" {
-		repo, err = git.PlainOpen(gitRepo.LocalPath)
-		if err != nil {
-			cloneOptions := &git.CloneOptions{
-				URL:      gitRepo.ExternalURL,
-				Progress: os.Stdout,
-				Bare:     true,
-				Mirror:   true, // Clone ALL branches, tags, and refs - not just the default branch
-			}
-
-			cloneOptions.Auth = s.GetAuthConfig(gitRepo)
-
-			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
-			if err != nil {
-				return fmt.Errorf("failed to clone git repository: %w", err)
-			}
-
-			log.Info().
-				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
-				Msg("Cloned external repository as bare repo")
-		}
-	} else {
-		repo, err = git.PlainOpen(gitRepo.LocalPath)
-		if err != nil {
-			return fmt.Errorf("failed to open git repository: %w", err)
-		}
+	// Check if repo exists locally
+	repoExists := false
+	if _, err := os.Stat(repoPath); err == nil {
+		repoExists = true
 	}
+
+	// For external repos, clone if not exists
+	if gitRepo.ExternalURL != "" && !repoExists {
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+		err := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs - not just the default branch
+		})
+		if err != nil {
+			return fmt.Errorf("failed to clone git repository: %w", err)
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Msg("Cloned external repository as bare repo")
+	}
+
+	// Open the repository
+	repo, err := giteagit.OpenRepository(ctx, repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+	defer repo.Close()
 
 	// Detect default branch from HEAD if not already set
 	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
 	defaultBranchChanged := false
 	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
-		headRef, err := repo.Head()
-		if err == nil && headRef.Name().IsBranch() {
-			detectedBranch := headRef.Name().Short()
+		detectedBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+		if err == nil && detectedBranch != "" {
 			if gitRepo.DefaultBranch != detectedBranch {
 				log.Info().
 					Str("repo_id", gitRepo.ID).
@@ -1133,33 +1324,9 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 		}
 	}
 
-	// List all branches (both local refs/heads/* and remote-tracking refs/remotes/origin/*)
-	// This handles both mirrored repos (all branches as local refs) and non-mirrored repos
-	refs, err := repo.References()
+	// List all branches using gitea/git
+	branches, _, err := repo.GetBranchNames(0, 0)
 	if err == nil {
-		branchSet := make(map[string]bool)
-		refs.ForEach(func(ref *plumbing.Reference) error {
-			refName := ref.Name()
-			// Local branches: refs/heads/*
-			if refName.IsBranch() {
-				branchSet[refName.Short()] = true
-			}
-			// Remote-tracking branches: refs/remotes/origin/* (for non-mirrored repos)
-			if refName.IsRemote() {
-				// Extract branch name from refs/remotes/origin/branch-name
-				refStr := refName.String()
-				if strings.HasPrefix(refStr, "refs/remotes/origin/") {
-					branchName := strings.TrimPrefix(refStr, "refs/remotes/origin/")
-					branchSet[branchName] = true
-				}
-			}
-			return nil
-		})
-
-		branches := make([]string, 0, len(branchSet))
-		for branch := range branchSet {
-			branches = append(branches, branch)
-		}
 		gitRepo.Branches = branches
 	}
 
@@ -2159,6 +2326,7 @@ dist/
 }
 
 // ListBranches returns all branches in the repository
+// Uses native git for reliable operations.
 func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
 	// Get repository to find local path
 	repo, err := s.GetRepository(ctx, repoID)
@@ -2170,28 +2338,16 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 		return nil, fmt.Errorf("repository has no local path")
 	}
 
-	// Open the bare repository
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	// Use gitea's git module to list branches
+	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer gitRepo.Close()
 
-	// Get all references
-	refs, err := gitRepo.References()
+	branches, _, err := gitRepo.GetBranchNames(0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get references: %w", err)
-	}
-
-	// Filter to branches only
-	var branches []string
-	err = refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsBranch() {
-			branches = append(branches, ref.Name().Short())
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate references: %w", err)
+		return nil, fmt.Errorf("failed to list branches: %w", err)
 	}
 
 	return branches, nil
@@ -2201,6 +2357,8 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 // Since Helix uses bare repositories (to accept remote pushes from agents),
 // this creates a temp clone from the external repo, pulls latest changes,
 // merges any local commits, pushes to external, and updates the local bare repo.
+//
+// Uses native git for reliable network operations.
 func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -2215,9 +2373,16 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		return fmt.Errorf("branch name is required")
 	}
 
-	auth := s.GetAuthConfig(gitRepo)
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent pull/push operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
 
-	wc, err := s.getExternalWorkingCopy(gitRepo.ExternalURL, gitRepo.LocalPath, branchName, auth)
+	// Build authenticated URL for external repo
+	authURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+	wc, err := s.getExternalWorkingCopy(ctx, authURL, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to create working copy: %w", err)
 	}
@@ -2229,7 +2394,7 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 			Str("branch", branchName).
 			Msg("Pulling changes from external repository")
 
-		err = wc.Pull(auth)
+		err = wc.Pull(ctx, authURL)
 		if err != nil {
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
 		}
@@ -2241,12 +2406,12 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		Bool("force", force).
 		Msg("Pushing changes to external repository")
 
-	err = wc.PushToOrigin(branchName, force, auth)
+	err = wc.PushToOrigin(ctx, branchName, force, authURL)
 	if err != nil {
 		return fmt.Errorf("failed to push changes to external: %w", err)
 	}
 
-	err = wc.PushToHelixBare(branchName)
+	err = wc.PushToHelixBare(ctx, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to sync changes to local bare repo: %w", err)
 	}
@@ -2260,38 +2425,34 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 }
 
 // CreateBranch creates a new branch in the repository
+// Uses native git for reliable operations.
 func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error {
 	repo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return fmt.Errorf("failed to get repository: %w", err)
 	}
 
-	// Open the repository
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
-	}
-
-	// Get base branch reference
-	var baseRef *plumbing.Reference
 	if baseBranch == "" {
 		baseBranch = repo.DefaultBranch
 	}
 
-	baseRef, err = gitRepo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+	// Get base branch commit ID
+	baseCommit, err := GetBranchCommitID(ctx, repo.LocalPath, baseBranch)
 	if err != nil {
 		// Try HEAD if base branch not found
-		baseRef, err = gitRepo.Head()
+		baseCommit, err = GetHEADBranch(ctx, repo.LocalPath)
 		if err != nil {
 			return fmt.Errorf("failed to get base branch reference: %w", err)
 		}
+		// Get commit ID of HEAD branch
+		baseCommit, err = GetBranchCommitID(ctx, repo.LocalPath, baseCommit)
+		if err != nil {
+			return fmt.Errorf("failed to get HEAD commit: %w", err)
+		}
 	}
 
-	// Create new branch reference
-	newBranchRef := plumbing.NewBranchReferenceName(branchName)
-
 	// Check if branch already exists
-	_, err = gitRepo.Reference(newBranchRef, true)
+	_, err = GetBranchCommitID(ctx, repo.LocalPath, branchName)
 	if err == nil {
 		// Branch already exists
 		log.Warn().
@@ -2301,8 +2462,8 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 		return nil // Not an error - branch exists
 	}
 
-	// Create the new branch
-	err = gitRepo.Storer.SetReference(plumbing.NewHashReference(newBranchRef, baseRef.Hash()))
+	// Create the new branch using the helper
+	err = CreateBranchFromRef(ctx, repo.LocalPath, branchName, baseCommit)
 	if err != nil {
 		return fmt.Errorf("failed to create branch: %w", err)
 	}
@@ -2316,33 +2477,44 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 	return nil
 }
 
-// GetAuthConfig returns the authentication configuration for the repository
-// Deprecated: Use GetAuthConfigWithContext for OAuth support
-func (s *GitRepositoryService) GetAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
-	return s.GetAuthConfigWithContext(context.Background(), gitRepo)
+// buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
+// This is used by gitea/git module which expects credentials in the URL
+func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository) string {
+	if gitRepo.ExternalURL == "" {
+		return ""
+	}
+
+	// Get credentials based on repository type and OAuth connection
+	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	if password == "" {
+		return gitRepo.ExternalURL
+	}
+
+	// Build authenticated URL
+	authURL, err := BuildAuthenticatedURL(gitRepo.ExternalURL, username, password)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to build authenticated URL, using original")
+		return gitRepo.ExternalURL
+	}
+
+	return authURL
 }
 
-// GetAuthConfigWithContext returns the authentication configuration for the repository
-// Supports OAuth connections, provider-specific PATs, and username/password authentication
-func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, gitRepo *types.GitRepository) transport.AuthMethod {
+// getCredentialsForRepo returns username and password/token for a repository
+func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository) (username, password string) {
 	// First, check for OAuth connection
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			// Return appropriate auth based on provider type
 			switch gitRepo.ExternalType {
 			case types.ExternalRepositoryTypeGitHub:
-				// GitHub uses "x-access-token" as username for OAuth tokens
-				return &http.BasicAuth{Username: "x-access-token", Password: conn.AccessToken}
+				return "x-access-token", conn.AccessToken
 			case types.ExternalRepositoryTypeGitLab:
-				// GitLab uses "oauth2" as username for OAuth tokens
-				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+				return "oauth2", conn.AccessToken
 			case types.ExternalRepositoryTypeADO:
-				// Azure DevOps uses Bearer token for OAuth
-				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+				return "oauth2", conn.AccessToken
 			default:
-				// Generic OAuth fallback
-				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+				return "oauth2", conn.AccessToken
 			}
 		}
 	}
@@ -2350,44 +2522,33 @@ func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, git
 	// Fall back to provider-specific PAT or username/password
 	switch gitRepo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
-		// If we have a PAT, use it
 		if gitRepo.AzureDevOps != nil && gitRepo.AzureDevOps.PersonalAccessToken != "" {
-			return &http.BasicAuth{Username: "PAT", Password: gitRepo.AzureDevOps.PersonalAccessToken}
+			return "PAT", gitRepo.AzureDevOps.PersonalAccessToken
 		}
-		// If we have a username and password, use it
 		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			return gitRepo.Username, gitRepo.Password
 		}
-		// No auth config found
-		return nil
 	case types.ExternalRepositoryTypeGitHub:
-		// Check for GitHub-specific PAT first
 		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
-			return &http.BasicAuth{Username: "x-access-token", Password: gitRepo.GitHub.PersonalAccessToken}
+			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
 		}
-		// Fall back to username/password (password is typically a PAT)
 		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			return gitRepo.Username, gitRepo.Password
 		}
-		return nil
 	case types.ExternalRepositoryTypeGitLab:
-		// Check for GitLab-specific PAT first
 		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
-			return &http.BasicAuth{Username: "oauth2", Password: gitRepo.GitLab.PersonalAccessToken}
+			return "oauth2", gitRepo.GitLab.PersonalAccessToken
 		}
-		// Fall back to username/password
 		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			return gitRepo.Username, gitRepo.Password
 		}
-		return nil
 	case types.ExternalRepositoryTypeBitbucket:
 		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			return gitRepo.Username, gitRepo.Password
 		}
-		return nil
-	default:
-		return nil
 	}
+
+	return "", ""
 }
 
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {

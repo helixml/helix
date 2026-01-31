@@ -301,6 +301,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		avatarsBucket,
 		triggerManager,
 		anthropicProxy,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
@@ -499,12 +500,13 @@ func (suite *BaseOAuthTestSuite) CleanupExistingOAuthData() error {
 }
 
 // StartOAuthFlow starts OAuth flow using OAuth manager directly
-func (suite *BaseOAuthTestSuite) StartOAuthFlow(providerID, callbackURL string) (string, string, error) {
-	suite.logger.Info().Msg("Starting OAuth flow via OAuth manager")
+// scopes should be provided - they are no longer read from provider config
+func (suite *BaseOAuthTestSuite) StartOAuthFlow(providerID, callbackURL string, scopes []string) (string, string, error) {
+	suite.logger.Info().Strs("scopes", scopes).Msg("Starting OAuth flow via OAuth manager")
 
 	// Call OAuth manager directly instead of making HTTP request
-	// Pass empty metadata - tests don't need provider-specific metadata like ADO organization URL
-	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL, "")
+	// Scopes must be provided by caller (loaded from skill YAML or test config)
+	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL, "", scopes)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start OAuth flow: %w", err)
 	}

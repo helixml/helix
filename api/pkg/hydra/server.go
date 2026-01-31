@@ -119,6 +119,23 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start manager: %w", err)
 	}
 
+	// Recover any dev containers that are still running from before Hydra restarted
+	// This MUST complete before we start accepting requests to avoid state corruption
+	// (e.g., creating duplicate containers or making decisions without knowing current state)
+	// If Docker isn't available after retries, exit - Hydra can't function without Docker
+	var dockerErr error
+	for i := 0; i < 30; i++ {
+		dockerErr = s.devContainerManager.RecoverDevContainersFromDocker(ctx, "")
+		if dockerErr == nil {
+			break
+		}
+		log.Info().Err(dockerErr).Int("attempt", i+1).Int("max_attempts", 30).Msg("Waiting for Docker to be ready...")
+		time.Sleep(2 * time.Second)
+	}
+	if dockerErr != nil {
+		return fmt.Errorf("Docker not available after 60s, Hydra cannot function without Docker: %w", dockerErr)
+	}
+
 	log.Info().
 		Str("socket", s.socketPath).
 		Bool("privileged_mode", s.privilegedModeEnabled).

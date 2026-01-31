@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/agent/skill/memory"
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
+	"github.com/helixml/helix/api/pkg/agent/skill/repository"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -159,7 +160,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 		if assistantTool.ToolType == types.ToolTypeProjectManager {
 			skills = append(skills, project.NewHelixProjectsSkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store))
-		}		
+			skills = append(skills, repository.NewHelixRepositorySkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store, c.gitRepositoryService))
+		}
 
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {
 			// TODO: add support for granular skill selection
@@ -167,6 +169,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
+
 	}
 
 	// Get assistant knowledge

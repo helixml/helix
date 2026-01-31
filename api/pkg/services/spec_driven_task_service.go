@@ -3,11 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -33,8 +34,9 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
-	store                    store.Store
-	controller               *controller.Controller
+	store    store.Store
+	notifier notification.Notifier
+	// controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
 	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
@@ -53,7 +55,7 @@ type SpecDrivenTaskService struct {
 // NewSpecDrivenTaskService creates a new service instance
 func NewSpecDrivenTaskService(
 	store store.Store,
-	controller *controller.Controller,
+	notifier notification.Notifier,
 	helixAgentID string,
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
@@ -63,7 +65,6 @@ func NewSpecDrivenTaskService(
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
-		controller:             controller,
 		externalAgentExecutor:  externalAgentExecutor,
 		gitRepositoryService:   gitRepositoryService,
 		RegisterRequestMapping: registerRequestMapping,
@@ -76,7 +77,6 @@ func NewSpecDrivenTaskService(
 	// Initialize Zed integration service
 	service.ZedIntegrationService = NewZedIntegrationService(
 		store,
-		controller,
 		pubsub,
 	)
 
@@ -120,35 +120,33 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	// Determine which agent to use (single agent for entire workflow)
-	helixAppID := s.helixAgentID
+	// Priority: request.AppID > project.DefaultHelixAppID > error if not found
+	helixAppID := ""
 	if req.AppID != "" {
 		helixAppID = req.AppID
+	} else if req.ProjectID != "" {
+		// Check project's default agent
+		project, err := s.store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project: %w", err)
+		}
+		if project != nil && project.DefaultHelixAppID != "" {
+			helixAppID = project.DefaultHelixAppID
+		}
+	}
+
+	// Validate that the app exists if one is configured
+	if helixAppID != "" {
+		app, err := s.store.GetApp(ctx, helixAppID)
+		if err != nil || app == nil {
+			return nil, fmt.Errorf("configured agent '%s' not found - check project settings", helixAppID)
+		}
 	}
 
 	// Default branch mode to "new" if not specified
 	branchMode := req.BranchMode
 	if branchMode == "" {
 		branchMode = types.BranchModeNew
-	}
-
-	// VALIDATION: Check for active tasks on the same branch
-	// This prevents multiple agents working on the same branch which causes confusion
-	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" {
-		existingTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			ProjectID:  req.ProjectID,
-			BranchName: req.WorkingBranch,
-		})
-		if err != nil {
-			log.Warn().Err(err).Str("branch", req.WorkingBranch).Msg("Failed to check for existing tasks on branch")
-			// Continue anyway - don't block task creation on this check
-		} else {
-			// Check if any existing task is active (not completed, cancelled, or archived)
-			for _, existingTask := range existingTasks {
-				if !isTaskInactive(existingTask) {
-					return nil, fmt.Errorf("branch '%s' already has an active task: %s (%s). Complete or archive that task first, or create a new branch", req.WorkingBranch, existingTask.Name, existingTask.ID)
-				}
-			}
-		}
 	}
 
 	task := &types.SpecTask{
@@ -174,8 +172,24 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		UpdatedAt: time.Now(),
 	}
 
+	// Assign task number immediately at creation time so it's always visible in UI
+	// Task numbers are globally unique across the entire deployment
+	taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get global task number, using fallback")
+		taskNumber = 1
+	}
+	task.TaskNumber = taskNumber
+	// Generate design doc path based on task name and number
+	task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+	log.Info().
+		Str("task_id", task.ID).
+		Int("task_number", taskNumber).
+		Str("design_doc_path", task.DesignDocPath).
+		Msg("Assigned task number and design doc path at creation")
+
 	// Store the task
-	err := s.store.CreateSpecTask(ctx, task)
+	err = s.store.CreateSpecTask(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
@@ -246,10 +260,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	helixAppIDChanged := false
 	if task.HelixAppID == "" {
-		// First try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			helixAppIDChanged = true
@@ -258,10 +271,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
 		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			helixAppIDChanged = true
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
 	}
 
@@ -271,28 +282,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting spec generation")
 
-	// Assign task number and design doc path if not already set
-	// Task numbers are globally unique across the entire deployment
-	if task.TaskNumber == 0 {
-		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
-			// Fallback: use a hash of task ID for uniqueness
-			taskNumber = 1
+	// Note: Task number and design doc path are now assigned at creation time
+	// in CreateTaskFromPrompt, so they should always be set by this point.
+
+	// For cloned tasks, pre-populate the design docs in helix-specs so the agent can read them
+	if task.ClonedFromID != "" && project != nil && project.DefaultRepoID != "" {
+		if err := s.prepopulateClonedSpecs(ctx, task, project); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to pre-populate cloned specs (agent will need to create from scratch)")
 		}
-		task.TaskNumber = taskNumber
-		// Generate unique design doc path (checks for collisions across all projects)
-		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
-			designDocPath = GenerateDesignDocPath(task, taskNumber)
-		}
-		task.DesignDocPath = designDocPath
-		log.Info().
-			Str("task_id", task.ID).
-			Int("task_number", taskNumber).
-			Str("design_doc_path", task.DesignDocPath).
-			Msg("Assigned task number and design doc path")
 	}
 
 	// Clear any previous error from metadata (in case this is a retry)
@@ -344,18 +341,19 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Create the session in the database
-	if s.controller == nil || s.controller.Options.Store == nil {
-		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-		s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
-		return
-	}
+	// // Create the session in the database
+	// if s.controller == nil || s.controller.Options.Store == nil {
+	// 	log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
+	// 	s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
+	// 	return
+	// }
 
-	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
+	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create spec generation session: %v", err))
@@ -385,7 +383,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Create initial interaction combining planning instructions with user's request
 	// The planning prompt tells Zed how to create design documents
 	// The user's prompt is what they want designed
-	fullMessage := planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
+	userPrompt := task.Description
+	if userPrompt == "" {
+		userPrompt = task.OriginalPrompt
+	}
+
+	var fullMessage string
+	if task.ClonedFromID != "" {
+		// For cloned tasks, reframe original prompt as historical context (not active instructions)
+		// Wrap in quotes to emphasize it's a reference, not commands to follow
+		fullMessage = planningPrompt + "\n\n**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + userPrompt + "\""
+	} else {
+		fullMessage = planningPrompt + "\n\n**User Request:**\n" + userPrompt
+	}
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -401,7 +412,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
-	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	_, err = s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
@@ -603,9 +614,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	// Ensure HelixAppID is set - inherit from project default
 	if task.HelixAppID == "" {
-		// First try project's default agent
 		if project != nil && project.DefaultHelixAppID != "" {
 			task.HelixAppID = project.DefaultHelixAppID
 			log.Info().
@@ -613,40 +623,25 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 				Str("helix_app_id", project.DefaultHelixAppID).
 				Msg("Inherited HelixAppID from project default")
 		} else {
-			// Fall back to system default
-			task.HelixAppID = s.helixAgentID
-			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
+			return
 		}
+	}
+
+	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
+	userPrompt := task.Description
+	if userPrompt == "" {
+		userPrompt = task.OriginalPrompt
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
-		Str("original_prompt", task.OriginalPrompt).
+		Str("user_prompt", userPrompt).
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
-	// Assign task number and design doc path if not already set
-	// Task numbers are globally unique across the entire deployment
-	if task.TaskNumber == 0 {
-		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
-			taskNumber = 1
-		}
-		task.TaskNumber = taskNumber
-		// Generate unique design doc path (checks for collisions across all projects)
-		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
-			designDocPath = GenerateDesignDocPath(task, taskNumber)
-		}
-		task.DesignDocPath = designDocPath
-		log.Info().
-			Str("task_id", task.ID).
-			Int("task_number", taskNumber).
-			Str("design_doc_path", task.DesignDocPath).
-			Msg("Assigned task number and design doc path")
-	}
+	// Note: Task number and design doc path are now assigned at creation time
+	// in CreateTaskFromPrompt, so they should always be set by this point.
 
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
@@ -719,18 +714,12 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Create the session in the database
-	if s.controller == nil || s.controller.Options.Store == nil {
-		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for Just Do It mode")
-		s.markTaskFailed(ctx, task, "Controller or store not available")
-		return
-	}
-
-	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
+	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create Just Do It session")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create session: %v", err))
@@ -822,7 +811,7 @@ Follow these guidelines when making changes:
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -837,7 +826,7 @@ Follow these guidelines when making changes:
 		State:         types.InteractionStateWaiting,
 	}
 
-	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	_, err = s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
@@ -1014,7 +1003,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	}
 
 	// Send notification to user for spec review
-	if s.controller != nil && s.controller.Options.Notifier != nil {
+	if s.notifier != nil {
 		// Note: The notification system expects a session, but for task notifications we'll create a minimal one
 		session := &types.Session{
 			ID:    task.PlanningSessionID,
@@ -1026,7 +1015,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 			Event:   types.EventCronTriggerComplete,
 		}
 
-		if err := s.controller.Options.Notifier.Notify(ctx, notificationPayload); err != nil {
+		if err := s.notifier.Notify(ctx, notificationPayload); err != nil {
 			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to send spec review notification")
 			// Don't fail the whole operation if notification fails
 		}
@@ -1274,10 +1263,21 @@ func generateTaskID() string {
 }
 
 func generateTaskNameFromPrompt(prompt string) string {
-	if len(prompt) > 60 {
-		return prompt[:57] + "..."
+	// Replace newlines and other whitespace with spaces to create clean task names
+	// (prompts can contain newlines from multi-line input)
+	name := strings.ReplaceAll(prompt, "\n", " ")
+	name = strings.ReplaceAll(name, "\r", " ")
+	name = strings.ReplaceAll(name, "\t", " ")
+	// Collapse multiple spaces into one
+	for strings.Contains(name, "  ") {
+		name = strings.ReplaceAll(name, "  ", " ")
 	}
-	return prompt
+	name = strings.TrimSpace(name)
+
+	if len(name) > 60 {
+		return name[:57] + "..."
+	}
+	return name
 }
 
 // isTaskInactive returns true if the task is in a terminal/inactive state
@@ -1570,10 +1570,28 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		displayRefreshRate = 60
 	}
 
+	// Get desktop type from app config
+	// Task must have a valid HelixAppID - error if not found
+	desktopType := "ubuntu" // Default
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err != nil || app == nil {
+			return fmt.Errorf("configured agent '%s' not found - check project settings", task.HelixAppID)
+		}
+		if app.Config.Helix.ExternalAgentConfig != nil {
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Str("app_id", task.HelixAppID).
+				Str("desktop_type", desktopType).
+				Msg("Got desktop type from app config")
+		}
+	}
+
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
-		SessionID: session.ID,
-		UserID:    task.CreatedBy,
+		SessionID:           session.ID,
+		UserID:              task.CreatedBy,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,
@@ -1585,7 +1603,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType:         "sway", // Default to Sway
+		DesktopType:         desktopType,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -1606,6 +1624,122 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Successfully resumed session with new container")
+
+	return nil
+}
+
+// prepopulateClonedSpecs writes the cloned specs from DB to the helix-specs branch
+// so the agent can read and adapt them. This is needed because cloned tasks have
+// specs in DB fields but the target project's helix-specs doesn't have them yet.
+func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task *types.SpecTask, project *types.Project) error {
+	// Get the repo to find the local path
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return fmt.Errorf("failed to get default repository: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return fmt.Errorf("repository has no local path")
+	}
+
+	// Get user info for the commit
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.CreatedBy})
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	authorName := user.FullName
+	if authorName == "" {
+		authorName = "Helix"
+	}
+	authorEmail := user.Email
+	if authorEmail == "" {
+		authorEmail = "helix@helix.ml"
+	}
+
+	// Base path for design docs
+	basePath := fmt.Sprintf("design/tasks/%s", task.DesignDocPath)
+
+	// Use WithExternalRepoWrite to handle pre-sync, writes, post-push, and rollback
+	// For task cloning, we use lenient options - don't fail task start if push fails
+	if s.gitRepositoryService == nil {
+		return fmt.Errorf("gitRepositoryService is required for prepopulateClonedSpecs")
+	}
+
+	writeErr := s.gitRepositoryService.WithExternalRepoWrite(
+		ctx,
+		repo,
+		ExternalRepoWriteOptions{
+			Branch:          SpecsBranchName,
+			FailOnSyncError: true,  // Fail if we can't sync - prevents divergence
+			FailOnPushError: false, // Don't fail task start on push error (but still rollback)
+		},
+		func() error {
+			// Write requirements.md
+			if task.RequirementsSpec != "" {
+				filePath := basePath + "/requirements.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.RequirementsSpec),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: requirements.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned requirements.md")
+				}
+			}
+
+			// Write design.md
+			if task.TechnicalDesign != "" {
+				filePath := basePath + "/design.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.TechnicalDesign),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: design.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned design.md")
+				}
+			}
+
+			// Write tasks.md
+			if task.ImplementationPlan != "" {
+				filePath := basePath + "/tasks.md"
+				_, _, err := CommitFileToBareBranch(
+					ctx,
+					repo.LocalPath,
+					SpecsBranchName,
+					filePath,
+					[]byte(task.ImplementationPlan),
+					authorName,
+					authorEmail,
+					fmt.Sprintf("Pre-populate cloned specs: tasks.md for %s", task.Name),
+				)
+				if err != nil {
+					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned tasks.md")
+				}
+			}
+
+			log.Info().
+				Str("task_id", task.ID).
+				Str("cloned_from", task.ClonedFromID).
+				Str("design_doc_path", task.DesignDocPath).
+				Msg("Pre-populated cloned specs in helix-specs branch")
+
+			return nil
+		},
+	)
+	if writeErr != nil {
+		return writeErr
+	}
 
 	return nil
 }

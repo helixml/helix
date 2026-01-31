@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -20,12 +19,12 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	// Use nil controller since goroutine testing is complex and not critical for this unit test
-	mockController := (*controller.Controller)(nil)
+	// mockController := (*controller.Controller)(nil)
 	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
-		mockController,
+		nil,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
@@ -45,6 +44,14 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	}
 
 	// Mock expectations
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
+		ID:                "test-project",
+		DefaultHelixAppID: "test-app-id",
+	}, nil)
+	mockStore.EXPECT().GetApp(ctx, "test-app-id").Return(&types.App{
+		ID: "test-app-id",
+	}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(ctx context.Context, task *types.SpecTask) error {
 			assert.Equal(t, "test-project", task.ProjectID)
@@ -53,6 +60,9 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
+			// Task number and design doc path should be assigned at creation
+			assert.Equal(t, 1, task.TaskNumber)
+			assert.NotEmpty(t, task.DesignDocPath)
 			return nil
 		},
 	)
@@ -70,6 +80,9 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.Equal(t, "Create a user authentication system", task.OriginalPrompt)
 	assert.Equal(t, types.TaskStatusBacklog, task.Status)
 	assert.Equal(t, "test-user", task.CreatedBy)
+	// Task number and design doc path should be assigned at creation
+	assert.Equal(t, 1, task.TaskNumber)
+	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
@@ -79,12 +92,12 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := store.NewMockStore(ctrl)
-	mockController := (*controller.Controller)(nil)
+	// mockController := (*controller.Controller)(nil)
 	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
-		mockController,
+		nil,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,

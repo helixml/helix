@@ -373,7 +373,7 @@ type SessionMetadata struct {
 	SystemPrompt            string              `json:"system_prompt"`
 	HelixVersion            string              `json:"helix_version"`
 	Stream                  bool                `json:"stream"`
-	AgentType               string              `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
+	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
 	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
 	// Title history - tracks evolution of session topics (newest first)
@@ -393,7 +393,7 @@ type SessionMetadata struct {
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
 	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	DevContainerID string `json:"dev_container_id,omitempty"` // Dev container ID for streaming
+	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
@@ -862,7 +862,8 @@ type WebsocketEvent struct {
 	SessionID          string                      `json:"session_id"`
 	InteractionID      string                      `json:"interaction_id"`
 	Owner              string                      `json:"owner"`
-	Session            *Session                    `json:"session"`
+	Session            *Session                    `json:"session,omitempty"`     // Full session (for session_update)
+	Interaction        *Interaction                `json:"interaction,omitempty"` // Single interaction (for interaction_update)
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
@@ -1377,6 +1378,7 @@ type ToolMCPClientConfig struct {
 	Description   string            `json:"description" yaml:"description"`
 	Enabled       bool              `json:"enabled" yaml:"enabled"`
 	URL           string            `json:"url" yaml:"url"`
+	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
@@ -1493,13 +1495,26 @@ type AssistantZapier struct {
 }
 
 type AssistantMCP struct {
-	Name          string            `json:"name" yaml:"name"`
-	Description   string            `json:"description" yaml:"description"`
-	URL           string            `json:"url" yaml:"url"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+
+	// Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+	// For stdio transport, use Command/Args/Env fields instead of URL
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+
+	// HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set)
+	URL           string            `json:"url,omitempty" yaml:"url,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
-	Tools         []mcp.Tool        `json:"tools" yaml:"tools"`
+
+	// Stdio transport fields (used when Transport is "stdio")
+	// The MCP server runs as a subprocess inside the dev container
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"` // Executable to run (e.g., "npx", "sh")
+	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`       // Command arguments
+	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // Environment variables for the subprocess
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
 
 type AssistantAPI struct {
@@ -1533,6 +1548,20 @@ type AssistantAzureDevOps struct {
 	Enabled             bool   `json:"enabled" yaml:"enabled"`
 	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
+// AssistantSkills groups all skill-related configuration.
+// Used for project-level skills that overlay on top of agent skills.
+type AssistantSkills struct {
+	APIs           []AssistantAPI           `json:"apis,omitempty" yaml:"apis,omitempty"`
+	Zapier         []AssistantZapier        `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs           []AssistantMCP           `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	Browser        *AssistantBrowser        `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch      *AssistantWebSearch      `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Calculator     *AssistantCalculator     `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email          *AssistantEmail          `json:"email,omitempty" yaml:"email,omitempty"`
+	ProjectManager *AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+	AzureDevOps    *AssistantAzureDevOps    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 // apps are a collection of assistants
@@ -2003,9 +2032,9 @@ type DesktopAgentRequest struct {
 
 // ZedTaskMessage represents a task message sent via NATS to external agent runners
 type ZedTaskMessage struct {
-	Type      string   `json:"type"`       // "zed_task"
+	Type      string       `json:"type"`       // "zed_task"
 	Agent     DesktopAgent `json:"agent"`      // Agent configuration including RDP password
-	AuthToken string   `json:"auth_token"` // Authentication token for WebSocket
+	AuthToken string       `json:"auth_token"` // Authentication token for WebSocket
 }
 
 // DesktopAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
@@ -2160,7 +2189,7 @@ type SpecTaskStopResponse struct {
 type SpecTaskStartResponse struct {
 	Message         string `json:"message"`
 	ExternalAgentID string `json:"external_agent_id"`
-	ContainerAppID       string `json:"container_app_id"`
+	ContainerAppID  string `json:"container_app_id"`
 	WorkspaceDir    string `json:"workspace_dir"`
 	ScreenshotURL   string `json:"screenshot_url,omitempty"`
 	StreamURL       string `json:"stream_url,omitempty"`
@@ -2173,7 +2202,7 @@ type SpecTaskStatusResponse struct {
 	Message         string     `json:"message,omitempty"`
 	ExternalAgentID string     `json:"external_agent_id,omitempty"`
 	Status          string     `json:"status,omitempty"`
-	ContainerAppID       string     `json:"container_app_id,omitempty"`
+	ContainerAppID  string     `json:"container_app_id,omitempty"`
 	WorkspaceDir    string     `json:"workspace_dir,omitempty"`
 	HelixSessionIDs []string   `json:"helix_session_ids,omitempty"`
 	ZedThreadIDs    []string   `json:"zed_thread_ids,omitempty"`
@@ -2919,6 +2948,19 @@ type ForkSimpleProjectRequest struct {
 	Description     string `json:"description,omitempty"`
 	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
 	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+
+	// GitHub OAuth connection ID for authenticated cloning
+	// Required for sample projects with RequiresGitHubAuth=true
+	GitHubConnectionID string `json:"github_connection_id,omitempty"`
+
+	// For repos the user doesn't have write access to, fork them to this target
+	// If empty, forks to user's personal GitHub account
+	ForkToOrganization string `json:"fork_to_organization,omitempty"`
+
+	// RepositoryDecisions maps repo URLs to the user's decision about access
+	// Key: GitHub URL (e.g., "github.com/helixml/helix")
+	// Value: "use_original" (has write access) or "fork" (will fork)
+	RepositoryDecisions map[string]string `json:"repository_decisions,omitempty"`
 }
 
 // ForkSimpleProjectResponse represents the fork response
@@ -2927,6 +2969,70 @@ type ForkSimpleProjectResponse struct {
 	GitHubRepoURL string `json:"github_repo_url"`
 	TasksCreated  int    `json:"tasks_created"`
 	Message       string `json:"message"`
+
+	// RepositoriesCreated lists the repositories attached to the project
+	RepositoriesCreated []CreatedRepository `json:"repositories_created,omitempty"`
+
+	// CloningInProgress indicates repos are still being cloned
+	CloningInProgress bool `json:"cloning_in_progress,omitempty"`
+}
+
+// CreatedRepository represents a repository created during sample project fork
+type CreatedRepository struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	GitHubURL   string `json:"github_url"`
+	IsForked    bool   `json:"is_forked"`
+	IsPrimary   bool   `json:"is_primary"`
+	CloneStatus string `json:"clone_status"` // "pending", "cloning", "ready", "error"
+}
+
+// CheckSampleProjectAccessRequest represents a request to check repo access for a sample project
+type CheckSampleProjectAccessRequest struct {
+	SampleProjectID    string `json:"sample_project_id"`
+	GitHubConnectionID string `json:"github_connection_id"`
+}
+
+// CheckSampleProjectAccessResponse represents the result of checking repo access
+type CheckSampleProjectAccessResponse struct {
+	SampleProjectID    string                  `json:"sample_project_id"`
+	HasGitHubConnected bool                    `json:"has_github_connected"`
+	GitHubUsername     string                  `json:"github_username,omitempty"`
+	Repositories       []RepositoryAccessCheck `json:"repositories"`
+	AllHaveWriteAccess bool                    `json:"all_have_write_access"`
+}
+
+// RepositoryAccessCheck represents the access check result for a single repository
+type RepositoryAccessCheck struct {
+	GitHubURL      string `json:"github_url"`
+	Owner          string `json:"owner"`
+	Repo           string `json:"repo"`
+	HasWriteAccess bool   `json:"has_write_access"`
+	CanFork        bool   `json:"can_fork"`
+	ExistingFork   string `json:"existing_fork,omitempty"` // URL of existing fork if any
+	IsPrimary      bool   `json:"is_primary"`
+	DefaultBranch  string `json:"default_branch"`
+}
+
+// ForkRepositoriesRequest represents a request to fork repos for a sample project
+type ForkRepositoriesRequest struct {
+	SampleProjectID    string   `json:"sample_project_id"`
+	GitHubConnectionID string   `json:"github_connection_id"`
+	RepositoriesToFork []string `json:"repositories_to_fork"` // List of GitHub URLs to fork
+	ForkToOrganization string   `json:"fork_to_organization,omitempty"`
+}
+
+// ForkRepositoriesResponse represents the result of forking repos
+type ForkRepositoriesResponse struct {
+	ForkedRepositories []ForkedRepository `json:"forked_repositories"`
+}
+
+// ForkedRepository represents a successfully forked repository
+type ForkedRepository struct {
+	OriginalURL string `json:"original_url"`
+	ForkedURL   string `json:"forked_url"`
+	Owner       string `json:"owner"`
+	Repo        string `json:"repo"`
 }
 
 // =============================================================================
@@ -2939,10 +3045,10 @@ type SandboxInstance struct {
 	ID        string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
 	Created   time.Time `json:"created" gorm:"autoCreateTime"`
 	Updated   time.Time `json:"updated" gorm:"autoUpdateTime"`
-	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"`  // IP address of the sandbox
-	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`   // Hostname for DNS resolution
-	Status    string    `json:"status" gorm:"type:varchar(50)"`      // "online", "offline", "degraded"
-	LastSeen  time.Time `json:"last_seen" gorm:"index"`              // Last heartbeat time
+	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"` // IP address of the sandbox
+	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`  // Hostname for DNS resolution
+	Status    string    `json:"status" gorm:"type:varchar(50)"`     // "online", "offline", "degraded"
+	LastSeen  time.Time `json:"last_seen" gorm:"index"`             // Last heartbeat time
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
@@ -3018,4 +3124,3 @@ type DiskUsageHistory struct {
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
 }
-

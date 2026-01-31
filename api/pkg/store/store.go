@@ -548,6 +548,7 @@ type Store interface {
 
 	// Project-Repository junction table methods (many-to-many relationship)
 	CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error
+	UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error
 	DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error
 	DeleteProjectRepositoriesByProject(ctx context.Context, projectID string) error
 	DeleteProjectRepositoriesByRepository(ctx context.Context, repositoryID string) error
@@ -607,7 +608,8 @@ type Store interface {
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+	FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error)
+	HasPrivilegedSandbox(ctx context.Context) (bool, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error

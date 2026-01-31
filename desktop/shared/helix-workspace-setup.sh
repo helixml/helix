@@ -180,8 +180,13 @@ echo ""
 # =========================================
 if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     echo "========================================="
-    echo "Cloning project repositories..."
+    echo "Cloning project repositories (in parallel)..."
     echo "========================================="
+
+    # Arrays to track parallel clone jobs
+    declare -a CLONE_PIDS
+    declare -a CLONE_NAMES
+    declare -a CLONE_DIRS
 
     IFS=',' read -ra REPOS <<< "$HELIX_REPOSITORIES"
     for REPO_SPEC in "${REPOS[@]}"; do
@@ -197,32 +202,58 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "  Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
-        # If already cloned, just skip
+        # If already cloned, ensure remote URL has no embedded credentials
+        # (credentials come from .git-credentials via credential helper)
         if [ -d "$CLONE_DIR/.git" ]; then
             echo "    Already cloned at $CLONE_DIR"
+            # Strip any embedded credentials from remote URL
+            GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
+            GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
+            CLEAN_REMOTE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
+            git -C "$CLONE_DIR" remote set-url origin "$CLEAN_REMOTE_URL" 2>/dev/null || true
+            echo "    ✅ Remote URL using credential helper"
             continue
         fi
 
-        # Clone repository using HTTP with credentials
+        # Clone repository in background using clean URL (credentials from .git-credentials)
         GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
         GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
-        echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
-        GIT_CLONE_URL="${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}/git/${REPO_ID}"
+        echo "    Starting clone from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
+        GIT_CLONE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
 
-        if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
-            echo ""
-            echo "    ❌ FAILED to clone $REPO_NAME"
-            echo ""
-            echo "    This could be caused by:"
-            echo "      - Invalid repository credentials"
-            echo "      - Repository doesn't exist"
-            echo "      - Network connectivity issues"
+        # Start clone in background
+        git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1 &
+        CLONE_PIDS+=($!)
+        CLONE_NAMES+=("$REPO_NAME")
+        CLONE_DIRS+=("$CLONE_DIR")
+    done
+
+    # Wait for all clones to complete and check results
+    if [ ${#CLONE_PIDS[@]} -gt 0 ]; then
+        echo ""
+        echo "  Waiting for ${#CLONE_PIDS[@]} clone(s) to complete..."
+        CLONE_FAILED=false
+        for i in "${!CLONE_PIDS[@]}"; do
+            if wait "${CLONE_PIDS[$i]}"; then
+                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+            else
+                echo ""
+                echo "    ❌ FAILED to clone ${CLONE_NAMES[$i]}"
+                echo ""
+                echo "    This could be caused by:"
+                echo "      - Invalid repository credentials"
+                echo "      - Repository doesn't exist"
+                echo "      - Network connectivity issues"
+                CLONE_FAILED=true
+            fi
+        done
+
+        if [ "$CLONE_FAILED" = true ]; then
             echo ""
             echo "    The terminal will stay open so you can see this error."
             exit 1
         fi
-        echo "    ✅ Successfully cloned to $CLONE_DIR"
-    done
+    fi
 
     echo "========================================="
     echo ""
@@ -483,8 +514,10 @@ echo "========================================="
 if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
     PRIMARY_REPO_DIR="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
     if [ -d "$PRIMARY_REPO_DIR" ]; then
-        ZED_FOLDERS+=("$PRIMARY_REPO_DIR")
-        echo "  Primary: $HELIX_PRIMARY_REPO_NAME"
+        # Resolve symlinks so Zed shows canonical names (e.g., "zed" instead of "zed-1")
+        RESOLVED_DIR="$(readlink -f "$PRIMARY_REPO_DIR")"
+        ZED_FOLDERS+=("$RESOLVED_DIR")
+        echo "  Primary: $(basename "$RESOLVED_DIR")"
     fi
 fi
 
@@ -514,8 +547,10 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
         # Add other code repos
         REPO_DIR="$WORK_DIR/$REPO_NAME"
         if [ -d "$REPO_DIR" ]; then
-            ZED_FOLDERS+=("$REPO_DIR")
-            echo "  Other: $REPO_NAME"
+            # Resolve symlinks so Zed shows canonical names
+            RESOLVED_DIR="$(readlink -f "$REPO_DIR")"
+            ZED_FOLDERS+=("$RESOLVED_DIR")
+            echo "  Other: $(basename "$RESOLVED_DIR")"
         fi
     done
 fi

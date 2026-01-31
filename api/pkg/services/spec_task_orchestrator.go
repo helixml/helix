@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -20,7 +19,6 @@ import (
 // Manages agent lifecycle and reuses sessions across Helix interactions
 type SpecTaskOrchestrator struct {
 	store                 store.Store
-	controller            *controller.Controller
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
@@ -40,14 +38,12 @@ type ContainerExecutor interface {
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
-	controller *controller.Controller,
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
 	containerExecutor ContainerExecutor, // Executor for external agent containers
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
 		store:                 store,
-		controller:            controller,
 		gitService:            gitService,
 		specTaskService:       specTaskService,
 		containerExecutor:     containerExecutor,
@@ -321,8 +317,14 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 			Str("task_id", task.ID).
 			Msg("Spec generation complete, moving to review")
 
+		now := time.Now()
 		task.Status = types.TaskStatusSpecReview
-		task.UpdatedAt = time.Now()
+		task.UpdatedAt = now
+		// Ensure DesignDocsPushedAt is set so the "Approve Spec" button appears.
+		// For cloned tasks, specs may already exist on the record without being "pushed".
+		if task.DesignDocsPushedAt == nil {
+			task.DesignDocsPushedAt = &now
+		}
 
 		return o.store.UpdateSpecTask(ctx, task)
 	}
@@ -382,9 +384,6 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
-	log.Debug().
-		Str("task_id", task.ID).
-		Msg("Task in implementation (using reused agent pattern)")
 	return nil
 }
 

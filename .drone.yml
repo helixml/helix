@@ -13,7 +13,7 @@ workspace:
 
 steps:
   - name: build-backend
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -47,7 +47,7 @@ steps:
     depends_on: []
 
   #  - name: run-linter
-  #    image: golangci/golangci-lint:v1.64-alpine
+  #    image: golangci/golangci-lint:v2.8.0-alpine
   #    volumes:
   #      - name: go-build-cache
   #        path: /root/.cache/go-build
@@ -84,7 +84,7 @@ steps:
     depends_on: []
 
   - name: unit-test
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -115,7 +115,9 @@ steps:
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev git
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
       - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
@@ -125,7 +127,7 @@ steps:
     depends_on: []
 
   - name: unit-test-nocgo
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -140,7 +142,7 @@ steps:
     depends_on: []
 
   - name: api-integration-test
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -178,7 +180,9 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev git
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
       - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
@@ -193,7 +197,7 @@ steps:
     # depends_on: [unit-test]
 
   # - name: oauth-github-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #     - name: oauth-github-test-results
   #       path: /tmp/helix-oauth-test-results
@@ -252,7 +256,7 @@ steps:
   #       - push
   #   # depends_on: [unit-test]
   # - name: upload-oauth-github-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #     - name: oauth-github-test-results
   #       path: /tmp/helix-oauth-test-results
@@ -271,7 +275,7 @@ steps:
   #       - failure
   #   depends_on: [oauth-github-integration-test]
   # - name: oauth-gmail-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-gmail-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -329,7 +333,7 @@ steps:
   #     - push
   #   # depends_on: [unit-test]
   # - name: upload-oauth-gmail-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-gmail-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -348,7 +352,7 @@ steps:
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
   - name: oauth-outlook-integration-test
-    image: golang:1.24
+    image: golang:1.25
     volumes:
       - name: oauth-outlook-test-results
         path: /tmp/helix-oauth-test-results
@@ -397,6 +401,9 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
+      - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
       - chmod +x scripts/run-oauth-integration-test.sh
       - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
     when:
@@ -405,7 +412,7 @@ steps:
     # depends_on: [unit-test]
 
   - name: upload-oauth-outlook-test-artifacts
-    image: golang:1.24
+    image: golang:1.25
     volumes:
       - name: oauth-outlook-test-results
         path: /tmp/helix-oauth-test-results
@@ -425,7 +432,7 @@ steps:
     depends_on: [oauth-outlook-integration-test]
 
   # - name: oauth-google-calendar-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-google-calendar-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -485,7 +492,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-google-calendar-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-google-calendar-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -505,7 +512,7 @@ steps:
   #   depends_on: [oauth-google-calendar-integration-test]
 
   # - name: oauth-jira-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-jira-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -573,7 +580,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-jira-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-jira-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -593,7 +600,7 @@ steps:
   #   depends_on: [oauth-jira-integration-test]
 
   # - name: oauth-confluence-integration-test
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-confluence-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -661,7 +668,7 @@ steps:
   #   # depends_on: [unit-test]
 
   # - name: upload-oauth-confluence-test-artifacts
-  #   image: golang:1.24
+  #   image: golang:1.25
   #   volumes:
   #   - name: oauth-confluence-test-results
   #     path: /tmp/helix-oauth-test-results
@@ -681,7 +688,7 @@ steps:
   #   depends_on: [oauth-confluence-integration-test]
 
   - name: release-backend
-    image: golang:1.24-bullseye
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -727,7 +734,7 @@ steps:
     depends_on: [build-backend, build-frontend]
 
   - name: build-operator
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -741,7 +748,7 @@ steps:
     depends_on: []
 
   - name: run-linter-operator
-    image: golangci/golangci-lint:v1.64-alpine
+    image: golangci/golangci-lint:v2.8.0-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -1178,7 +1185,7 @@ trigger:
 
 steps:
   - name: smoke-test-saas
-    image: golang:1.24-alpine3.21
+    image: golang:1.25-alpine
     volumes:
       - name: integration-test
         path: /integration-test
@@ -1267,7 +1274,7 @@ services:
 #
 # steps:
 #   - name: spectask-sway-test
-#     image: golang:1.24-alpine3.21
+#     image: golang:1.25-alpine
 #     volumes:
 #       - name: spectask-test-results
 #         path: /tmp/helix-spectask-test-results
@@ -1291,7 +1298,7 @@ services:
 #     depends_on: []
 #
 #   - name: spectask-kde-test
-#     image: golang:1.24-alpine3.21
+#     image: golang:1.25-alpine
 #     volumes:
 #       - name: spectask-test-results
 #         path: /tmp/helix-spectask-test-results
@@ -1572,21 +1579,14 @@ steps:
         else
           VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
-        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building desktop images with version: $${VERSION}"
-        echo "QWEN_HASH=$${QWEN_HASH} GO_HASH=$${GO_HASH}"
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       # Build and push helix-sway
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-sway..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
-          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
           -t registry.helixml.tech/helix/helix-sway:latest \
           .
@@ -1595,13 +1595,9 @@ steps:
       # Build and push helix-ubuntu
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
-        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
-          --build-arg GO_HASH=$${GO_HASH} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
           -t registry.helixml.tech/helix/helix-ubuntu:latest \
           .

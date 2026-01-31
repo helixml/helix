@@ -1,7 +1,8 @@
-import { 
+import {
   TypesUserAppAccessResponse,
   TypesStepInfo,
   TypesMessage,
+  TypesInteraction,
   TypesAssistantCalculator,
   TypesToolCalculatorConfig,
   TypesAssistantBrowser,
@@ -42,8 +43,9 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'worker_task_response' | 'step_info'
+export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
+export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
@@ -323,8 +325,10 @@ export interface IInteractionMessage {
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
+  interaction_id?: string,
   owner: string,
   session?: TypesSession,
+  interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
 }

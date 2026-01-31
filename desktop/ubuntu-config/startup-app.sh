@@ -178,15 +178,14 @@ if [ -f /opt/gow/dconf-settings.ini ]; then
     dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
 fi
 
-# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
+# Set Chrome as default browser for xdg-open to work with HTTP/HTTPS URLs
 # This is needed because GNOME requires explicit default handler configuration.
 # Without this, clicking URLs in Zed/agent output or calling xdg-open silently fails.
-# See: design/2025-12-08-ubuntu-launch-firefox.md
-gow_log "[start] Setting Firefox as default browser..."
-xdg-mime default firefox.desktop x-scheme-handler/http
-xdg-mime default firefox.desktop x-scheme-handler/https
-xdg-mime default firefox.desktop text/html
-gow_log "[start] Firefox set as default browser for HTTP/HTTPS URLs"
+gow_log "[start] Setting Chrome as default browser..."
+xdg-mime default google-chrome.desktop x-scheme-handler/http
+xdg-mime default google-chrome.desktop x-scheme-handler/https
+xdg-mime default google-chrome.desktop text/html
+gow_log "[start] Chrome set as default browser for HTTP/HTTPS URLs"
 
 # Enable extensions before gnome-shell starts so they are loaded:
 # - Just Perfection: Hides the ScreenCast "stop" button that would crash Wolf if clicked
@@ -247,7 +246,11 @@ if [ -x /zed-build/zed ]; then
     # Wait for wayland-0 socket instead of pgrep - more reliable
     for i in \$(seq 1 60); do
       if [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-        gow_log "[start] wayland-0 socket ready, launching Zed..."
+        # Socket exists, but gnome-shell needs time to fully initialize
+        # The socket is created early in mutter startup, before it's ready to accept connections
+        gow_log "[start] wayland-0 socket detected, waiting for gnome-shell to initialize..."
+        sleep 2
+        gow_log "[start] Launching Zed and setup terminal..."
         break
       fi
       if [ \$((i % 10)) -eq 0 ]; then

@@ -9,7 +9,7 @@ import {
   Tooltip,
 } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
-import { FilePlus } from 'lucide-react'
+import { FilePlus, Package } from 'lucide-react'
 
 import { TypesSampleProject } from '../../api/api'
 import { getSampleProjectIcon } from '../../utils/sampleProjectIcons'
@@ -78,14 +78,31 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
         >
           {variant === 'text' ? 'Create Project' : 'New Project'}
         </Button>
-        <Button
-          size="small"
-          onClick={(e) => setMenuAnchor(e.currentTarget)}
-          sx={{ px: 1 }}
-          disabled={isCreating}
+        <Tooltip
+          title={
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Start from a template
+              </Typography>
+              <Typography variant="caption">
+                {sampleProjects.length} sample project{sampleProjects.length !== 1 ? 's' : ''} available
+              </Typography>
+            </Box>
+          }
+          arrow
         >
-          <ArrowDropDownIcon />
-        </Button>
+          <Button
+            onClick={(e) => setMenuAnchor(e.currentTarget)}
+            disabled={isCreating}
+            sx={{
+              px: 1,
+              minWidth: 'auto',
+            }}
+          >
+            <Package size={18} />
+            <ArrowDropDownIcon sx={{ ml: 0.25, fontSize: 18 }} />
+          </Button>
+        </Tooltip>
       </ButtonGroup>
 
       <Menu
@@ -101,30 +118,14 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
           horizontal: 'right',
         }}
       >
-        <Tooltip
-          title="Create a blank project with no sample code or pre-configured tasks"
-          placement="right"
-          arrow
-        >
-          <MenuItem onClick={handleEmptyProject}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-              <FilePlus size={18} />
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Empty Project
-              </Typography>
-            </Box>
-          </MenuItem>
-        </Tooltip>
-
-        {sampleProjects.length > 0 && (
+        {sampleProjects.length === 0 ? (
           <MenuItem disabled>
-            <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.6 }}>
-              Sample Projects
+            <Typography variant="body2" color="text.secondary">
+              No sample projects available
             </Typography>
           </MenuItem>
-        )}
-
-        {sampleProjects.map((sample) => (
+        ) : (
+          sampleProjects.map((sample) => (
           <Tooltip
             key={`tooltip-${sample.id}`}
             title={
@@ -154,7 +155,7 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
               </MenuItem>
             </span>
           </Tooltip>
-        ))}
+        )))}
       </Menu>
     </>
   )

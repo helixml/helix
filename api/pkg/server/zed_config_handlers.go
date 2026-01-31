@@ -106,10 +106,21 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		koditEnabled = apiServer.checkSpecTaskKoditIndexing(ctx, session.Metadata.SpecTaskID)
 	}
 
+	// Get project skills if session has a project
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", session.ProjectID).Msg("Failed to get project for skills config")
+			return nil, system.NewHTTPError500("failed to get project for skills config")
+		}
+		projectSkills = project.Skills
+	}
+
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
 	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
 	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -120,15 +131,19 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	for name, server := range zedConfig.ContextServers {
 		serverMap := make(map[string]interface{})
 
-		// HTTP-based MCP server
-		// Zed expects "url" field for HTTP context_servers (untagged union)
+		// HTTP/SSE-based MCP server
+		// Zed uses "source" field to distinguish transport type:
+		// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
+		// - "sse" = Legacy SSE transport (MCP 2024-11-05)
 		if server.URL != "" {
+			serverMap["source"] = server.Source
 			serverMap["url"] = server.URL
 			if len(server.Headers) > 0 {
 				serverMap["headers"] = server.Headers
 			}
 		} else {
 			// Stdio-based MCP server
+			serverMap["source"] = "stdio"
 			serverMap["command"] = server.Command
 			serverMap["args"] = server.Args
 			if len(server.Env) > 0 {
@@ -372,9 +387,20 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
+	// Get project skills if session has a project
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", session.ProjectID).Msg("Failed to get project for skills config")
+			return nil, system.NewHTTPError500("failed to get project for skills config")
+		}
+		projectSkills = project.Skills
+	}
+
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
 	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -512,22 +538,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 
 	// Look up model info to get token limits
+	// Get token limits from model info if available (0 means use agent defaults)
 	var maxTokens, maxOutputTokens int
 	if apiServer.modelInfoProvider != nil {
 		modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
 			Provider: providerName,
 			Model:    modelName,
 		})
-		if err != nil {
-			log.Debug().Err(err).Str("model", modelName).Msg("Could not find model info for token limits")
-		} else {
+		if err == nil {
 			maxTokens = modelInfo.ContextLength
 			maxOutputTokens = modelInfo.MaxCompletionTokens
-			log.Debug().
-				Str("model", modelName).
-				Int("max_tokens", maxTokens).
-				Int("max_output_tokens", maxOutputTokens).
-				Msg("Got model info for token limits")
 		}
 	}
 

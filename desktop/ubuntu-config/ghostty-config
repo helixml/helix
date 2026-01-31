@@ -1,13 +1,14 @@
 # Ghostty Terminal Configuration for Helix Desktop
 # Modern GPU-accelerated terminal with native blur support
 
-# Use single-instance mode to reuse existing process for new windows
-# This dramatically reduces memory usage when opening multiple terminals
-gtk-single-instance = true
+# CRITICAL: Disable single-instance mode
+# Single-instance mode uses D-Bus activation which drops -e command arguments
+# This breaks launch_terminal() in start-zed-helix.sh which needs to run scripts
+# Memory savings aren't worth losing the ability to launch terminals with commands
+gtk-single-instance = false
 
-# Translucent background with blur effect
+# Translucent background
 background-opacity = 0.9
-background-blur-radius = 16
 
 # Font settings - use Ghostty's bundled font (JetBrains Mono)
 font-size = 13

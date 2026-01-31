@@ -2800,7 +2800,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List all git repositories, optionally filtered by owner and type",
+                "description": "List all git repositories, optionally filtered by owner, type, and project",
                 "produces": [
                     "application/json"
                 ],
@@ -2825,6 +2825,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by organization ID",
                         "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by project ID",
+                        "name": "project_id",
                         "in": "query"
                     }
                 ],
@@ -6656,6 +6662,134 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/move": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Move a project from personal workspace to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Move a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/move/preview": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Check for naming conflicts before moving a project to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Preview moving a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectPreviewResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -8246,6 +8380,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sample-projects/simple/check-access": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Check if the authenticated user has write access to the required repositories for a sample project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Check repository access for a sample project",
+                "parameters": [
+                    {
+                        "description": "Access check request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CheckSampleProjectAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CheckSampleProjectAccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sample-projects/simple/fork": {
             "post": {
                 "security": [
@@ -8274,6 +8465,63 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.ForkSimpleProjectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/simple/fork-repos": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fork the specified repositories to the user's GitHub account",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Fork repositories for a sample project",
+                "parameters": [
+                    {
+                        "description": "Fork request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ForkRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ForkRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -10694,52 +10942,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.DesignDocsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{id}/design-docs/share": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Generate a token-based shareable link for viewing design documents on any device",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Generate shareable design docs link",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.DesignDocsShareLinkResponse"
                         }
                     },
                     "404": {
@@ -14560,20 +14762,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.DesignDocsShareLinkResponse": {
-            "type": "object",
-            "properties": {
-                "expires_at": {
-                    "type": "string"
-                },
-                "share_url": {
-                    "type": "string"
-                },
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
         "server.DesignDocument": {
             "type": "object",
             "properties": {
@@ -14956,6 +15144,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.RequiredGitHubRepo": {
+            "type": "object",
+            "properties": {
+                "allow_fork": {
+                    "description": "AllowFork allows users without write access to fork the repo to their account",
+                    "type": "boolean"
+                },
+                "default_branch": {
+                    "description": "DefaultBranch overrides the default branch for this repo",
+                    "type": "string"
+                },
+                "github_url": {
+                    "description": "GitHubURL is the GitHub repository URL (e.g., \"github.com/helixml/helix\")",
+                    "type": "string"
+                },
+                "is_primary": {
+                    "description": "IsPrimary marks this as the primary/default repository for the project",
+                    "type": "boolean"
+                },
+                "sub_path": {
+                    "description": "SubPath is the directory name to clone into (e.g., \"helix\", \"zed\")\nIf empty, uses the repo name",
+                    "type": "string"
+                }
+            }
+        },
         "server.SampleProject": {
             "type": "object",
             "properties": {
@@ -15235,6 +15448,10 @@ const docTemplate = `{
                 "difficulty": {
                     "type": "string"
                 },
+                "enabled": {
+                    "description": "Whether this sample project is shown to users",
+                    "type": "boolean"
+                },
                 "github_repo": {
                     "type": "string"
                 },
@@ -15246,6 +15463,32 @@ const docTemplate = `{
                 },
                 "readme_url": {
                     "type": "string"
+                },
+                "required_repositories": {
+                    "description": "RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.\nWhen set, the project creation flow will:\n1. Check if user has GitHub OAuth connected\n2. Verify write access to each repo (or offer to fork)\n3. Clone repos with authentication\n4. Wait for cloning to complete before starting session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.RequiredGitHubRepo"
+                    }
+                },
+                "required_scopes": {
+                    "description": "RequiredScopes specifies the OAuth scopes needed for this sample project\nThese are passed when initiating the OAuth flow, so the user authorizes exactly what's needed",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "requires_github_auth": {
+                    "description": "RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access",
+                    "type": "boolean"
+                },
+                "skills": {
+                    "description": "Skills configures project-level skills that will be added when the project is created\nThese overlay on top of agent-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
                 },
                 "task_prompts": {
                     "type": "array",
@@ -16361,8 +16604,26 @@ const docTemplate = `{
         "types.AssistantMCP": {
             "type": "object",
             "properties": {
+                "args": {
+                    "description": "Command arguments",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "description": "Stdio transport fields (used when Transport is \"stdio\")\nThe MCP server runs as a subprocess inside the dev container",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
+                },
+                "env": {
+                    "description": "Environment variables for the subprocess",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "headers": {
                     "type": "object",
@@ -16390,7 +16651,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "Transport type: \"http\" (default, Streamable HTTP), \"sse\" (legacy SSE), or \"stdio\" (command execution)\nFor stdio transport, use Command/Args/Env fields instead of URL",
+                    "type": "string"
+                },
                 "url": {
+                    "description": "HTTP/SSE transport fields (used when Transport is \"http\" or \"sse\", or URL is set)",
                     "type": "string"
                 }
             }
@@ -16403,6 +16669,47 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AssistantSkills": {
+            "type": "object",
+            "properties": {
+                "apis": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantAPI"
+                    }
+                },
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AssistantAzureDevOps"
+                },
+                "browser": {
+                    "$ref": "#/definitions/types.AssistantBrowser"
+                },
+                "calculator": {
+                    "$ref": "#/definitions/types.AssistantCalculator"
+                },
+                "email": {
+                    "$ref": "#/definitions/types.AssistantEmail"
+                },
+                "mcps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
+                "web_search": {
+                    "$ref": "#/definitions/types.AssistantWebSearch"
+                },
+                "zapier": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantZapier"
+                    }
                 }
             }
         },
@@ -16766,6 +17073,40 @@ const docTemplate = `{
                 "ChatMessagePartTypeImageURL"
             ]
         },
+        "types.CheckSampleProjectAccessRequest": {
+            "type": "object",
+            "properties": {
+                "github_connection_id": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CheckSampleProjectAccessResponse": {
+            "type": "object",
+            "properties": {
+                "all_have_write_access": {
+                    "type": "boolean"
+                },
+                "github_username": {
+                    "type": "string"
+                },
+                "has_github_connected": {
+                    "type": "boolean"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepositoryAccessCheck"
+                    }
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ChecklistItem": {
             "type": "object",
             "properties": {
@@ -16950,6 +17291,39 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CloneProgress": {
+            "type": "object",
+            "properties": {
+                "bytes_received": {
+                    "description": "Bytes received so far",
+                    "type": "integer"
+                },
+                "current": {
+                    "description": "Current object count",
+                    "type": "integer"
+                },
+                "percentage": {
+                    "description": "0-100",
+                    "type": "integer"
+                },
+                "phase": {
+                    "description": "\"counting\", \"compressing\", \"receiving\", \"resolving\", \"done\"",
+                    "type": "string"
+                },
+                "speed": {
+                    "description": "e.g., \"1.25 MiB/s\"",
+                    "type": "string"
+                },
+                "started_at": {
+                    "description": "When clone started",
+                    "type": "string"
+                },
+                "total": {
+                    "description": "Total object count",
+                    "type": "integer"
+                }
+            }
+        },
         "types.CloneTaskCreateProjectSpec": {
             "type": "object",
             "properties": {
@@ -17056,6 +17430,14 @@ const docTemplate = `{
                 "base_url": {
                     "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
                     "type": "string"
+                },
+                "max_output_tokens": {
+                    "description": "MaxOutputTokens is the model's max completion tokens\nLooked up from model_info.json, 0 if not found",
+                    "type": "integer"
+                },
+                "max_tokens": {
+                    "description": "MaxTokens is the model's context window size (max input tokens)\nLooked up from model_info.json, 0 if not found",
+                    "type": "integer"
                 },
                 "model": {
                     "description": "Model is the model identifier (e.g., \"claude-sonnet-4-5-latest\", \"gpt-4o\")",
@@ -17370,6 +17752,30 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatedRepository": {
+            "type": "object",
+            "properties": {
+                "clone_status": {
+                    "description": "\"pending\", \"cloning\", \"ready\", \"error\"",
+                    "type": "string"
+                },
+                "github_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_forked": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -17785,10 +18191,50 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ForkRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "fork_to_organization": {
+                    "type": "string"
+                },
+                "github_connection_id": {
+                    "type": "string"
+                },
+                "repositories_to_fork": {
+                    "description": "List of GitHub URLs to fork",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ForkRepositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "forked_repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ForkedRepository"
+                    }
+                }
+            }
+        },
         "types.ForkSimpleProjectRequest": {
             "type": "object",
             "properties": {
                 "description": {
+                    "type": "string"
+                },
+                "fork_to_organization": {
+                    "description": "For repos the user doesn't have write access to, fork them to this target\nIf empty, forks to user's personal GitHub account",
+                    "type": "string"
+                },
+                "github_connection_id": {
+                    "description": "GitHub OAuth connection ID for authenticated cloning\nRequired for sample projects with RequiresGitHubAuth=true",
                     "type": "string"
                 },
                 "helix_app_id": {
@@ -17802,6 +18248,13 @@ const docTemplate = `{
                 "project_name": {
                     "type": "string"
                 },
+                "repository_decisions": {
+                    "description": "RepositoryDecisions maps repo URLs to the user's decision about access\nKey: GitHub URL (e.g., \"github.com/helixml/helix\")\nValue: \"use_original\" (has write access) or \"fork\" (will fork)",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "sample_project_id": {
                     "type": "string"
                 }
@@ -17810,6 +18263,10 @@ const docTemplate = `{
         "types.ForkSimpleProjectResponse": {
             "type": "object",
             "properties": {
+                "cloning_in_progress": {
+                    "description": "CloningInProgress indicates repos are still being cloned",
+                    "type": "boolean"
+                },
                 "github_repo_url": {
                     "type": "string"
                 },
@@ -17819,8 +18276,32 @@ const docTemplate = `{
                 "project_id": {
                     "type": "string"
                 },
+                "repositories_created": {
+                    "description": "RepositoriesCreated lists the repositories attached to the project",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CreatedRepository"
+                    }
+                },
                 "tasks_created": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ForkedRepository": {
+            "type": "object",
+            "properties": {
+                "forked_url": {
+                    "type": "string"
+                },
+                "original_url": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
+                    "type": "string"
                 }
             }
         },
@@ -18198,6 +18679,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "clone_error": {
+                    "description": "Clone progress tracking for async cloning",
+                    "type": "string"
+                },
+                "clone_progress": {
+                    "description": "Live progress during cloning",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CloneProgress"
+                        }
+                    ]
+                },
                 "clone_url": {
                     "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
                     "type": "string"
@@ -18390,11 +18883,19 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "active",
+                "cloning",
+                "error",
                 "archived",
                 "deleted"
             ],
+            "x-enum-comments": {
+                "GitRepositoryStatusCloning": "Clone in progress",
+                "GitRepositoryStatusError": "Clone or sync failed"
+            },
             "x-enum-varnames": [
                 "GitRepositoryStatusActive",
+                "GitRepositoryStatusCloning",
+                "GitRepositoryStatusError",
                 "GitRepositoryStatusArchived",
                 "GitRepositoryStatusDeleted"
             ]
@@ -19513,6 +20014,61 @@ const docTemplate = `{
                 "ModelTypeEmbed"
             ]
         },
+        "types.MoveProjectPreviewItem": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveProjectPreviewResponse": {
+            "type": "object",
+            "properties": {
+                "project": {
+                    "$ref": "#/definitions/types.MoveProjectPreviewItem"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MoveRepositoryPreviewItem"
+                    }
+                }
+            }
+        },
+        "types.MoveProjectRequest": {
+            "type": "object",
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveRepositoryPreviewItem": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
+        },
         "types.OAuthConnection": {
             "type": "object",
             "properties": {
@@ -19629,6 +20185,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "enabled": {
+                    "description": "Misc configuration",
                     "type": "boolean"
                 },
                 "id": {
@@ -19636,13 +20193,6 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
-                },
-                "scopes": {
-                    "description": "Misc configuration",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 },
                 "token_url": {
                     "type": "string"
@@ -20231,6 +20781,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "type": "boolean"
                 },
+                "skills": {
+                    "description": "Project-level skills - these overlay on top of agent skills\nUseful for project-specific tools like CI integration (e.g., drone-ci-mcp)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -20247,6 +20805,10 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Sandbox settings",
+                    "type": "boolean"
                 },
                 "user_id": {
                     "type": "string"
@@ -20334,6 +20896,14 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "type": "string"
                 },
@@ -20396,6 +20966,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "description": "Whether pull request reviews are enabled",
                     "type": "boolean"
+                },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
                 },
                 "startup_script": {
                     "type": "string"
@@ -21016,6 +21594,36 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password_confirm": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RepositoryAccessCheck": {
+            "type": "object",
+            "properties": {
+                "can_fork": {
+                    "type": "boolean"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "existing_fork": {
+                    "description": "URL of existing fork if any",
+                    "type": "string"
+                },
+                "github_url": {
+                    "type": "string"
+                },
+                "has_write_access": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
                     "type": "string"
                 }
             }
@@ -22677,6 +23285,10 @@ const docTemplate = `{
                 "project_path": {
                     "type": "string"
                 },
+                "public_design_docs": {
+                    "description": "Public sharing",
+                    "type": "boolean"
+                },
                 "pull_request_id": {
                     "type": "string"
                 },
@@ -23168,6 +23780,10 @@ const docTemplate = `{
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
                 },
+                "public_design_docs": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
+                },
                 "status": {
                     "$ref": "#/definitions/types.SpecTaskStatus"
                 },
@@ -23341,6 +23957,10 @@ const docTemplate = `{
                 },
                 "project_path": {
                     "type": "string"
+                },
+                "public_design_docs": {
+                    "description": "Public sharing",
+                    "type": "boolean"
                 },
                 "pull_request_id": {
                     "type": "string"
@@ -24129,6 +24749,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -24617,6 +25241,10 @@ const docTemplate = `{
                 },
                 "sb": {
                     "type": "boolean"
+                },
+                "session_id": {
+                    "description": "Session this API key is scoped to (ephemeral keys)",
+                    "type": "string"
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",

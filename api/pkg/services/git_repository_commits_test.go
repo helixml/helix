@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/object"
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -24,19 +23,13 @@ func TestListCommits(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	testDir := t.TempDir()
 	repoPath := filepath.Join(testDir, "test-repo")
+	ctx := context.Background()
 
-	repo, err := git.PlainInit(repoPath, false)
-	require.NoError(t, err)
-
-	worktree, err := repo.Worktree()
+	// Initialize repository
+	err := giteagit.InitRepository(ctx, repoPath, false, "sha1")
 	require.NoError(t, err)
 
 	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	signature := &object.Signature{
-		Name:  "Test Author",
-		Email: "test@example.com",
-		When:  baseTime,
-	}
 
 	commits := []struct {
 		message string
@@ -54,17 +47,27 @@ func TestListCommits(t *testing.T) {
 	for _, c := range commits {
 		filePath := filepath.Join(repoPath, c.file)
 		require.NoError(t, os.WriteFile(filePath, []byte(c.content), 0644))
-		_, err = worktree.Add(c.file)
+
+		err = giteagit.AddChanges(ctx, repoPath, true)
 		require.NoError(t, err)
 
-		_, err = worktree.Commit(c.message, &git.CommitOptions{
-			Author: &object.Signature{
-				Name:  signature.Name,
-				Email: signature.Email,
-				When:  c.time,
-			},
-		})
-		require.NoError(t, err)
+		// Use gitcmd with custom env to set commit date
+		// gitea's CommitChanges ignores the When field, so we use git commit directly
+		dateStr := c.time.Format(time.RFC3339)
+		_, _, gitErr := gitcmd.NewCommand().
+			AddConfig("user.name", "Test Author").
+			AddConfig("user.email", "test@example.com").
+			AddArguments("commit").
+			AddOptionFormat("--message=%s", c.message).
+			AddOptionFormat("--date=%s", dateStr).
+			RunStdString(ctx, &gitcmd.RunOpts{
+				Dir: repoPath,
+				Env: []string{
+					"GIT_AUTHOR_DATE=" + dateStr,
+					"GIT_COMMITTER_DATE=" + dateStr,
+				},
+			})
+		require.NoError(t, gitErr)
 	}
 
 	repoID := "test-repo-id"
@@ -188,15 +191,10 @@ func TestListCommits(t *testing.T) {
 	t.Run("list commits with branch", func(t *testing.T) {
 		mockStore.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(gitRepo, nil)
 
-		headRef, err := repo.Head()
-		require.NoError(t, err)
-
-		branchRef := plumbing.NewHashReference(
-			plumbing.NewBranchReferenceName("test-branch"),
-			headRef.Hash(),
-		)
-		err = repo.Storer.SetReference(branchRef)
-		require.NoError(t, err)
+		// Create a new branch using git command
+		_, _, gitErr := gitcmd.NewCommand("branch", "test-branch").
+			RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+		require.NoError(t, gitErr)
 
 		req := &types.ListCommitsRequest{
 			RepoID: repoID,
@@ -250,6 +248,7 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	testDir := t.TempDir()
+	ctx := context.Background()
 
 	service := NewGitRepositoryService(
 		mockStore,
@@ -273,6 +272,8 @@ func TestListCommits_ErrorCases(t *testing.T) {
 	})
 
 	t.Run("repository without local path", func(t *testing.T) {
+		// When a non-external repo has no LocalPath, GetRepository returns "repository not found"
+		// because it tries to verify the default path exists
 		repoID := "repo-no-path"
 		gitRepo := &types.GitRepository{
 			ID:        repoID,
@@ -293,18 +294,23 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 	t.Run("invalid since date format", func(t *testing.T) {
 		repoPath := filepath.Join(testDir, "test-repo")
-		repo, err := git.PlainInit(repoPath, false)
-		require.NoError(t, err)
 
-		worktree, err := repo.Worktree()
+		// Initialize repository
+		err := giteagit.InitRepository(ctx, repoPath, false, "sha1")
 		require.NoError(t, err)
 
 		require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test"), 0644))
-		_, err = worktree.Add("README.md")
+		err = giteagit.AddChanges(ctx, repoPath, true)
 		require.NoError(t, err)
 
-		_, err = worktree.Commit("Initial", &git.CommitOptions{
-			Author: &object.Signature{
+		err = giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+			Message: "Initial",
+			Author: &giteagit.Signature{
+				Name:  "Test",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+			Committer: &giteagit.Signature{
 				Name:  "Test",
 				Email: "test@example.com",
 				When:  time.Now(),
@@ -334,18 +340,23 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 	t.Run("invalid until date format", func(t *testing.T) {
 		repoPath := filepath.Join(testDir, "test-repo-2")
-		repo, err := git.PlainInit(repoPath, false)
-		require.NoError(t, err)
 
-		worktree, err := repo.Worktree()
+		// Initialize repository
+		err := giteagit.InitRepository(ctx, repoPath, false, "sha1")
 		require.NoError(t, err)
 
 		require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test"), 0644))
-		_, err = worktree.Add("README.md")
+		err = giteagit.AddChanges(ctx, repoPath, true)
 		require.NoError(t, err)
 
-		_, err = worktree.Commit("Initial", &git.CommitOptions{
-			Author: &object.Signature{
+		err = giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+			Message: "Initial",
+			Author: &giteagit.Signature{
+				Name:  "Test",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+			Committer: &giteagit.Signature{
 				Name:  "Test",
 				Email: "test@example.com",
 				When:  time.Now(),
@@ -375,18 +386,23 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 	t.Run("invalid branch", func(t *testing.T) {
 		repoPath := filepath.Join(testDir, "test-repo-3")
-		repo, err := git.PlainInit(repoPath, false)
-		require.NoError(t, err)
 
-		worktree, err := repo.Worktree()
+		// Initialize repository
+		err := giteagit.InitRepository(ctx, repoPath, false, "sha1")
 		require.NoError(t, err)
 
 		require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test"), 0644))
-		_, err = worktree.Add("README.md")
+		err = giteagit.AddChanges(ctx, repoPath, true)
 		require.NoError(t, err)
 
-		_, err = worktree.Commit("Initial", &git.CommitOptions{
-			Author: &object.Signature{
+		err = giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+			Message: "Initial",
+			Author: &giteagit.Signature{
+				Name:  "Test",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+			Committer: &giteagit.Signature{
 				Name:  "Test",
 				Email: "test@example.com",
 				When:  time.Now(),
@@ -411,6 +427,6 @@ func TestListCommits_ErrorCases(t *testing.T) {
 		resp, err := service.ListCommits(context.Background(), req)
 		assert.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "failed to get branch reference")
+		assert.Contains(t, err.Error(), "failed to get branch commit")
 	})
 }

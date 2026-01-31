@@ -41,14 +41,14 @@ func getTaskDirName(task *types.SpecTask) string {
 
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
-	Guidelines         string // Formatted guidelines section
-	PrimaryRepoName    string // Name of the primary repository (e.g., "my-app")
-	TaskDirName        string // Design doc directory name
-	BranchName         string // Feature branch name
-	BaseBranch         string // Base branch (e.g., "main")
-	TaskName           string // Human-readable task name
-	OriginalPrompt     string // Original user request
-	ClonedTaskPreamble string // Extra instructions for cloned tasks (empty if not cloned)
+	Guidelines            string // Formatted guidelines section
+	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
+	TaskDirName           string // Design doc directory name
+	BranchName            string // Feature branch name
+	BaseBranch            string // Base branch (e.g., "main")
+	TaskName              string // Human-readable task name
+	OriginalPromptSection string // Formatted original request section (different for cloned vs normal)
+	ClonedTaskPreamble    string // Extra instructions for cloned tasks (empty if not cloned)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -147,6 +147,17 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
+## Kodit MCP Server - Discover Patterns
+
+You have access to **Kodit**, an MCP server for code intelligence. Use it during implementation:
+
+- Find how similar features are implemented in other repos
+- Discover existing utilities, helpers, or patterns to reuse
+- Search private/internal codebases the organization has indexed
+- Understand conventions before writing new code
+
+When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
+
 ## Don't Over-Engineer
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
@@ -154,25 +165,49 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 - "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
-## Update Design Docs As You Go (IMPORTANT)
+## Update Design Docs As You Go (CRITICAL)
 
-**Your plan is a living document.** When you discover something new or make a decision:
-- **Modify requirements.md** if requirements need clarification or discovered constraints
-- **Modify design.md** with what you learned, decisions made, or approaches that didn't work
-- **Modify tasks.md** to add new tasks, remove unnecessary ones, or adjust the plan
-- Push to helix-specs so the record is saved
+**Your design docs will be used to clone this task to similar projects.** Future agents will
+read your notes to skip the discovery process. Write down everything you learn!
 
-Example modifications:
+**What to capture in design.md:**
+
+1. **User-specified values** - Any explicit choices made
+   - "User specified primary color: #3B82F6"
+   - "User confirmed: use PostgreSQL, not SQLite"
+
+2. **Implementation approach** - How you solved it
+   - Which files you modified and why
+   - The pattern/architecture you used
+   - The order of changes that worked
+
+3. **Discovery learnings** - What you figured out
+   - "Tried X, but Y worked better because..."
+   - "This codebase uses pattern Z, so we adapted by..."
+   - "Watch out for edge case: ..."
+
+4. **Gotchas and blockers** - Problems and solutions
+   - "Blocker: config parser doesn't support X, used workaround Y"
+   - "Note: must restart service after changing Z"
+
+**Also update:**
+- **requirements.md** - Clarifications or discovered constraints
+- **tasks.md** - Add new tasks, remove unnecessary ones, reorder as needed
+
+Push to helix-specs after every update so the record is saved.
+
+Example addition to design.md:
 ` + "```markdown" + `
-## Implementation Notes (add to design.md)
+## Implementation Notes
 
-- Found existing utility X, reusing instead of building new
-- Chose approach A over B because [reason]
-- Blocker: Y didn't work, used Z instead
-- Added new task: need to also update the config parser
+- Found existing utility AuthHelper, reusing instead of building new
+- User specified: JWT expiry = 24 hours
+- Chose middleware approach over decorator because this codebase uses Express patterns
+- Gotcha: the config loader caches values, must call config.reload() after changes
+- Added task: also need to update the logout endpoint to invalidate tokens
 ` + "```" + `
 
-Don't treat the original plan as fixed - update it based on what you learn during implementation.
+Don't treat the original plan as fixed - update it based on what you learn.
 
 ---
 
@@ -180,8 +215,7 @@ Don't treat the original plan as fixed - update it based on what you learn durin
 **Feature Branch:** {{.BranchName}} (base: {{.BaseBranch}})
 **Design Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 
-**Original Request:**
-{{.OriginalPrompt}}
+{{.OriginalPromptSection}}
 
 **Primary Project Directory:** /home/retro/work/{{.PrimaryRepoName}}/
 `))
@@ -277,40 +311,44 @@ Follow these guidelines when implementing:
 	if task.ClonedFromID != "" {
 		clonedTaskPreamble = `
 
-## CLONED TASK - Read Specs First
+## CLONED TASK - User-Provided Values Already Known
 
-This task was cloned from a completed task in another project. The specs contain learnings from the original implementation.
+This task was cloned from a completed task. The specs contain values discovered through user interaction.
 
-**Before you start implementing, you MUST:**
+**CRITICAL: Use Discovered Values Directly**
 
-1. **Read design.md and requirements.md carefully** - They may contain information that was discovered during the original implementation (decisions made, values confirmed with user, approaches that worked). Use this information instead of re-asking or re-discovering it.
+Look in design.md for phrases like "User specified...", "User confirmed...", or specific values
+(hex codes, URLs, etc.). These values override any generic instructions in the task description.
 
-2. **Reset and adapt tasks.md:**
-   - All checkboxes are currently marked [x] complete from the original task
-   - Change all [x] back to [ ] (unchecked)
-   - REMOVE any tasks that are no longer needed based on what you learned from reading the specs
-   - ADD any new tasks specific to this repository if needed
-   - Push the updated tasks.md to helix-specs BEFORE doing any implementation work
+If the task says "ask the user for X" but design.md already has "User specified X = Y" → use Y directly.
+The whole point of cloning is to SKIP re-asking questions that were already answered.
 
-3. **Adapt to this repository** - The target repo may differ from the original:
-   - Check file paths and structure
-   - Verify naming conventions match
-   - Look for existing code that might change the approach
+**Before implementing:**
 
-The clone feature's value is that learnings transfer - you should NOT need to re-ask questions or re-discover things the original agent already figured out.
+1. **Read design.md carefully** - Extract all user-specified values and use them directly
+2. **Reset tasks.md** - Change [x] back to [ ], remove/add tasks as needed for this repo
+3. **Adapt paths for this repository** - File paths may differ, but user-specified values stay the same
 
 `
 	}
 
+	// Format original prompt section - for cloned tasks, reframe as historical context
+	var originalPromptSection string
+	if task.ClonedFromID != "" {
+		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
+	} else {
+		originalPromptSection = "**Original Request:**\n" + task.OriginalPrompt
+	}
+
 	data := ApprovalPromptData{
-		Guidelines:         guidelinesSection,
-		PrimaryRepoName:    primaryRepoName,
-		TaskDirName:        taskDirName,
-		BranchName:         branchName,
-		BaseBranch:         baseBranch,
-		TaskName:           task.Name,
-		OriginalPrompt:     task.OriginalPrompt,
-		ClonedTaskPreamble: clonedTaskPreamble,
+		Guidelines:            guidelinesSection,
+		PrimaryRepoName:       primaryRepoName,
+		TaskDirName:           taskDirName,
+		BranchName:            branchName,
+		BaseBranch:            baseBranch,
+		TaskName:              task.Name,
+		OriginalPromptSection: originalPromptSection,
+		ClonedTaskPreamble:    clonedTaskPreamble,
 	}
 
 	var buf bytes.Buffer

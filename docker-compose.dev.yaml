@@ -56,7 +56,6 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
-      - FRONTEND_URL=http://frontend:8081
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - EVAL_USER_ID=${EVAL_USER_ID:-}
@@ -109,8 +108,11 @@ services:
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
-      # Sandbox socket - API uses RevDial to communicate with sandbox
-      # (sandbox runs in separate container, socket not accessible from API)
+      # Go caches for faster air rebuilds (shared with runner config)
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      # Production frontend build (used when SERVE_PROD_FRONTEND_IN_DEV=true)
+      - ./frontend/dist:/www:ro
     depends_on:
       - postgres
       - postgres-mcp
@@ -141,6 +143,7 @@ services:
       - "5000:5000"
     volumes:
       - registry-data:/var/lib/registry
+
   # Example/test MCP server
   postgres-mcp:
     image: crystaldba/postgres-mcp:latest
@@ -281,7 +284,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -368,7 +371,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3
@@ -453,7 +456,7 @@ services:
       - RUNNER_TOKEN=oh-hallo-insecure-token
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
       # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - GST_DEBUG=3

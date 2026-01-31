@@ -599,12 +599,6 @@ export interface ServerDesignDocsResponse {
   task_id?: string;
 }
 
-export interface ServerDesignDocsShareLinkResponse {
-  expires_at?: string;
-  share_url?: string;
-  token?: string;
-}
-
 export interface ServerDesignDocument {
   content?: string;
   filename?: string;
@@ -758,6 +752,22 @@ export interface ServerQuickCreateProjectRequest {
   repo_id?: string;
 }
 
+export interface ServerRequiredGitHubRepo {
+  /** AllowFork allows users without write access to fork the repo to their account */
+  allow_fork?: boolean;
+  /** DefaultBranch overrides the default branch for this repo */
+  default_branch?: string;
+  /** GitHubURL is the GitHub repository URL (e.g., "github.com/helixml/helix") */
+  github_url?: string;
+  /** IsPrimary marks this as the primary/default repository for the project */
+  is_primary?: boolean;
+  /**
+   * SubPath is the directory name to clone into (e.g., "helix", "zed")
+   * If empty, uses the repo name
+   */
+  sub_path?: string;
+}
+
 export interface ServerSampleProject {
   /** "web", "api", "mobile", "data", "ai" */
   category?: string;
@@ -866,10 +876,33 @@ export interface ServerSimpleSampleProject {
   demo_url?: string;
   description?: string;
   difficulty?: string;
+  /** Whether this sample project is shown to users */
+  enabled?: boolean;
   github_repo?: string;
   id?: string;
   name?: string;
   readme_url?: string;
+  /**
+   * RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
+   * When set, the project creation flow will:
+   * 1. Check if user has GitHub OAuth connected
+   * 2. Verify write access to each repo (or offer to fork)
+   * 3. Clone repos with authentication
+   * 4. Wait for cloning to complete before starting session
+   */
+  required_repositories?: ServerRequiredGitHubRepo[];
+  /**
+   * RequiredScopes specifies the OAuth scopes needed for this sample project
+   * These are passed when initiating the OAuth flow, so the user authorizes exactly what's needed
+   */
+  required_scopes?: string[];
+  /** RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access */
+  requires_github_auth?: boolean;
+  /**
+   * Skills configures project-level skills that will be added when the project is created
+   * These overlay on top of agent-level skills
+   */
+  skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
   /** Enable host Docker access (for Helix-in-Helix dev) */
@@ -1345,7 +1378,16 @@ export interface TypesAssistantKnowledge {
 }
 
 export interface TypesAssistantMCP {
+  /** Command arguments */
+  args?: string[];
+  /**
+   * Stdio transport fields (used when Transport is "stdio")
+   * The MCP server runs as a subprocess inside the dev container
+   */
+  command?: string;
   description?: string;
+  /** Environment variables for the subprocess */
+  env?: Record<string, string>;
   headers?: Record<string, string>;
   name?: string;
   /** The name of the OAuth provider to use for authentication */
@@ -1353,12 +1395,30 @@ export interface TypesAssistantMCP {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
+  /**
+   * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+   * For stdio transport, use Command/Args/Env fields instead of URL
+   */
+  transport?: string;
+  /** HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set) */
   url?: string;
 }
 
 export interface TypesAssistantProjectManager {
   enabled?: boolean;
   project_id?: string;
+}
+
+export interface TypesAssistantSkills {
+  apis?: TypesAssistantAPI[];
+  azure_devops?: TypesAssistantAzureDevOps;
+  browser?: TypesAssistantBrowser;
+  calculator?: TypesAssistantCalculator;
+  email?: TypesAssistantEmail;
+  mcps?: TypesAssistantMCP[];
+  project_manager?: TypesAssistantProjectManager;
+  web_search?: TypesAssistantWebSearch;
+  zapier?: TypesAssistantZapier[];
 }
 
 export interface TypesAssistantWebSearch {
@@ -1518,6 +1578,19 @@ export enum TypesChatMessagePartType {
   ChatMessagePartTypeImageURL = "image_url",
 }
 
+export interface TypesCheckSampleProjectAccessRequest {
+  github_connection_id?: string;
+  sample_project_id?: string;
+}
+
+export interface TypesCheckSampleProjectAccessResponse {
+  all_have_write_access?: boolean;
+  github_username?: string;
+  has_github_connected?: boolean;
+  repositories?: TypesRepositoryAccessCheck[];
+  sample_project_id?: string;
+}
+
 export interface TypesChecklistItem {
   description?: string;
   index?: number;
@@ -1590,6 +1663,23 @@ export interface TypesCloneGroupTaskProgress {
   task_id?: string;
 }
 
+export interface TypesCloneProgress {
+  /** Bytes received so far */
+  bytes_received?: number;
+  /** Current object count */
+  current?: number;
+  /** 0-100 */
+  percentage?: number;
+  /** "counting", "compressing", "receiving", "resolving", "done" */
+  phase?: string;
+  /** e.g., "1.25 MiB/s" */
+  speed?: string;
+  /** When clone started */
+  started_at?: string;
+  /** Total object count */
+  total?: number;
+}
+
 export interface TypesCloneTaskCreateProjectSpec {
   /** Optional, will use repo name if not provided */
   name?: string;
@@ -1633,6 +1723,16 @@ export interface TypesCodeAgentConfig {
   api_type?: string;
   /** BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1") */
   base_url?: string;
+  /**
+   * MaxOutputTokens is the model's max completion tokens
+   * Looked up from model_info.json, 0 if not found
+   */
+  max_output_tokens?: number;
+  /**
+   * MaxTokens is the model's context window size (max input tokens)
+   * Looked up from model_info.json, 0 if not found
+   */
+  max_tokens?: number;
   /** Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o") */
   model?: string;
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
@@ -1769,6 +1869,16 @@ export interface TypesCreateTaskRequest {
 export interface TypesCreateTeamRequest {
   name?: string;
   organization_id?: string;
+}
+
+export interface TypesCreatedRepository {
+  /** "pending", "cloning", "ready", "error" */
+  clone_status?: string;
+  github_url?: string;
+  id?: string;
+  is_forked?: boolean;
+  is_primary?: boolean;
+  name?: string;
 }
 
 export interface TypesCrispTrigger {
@@ -1934,21 +2044,60 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
+export interface TypesForkRepositoriesRequest {
+  fork_to_organization?: string;
+  github_connection_id?: string;
+  /** List of GitHub URLs to fork */
+  repositories_to_fork?: string[];
+  sample_project_id?: string;
+}
+
+export interface TypesForkRepositoriesResponse {
+  forked_repositories?: TypesForkedRepository[];
+}
+
 export interface TypesForkSimpleProjectRequest {
   description?: string;
+  /**
+   * For repos the user doesn't have write access to, fork them to this target
+   * If empty, forks to user's personal GitHub account
+   */
+  fork_to_organization?: string;
+  /**
+   * GitHub OAuth connection ID for authenticated cloning
+   * Required for sample projects with RequiresGitHubAuth=true
+   */
+  github_connection_id?: string;
   /** Optional: agent app to use for spec tasks (uses default if empty) */
   helix_app_id?: string;
   /** Optional: if empty, project is personal */
   organization_id?: string;
   project_name?: string;
+  /**
+   * RepositoryDecisions maps repo URLs to the user's decision about access
+   * Key: GitHub URL (e.g., "github.com/helixml/helix")
+   * Value: "use_original" (has write access) or "fork" (will fork)
+   */
+  repository_decisions?: Record<string, string>;
   sample_project_id?: string;
 }
 
 export interface TypesForkSimpleProjectResponse {
+  /** CloningInProgress indicates repos are still being cloned */
+  cloning_in_progress?: boolean;
   github_repo_url?: string;
   message?: string;
   project_id?: string;
+  /** RepositoriesCreated lists the repositories attached to the project */
+  repositories_created?: TypesCreatedRepository[];
   tasks_created?: number;
+}
+
+export interface TypesForkedRepository {
+  forked_url?: string;
+  original_url?: string;
+  owner?: string;
+  repo?: string;
 }
 
 export interface TypesFrontendLicenseInfo {
@@ -2106,6 +2255,10 @@ export interface TypesGitRepository {
   azure_devops?: TypesAzureDevOps;
   bitbucket?: TypesBitbucket;
   branches?: string[];
+  /** Clone progress tracking for async cloning */
+  clone_error?: string;
+  /** Live progress during cloning */
+  clone_progress?: TypesCloneProgress;
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
   created_at?: string;
@@ -2190,6 +2343,8 @@ export interface TypesGitRepositoryFileResponse {
 
 export enum TypesGitRepositoryStatus {
   GitRepositoryStatusActive = "active",
+  GitRepositoryStatusCloning = "cloning",
+  GitRepositoryStatusError = "error",
   GitRepositoryStatusArchived = "archived",
   GitRepositoryStatusDeleted = "deleted",
 }
@@ -2670,6 +2825,30 @@ export enum TypesModelType {
   ModelTypeEmbed = "embed",
 }
 
+export interface TypesMoveProjectPreviewItem {
+  current_name?: string;
+  has_conflict?: boolean;
+  /** nil if no conflict */
+  new_name?: string;
+}
+
+export interface TypesMoveProjectPreviewResponse {
+  project?: TypesMoveProjectPreviewItem;
+  repositories?: TypesMoveRepositoryPreviewItem[];
+}
+
+export interface TypesMoveProjectRequest {
+  organization_id?: string;
+}
+
+export interface TypesMoveRepositoryPreviewItem {
+  current_name?: string;
+  has_conflict?: boolean;
+  id?: string;
+  /** nil if no conflict */
+  new_name?: string;
+}
+
 export interface TypesOAuthConnection {
   /** OAuth token fields */
   access_token?: string;
@@ -2713,11 +2892,10 @@ export interface TypesOAuthProvider {
   deleted_at?: GormDeletedAt;
   description?: string;
   discovery_url?: string;
+  /** Misc configuration */
   enabled?: boolean;
   id?: string;
   name?: string;
-  /** Misc configuration */
-  scopes?: string[];
   token_url?: string;
   type?: TypesOAuthProviderType;
   updated_at?: string;
@@ -2959,12 +3137,19 @@ export interface TypesProject {
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
   pull_request_reviews_enabled?: boolean;
+  /**
+   * Project-level skills - these overlay on top of agent skills
+   * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+   */
+  skills?: TypesAssistantSkills;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
   status?: string;
   technologies?: string[];
   updated_at?: string;
+  /** Sandbox settings */
+  use_host_docker?: boolean;
   user_id?: string;
 }
 
@@ -2998,6 +3183,8 @@ export interface TypesProjectCreateRequest {
   guidelines?: string;
   name?: string;
   organization_id?: string;
+  /** Project-level skills */
+  skills?: TypesAssistantSkills;
   startup_script?: string;
   technologies?: string[];
 }
@@ -3024,6 +3211,8 @@ export interface TypesProjectUpdateRequest {
   pull_request_reviewer_helix_app_id?: string;
   /** Whether pull request reviews are enabled */
   pull_request_reviews_enabled?: boolean;
+  /** Project-level skills */
+  skills?: TypesAssistantSkills;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -3291,6 +3480,18 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepositoryAccessCheck {
+  can_fork?: boolean;
+  default_branch?: string;
+  /** URL of existing fork if any */
+  existing_fork?: string;
+  github_url?: string;
+  has_write_access?: boolean;
+  is_primary?: boolean;
+  owner?: string;
+  repo?: string;
 }
 
 export interface TypesRepositoryInfo {
@@ -3993,6 +4194,8 @@ export interface TypesSpecTask {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  /** Public sharing */
+  public_design_docs?: boolean;
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
@@ -4196,6 +4399,8 @@ export interface TypesSpecTaskUpdateRequest {
   just_do_it_mode?: boolean;
   name?: string;
   priority?: TypesSpecTaskPriority;
+  /** Pointer to allow explicit false */
+  public_design_docs?: boolean;
   status?: TypesSpecTaskStatus;
   /** User override for tab title (pointer to allow clearing with empty string) */
   user_short_title?: string;
@@ -4271,6 +4476,8 @@ export interface TypesSpecTaskWithProject {
   project_id?: string;
   project_name?: string;
   project_path?: string;
+  /** Public sharing */
+  public_design_docs?: boolean;
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
@@ -4613,6 +4820,8 @@ export interface TypesToolMCPClientConfig {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
+  /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
+  transport?: string;
   url?: string;
 }
 
@@ -4823,6 +5032,8 @@ export interface TypesUser {
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
+  /** Session this API key is scoped to (ephemeral keys) */
+  session_id?: string;
   /** When running in Helix Code sandbox */
   spec_task_id?: string;
   /** the actual token used and its type */
@@ -6531,7 +6742,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List all git repositories, optionally filtered by owner and type
+     * @description List all git repositories, optionally filtered by owner, type, and project
      *
      * @tags git-repositories
      * @name V1GitRepositoriesList
@@ -6547,6 +6758,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         repo_type?: string;
         /** Filter by organization ID */
         organization_id?: string;
+        /** Filter by project ID */
+        project_id?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -8325,6 +8538,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Move a project from personal workspace to an organization
+     *
+     * @tags Projects
+     * @name V1ProjectsMoveCreate
+     * @summary Move a project to an organization
+     * @request POST:/api/v1/projects/{id}/move
+     * @secure
+     */
+    v1ProjectsMoveCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/move`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Check for naming conflicts before moving a project to an organization
+     *
+     * @tags Projects
+     * @name V1ProjectsMovePreviewCreate
+     * @summary Preview moving a project to an organization
+     * @request POST:/api/v1/projects/{id}/move/preview
+     * @secure
+     */
+    v1ProjectsMovePreviewCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesMoveProjectPreviewResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/move/preview`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all repositories attached to a project
      *
      * @tags Projects
@@ -9091,6 +9344,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Check if the authenticated user has write access to the required repositories for a sample project
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsSimpleCheckAccessCreate
+     * @summary Check repository access for a sample project
+     * @request POST:/api/v1/sample-projects/simple/check-access
+     * @secure
+     */
+    v1SampleProjectsSimpleCheckAccessCreate: (
+      request: TypesCheckSampleProjectAccessRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesCheckSampleProjectAccessResponse, SystemHTTPError>({
+        path: `/api/v1/sample-projects/simple/check-access`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Fork a sample project and create tasks from natural language prompts
      *
      * @tags sample-projects
@@ -9106,6 +9382,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Fork the specified repositories to the user's GitHub account
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsSimpleForkReposCreate
+     * @summary Fork repositories for a sample project
+     * @request POST:/api/v1/sample-projects/simple/fork-repos
+     * @secure
+     */
+    v1SampleProjectsSimpleForkReposCreate: (request: TypesForkRepositoriesRequest, params: RequestParams = {}) =>
+      this.request<TypesForkRepositoriesResponse, SystemHTTPError>({
+        path: `/api/v1/sample-projects/simple/fork-repos`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -10075,24 +10371,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerDesignDocsResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${id}/design-docs`,
         method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Generate a token-based shareable link for viewing design documents on any device
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsShareCreate
-     * @summary Generate shareable design docs link
-     * @request POST:/api/v1/spec-tasks/{id}/design-docs/share
-     * @secure
-     */
-    v1SpecTasksDesignDocsShareCreate: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsShareLinkResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs/share`,
-        method: "POST",
         secure: true,
         format: "json",
         ...params,

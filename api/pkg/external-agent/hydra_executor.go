@@ -125,7 +125,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
 		// Find an available sandbox with the required desktop image
-		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
+		// If UseHostDocker is set, we need a sandbox with PrivilegedMode enabled
+		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType, agent.UseHostDocker)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -134,8 +135,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
+				Bool("use_host_docker", agent.UseHostDocker).
 				Msg("Auto-selected available sandbox")
 		} else {
+			if agent.UseHostDocker {
+				return nil, fmt.Errorf("no privileged sandbox available (UseHostDocker requires HYDRA_PRIVILEGED_MODE_ENABLED=true on sandbox)")
+			}
 			// Fallback to "local" if no sandbox found (for backwards compatibility)
 			sandboxID = "local"
 			log.Warn().
@@ -365,6 +370,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.ContainerID = resp.ContainerID
 		dbSession.Metadata.ContainerIP = resp.IPAddress
 		dbSession.Metadata.ExecutorMode = "hydra"
+		// CRITICAL: Set DevContainerID - used by exploratory session to check if container is running
+		dbSession.Metadata.DevContainerID = resp.ContainerID
 
 		// Store debug info in Metadata (serialized as "config" in JSON for frontend)
 		dbSession.Metadata.SwayVersion = resp.DesktopVersion
@@ -380,13 +387,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 
 	return &types.DesktopAgentResponse{
-		SessionID:     agent.SessionID,
-		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
-		Status:        "running",
-		ContainerName: resp.ContainerName,
-		ContainerIP:   resp.IPAddress,
-		SandboxID:     sandboxID,
+		SessionID:      agent.SessionID,
+		ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+		StreamURL:      fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
+		Status:         "running",
+		ContainerName:  resp.ContainerName,
+		ContainerIP:    resp.IPAddress,
+		SandboxID:      sandboxID,
+		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
 }
 
@@ -648,7 +656,7 @@ func (h *HydraExecutor) parseContainerType(desktopType string) string {
 	case "headless":
 		return "headless"
 	default:
-		return "sway" // Default to Sway
+		return "ubuntu" // Default to Ubuntu (GNOME)
 	}
 }
 
@@ -716,8 +724,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
-		// WORKSPACE_DIR is required by /opt/gow/startup.sh (Ubuntu container)
-		fmt.Sprintf("WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		// WORKSPACE_DIR is the actual sandbox path (e.g., /data/workspaces/spec-tasks/spt_xxx)
+		// This is required by the docker wrapper script to translate /home/retro/work paths
+		// to paths that the DinD daemon can access. Using workspaceBasePathForContainer (/workspace)
+		// doesn't work because the DinD daemon only has /data/workspaces mounted, not /workspace.
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
 		// XDG_RUNTIME_DIR is required for PipeWire, D-Bus, and Wayland sockets
 		"XDG_RUNTIME_DIR=/run/user/1000",
 		// Override default UMASK=000 which causes permission issues
@@ -1021,4 +1032,154 @@ func (h *HydraExecutor) checkDesktopBridgeHealth(ctx context.Context, runnerID, 
 	defer resp.Body.Close()
 
 	return resp.StatusCode == http.StatusOK
+}
+
+// DiscoverContainersFromSandbox queries a sandbox for running dev containers and
+// reconciles them with the in-memory sessions map and database state.
+// This is called when a sandbox connects (via heartbeat) to recover state after
+// API restart or when containers were started but the API didn't record them.
+func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error {
+	if h.connman == nil {
+		return fmt.Errorf("connection manager not available")
+	}
+
+	// Hydra runner ID follows the pattern: hydra-{SANDBOX_INSTANCE_ID}
+	hydraRunnerID := "hydra-" + sandboxID
+
+	// Create RevDial client to query Hydra
+	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+
+	// Query for running containers
+	containerList, err := hydraClient.ListDevContainers(ctx)
+	if err != nil {
+		// Don't fail on connection errors - sandbox might not be ready yet
+		log.Debug().Err(err).
+			Str("sandbox_id", sandboxID).
+			Msg("Failed to query containers from sandbox (may not be ready)")
+		return nil
+	}
+
+	if len(containerList.Containers) == 0 {
+		return nil
+	}
+
+	log.Info().
+		Str("sandbox_id", sandboxID).
+		Int("container_count", len(containerList.Containers)).
+		Msg("Discovered running containers from sandbox")
+
+	// Collect containers that need to be added to our map
+	// We do this in two phases to avoid holding the lock during DB operations
+	type containerToAdd struct {
+		sessionID     string
+		containerID   string
+		containerName string
+		containerIP   string
+		containerType string
+	}
+	var containersToAdd []containerToAdd
+
+	// Phase 1: Check which containers we don't have tracked (short lock)
+	h.mutex.RLock()
+	for _, container := range containerList.Containers {
+		sessionID := container.SessionID
+		if _, exists := h.sessions[sessionID]; !exists {
+			containerType := "ubuntu" // Default to Ubuntu
+			if strings.Contains(container.ContainerName, "sway") {
+				containerType = "sway"
+			}
+			containersToAdd = append(containersToAdd, containerToAdd{
+				sessionID:     sessionID,
+				containerID:   container.ContainerID,
+				containerName: container.ContainerName,
+				containerIP:   container.IPAddress,
+				containerType: containerType,
+			})
+		}
+	}
+	h.mutex.RUnlock()
+
+	if len(containersToAdd) == 0 {
+		return nil
+	}
+
+	// Phase 2: For each container, acquire per-session lock, update DB, then update map
+	for _, container := range containersToAdd {
+		sessionID := container.sessionID
+
+		// Acquire per-session creation lock to prevent race with StartDesktop
+		h.creationLocksMutex.Lock()
+		sessionLock, exists := h.creationLocks[sessionID]
+		if !exists {
+			sessionLock = &sync.Mutex{}
+			h.creationLocks[sessionID] = sessionLock
+		}
+		h.creationLocksMutex.Unlock()
+
+		sessionLock.Lock()
+
+		// Double-check we still need to add this (StartDesktop may have run)
+		h.mutex.RLock()
+		_, alreadyTracked := h.sessions[sessionID]
+		h.mutex.RUnlock()
+
+		if alreadyTracked {
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Check if session exists in database
+		dbSession, err := h.store.GetSession(ctx, sessionID)
+		if err != nil {
+			log.Debug().Err(err).
+				Str("session_id", sessionID).
+				Msg("Session not found in database during discovery (may have been deleted)")
+			// TODO: Consider stopping orphaned container here
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Update database session metadata (outside of sessions map lock)
+		if dbSession.Metadata.ContainerName != container.containerName ||
+			dbSession.Metadata.ExternalAgentStatus != "running" {
+			dbSession.Metadata.ContainerName = container.containerName
+			dbSession.Metadata.ContainerID = container.containerID
+			dbSession.Metadata.ContainerIP = container.containerIP
+			dbSession.Metadata.ExternalAgentStatus = "running"
+			dbSession.Metadata.ExecutorMode = "hydra"
+			dbSession.SandboxID = sandboxID
+
+			if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to update session metadata after container discovery")
+				sessionLock.Unlock()
+				continue
+			}
+		}
+
+		// Add to in-memory sessions map
+		h.mutex.Lock()
+		h.sessions[sessionID] = &ZedSession{
+			SessionID:     sessionID,
+			ContainerID:   container.containerID,
+			ContainerName: container.containerName,
+			Status:        "running",
+			ContainerIP:   container.containerIP,
+			LastAccess:    time.Now(),
+		}
+		h.mutex.Unlock()
+
+		log.Info().
+			Str("session_id", sessionID).
+			Str("container_id", container.containerID).
+			Str("container_name", container.containerName).
+			Str("container_type", container.containerType).
+			Str("sandbox_id", sandboxID).
+			Msg("Recovered container from sandbox discovery")
+
+		sessionLock.Unlock()
+	}
+
+	return nil
 }

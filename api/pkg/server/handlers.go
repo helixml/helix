@@ -100,6 +100,24 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 	}
 	session.Interactions = interactions
 
+	// Check if the external agent (sandbox container) is actually running
+	// If not running, update status to "stopped"
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if err != nil {
+				// External agent not running - mark as stopped
+				session.Metadata.ExternalAgentStatus = "stopped"
+			} else {
+				// External agent is running
+				session.Metadata.ExternalAgentStatus = "running"
+			}
+		} else {
+			// No external agent executor available - assume stopped
+			session.Metadata.ExternalAgentStatus = "stopped"
+		}
+	}
+
 	return session, nil
 }
 

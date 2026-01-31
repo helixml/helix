@@ -8,12 +8,22 @@ See also: `.cursor/rules/*.mdc`
 
 ### Git
 - **NEVER** `git checkout -- .` or `git reset --hard` — destroys uncommitted work you can't see
+- **NEVER** `git checkout -f` without verifying ALL files match — untracked files are silently overwritten and unrecoverable
 - **NEVER** `git stash drop` or `git stash pop` — use `git stash apply` (keeps backup)
+- **NEVER** assume spot-checking a few files means all files are safe — diff EVERYTHING before destructive operations
 - **NEVER** delete `.git/index.lock` — wait or ask user
 - **NEVER** push to main — use feature branches, ask user to merge
 - **NEVER** amend commits on main — create new commits instead
 - **NEVER** delete source files — fix errors, don't delete
-- **Before switching branches**: run `git status`, note changes, use `git stash push -m "description"`, restore with `git stash apply`
+- **NEVER** `rm -rf *` or `rm -rf .*` in a git repo — destroys .git directory, .env files, worktrees, everything unrecoverable
+- **NEVER** use `git checkout --orphan` and then clear files — orphan branches inherit the working tree; use a separate temp directory instead
+- **Before switching branches**: run `git status`, note changes, use `git stash push -u -m "description"` (the -u includes untracked files!), restore with `git stash apply`
+- **Before switching worktree branches with uncommitted changes**:
+  1. `git diff origin/target-branch` to see ALL differences (not just a few files)
+  2. If there are differences, `git stash push -u -m "description"` BEFORE checkout
+  3. Only then `git checkout target-branch`
+  4. Never use `git checkout -f` unless you've verified the working tree is clean or matches
+- **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
 ### Commit Practices
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
@@ -25,14 +35,65 @@ See also: `.cursor/rules/*.mdc`
 - **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
 - **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
 
+### Sessions
+- **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
+- **NEVER** stop sessions you didn't create in the current conversation — always ask first
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
+
+### Hot Reloading
+- **API**: Uses [Air](https://github.com/air-verse/air) — Go changes auto-rebuild
+- **Frontend**: Vite HMR — TypeScript/React changes apply instantly
+- **Both hot-reload in dev mode** — no manual restart needed for API or frontend code changes
+- **Settings-sync-daemon does NOT hot reload** — it runs inside the helix-ubuntu container, so changes to `zed_config.go` or related code require rebuilding the desktop image with `./stack build-ubuntu` and starting a NEW session
+
+### Production Frontend Mode
+For demos or slow connections, serve the production build instead of Vite dev server:
+
+```bash
+# 1. Build the frontend
+cd frontend && yarn build && cd ..
+
+# 2. Enable production mode (add to .env)
+echo "SERVE_PROD_FRONTEND_IN_DEV=true" >> .env
+
+# 3. Restart API to pick up the change
+docker compose -f docker-compose.dev.yaml up -d api
+```
+
+**When making frontend changes in this mode**, you must rebuild:
+```bash
+cd frontend && yarn build
+# Then just refresh the browser - no container restart needed
+```
+
+**IMPORTANT for Claude**: When in production frontend mode (`SERVE_PROD_FRONTEND_IN_DEV=true` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
+
+**Cache headers** are automatically set:
+- `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
+- `/assets/*`: `max-age=1year, immutable` (Vite hashes filenames)
+
+**To switch back to dev mode** (Vite HMR):
+```bash
+sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
+docker compose -f docker-compose.dev.yaml up -d api
+```
 
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
+- **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
+  ```bash
+  # ✅ CORRECT - always use dev compose file
+  docker compose -f docker-compose.dev.yaml up -d kodit vectorchord-kodit
+  docker compose -f docker-compose.dev.yaml logs api
+
+  # ❌ WRONG - never use default (prod) compose file in development
+  docker compose up -d kodit vectorchord-kodit
+  ```
 - `docker compose restart` does NOT apply .env or image changes — use `down` + `up`
 - If Docker cache seems stale: the cache is NOT wrong. Check your assumptions about what triggers rebuilds.
 
@@ -70,6 +131,7 @@ helix-sandbox (outer container)
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
 | Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |
+| Settings-sync-daemon (`api/pkg/external-agent/zed_config.go`) | `./stack build-ubuntu` | Runs IN desktop container, NOT API. Start NEW session after rebuild |
 
 ### Build Order for Full Rebuild
 
@@ -105,6 +167,7 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 
 ### Go
 - Fail fast: `return fmt.Errorf("failed: %w", err)` — never log and continue
+- **Error on missing configuration**: If something is expected to be available (project settings, MCP servers, database records), fail with an error rather than silently continuing without it. Users expect configured features to work — logging a warning and continuing leaves them wondering why things are broken.
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
@@ -157,6 +220,16 @@ await fetch(`/api/v1/external-agents/${sessionId}/upload`, { ... });
 ### Frontend
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
 - Invalidate queries after mutations, don't use setQueryData
+- **Routing**: Use `useRouter` hook with `router.navigate('route-name', { params })`, NOT `<Link>` or `<a href>`. This codebase uses react-router5 with named routes.
+  ```typescript
+  // ✅ CORRECT - use useRouter
+  const router = useRouter()
+  <span onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}>Go to dashboard</span>
+
+  // ❌ WRONG - don't use react-router-dom Link or raw href
+  <Link to="/dashboard?tab=oauth_providers">Go to dashboard</Link>
+  <a href="/dashboard?tab=oauth_providers">Go to dashboard</a>
+  ```
 
 ## Architecture
 
@@ -179,15 +252,27 @@ cd frontend && yarn test && yarn build && cd ..
 This runs the same checks as Drone CI. Fix any errors before committing.
 
 ### Quick Checks
+
+**IMPORTANT: Investigate logs yourself - don't tell the user to look at logs.**
+**Exception: Ask user to verify frontend UI works (you can't easily check that yet).**
+
 After frontend changes (dev mode):
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 50 frontend | grep -i error
-# Then ask user to verify page loads
 ```
 
 After API changes:
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 30 api | grep -E "building|running|failed"
+```
+
+For debugging issues, check logs directly:
+```bash
+# API logs
+docker compose logs --tail 100 api 2>&1 | grep -E "error|failed|timeout"
+
+# Sandbox logs
+docker compose logs --tail 100 sandbox-nvidia 2>&1 | grep -E "error|failed"
 ```
 
 ## API Authentication
@@ -236,6 +321,63 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Regenerate API client: `./stack update_openapi`
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
+
+## CI Build Checking (Drone)
+
+**ALWAYS check CI after pushing commits or opening PRs.** Drone credentials are in `.env`:
+- `DRONE_SERVER_URL=https://drone.lukemarsden.net`
+- `DRONE_ACCESS_TOKEN` - API token for Drone
+
+### Check CI status after pushing:
+```bash
+# Get recent builds for a branch
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=YOUR_BRANCH&limit=3" | \
+  jq -r '.[] | "\(.number): \(.status)"'
+
+# Check PR status via GitHub CLI
+gh pr checks PR_NUMBER
+```
+
+### Get build details and find failures:
+```bash
+# Get step names and numbers for a build (use number in logs URL)
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER" | \
+  jq -r '.stages[0].steps[] | "\(.number) \(.name): \(.status)"'
+
+# Get logs for a failing step (replace STEP_NUMBER with number from above)
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER/logs/1/STEP_NUMBER" | \
+  jq -r '.[].out' | grep -E "FAIL|Error|panic"
+```
+
+### After opening a PR:
+1. Push your changes
+2. Check `gh pr checks PR_NUMBER` to see CI status
+3. If failing, use the Drone API to get build logs and debug
+4. Fix issues and push again
+
+## Database Access
+
+The Helix database is PostgreSQL running in the `helix-postgres-1` container:
+
+```bash
+# Query the database
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT * FROM git_repositories LIMIT 5;"
+
+# Interactive psql session
+docker exec -it helix-postgres-1 psql -U postgres -d postgres
+
+# Common queries:
+# - List git repos for a project:
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name, local_path FROM git_repositories WHERE project_id = 'prj_xxx';"
+
+# - List projects:
+docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FROM projects LIMIT 10;"
+```
+
+**Note**: The database name is `postgres`, user is `postgres`. Git repositories are stored at `/filestore/git-repositories/` inside the API container.
 
 ## Testing CLI Commands
 

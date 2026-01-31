@@ -273,14 +273,15 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 					Str("tool_name", tool.Name).
 					Msg("Failed to get app for OAuth tokens in stream")
 			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				// Get token for this specific provider
-				token, err := manager.GetTokenForApp(ctx, app.Owner, tool.Config.API.OAuthProvider)
+				// Get token for this specific provider with required scopes
+				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
 				if err != nil {
 					log.Warn().
 						Err(err).
 						Str("app_id", appID).
 						Str("user_id", app.Owner).
 						Str("provider", tool.Config.API.OAuthProvider).
+						Strs("required_scopes", tool.Config.API.OAuthScopes).
 						Str("session_id", sessionID).
 						Str("tool_name", tool.Name).
 						Msg("Failed to get OAuth token for tool in stream")

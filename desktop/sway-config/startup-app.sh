@@ -113,15 +113,14 @@ chooser_type=none
 PORTAL_EOF
 echo "✅ xdg-desktop-portal-wlr configured for headless screen capture"
 
-# Set Firefox as default browser for xdg-open to work with HTTP/HTTPS URLs
-# This enables clicking URLs in Zed/agent output to open in Firefox inside the desktop.
+# Set Chrome as default browser for xdg-open to work with HTTP/HTTPS URLs
+# This enables clicking URLs in Zed/agent output to open in Chrome inside the desktop.
 # Both xdg-mime and BROWSER env var are set for maximum compatibility.
-# See: design/2025-12-08-ubuntu-launch-firefox.md
-export BROWSER=firefox
-xdg-mime default firefox.desktop x-scheme-handler/http 2>/dev/null || true
-xdg-mime default firefox.desktop x-scheme-handler/https 2>/dev/null || true
-xdg-mime default firefox.desktop text/html 2>/dev/null || true
-echo "✅ Firefox set as default browser for URL handling"
+export BROWSER=google-chrome-stable
+xdg-mime default google-chrome.desktop x-scheme-handler/http 2>/dev/null || true
+xdg-mime default google-chrome.desktop x-scheme-handler/https 2>/dev/null || true
+xdg-mime default google-chrome.desktop text/html 2>/dev/null || true
+echo "✅ Chrome set as default browser for URL handling"
 
 # Configure Qwen Code session persistence
 # Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
@@ -227,12 +226,12 @@ window#waybar {
 }
 
 /* App launcher icons */
-#custom-firefox, #custom-kitty {
+#custom-chrome, #custom-kitty {
     padding: 0 8px;
     font-size: 16px;
 }
 
-#custom-firefox:hover, #custom-kitty:hover {
+#custom-chrome:hover, #custom-kitty:hover {
     background-color: #404050;
     border-radius: 4px;
 }
@@ -285,7 +284,7 @@ GTK_EOF
     "sway/mode",
     "sway/scratchpad",
     "custom/separator",
-    "custom/firefox",
+    "custom/chrome",
     "custom/kitty",
     "custom/separator2",
     "custom/keyboard-us",
@@ -320,11 +319,11 @@ GTK_EOF
     "sway/language",
     "custom/clock"
   ],
-  "custom/firefox": {
-    "format": "🦊",
+  "custom/chrome": {
+    "format": "🌐",
     "tooltip": true,
-    "tooltip-format": "Firefox",
-    "on-click": "firefox"
+    "tooltip-format": "Chrome",
+    "on-click": "google-chrome-stable"
   },
   "custom/kitty": {
     "format": "🐱",
@@ -432,7 +431,7 @@ EOF
     echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+f exec google-chrome-stable" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================
@@ -464,9 +463,9 @@ EOF
     echo "assign [app_id=\"foot\"] workspace number 2" >> $HOME/.config/sway/config
     # Debug terminals on workspace 2 (ACP log viewer launched with --class)
     echo "assign [app_id=\"acp-log-viewer\"] workspace number 2" >> $HOME/.config/sway/config
-    # Firefox on workspace 3
-    echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
-    echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
+    # Chrome on workspace 3
+    echo "assign [app_id=\"google-chrome\"] workspace number 3" >> $HOME/.config/sway/config
+    echo "assign [class=\"Google-chrome\"] workspace number 3" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================

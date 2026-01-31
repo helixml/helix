@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
@@ -30,23 +30,7 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"Name", "App ID", "Created", "Updated"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"Name", "App ID", "Created", "Updated"})
 
 		for _, s := range secrets {
 			row := []string{
@@ -56,10 +40,10 @@ var listCmd = &cobra.Command{
 				s.Updated.Format(time.RFC3339),
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

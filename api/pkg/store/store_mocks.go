@@ -521,6 +521,20 @@ func (mr *MockStoreMockRecorder) CreateProjectRepository(ctx, projectID, reposit
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProjectRepository", reflect.TypeOf((*MockStore)(nil).CreateProjectRepository), ctx, projectID, repositoryID, organizationID)
 }
 
+// UpdateProjectRepository mocks base method.
+func (m *MockStore) UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProjectRepository", ctx, pr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProjectRepository indicates an expected call of UpdateProjectRepository.
+func (mr *MockStoreMockRecorder) UpdateProjectRepository(ctx, pr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProjectRepository", reflect.TypeOf((*MockStore)(nil).UpdateProjectRepository), ctx, pr)
+}
+
 // CreateProviderEndpoint mocks base method.
 func (m *MockStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -1706,18 +1720,18 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 }
 
 // FindAvailableSandbox mocks base method.
-func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType)
+	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType, requirePrivileged)
 	ret0, _ := ret[0].(*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindAvailableSandbox indicates an expected call of FindAvailableSandbox.
-func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType any) *gomock.Call {
+func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType, requirePrivileged any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType, requirePrivileged)
 }
 
 // GenerateRandomState mocks base method.
@@ -3113,6 +3127,21 @@ func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string
 func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
+}
+
+// HasPrivilegedSandbox mocks base method.
+func (m *MockStore) HasPrivilegedSandbox(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasPrivilegedSandbox", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasPrivilegedSandbox indicates an expected call of HasPrivilegedSandbox.
+func (mr *MockStoreMockRecorder) HasPrivilegedSandbox(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasPrivilegedSandbox", reflect.TypeOf((*MockStore)(nil).HasPrivilegedSandbox), ctx)
 }
 
 // IncrementGlobalTaskNumber mocks base method.

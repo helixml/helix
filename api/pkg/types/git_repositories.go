@@ -17,9 +17,22 @@ type GitRepositoryStatus string
 
 const (
 	GitRepositoryStatusActive   GitRepositoryStatus = "active"
+	GitRepositoryStatusCloning  GitRepositoryStatus = "cloning"  // Clone in progress
+	GitRepositoryStatusError    GitRepositoryStatus = "error"    // Clone or sync failed
 	GitRepositoryStatusArchived GitRepositoryStatus = "archived"
 	GitRepositoryStatusDeleted  GitRepositoryStatus = "deleted"
 )
+
+// CloneProgress tracks the progress of a git clone operation
+type CloneProgress struct {
+	Phase         string    `json:"phase"`          // "counting", "compressing", "receiving", "resolving", "done"
+	Percentage    int       `json:"percentage"`     // 0-100
+	Current       int       `json:"current"`        // Current object count
+	Total         int       `json:"total"`          // Total object count
+	BytesReceived int64     `json:"bytes_received"` // Bytes received so far
+	Speed         string    `json:"speed"`          // e.g., "1.25 MiB/s"
+	StartedAt     time.Time `json:"started_at"`     // When clone started
+}
 
 // GitRepository represents a git repository
 // Supports both Helix-hosted repositories and external repositories (GitHub, GitLab, ADO, etc.)
@@ -67,6 +80,10 @@ type GitRepository struct {
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
+
+	// Clone progress tracking for async cloning
+	CloneError    string         `json:"clone_error,omitempty"`                         // Error message if cloning failed
+	CloneProgress *CloneProgress `json:"clone_progress,omitempty" gorm:"type:jsonb;serializer:json"` // Live progress during cloning
 }
 
 type AzureDevOps struct {

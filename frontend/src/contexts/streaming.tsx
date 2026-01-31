@@ -212,6 +212,54 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         });
       }
     }
+
+    // OPTIMIZED: Handle single interaction updates (reduces O(n) to O(1) updates)
+    // This is used for streaming updates from external agents (Zed) where we only
+    // need to update a single interaction, not replace the entire session
+    if (parsedData.type === "interaction_update" && parsedData.interaction) {
+      const updatedInteraction = parsedData.interaction;
+
+      // Surgically update just this interaction in the React Query cache
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        (oldData: { data?: TypesSession } | undefined) => {
+          if (!oldData?.data) return oldData;
+
+          const session = oldData.data;
+          const interactions = [...(session.interactions || [])];
+
+          // Find and update the specific interaction
+          const idx = interactions.findIndex(i => i.id === updatedInteraction.id);
+          if (idx >= 0) {
+            interactions[idx] = updatedInteraction;
+          } else {
+            // New interaction - append it
+            interactions.push(updatedInteraction);
+          }
+
+          return { data: { ...session, interactions } };
+        }
+      );
+
+      // Also update currentResponses for live streaming display
+      if (updatedInteraction.id) {
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updated: Partial<TypesInteraction> = {
+              ...current,
+              id: updatedInteraction.id,
+              state: updatedInteraction.state,
+              prompt_message: updatedInteraction.prompt_message || current.prompt_message,
+              response_message: updatedInteraction.response_message || current.response_message,
+            };
+
+            const newMap = new Map(prev).set(currentSessionId, updated);
+            return newMap;
+          });
+        });
+      }
+    }
   }, [currentSessionId]);
 
   useEffect(() => {

@@ -28,6 +28,10 @@ const (
 
 	// DefaultStopTimeout is the timeout for graceful dockerd shutdown
 	DefaultStopTimeout = 30 * time.Second
+
+	// SharedBuildKitCacheDir is the directory for shared BuildKit cache across all sessions
+	// BuildKit uses content-addressed storage, so concurrent access is safe
+	SharedBuildKitCacheDir = "buildkit-cache"
 )
 
 // Manager manages multiple dockerd instances
@@ -127,6 +131,13 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	if err := os.MkdirAll(m.dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Create shared BuildKit cache directory for all sessions
+	// This allows docker build cache to be shared across dockerd instances
+	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
+	if err := os.MkdirAll(buildkitCacheDir, 0755); err != nil {
+		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
 	}
 
 	// Start cleanup goroutine
@@ -1509,4 +1520,3 @@ func (m *Manager) runNsenterSh(pid int, cmd string) error {
 	}
 	return nil
 }
-

@@ -305,14 +305,15 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[
 	if t.tool.Config.API != nil && t.tool.Config.API.OAuthProvider != "" {
 		req.OAuthTokens = make(map[string]string)
 
-		// Try to get OAuth token for the provider
-		token, err := t.oauthManager.GetTokenForApp(ctx, meta.UserID, t.tool.Config.API.OAuthProvider)
+		// Try to get OAuth token for the provider with required scopes
+		token, err := t.oauthManager.GetTokenForTool(ctx, meta.UserID, t.tool.Config.API.OAuthProvider, t.tool.Config.API.OAuthScopes)
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("tool_name", t.toolName).
 				Str("user_id", meta.UserID).
 				Str("oauth_provider", t.tool.Config.API.OAuthProvider).
+				Strs("required_scopes", t.tool.Config.API.OAuthScopes).
 				Msg("Failed to get OAuth token for API tool")
 		} else if token != "" {
 			req.OAuthTokens[t.tool.Config.API.OAuthProvider] = token

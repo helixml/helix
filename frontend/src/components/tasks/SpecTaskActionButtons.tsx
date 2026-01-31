@@ -146,8 +146,9 @@ export default function SpecTaskActionButtons({
     )
   }
 
-  // Implementation phase: Reject + Accept/Open PR buttons
+  // Implementation phase: Reject + Open PR + View Spec buttons
   if (task.status === 'implementation') {
+    const hasDesignDocs = !!task.design_docs_pushed_at
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -187,11 +188,32 @@ export default function SpecTaskActionButtons({
                 sx={buttonSx}
               >
                 {approveImplementationMutation.isPending
-                  ? (isDirectPush ? 'Accepting...' : 'Opening PR...')
+                  ? (isDirectPush ? 'Merging...' : 'Opening PR...')
                   : (isDirectPush ? 'Accept' : 'Open PR')}
               </Button>
             </span>
           </Tooltip>
+
+          {hasDesignDocs && onReviewSpec && (
+            <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
+              <span style={{ flex: 1 }}>
+                <Button
+                  size={buttonSize}
+                  variant="outlined"
+                  startIcon={<SpecIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onReviewSpec()
+                  }}
+                  disabled={isArchived}
+                  fullWidth
+                  sx={buttonSx}
+                >
+                  View Spec
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </Box>
       </Box>
     )

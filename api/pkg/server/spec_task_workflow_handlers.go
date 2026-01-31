@@ -81,13 +81,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	now := time.Now()
-	specTask.ImplementationApprovedBy = user.ID
-	specTask.ImplementationApprovedAt = &now
 
 	// If repo is external, move to pull_request status (awaiting merge in external system)
-	// For internal repos, move to done and instruct agent to merge
+	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
-		// External repo: move to pull_request status, await merge via polling
+		// External repo: record approval and move to pull_request status, await merge via polling
+		specTask.ImplementationApprovedBy = user.ID
+		specTask.ImplementationApprovedAt = &now
 		specTask.Status = types.TaskStatusPullRequest
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
@@ -140,9 +140,124 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	// Internal repo or external repo with no PRs automation implemented
+	// Server-side merge: agent can't push to main due to branch restrictions
 
+	// For external repos, acquire lock and sync before merge.
+	// The lock serializes git operations to prevent race conditions.
+	var oldDefaultBranchRef string
+	if repo.IsExternal && repo.ExternalURL != "" {
+		// Acquire repo lock for the entire merge flow (sync → merge → push)
+		lock := s.gitRepositoryService.GetRepoLock(repo.ID)
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := s.gitRepositoryService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+			log.Warn().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("repo_id", repo.ID).
+				Msg("Failed to sync from upstream before merge - continuing with local state")
+		}
+		// Capture ref before merge for rollback
+		oldDefaultBranchRef, _ = services.GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+	}
+
+	// Try fast-forward merge of feature branch to main
+	_, mergeErr := services.MergeBranchFastForward(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
+	if mergeErr != nil {
+		// Merge failed (not a fast-forward) - tell agent to rebase/merge main
+		log.Warn().
+			Err(mergeErr).
+			Str("task_id", specTask.ID).
+			Str("source_branch", specTask.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("Fast-forward merge failed - asking agent to rebase")
+
+		// Don't record approval yet - user needs to review after rebase
+		// Keep in implementation_review status so agent stays alive
+		specTask.Status = types.TaskStatusImplementationReview
+		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		// Send rebase instruction to agent
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+
+			message, err := prompts.RebaseRequiredInstruction(specTask.BranchName, repo.DefaultBranch)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Msg("Failed to generate rebase instruction")
+				return
+			}
+
+			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Msg("Failed to send rebase instruction to agent")
+			} else {
+				log.Info().
+					Str("task_id", specTask.ID).
+					Str("branch_name", specTask.BranchName).
+					Str("default_branch", repo.DefaultBranch).
+					Msg("Sent rebase instruction to agent")
+			}
+		}()
+
+		// Return task with merge conflict flag set (already saved to DB)
+		writeResponse(w, specTask, http.StatusOK)
+		return
+	}
+
+	// For external repos, push the merged default branch to upstream
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+			// Push failed - rollback merge and return error
+			log.Error().
+				Err(pushErr).
+				Str("task_id", specTask.ID).
+				Str("branch", repo.DefaultBranch).
+				Msg("Failed to push merged branch to upstream - rolling back")
+
+			if oldDefaultBranchRef != "" {
+				if rollbackErr := services.UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+					log.Error().
+						Err(rollbackErr).
+						Str("task_id", specTask.ID).
+						Str("branch", repo.DefaultBranch).
+						Msg("Failed to rollback branch after push failure")
+				}
+			}
+
+			http.Error(w, fmt.Sprintf("Failed to push merge to upstream: %s", pushErr.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		log.Info().
+			Str("task_id", specTask.ID).
+			Str("branch", repo.DefaultBranch).
+			Msg("Pushed merged branch to upstream")
+	}
+
+	// Merge succeeded - now record the approval
+	specTask.ImplementationApprovedBy = user.ID
+	specTask.ImplementationApprovedAt = &now
+	specTask.MergedToMain = true
+	specTask.MergedAt = &now
 	specTask.Status = types.TaskStatusDone
 	specTask.CompletedAt = &now
+
+	log.Info().
+		Str("task_id", specTask.ID).
+		Str("source_branch", specTask.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("Server-side merge completed")
 
 	// Updating spec task
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
@@ -150,26 +265,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Send merge instruction to agent via WebSocket
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-
-		message := services.BuildMergeInstructionPrompt(specTask.BranchName, repo.DefaultBranch)
-		_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", specTask.ID).
-				Str("planning_session_id", specTask.PlanningSessionID).
-				Msg("Failed to send merge instruction to agent via WebSocket")
-		} else {
-			log.Info().
-				Str("task_id", specTask.ID).
-				Str("branch_name", specTask.BranchName).
-				Msg("Implementation approved - sent merge instruction to agent via WebSocket")
-		}
-	}()
+	log.Info().
+		Str("task_id", specTask.ID).
+		Str("branch_name", specTask.BranchName).
+		Msg("Implementation approved - branch merged server-side, task complete")
 
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
