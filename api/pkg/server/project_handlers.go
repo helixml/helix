@@ -1663,7 +1663,7 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 		existingRepoNames[repo.Name] = true
 	}
 
-	// Check each repository for conflicts
+	// Check each repository for conflicts and shared usage
 	var repoPreview []types.MoveRepositoryPreviewItem
 	for _, repoID := range repoIDs {
 		repo, err := s.Store.GetGitRepository(r.Context(), repoID)
@@ -1680,6 +1680,24 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 			newName := services.GetUniqueRepoName(repo.Name, existingRepoNames)
 			item.NewName = &newName
 		}
+
+		// Check if this repo is shared with other projects
+		allProjectIDs, err := s.Store.GetProjectsForRepository(r.Context(), repoID)
+		if err == nil && len(allProjectIDs) > 1 {
+			for _, otherProjectID := range allProjectIDs {
+				if otherProjectID == projectID {
+					continue // Skip the project being moved
+				}
+				otherProject, err := s.Store.GetProject(r.Context(), otherProjectID)
+				if err == nil {
+					item.AffectedProjects = append(item.AffectedProjects, types.AffectedProjectInfo{
+						ID:   otherProject.ID,
+						Name: otherProject.Name,
+					})
+				}
+			}
+		}
+
 		repoPreview = append(repoPreview, item)
 	}
 

@@ -1090,6 +1090,11 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
+export interface TypesAffectedProjectInfo {
+  id?: string;
+  name?: string;
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -2842,6 +2847,8 @@ export interface TypesMoveProjectRequest {
 }
 
 export interface TypesMoveRepositoryPreviewItem {
+  /** Other projects that will lose this repo */
+  affected_projects?: TypesAffectedProjectInfo[];
   current_name?: string;
   has_conflict?: boolean;
   id?: string;

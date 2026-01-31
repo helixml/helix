@@ -201,10 +201,17 @@ type MoveProjectPreviewItem struct {
 
 // MoveRepositoryPreviewItem represents a repository's naming conflict status
 type MoveRepositoryPreviewItem struct {
-	ID          string  `json:"id"`
-	CurrentName string  `json:"current_name"`
-	NewName     *string `json:"new_name"` // nil if no conflict
-	HasConflict bool    `json:"has_conflict"`
+	ID               string                  `json:"id"`
+	CurrentName      string                  `json:"current_name"`
+	NewName          *string                 `json:"new_name"` // nil if no conflict
+	HasConflict      bool                    `json:"has_conflict"`
+	AffectedProjects []AffectedProjectInfo   `json:"affected_projects,omitempty"` // Other projects that will lose this repo
+}
+
+// AffectedProjectInfo represents a project that will be affected by moving a shared repo
+type AffectedProjectInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // SampleProject represents a pre-built sample project that can be instantiated
