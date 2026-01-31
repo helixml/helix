@@ -1810,7 +1810,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// CLEANUP: Clear persisted session metadata for restart recovery
 	// Reload session to get fresh state before clearing
 	sessionToUpdate, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-	if err == nil && sessionToUpdate != nil {
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", helixSessionID).
+			Msg("Failed to get session for restart recovery cleanup (stale metadata may remain)")
+	} else if sessionToUpdate != nil {
 		sessionToUpdate.Metadata.WaitingInteractionID = ""
 		sessionToUpdate.Metadata.LastRequestID = ""
 		sessionToUpdate.Metadata.RequestStartedAt = nil
