@@ -310,11 +310,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Qwen Code
-ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    chmod +x dist/cli.js && \
+RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 # Helix startup script

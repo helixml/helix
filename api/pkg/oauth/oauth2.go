@@ -35,7 +35,14 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 	var verifier *oidc.IDTokenVerifier
 	var err error
 
-	// If discovery URL is provided, use it to set up OIDC provider
+	// Determine the OAuth2 endpoint
+	// Priority: 1) OIDC discovery, 2) explicit config URLs
+	endpoint := oauth2.Endpoint{
+		AuthURL:  config.AuthURL,
+		TokenURL: config.TokenURL,
+	}
+
+	// If discovery URL is provided, use it to set up OIDC provider and get endpoints
 	if config.DiscoveryURL != "" {
 		provider, err = oidc.NewProvider(ctx, config.DiscoveryURL)
 		if err != nil {
@@ -45,6 +52,22 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 		verifier = provider.Verifier(&oidc.Config{
 			ClientID: config.ClientID,
 		})
+
+		// Use discovered endpoints, but allow explicit overrides
+		discoveredEndpoint := provider.Endpoint()
+		if config.AuthURL == "" {
+			endpoint.AuthURL = discoveredEndpoint.AuthURL
+		}
+		if config.TokenURL == "" {
+			endpoint.TokenURL = discoveredEndpoint.TokenURL
+		}
+
+		log.Debug().
+			Str("provider_id", config.ID).
+			Str("discovery_url", config.DiscoveryURL).
+			Str("auth_url", endpoint.AuthURL).
+			Str("token_url", endpoint.TokenURL).
+			Msg("OAuth2 provider using OIDC discovery")
 	}
 
 	// Create OAuth2 config (scopes are provided per-call in GetAuthorizationURL)
@@ -52,10 +75,7 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  config.CallbackURL,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  config.AuthURL,
-			TokenURL: config.TokenURL,
-		},
+		Endpoint:     endpoint,
 	}
 
 	return &OAuth2Provider{

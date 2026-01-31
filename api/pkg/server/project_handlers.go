@@ -443,6 +443,10 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata
 	}
+	// Skills can be set directly (nil means "don't update")
+	if req.Skills != nil {
+		project.Skills = req.Skills
+	}
 
 	// DON'T update StartupScript in database - Git repo is source of truth
 	// It will be saved to git repo below and loaded from there on next fetch

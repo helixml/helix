@@ -73,6 +73,7 @@ type ContextServerConfig struct {
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
+// projectSkills are optional project-level skills that overlay on top of agent skills
 func GenerateZedMCPConfig(
 	app *types.App,
 	userID string,
@@ -80,6 +81,7 @@ func GenerateZedMCPConfig(
 	helixAPIURL string,
 	helixToken string,
 	koditEnabled bool,
+	projectSkills *types.AssistantSkills,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -256,6 +258,15 @@ func GenerateZedMCPConfig(
 		}
 	}
 
+	// Add project-level MCPs (these overlay on top of agent MCPs)
+	// Project MCPs with the same name will override agent MCPs
+	if projectSkills != nil {
+		for _, mcp := range projectSkills.MCPs {
+			serverName := sanitizeName(mcp.Name)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+		}
+	}
+
 	return config, nil
 }
 
@@ -280,7 +291,18 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 
 // mcpToContextServerWithProxy converts Helix MCP config to Zed context server config,
 // routing HTTP MCPs through the Helix proxy for proper SSE endpoint handling.
+// Stdio MCPs run directly inside the dev container.
 func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken string) ContextServerConfig {
+	// Check for explicit stdio transport (new format with Command/Args/Env)
+	// This is used for MCPs that run inside the dev container via npx or other commands
+	if mcp.Transport == "stdio" || mcp.Command != "" {
+		return ContextServerConfig{
+			Command: mcp.Command,
+			Args:    mcp.Args,
+			Env:     mcp.Env,
+		}
+	}
+
 	// For HTTP/HTTPS MCPs, route through Helix proxy
 	// This is necessary because:
 	// 1. SSE protocol sends an endpoint URL that would point to the unreachable external server
@@ -302,8 +324,8 @@ func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken
 		}
 	}
 
-	// Stdio transport - direct command execution (runs locally in sandbox)
-	// Parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// Legacy stdio transport - parse command from URL (e.g., "stdio://npx @modelcontextprotocol/server-filesystem /tmp")
+	// Kept for backward compatibility
 	cmd, args := parseStdioURL(mcp.URL)
 	return ContextServerConfig{
 		Command: cmd,
@@ -313,6 +335,11 @@ func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken
 }
 
 func buildMCPEnv(mcp types.AssistantMCP) map[string]string {
+	// Use the explicit Env field if set
+	if len(mcp.Env) > 0 {
+		return mcp.Env
+	}
+	// Legacy: convert Headers to env vars
 	env := make(map[string]string)
 	for k, v := range mcp.Headers {
 		env[fmt.Sprintf("MCP_HEADER_%s", strings.ToUpper(k))] = v
@@ -462,6 +489,16 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 
+	// Get project if session has one (for project-level skill overlays)
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := s.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project %s for skills config: %w", session.ProjectID, err)
+		}
+		projectSkills = project.Skills
+	}
+
 	// Get Helix API URL from environment
 	// For production, use SANDBOX_API_URL if set, else SERVER_URL, else fallback
 	helixAPIURL := os.Getenv("SANDBOX_API_URL")
@@ -484,7 +521,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Check if Kodit is enabled (defaults to true)
 	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
 
-	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled)
+	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

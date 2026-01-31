@@ -57,7 +57,7 @@ For demos or slow connections, serve the production build instead of Vite dev se
 cd frontend && yarn build && cd ..
 
 # 2. Enable production mode (add to .env)
-echo "FRONTEND_URL=/www" >> .env
+echo "SERVE_PROD_FRONTEND_IN_DEV=true" >> .env
 
 # 3. Restart API to pick up the change
 docker compose -f docker-compose.dev.yaml up -d api
@@ -69,13 +69,15 @@ cd frontend && yarn build
 # Then just refresh the browser - no container restart needed
 ```
 
+**IMPORTANT for Claude**: When in production frontend mode (`SERVE_PROD_FRONTEND_IN_DEV=true` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
+
 **Cache headers** are automatically set:
 - `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
 - `/assets/*`: `max-age=1year, immutable` (Vite hashes filenames)
 
 **To switch back to dev mode** (Vite HMR):
 ```bash
-sed -i '/^FRONTEND_URL=/d' .env
+sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
 
@@ -165,6 +167,7 @@ New sessions auto-pull from local registry. Version flow: build writes `.version
 
 ### Go
 - Fail fast: `return fmt.Errorf("failed: %w", err)` — never log and continue
+- **Error on missing configuration**: If something is expected to be available (project settings, MCP servers, database records), fail with an error rather than silently continuing without it. Users expect configured features to work — logging a warning and continuing leaves them wondering why things are broken.
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
@@ -318,6 +321,42 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Regenerate API client: `./stack update_openapi`
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
+
+## CI Build Checking (Drone)
+
+**ALWAYS check CI after pushing commits or opening PRs.** Drone credentials are in `.env`:
+- `DRONE_SERVER_URL=https://drone.lukemarsden.net`
+- `DRONE_ACCESS_TOKEN` - API token for Drone
+
+### Check CI status after pushing:
+```bash
+# Get recent builds for a branch
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=YOUR_BRANCH&limit=3" | \
+  jq -r '.[] | "\(.number): \(.status)"'
+
+# Check PR status via GitHub CLI
+gh pr checks PR_NUMBER
+```
+
+### Get build details and find failures:
+```bash
+# Get step names and numbers for a build (use number in logs URL)
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER" | \
+  jq -r '.stages[0].steps[] | "\(.number) \(.name): \(.status)"'
+
+# Get logs for a failing step (replace STEP_NUMBER with number from above)
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER/logs/1/STEP_NUMBER" | \
+  jq -r '.[].out' | grep -E "FAIL|Error|panic"
+```
+
+### After opening a PR:
+1. Push your changes
+2. Check `gh pr checks PR_NUMBER` to see CI status
+3. If failing, use the Drone API to get build logs and debug
+4. Fix issues and push again
 
 ## Database Access
 
