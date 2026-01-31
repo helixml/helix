@@ -50,32 +50,40 @@ echo -e "${GREEN}1. Setting up workspace...${NC}"
 mkdir -p "$WORKSPACE"
 cd "$WORKSPACE"
 
-# Clone repositories
-echo -e "${GREEN}2. Cloning repositories...${NC}"
+# Clone repositories in parallel
+echo -e "${GREEN}2. Cloning repositories (in parallel)...${NC}"
 
-if [ ! -d "helix" ]; then
-    echo "   Cloning helix..."
-    git clone https://github.com/helixml/helix.git
-else
-    echo "   helix already exists, pulling latest..."
-    (cd helix && git pull --ff-only 2>/dev/null || true)
-fi
+# Function to clone or update a repo
+clone_or_update() {
+    local name="$1"
+    local url="$2"
+    local branch="${3:-main}"
 
-if [ ! -d "zed" ]; then
-    echo "   Cloning zed fork..."
-    git clone https://github.com/helixml/zed.git
-else
-    echo "   zed already exists, pulling latest..."
-    (cd zed && git pull --ff-only 2>/dev/null || true)
-fi
+    if [ ! -d "$name" ]; then
+        echo "   Cloning $name..."
+        git clone --branch "$branch" "$url" "$name" 2>&1 | sed "s/^/   [$name] /"
+        echo -e "   ${GREEN}✓ $name cloned${NC}"
+    else
+        echo "   $name already exists, pulling latest..."
+        (cd "$name" && git pull --ff-only 2>/dev/null || true) | sed "s/^/   [$name] /"
+        echo -e "   ${GREEN}✓ $name updated${NC}"
+    fi
+}
 
-if [ ! -d "qwen-code" ]; then
-    echo "   Cloning qwen-code..."
-    git clone https://github.com/helixml/qwen-code.git
-else
-    echo "   qwen-code already exists, pulling latest..."
-    (cd qwen-code && git pull --ff-only 2>/dev/null || true)
-fi
+# Clone all repos in parallel
+clone_or_update "helix" "https://github.com/helixml/helix.git" "main" &
+PID_HELIX=$!
+
+clone_or_update "zed" "https://github.com/helixml/zed.git" "helix" &
+PID_ZED=$!
+
+clone_or_update "qwen-code" "https://github.com/helixml/qwen-code.git" "main" &
+PID_QWEN=$!
+
+# Wait for all clones to complete
+echo "   Waiting for all repositories to finish..."
+wait $PID_HELIX $PID_ZED $PID_QWEN
+echo -e "   ${GREEN}✓ All repositories ready${NC}"
 
 echo -e "${GREEN}3. Configuring Docker endpoints...${NC}"
 
