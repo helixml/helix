@@ -660,18 +660,20 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 
 		// Skills for CI integration - agents can check build logs after PRs
+		// Uses drone-ci-mcp: https://github.com/madappa-sharath/drone-ci-mcp
 		Skills: &types.AssistantSkills{
 			MCPs: []types.AssistantMCP{
 				{
 					Name:        "drone-ci",
-					Description: "Access Drone CI build logs and pipeline info",
+					Description: "Access Drone CI build logs and pipeline info for helixml repos",
 					Transport:   "stdio",
 					Command:     "npx",
-					Args:        []string{"-y", "drone-ci-mcp@0.0.3"},
+					Args:        []string{"-y", "drone-ci-mcp"},
 					Env: map[string]string{
-						// Users should configure these in project settings with their Drone credentials
-						"DRONE_SERVER_URL":   "",
-						"DRONE_ACCESS_TOKEN": "",
+						// Pre-configured for Helix CI - users just need to add their Drone API token
+						// Get your token from: https://drone.lukemarsden.net/account
+						"DRONE_SERVER_URL":   "https://drone.lukemarsden.net",
+						"DRONE_ACCESS_TOKEN": "", // User should add their token in Project Settings
 					},
 				},
 			},

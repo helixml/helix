@@ -303,7 +303,14 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
                   cursor: 'pointer',
                   '&:hover': { bgcolor: '#1E2129' },
                 }}
-                onClick={() => setCommandLine('npx -y drone-ci-mcp')}
+                onClick={() => {
+                  setName('Drone CI');
+                  setCommandLine('npx -y drone-ci-mcp');
+                  setEnv({
+                    'DRONE_SERVER_URL': 'https://drone.example.com',
+                    'DRONE_ACCESS_TOKEN': 'your-drone-api-token',
+                  });
+                }}
               >
                 npx -y drone-ci-mcp
               </Box>
