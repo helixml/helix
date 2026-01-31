@@ -17,7 +17,7 @@
   ```
 - [ ] Run baseline golangci-lint: `./script/clippy 2>&1 | tee lint-baseline.txt`
 
-## Phase 2: Frontend Dead Code Cleanup (DO THIS FIRST)
+## Phase 2: Frontend Dead Code Analysis
 
 ### 2.1 Route & Navigation Analysis
 - [ ] Extract all routes from `frontend/src/router.tsx`
@@ -44,94 +44,132 @@
 - [ ] Identify which is actively used, which is dead
 - [ ] Document consolidation plan
 
-### 2.5 DELETE Unreachable Frontend Code
-- [ ] Remove orphaned page components
-- [ ] Remove orphaned components
-- [ ] Remove unused hooks/contexts/utilities
-- [ ] Remove duplicate directories
+### 2.5 Create Frontend Analysis Document
+- [ ] Create `design/codebase-map-frontend.md` with all findings
+- [ ] List all code marked for removal with justification
+
+---
+
+## 🛑 USER REVIEW CHECKPOINT 1: Frontend Dead Code
+
+**STOP HERE and present findings to user before proceeding.**
+
+Present:
+- List of orphaned page components to remove
+- List of orphaned components to remove  
+- List of unused hooks/contexts/utilities to remove
+- Duplicate directory consolidation plan
+
+**Wait for user approval before proceeding to Phase 3.**
+
+---
+
+## Phase 3: Delete Approved Frontend Code
+
+- [ ] Remove orphaned page components (as approved)
+- [ ] Remove orphaned components (as approved)
+- [ ] Remove unused hooks/contexts/utilities (as approved)
+- [ ] Remove/consolidate duplicate directories (as approved)
 - [ ] Run `cd frontend && yarn test && yarn build` to verify
-- [ ] Create `design/codebase-map-frontend.md` documenting what was removed
+- [ ] Update `design/codebase-map-frontend.md` with what was removed
 
-## Phase 3: Map Actual API Calls from Clean Frontend
+## Phase 4: Map Actual API Calls from Clean Frontend
 
-### 3.1 Find All API Call Patterns
+### 4.1 Find All API Call Patterns
 - [ ] Grep for React Query hooks: `useQuery`, `useMutation`, `useInfiniteQuery`
 - [ ] Grep for generated API client calls: `apiClient.v1` patterns
 - [ ] Grep for manual fetch calls: `fetch('/api/`, `fetch(\`/api/`
 - [ ] Grep for manual axios calls: `api.get`, `api.post`, `api.put`, `api.delete`
 - [ ] Check custom hooks in `frontend/src/hooks/` for wrapped API calls
 
-### 3.2 Extract API Endpoint List
+### 4.2 Extract API Endpoint List
 - [ ] For each API call found, extract the endpoint being called
 - [ ] Normalize to route format (e.g., `/api/v1/sessions/{id}`)
 - [ ] Create list: `frontend-api-calls.txt`
 
-### 3.3 Flag Bad Patterns
+### 4.3 Flag Bad Patterns
 - [ ] Document any manual fetch/axios calls that bypass generated client
 - [ ] These should be refactored to use React Query + generated client (side quest)
 
-## Phase 4: Map CLI API Calls
+## Phase 5: Map CLI API Calls
 
 - [ ] Scan all files in `api/pkg/cli/` for API calls
 - [ ] Extract HTTP client calls and their endpoints
 - [ ] Create list: `cli-api-calls.txt`
 
-## Phase 5: Identify Dead Backend Routes
+## Phase 6: Identify Dead Backend Routes
 
-### 5.1 Extract All Backend Routes
+### 6.1 Extract All Backend Routes
 - [ ] Parse `api/pkg/server/server.go` for all route registrations
 - [ ] For each route, document:
   - Path and HTTP method
   - Handler function
   - Router type (authRouter, adminRouter, insecureRouter, subRouter, runnerRouter)
 
-### 5.2 Categorize Routes by Caller Type
-- [ ] Routes called by frontend (from Phase 3)
-- [ ] Routes called by CLI (from Phase 4)
+### 6.2 Categorize Routes by Caller Type
+- [ ] Routes called by frontend (from Phase 4)
+- [ ] Routes called by CLI (from Phase 5)
 - [ ] Runner-authenticated routes (called by runners, NOT dead)
 - [ ] Webhook routes (called externally, NOT dead)
 - [ ] WebSocket endpoints (special handling)
 - [ ] Insecure routes (public endpoints)
 
-### 5.3 Identify Dead Routes
+### 6.3 Identify Dead Routes
 - [ ] Routes with NO callers from any category = DEAD
 - [ ] Document each dead route with confidence level
 
-## Phase 6: Trace Dead Backend Code
+## Phase 7: Trace Dead Backend Code
 
-### 6.1 Handler Analysis
+### 7.1 Handler Analysis
 - [ ] For each dead route, identify its handler function
 - [ ] Trace all functions called by the handler
 - [ ] Identify functions ONLY called by dead handlers
 
-### 6.2 Package Analysis
+### 7.2 Package Analysis
 - [ ] Map all 50+ packages in `api/pkg/`
 - [ ] Identify packages only used by dead code
 - [ ] Identify exported functions never called
 
-### 6.3 Type Analysis
+### 7.3 Type Analysis
 - [ ] Identify types only used by dead code
 - [ ] Identify types duplicated across packages
 
-### 6.4 Create Backend Map
+### 7.4 Create Backend Analysis Document
 - [ ] Create `design/codebase-map-backend.md` with:
   - All routes and their status (KEEP/DEAD)
   - Package dependency graph
   - Dead functions/types identified
 
-## Phase 7: Delete Dead Backend Code
+---
 
-- [ ] Remove dead route registrations from `server.go`
-- [ ] Remove dead handler functions
-- [ ] Remove functions only called by dead handlers
-- [ ] Remove types only used by dead code
-- [ ] Remove packages with no remaining usage
-- [ ] Run `cd api && go test ./...` after each batch
+## 🛑 USER REVIEW CHECKPOINT 2: Backend Dead Code
+
+**STOP HERE and present findings to user before proceeding.**
+
+Present:
+- List of dead routes to remove
+- List of dead handler functions to remove
+- List of functions only called by dead handlers
+- List of types only used by dead code
+- List of packages to remove entirely
+
+**Wait for user approval before proceeding to Phase 8.**
+
+---
+
+## Phase 8: Delete Approved Backend Code
+
+- [ ] Remove dead route registrations from `server.go` (as approved)
+- [ ] Remove dead handler functions (as approved)
+- [ ] Remove functions only called by dead handlers (as approved)
+- [ ] Remove types only used by dead code (as approved)
+- [ ] Remove packages with no remaining usage (as approved)
+- [ ] Run `cd api && go test ./...` to verify
 - [ ] Run `./script/clippy` to verify
 
-## Phase 8: Service & Build Artifact Audit
+## Phase 9: Service & Build Artifact Audit
 
-### 8.1 Service Inventory
+### 9.1 Service Inventory
 - [ ] Audit each service directory for active usage:
   - `operator/` - Kubernetes operator
   - `haystack_service/` - Python RAG
@@ -145,33 +183,58 @@
   - `zed-config/` - Zed configs
   - `zed_integration/` - test file
 
-### 8.2 Dockerfile Audit
+### 9.2 Dockerfile Audit
 - [ ] Map each Dockerfile to docker-compose and CI usage
 - [ ] Identify unused Dockerfiles (e.g., `Dockerfile.hyprland-helix`?)
 
-### 8.3 Script & Config Audit
+### 9.3 Script & Config Audit
 - [ ] Map scripts in `scripts/` and root `*.sh`
 - [ ] Audit `examples/` YAML files against current API
 - [ ] Audit `charts/` Helm charts
 
-### 8.4 Create Services/Build Map
+### 9.4 Create Services/Build Analysis Documents
 - [ ] Create `design/codebase-map-services.md`
 - [ ] Create `design/codebase-map-build.md`
 
-## Phase 9: Type Consolidation
+---
+
+## 🛑 USER REVIEW CHECKPOINT 3: Services & Build Artifacts
+
+**STOP HERE and present findings to user before proceeding.**
+
+Present:
+- List of services recommended for removal
+- List of unused Dockerfiles
+- List of unused scripts
+- List of outdated example/config files
+
+**Wait for user approval before proceeding to Phase 10.**
+
+---
+
+## Phase 10: Delete Approved Services & Build Artifacts
+
+- [ ] Remove obsolete service directories (as approved)
+- [ ] Remove unused Dockerfiles (as approved)
+- [ ] Remove unused scripts (as approved)
+- [ ] Remove outdated configs/examples (as approved)
+- [ ] Verify docker-compose files still work
+- [ ] Verify CI still passes
+
+## Phase 11: Type Consolidation
 
 - [ ] List all types in `api/pkg/types/`
 - [ ] Identify duplicates within Go codebase
 - [ ] Compare with generated frontend types
 - [ ] Create `design/type-consolidation.md`
 
-## Phase 10: Code Complexity Report
+## Phase 12: Code Complexity Report
 
 - [ ] Run gocyclo: `gocyclo -over 15 api/`
 - [ ] Document top 20 most complex functions
 - [ ] Create `design/complexity-report.md`
 
-## Phase 11: Final Cleanup & Verification
+## Phase 13: Final Verification
 
 - [ ] Run full test suite: `cd api && go test ./...`
 - [ ] Run frontend tests: `cd frontend && yarn test && yarn build`
