@@ -103,11 +103,14 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 }
 
 // ListRepositories lists all repositories accessible to the authenticated user
+// including personal repos, collaborator repos, and organization repos
 func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, error) {
 	var allRepos []*github.Repository
 	opt := &github.RepositoryListOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 		Sort:        "updated",
+		// Include all repos: owned, collaborator access, and organization membership
+		Affiliation: "owner,collaborator,organization_member",
 	}
 
 	for {
