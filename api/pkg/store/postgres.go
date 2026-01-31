@@ -113,7 +113,18 @@ func (s *PostgresStore) runMigrations() error {
 	// (running as separate processes) try to create tables simultaneously.
 	// The lock is held for the duration of migration and released when the
 	// connection is closed.
-	const migrationLockID = 1
+	//
+	// The lock ID is derived from the schema name so that processes using
+	// different schemas don't block each other. Processes using the same
+	// schema will still serialize, which is the desired behavior.
+	schemaForLock := s.cfg.Schema
+	if schemaForLock == "" {
+		schemaForLock = "public" // default PostgreSQL schema
+	}
+	// Use a hash of the schema name as the lock ID (int64 range for pg_advisory_lock)
+	h := sha256.Sum256([]byte("helix-migration-" + schemaForLock))
+	migrationLockID := int64(h[0])<<56 | int64(h[1])<<48 | int64(h[2])<<40 | int64(h[3])<<32 |
+		int64(h[4])<<24 | int64(h[5])<<16 | int64(h[6])<<8 | int64(h[7])
 
 	sqlDB, err := s.gdb.DB()
 	if err != nil {
@@ -132,7 +143,7 @@ func (s *PostgresStore) runMigrations() error {
 	if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
-	log.Debug().Msg("acquired migration advisory lock")
+	log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("acquired migration advisory lock")
 
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
