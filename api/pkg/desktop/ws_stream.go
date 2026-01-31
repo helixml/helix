@@ -674,6 +674,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			// Add videorate for headless GNOME to handle damage-based rendering
+			// In headless mode, Mutter only sends frames when screen content changes (damage events)
+			// videorate duplicates the last frame to maintain smooth video on static screens (~10 FPS)
+			// while allowing up to max-rate (60 FPS) when content is actively changing
+			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 
@@ -684,6 +689,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			// Add videorate for headless GNOME to handle damage-based rendering
+			// In headless mode, Mutter only sends frames when screen content changes (damage events)
+			// videorate duplicates the last frame to maintain smooth video on static screens (~10 FPS)
+			// while allowing up to max-rate (60 FPS) when content is actively changing
+			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
@@ -694,6 +704,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoconvert",
 			"videoscale add-borders=true",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			// Add videorate for headless GNOME to handle damage-based rendering
+			// In headless mode, Mutter only sends frames when screen content changes (damage events)
+			// videorate duplicates the last frame to maintain smooth video on static screens (~10 FPS)
+			// while allowing up to max-rate (60 FPS) when content is actively changing
+			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 	}
