@@ -361,6 +361,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
@@ -733,6 +734,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
