@@ -106,10 +106,21 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		koditEnabled = apiServer.checkSpecTaskKoditIndexing(ctx, session.Metadata.SpecTaskID)
 	}
 
+	// Get project skills if session has a project
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", session.ProjectID).Msg("Failed to get project for skills config")
+			return nil, system.NewHTTPError500("failed to get project for skills config")
+		}
+		projectSkills = project.Skills
+	}
+
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
 	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
 	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -376,9 +387,20 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
+	// Get project skills if session has a project
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", session.ProjectID).Msg("Failed to get project for skills config")
+			return nil, system.NewHTTPError500("failed to get project for skills config")
+		}
+		projectSkills = project.Skills
+	}
+
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
 	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")

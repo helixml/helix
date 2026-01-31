@@ -134,15 +134,16 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 		}
 		endpoint := provider.Endpoint()
 
-		// Override token URL only if explicitly configured via OIDC_TOKEN_URL
-		// This is for rare cases where the API needs to reach the token endpoint
-		// via a different URL than what OIDC discovery returns (e.g., internal Docker networking)
-		// For most deployments (Google, Auth0, standard Keycloak), use discovered URL
+		// Override token URL for internal API access
+		// If TokenURL is set explicitly, use it (useful when discovery returns browser URLs
+		// but API needs internal URLs, e.g., Keycloak behind a proxy)
+		// IMPORTANT: Do NOT auto-derive Keycloak-style URLs - this breaks Google and other
+		// standard OIDC providers. Only override if explicitly configured.
 		if c.cfg.TokenURL != "" && c.cfg.TokenURL != endpoint.TokenURL {
 			log.Info().
 				Str("original_token_url", endpoint.TokenURL).
 				Str("override_token_url", c.cfg.TokenURL).
-				Msg("Overriding token endpoint URL (OIDC_TOKEN_URL configured)")
+				Msg("Overriding token endpoint URL with explicit OIDC_TOKEN_URL")
 			endpoint.TokenURL = c.cfg.TokenURL
 		}
 

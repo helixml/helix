@@ -43,11 +43,9 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
 COPY desktop/docker-shim ./desktop/docker-shim
 WORKDIR /app/api
-# GO_HASH busts the build cache when api/ code changes (passed from CI)
-ARG GO_HASH=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    echo "Building Go binaries (GO_HASH=${GO_HASH})" && \
+    echo "Building Go binaries..." && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     cd /app/desktop/docker-shim && \
@@ -786,11 +784,9 @@ _INSTALL_CURSOR_THEME
 # like OnlyOffice, Chrome, Ghostty, cursor theme, etc.
 
 # Qwen Code
-ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
-RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
-    chmod +x dist/cli.js && \
+RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 WORKDIR /

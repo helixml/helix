@@ -15482,6 +15482,14 @@ const docTemplate = `{
                     "description": "RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access",
                     "type": "boolean"
                 },
+                "skills": {
+                    "description": "Skills configures project-level skills that will be added when the project is created\nThese overlay on top of agent-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "task_prompts": {
                     "type": "array",
                     "items": {
@@ -16596,8 +16604,26 @@ const docTemplate = `{
         "types.AssistantMCP": {
             "type": "object",
             "properties": {
+                "args": {
+                    "description": "Command arguments",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "description": "Stdio transport fields (used when Transport is \"stdio\")\nThe MCP server runs as a subprocess inside the dev container",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
+                },
+                "env": {
+                    "description": "Environment variables for the subprocess",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "headers": {
                     "type": "object",
@@ -16626,10 +16652,11 @@ const docTemplate = `{
                     }
                 },
                 "transport": {
-                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "description": "Transport type: \"http\" (default, Streamable HTTP), \"sse\" (legacy SSE), or \"stdio\" (command execution)\nFor stdio transport, use Command/Args/Env fields instead of URL",
                     "type": "string"
                 },
                 "url": {
+                    "description": "HTTP/SSE transport fields (used when Transport is \"http\" or \"sse\", or URL is set)",
                     "type": "string"
                 }
             }
@@ -16642,6 +16669,47 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AssistantSkills": {
+            "type": "object",
+            "properties": {
+                "apis": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantAPI"
+                    }
+                },
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AssistantAzureDevOps"
+                },
+                "browser": {
+                    "$ref": "#/definitions/types.AssistantBrowser"
+                },
+                "calculator": {
+                    "$ref": "#/definitions/types.AssistantCalculator"
+                },
+                "email": {
+                    "$ref": "#/definitions/types.AssistantEmail"
+                },
+                "mcps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
+                "web_search": {
+                    "$ref": "#/definitions/types.AssistantWebSearch"
+                },
+                "zapier": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantZapier"
+                    }
                 }
             }
         },
@@ -20713,6 +20781,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "type": "boolean"
                 },
+                "skills": {
+                    "description": "Project-level skills - these overlay on top of agent skills\nUseful for project-specific tools like CI integration (e.g., drone-ci-mcp)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -20820,6 +20896,14 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "type": "string"
                 },
@@ -20882,6 +20966,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "description": "Whether pull request reviews are enabled",
                     "type": "boolean"
+                },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
                 },
                 "startup_script": {
                     "type": "string"

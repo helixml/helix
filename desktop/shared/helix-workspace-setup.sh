@@ -180,8 +180,13 @@ echo ""
 # =========================================
 if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     echo "========================================="
-    echo "Cloning project repositories..."
+    echo "Cloning project repositories (in parallel)..."
     echo "========================================="
+
+    # Arrays to track parallel clone jobs
+    declare -a CLONE_PIDS
+    declare -a CLONE_NAMES
+    declare -a CLONE_DIRS
 
     IFS=',' read -ra REPOS <<< "$HELIX_REPOSITORIES"
     for REPO_SPEC in "${REPOS[@]}"; do
@@ -210,26 +215,45 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
             continue
         fi
 
-        # Clone repository using clean URL (credentials from .git-credentials)
+        # Clone repository in background using clean URL (credentials from .git-credentials)
         GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
         GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
-        echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
+        echo "    Starting clone from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
         GIT_CLONE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
 
-        if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
-            echo ""
-            echo "    ❌ FAILED to clone $REPO_NAME"
-            echo ""
-            echo "    This could be caused by:"
-            echo "      - Invalid repository credentials"
-            echo "      - Repository doesn't exist"
-            echo "      - Network connectivity issues"
+        # Start clone in background
+        git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1 &
+        CLONE_PIDS+=($!)
+        CLONE_NAMES+=("$REPO_NAME")
+        CLONE_DIRS+=("$CLONE_DIR")
+    done
+
+    # Wait for all clones to complete and check results
+    if [ ${#CLONE_PIDS[@]} -gt 0 ]; then
+        echo ""
+        echo "  Waiting for ${#CLONE_PIDS[@]} clone(s) to complete..."
+        CLONE_FAILED=false
+        for i in "${!CLONE_PIDS[@]}"; do
+            if wait "${CLONE_PIDS[$i]}"; then
+                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+            else
+                echo ""
+                echo "    ❌ FAILED to clone ${CLONE_NAMES[$i]}"
+                echo ""
+                echo "    This could be caused by:"
+                echo "      - Invalid repository credentials"
+                echo "      - Repository doesn't exist"
+                echo "      - Network connectivity issues"
+                CLONE_FAILED=true
+            fi
+        done
+
+        if [ "$CLONE_FAILED" = true ]; then
             echo ""
             echo "    The terminal will stay open so you can see this error."
             exit 1
         fi
-        echo "    ✅ Successfully cloned to $CLONE_DIR"
-    done
+    fi
 
     echo "========================================="
     echo ""
