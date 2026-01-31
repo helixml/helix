@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Add `branchHasCommitsAhead` helper function in `spec_task_workflow_handlers.go` using existing `services.GetDivergence`
-- [ ] Add `ensurePullRequestForTask` method on `HelixAPIServer` that creates PR using `GitRepositoryService.CreatePullRequest`
+- [x] Add `branchHasCommitsAhead` helper function in `spec_task_workflow_handlers.go` using existing `services.GetDivergence`
+- [~] Add `ensurePullRequestForTask` method on `HelixAPIServer` that creates PR using `GitRepositoryService.CreatePullRequest`
 - [ ] In `approveImplementation`, after setting status to `pull_request`, check if branch has commits ahead
 - [ ] If commits exist, call `ensurePullRequestForTask` in goroutine to create PR immediately
 - [ ] Re-fetch task after async PR creation to get `PullRequestID` and compute `PullRequestURL` for response
