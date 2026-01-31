@@ -477,36 +477,88 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		// Create a user-friendly error page based on the error type
 		errorTitle := "Authentication Error"
 		errorMessage := fmt.Sprintf("%v", html.EscapeString(errorMsg))
-		errorColor := "#d32f2f" // Red by default
+		errorColor := "#FC3600" // Helix red
 
 		// Check for specific error types
 		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
 			errorTitle = "Already Connected"
 			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
-			errorColor = "#ff9800" // Orange for warnings
+			errorColor = "#EF2EC6" // Helix magenta for warnings
 		}
 
-		htmlError := fmt.Sprintf(`<html>
-		<head><title>%s</title>
-		<style>
-			body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
-			h1 { color: %s; }
-			p { font-size: 16px; }
-			.close-button { background: %s; color: white; border: none; padding: 10px 20px; 
-				margin-top: 20px; border-radius: 4px; cursor: pointer; }
-		</style></head>
-		<body>
-			<h1>%s</h1>
-			<p>%s</p>
-			<button class="close-button" onclick="window.close()">Close Window</button>
-			<script>
-				window.opener && window.opener.postMessage({
-					type: 'oauth-failure', 
-					error: '%s'
-				}, '*');
-				// setTimeout(() => window.close(), 5000);
-			</script>
-		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+		htmlError := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>%s - Helix</title>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			background: linear-gradient(135deg, #101014 0%%, #18181c 100%%);
+			color: #e0e0e0;
+			padding: 24px;
+		}
+		.container { text-align: center; max-width: 400px; }
+		.logo {
+			width: 120px;
+			height: auto;
+			margin-bottom: 32px;
+			filter: drop-shadow(0 4px 12px rgba(239, 46, 198, 0.3));
+		}
+		.icon-wrapper {
+			width: 80px;
+			height: 80px;
+			border-radius: 50%%;
+			background: %s;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin: 0 auto 24px;
+			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+		}
+		.icon { font-size: 40px; color: white; }
+		h1 { font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 12px; }
+		p { font-size: 15px; color: #a0a0b0; line-height: 1.5; margin-bottom: 8px; }
+		.close-button {
+			background: %s;
+			color: white;
+			border: none;
+			padding: 12px 32px;
+			border-radius: 8px;
+			font-size: 14px;
+			font-weight: 500;
+			cursor: pointer;
+			margin-top: 24px;
+			transition: transform 0.2s, box-shadow 0.2s;
+		}
+		.close-button:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<img src="/img/logo.png" alt="Helix" class="logo" onerror="this.style.display='none'">
+		<div class="icon-wrapper">
+			<span class="icon">&#10005;</span>
+		</div>
+		<h1>%s</h1>
+		<p>%s</p>
+		<button class="close-button" onclick="window.close()">Close Window</button>
+	</div>
+	<script>
+		window.opener && window.opener.postMessage({
+			type: 'oauth-failure',
+			error: '%s'
+		}, '*');
+	</script>
+</body>
+</html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -546,35 +598,88 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		// Create a user-friendly error page based on the error type
 		errorTitle := "Authentication Error"
 		errorMessage := fmt.Sprintf("%v", err)
-		errorColor := "#d32f2f" // Red by default
+		errorColor := "#FC3600" // Helix red
 
 		// Check for specific error types
 		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
 			errorTitle = "Already Connected"
 			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
-			errorColor = "#ff9800" // Orange for warnings
+			errorColor = "#EF2EC6" // Helix magenta for warnings
 		}
 
-		htmlError := fmt.Sprintf(`<html>
-		<head><title>%s</title>
-		<style>
-			body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
-			h1 { color: %s; }
-			p { font-size: 16px; }
-			.close-button { background: %s; color: white; border: none; padding: 10px 20px; 
-				margin-top: 20px; border-radius: 4px; cursor: pointer; }
-		</style></head>
-		<body>
-			<h1>%s</h1>
-			<p>%s</p>
-			<button class="close-button" onclick="window.close()">Close Window</button>
-			<script>
-				window.opener && window.opener.postMessage({
-					type: 'oauth-failure', 
-					error: '%s'
-				}, '*');
-			</script>
-		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+		htmlError := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>%s - Helix</title>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			background: linear-gradient(135deg, #101014 0%%, #18181c 100%%);
+			color: #e0e0e0;
+			padding: 24px;
+		}
+		.container { text-align: center; max-width: 400px; }
+		.logo {
+			width: 120px;
+			height: auto;
+			margin-bottom: 32px;
+			filter: drop-shadow(0 4px 12px rgba(239, 46, 198, 0.3));
+		}
+		.icon-wrapper {
+			width: 80px;
+			height: 80px;
+			border-radius: 50%%;
+			background: %s;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin: 0 auto 24px;
+			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+		}
+		.icon { font-size: 40px; color: white; }
+		h1 { font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 12px; }
+		p { font-size: 15px; color: #a0a0b0; line-height: 1.5; margin-bottom: 8px; }
+		.close-button {
+			background: %s;
+			color: white;
+			border: none;
+			padding: 12px 32px;
+			border-radius: 8px;
+			font-size: 14px;
+			font-weight: 500;
+			cursor: pointer;
+			margin-top: 24px;
+			transition: transform 0.2s, box-shadow 0.2s;
+		}
+		.close-button:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<img src="/img/logo.png" alt="Helix" class="logo" onerror="this.style.display='none'">
+		<div class="icon-wrapper">
+			<span class="icon">&#10005;</span>
+		</div>
+		<h1>%s</h1>
+		<p>%s</p>
+		<button class="close-button" onclick="window.close()">Close Window</button>
+	</div>
+	<script>
+		window.opener && window.opener.postMessage({
+			type: 'oauth-failure',
+			error: '%s'
+		}, '*');
+	</script>
+</body>
+</html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -591,30 +696,111 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		providerName = provider.Name
 	}
 
-	// Set a custom success page with auto-close
-	htmlResponse := fmt.Sprintf(`<html>
-	<head><title>Connection Successful</title>
+	// Set a custom success page with Helix branding
+	htmlResponse := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Connection Successful - Helix</title>
 	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<style>
-		body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
-		h1 { color: #4caf50; }
-		p { font-size: 16px; }
-		.icon { font-size: 64px; color: #4caf50; margin-bottom: 20px; }
-	</style></head>
-	<body>
-		<div class="icon">&#10004;</div>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			background: linear-gradient(135deg, #101014 0%%, #18181c 100%%);
+			color: #e0e0e0;
+			padding: 24px;
+		}
+		.container {
+			text-align: center;
+			max-width: 400px;
+		}
+		.logo {
+			width: 120px;
+			height: auto;
+			margin-bottom: 32px;
+			filter: drop-shadow(0 4px 12px rgba(0, 213, 255, 0.3));
+		}
+		.icon-wrapper {
+			width: 80px;
+			height: 80px;
+			border-radius: 50%%;
+			background: linear-gradient(135deg, #00d5ff 0%%, #17839A 100%%);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin: 0 auto 24px;
+			box-shadow: 0 8px 32px rgba(0, 213, 255, 0.4);
+		}
+		.icon {
+			font-size: 40px;
+			color: white;
+		}
+		h1 {
+			font-size: 24px;
+			font-weight: 600;
+			color: #ffffff;
+			margin-bottom: 12px;
+		}
+		.provider-name {
+			color: #00d5ff;
+			font-weight: 500;
+		}
+		p {
+			font-size: 15px;
+			color: #a0a0b0;
+			line-height: 1.5;
+			margin-bottom: 8px;
+		}
+		.hint {
+			font-size: 13px;
+			color: #707080;
+			margin-top: 24px;
+		}
+		.close-button {
+			background: linear-gradient(135deg, #00d5ff 0%%, #17839A 100%%);
+			color: white;
+			border: none;
+			padding: 12px 32px;
+			border-radius: 8px;
+			font-size: 14px;
+			font-weight: 500;
+			cursor: pointer;
+			margin-top: 24px;
+			transition: transform 0.2s, box-shadow 0.2s;
+		}
+		.close-button:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 4px 16px rgba(0, 213, 255, 0.4);
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<img src="/img/logo.png" alt="Helix" class="logo" onerror="this.style.display='none'">
+		<div class="icon-wrapper">
+			<span class="icon">&#10003;</span>
+		</div>
 		<h1>Connection Successful</h1>
-		<p>You have successfully connected to %s.</p>
-		<p>You can now close this window.</p>
-		<script>
-			// Send a message to the opener window
-			window.opener && window.opener.postMessage({
-				type: 'oauth-success', 
-				connectionId: '%s',
-				providerId: '%s'
-			}, '*');
-		</script>
-	</body></html>`, providerName, connection.ID, requestToken.ProviderID)
+		<p>You have connected to <span class="provider-name">%s</span></p>
+		<p class="hint">This window will close automatically.</p>
+		<button class="close-button" onclick="window.close()">Close Window</button>
+	</div>
+	<script>
+		window.opener && window.opener.postMessage({
+			type: 'oauth-success',
+			connectionId: '%s',
+			providerId: '%s'
+		}, '*');
+		setTimeout(function() { window.close(); }, 3000);
+	</script>
+</body>
+</html>`, providerName, connection.ID, requestToken.ProviderID)
 
 	w.Header().Set("Content-Type", "text/html")
 	// Use http.Error for any write errors - even though we've already set the header
