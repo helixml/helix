@@ -490,15 +490,19 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	cookieManager.Set(w, nonceCookie, nonce)
 	// Store the original URL if provided in the "redirect_uri" query parameter
 	if loginRequest.RedirectURI != "" {
-		// Validate the redirect URI
-		if s.Cfg.WebServer.URL == "" {
-			log.Error().Msg("WebServer.URL is not set, unable to validate redirect URI")
-			http.Error(w, "unable to validate redirect URI", http.StatusBadRequest)
+		// Validate the redirect URI - must be same origin as the request
+		// This prevents open redirect attacks while allowing multiple hostnames
+		parsedRedirect, err := url.Parse(loginRequest.RedirectURI)
+		if err != nil {
+			log.Debug().Err(err).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI format")
+			http.Error(w, "invalid redirect URI format", http.StatusBadRequest)
 			return
 		}
-		if !strings.HasPrefix(loginRequest.RedirectURI, s.Cfg.WebServer.URL) {
-			log.Debug().Str("server_url", s.Cfg.WebServer.URL).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI")
-			http.Error(w, fmt.Sprintf("invalid redirect URI: %s != %s", loginRequest.RedirectURI, s.Cfg.WebServer.URL), http.StatusBadRequest)
+		// Get the request's origin from the Host header
+		requestHost := r.Host
+		if parsedRedirect.Host != requestHost {
+			log.Debug().Str("request_host", requestHost).Str("redirect_host", parsedRedirect.Host).Msg("Invalid redirect URI - host mismatch")
+			http.Error(w, fmt.Sprintf("invalid redirect URI: host %s does not match request host %s", parsedRedirect.Host, requestHost), http.StatusBadRequest)
 			return
 		}
 		cookieManager.Set(w, redirectURICookie, loginRequest.RedirectURI)
@@ -759,14 +763,16 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logoutURL, err := s.oidcClient.GetLogoutURL()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get logout URL")
-		http.Error(w, "Failed to get logout URL: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if logoutURL == "" {
-		log.Error().Msg("empty logout URL")
-		http.Error(w, "empty logout URL", http.StatusBadGateway)
+	if err != nil || logoutURL == "" {
+		// Some OIDC providers (like Google) don't have an end_session_endpoint
+		// In this case, just clear cookies and redirect back - the user is logged out of Helix
+		// but remains logged into the OIDC provider
+		log.Debug().Err(err).Msg("No OIDC logout URL available, redirecting to post-logout URL")
+		if r.URL.Query().Get("get_url") == "true" {
+			writeResponse(w, map[string]string{"url": postLogoutRedirect}, http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, postLogoutRedirect, http.StatusFound)
 		return
 	}
 
