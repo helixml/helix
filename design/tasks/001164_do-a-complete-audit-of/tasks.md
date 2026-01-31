@@ -189,4 +189,4 @@
 - [ ] `design/dead-code-removal-plan.md` - Master removal summary
 - [ ] `design/type-consolidation.md` - Type overlap analysis
 - [ ] `design/complexity-report.md` - Complexity findings
-- [ ] PR(s) with dead code removed
+- [ ] Single branch with all dead code removed
