@@ -677,9 +677,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Add videorate for headless GNOME to handle damage-based rendering
 			// In headless mode, Mutter only sends frames when screen content changes (damage events)
 			// videorate duplicates the last frame to maintain smooth video on static screens
-			// Caps at 2-60 FPS: 2 FPS minimum on static screens, up to 60 FPS when content changes
+			// Caps at 2-FPS range: 2 FPS minimum on static screens, up to config.FPS when content changes
 			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
-			"video/x-raw,framerate=[2/1,60/1]",
+			fmt.Sprintf("video/x-raw,framerate=[2/1,%d/1]", v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 
@@ -693,9 +693,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Add videorate for headless GNOME to handle damage-based rendering
 			// In headless mode, Mutter only sends frames when screen content changes (damage events)
 			// videorate duplicates the last frame to maintain smooth video on static screens
-			// Caps at 2-60 FPS: 2 FPS minimum on static screens, up to 60 FPS when content changes
+			// Caps at 2-FPS range: 2 FPS minimum on static screens, up to config.FPS when content changes
 			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
-			"video/x-raw,framerate=[2/1,60/1]",
+			fmt.Sprintf("video/x-raw,framerate=[2/1,%d/1]", v.config.FPS),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
@@ -709,9 +709,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// Add videorate for headless GNOME to handle damage-based rendering
 			// In headless mode, Mutter only sends frames when screen content changes (damage events)
 			// videorate duplicates the last frame to maintain smooth video on static screens
-			// Caps at 2-60 FPS: 2 FPS minimum on static screens, up to 60 FPS when content changes
+			// Caps at 2-FPS range: 2 FPS minimum on static screens, up to config.FPS when content changes
 			fmt.Sprintf("videorate drop-only=false skip-to-first=true max-rate=%d", v.config.FPS),
-			"video/x-raw,framerate=[2/1,60/1]",
+			fmt.Sprintf("video/x-raw,framerate=[2/1,%d/1]", v.config.FPS),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 	}
