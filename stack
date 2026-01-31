@@ -1273,10 +1273,6 @@ function build-desktop() {
     exit 1
   fi
 
-  # Get qwen-code hash for Docker cache busting
-  local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
-  echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
-
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
 
@@ -1287,7 +1283,6 @@ function build-desktop() {
   echo "🔨 Building ${IMAGE_NAME}:latest..."
 
   docker build --provenance=false -f "$DOCKERFILE" \
-    --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
     -t "${IMAGE_NAME}:latest" \
     .
 
