@@ -4,25 +4,26 @@
 
 global:
   imageRegistry: ""
-  ## E.g.
-  ## imagePullSecrets:
-  ##   - myRegistryKeySecretName
-  ##
   imagePullSecrets: []
   storageClass: ""
   serverUrl: http://localhost:8080
 
 image:
-  repository: registry.helix.ml/helix/controlplane
+  repository: registry.helixml.tech/helix/controlplane
   pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
 
 tika:
-  enabled: true
+  enabled: false
   image:
     repository: apache/tika
     tag: "2.9.2.1"
+
+searxng:
+  enabled: true
+  image:
+    repository: searxng/searxng
+    tag: "latest"
 
 chrome:
   enabled: true
@@ -31,159 +32,160 @@ chrome:
     tag: "v0.115.0"
 
 typesense:
-  enabled: true
+  enabled: false
   apiKey: typesense
   image:
-    repository: registry.helix.ml/helix/typesense
+    repository: registry.helixml.tech/helix/typesense
   persistence:
-    ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
-    ##
     enabled: true
-    ## @param haystack.persistence.storageClass Storage class of backing PVC
-    ## If defined, storageClassName: <storageClass>
-    ## If set to "-", storageClassName: "", which disables dynamic provisioning
-    ## If undefined (the default) or set to null, no storageClassName spec is
-    ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
-    ##   GKE, AWS & OpenStack)
-    ##
     storageClass: ""
-    ## @param haystack.persistence.annotations Persistent Volume Claim annotations
-    ##
     annotations: {}
-    ## @param haystack.persistence.accessModes Persistent Volume Access Modes
-    ##
     accessModes:
       - ReadWriteOnce
-    ## @param haystack.persistence.size Size of data volume
-    ##
     size: 8Gi
-    ## @param backend.persistence.existingClaim The name of an existing PVC to use for persistence
-    ##
     existingClaim: ""
-    ## @param haystack.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
-    ## If set, the PVC can't have a PV dynamically provisioned for it
-    ## E.g.
-    ## selector:
-    ##   matchLabels:
-    ##     app: my-app
-    ##
     selector: {}
-    ## @param haystack.persistence.dataSource Custom PVC data source
-    ##
     dataSource: {}
 
-
-# PGVector configuration
 pgvector:
-  # -- Whether to deploy pgvector alongside haystack
-  enabled: false
-  # -- External pgvector connection settings (used when pgvector.enabled=false)
-  host: "localhost"
-  database: "postgres"
-  user: "postgres"
-  password: "pgvector"
-  persistence:
-    ## @param haystack.persistence.enabled Enable persistence for bundled pgvector
-    ## Only used when haystack.pgvector.enabled=true
-    enabled: true
-    ## @param haystack.persistence.storageClass Storage class of backing PVC for bundled pgvector
-    ## If defined, storageClassName: <storageClass>
-    ## If set to "-", storageClassName: "", which disables dynamic provisioning
-    ## If undefined (the default) or set to null, no storageClassName spec is
-    ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
-    ##   GKE, AWS & OpenStack)
-    ##
-    storageClass: ""
-    ## @param haystack.persistence.annotations Persistent Volume Claim annotations
-    ##
+  enabled: true
+  auth:
+    username: "postgres"
+    password: "pgvector"
+    database: "postgres"
+    existingSecret: ""
+    usernameKey: ""
+    passwordKey: ""
+    databaseKey: ""
+  external:
+    host: "localhost"
+    port: 5432
+    database: "postgres"
+    user: "postgres"
+    password: "pgvector"
+    existingSecret: ""
+    existingSecretHostKey: ""
+    existingSecretPortKey: ""
+    existingSecretUserKey: ""
+    existingSecretDatabaseKey: ""
+    existingSecretPasswordKey: ""
     annotations: {}
-    ## @param haystack.persistence.accessModes Persistent Volume Access Modes
-    ##
+  persistence:
+    enabled: true
+    storageClass: ""
+    annotations: {}
     accessModes:
       - ReadWriteOnce
-    ## @param haystack.persistence.size Size of data volume
-    ##
     size: 8Gi
-    ## @param haystack.persistence.existingClaim The name of an existing PVC to use for persistence
-    ##
     existingClaim: ""
-    ## @param haystack.persistence.selector Selector to match an existing Persistent Volume
-    ## If set, the PVC can't have a PV dynamically provisioned for it
-    ## E.g.
-    ## selector:
-    ##   matchLabels:
-    ##     app: my-app
-    ##
     selector: {}
-    ## @param haystack.persistence.dataSource Custom PVC data source
-    ##
     dataSource: {}
 
-gptscript:
-  enabled: true
-  image:
-    repository: registry.helix.ml/helix/gptscript-runner
-  replicas: 2
-  concurrency: 20
-  maxTasks: 0 # unlimited
-
-
-controlplane: 
-  # update to required filestorepath
-  # filestorePath: /tmp
-  sidecar: 
+controlplane:
+  logLevel: "INFO"
+  runnerToken: ""
+  runnerTokenExistingSecret: ""
+  runnerTokenExistingSecretKey: ""
+  # Encryption key for secrets at rest (SSH keys, PATs, etc.)
+  # 64-character hex string (32 bytes for AES-256-GCM)
+  # Generate with: openssl rand -hex 32
+  encryptionKey: ""
+  encryptionKeyExistingSecret: ""
+  encryptionKeyExistingSecretKey: ""
+  licenseKey: ""
+  licenseKeyExistingSecret: ""
+  licenseKeyExistingSecretKey: ""
+  # Used for sending emails like password reset, agent notifications, etc.
+  smtp:
+    enabled: false
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: ""
+  # Can be regular (inbuilt auth), keycloak (external auth) or oidc (external auth)
+  authProvider: "regular"
+  keycloak:
+    enabled: false
+    url: ""
+    frontendUrl: ""
+    user: ""
+    password: ""
+    existingSecret: ""
+    existingSecretUserKey: ""
+    existingSecretPasswordKey: ""
+  admin:
+    userSource: "env"
+    userIds: "all"
+  # AI Providers management - controls if users can add their own AI provider API keys
+  providersManagementEnabled: true
+  sidecar:
     enabled: false
     name: sidecar
     image: curlimages/curl:8.11.1
     imagePullPolicy: IfNotPresent
-    command: 
-      - "/bin/sh" 
+    command:
+      - "/bin/sh"
       - "-c"
-    args: 
+    args:
       - 'echo "Hello World"'
-  # If enabled, haystack runs as a(nother) sidecar in the controlplane container
-  # so that it can share a network namespace (for api -> haystack calls) and
-  # socket (for haystack -> api calls for embeddings)
   haystack:
     enabled: false
     image:
-      repository: registry.helix.ml/helix/haystack
-    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
-    # TODO: these settings should be configurable in the helix.yaml, not
-    # globally
-    embeddingsDim: "3584"
+      repository: registry.helixml.tech/helix/haystack
+    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
+    embeddingsDim: "1536"
     chunkSize: "1000"
     chunkOverlap: "50"
-
+  providers:
+    vllm:
+      baseUrl: ""
+      apiKey: ""
+      existingSecret: ""
+      existingSecretApiKeyKey: ""
+    openai:
+      baseUrl: ""
+      apiKey: ""
+      existingSecret: ""
+      existingSecretApiKeyKey: ""
+    anthropic:
+      baseUrl: ""
+      apiKey: ""
+      existingSecret: ""
+      existingSecretApiKeyKey: ""
+    togetherai:
+      baseUrl: ""
+      apiKey: ""
+      existingSecret: ""
+      existingSecretApiKeyKey: ""
+  huggingface:
+    token: ""
+    existingSecret: ""
+    existingSecretTokenKey: ""
+  extraEnv: []
+  kodit: {}
+    # baseURL: # Defaults to http://{{ .Release.Name }}-kodit:8080
+    # gitURL: # Defaults to http://{{ .Release.Name }}:80
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
 serviceAccount:
-  # Specifies whether a service account should be created
   create: true
-  # Automatically mount a ServiceAccount's API credentials?
   automount: true
-  # Annotations to add to the service account
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
   name: ""
 
 podAnnotations: {}
 podLabels: {}
 
 podSecurityContext: {}
-  # fsGroup: 2000
+
+terminationGracePeriodSeconds: 30
 
 securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
 
 service:
   type: ClusterIP
@@ -193,29 +195,14 @@ ingress:
   enabled: false
   className: ""
   annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
   hosts:
     - host: chart-example.local
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
 
 resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
 
 livenessProbe:
   httpGet:
@@ -234,73 +221,19 @@ readinessProbe:
   timeoutSeconds: 10
   failureThreshold: 6
 
-# Volumes is mounted to the controlplane for persistence. All user
-# uploads and generated images, finetunes and models are stored here.
-volumes:
-  - name: data
-
-# pvc:
-#   enabled: true
-#   accessModes:
-#     - ReadWriteOnce
-#   size: '50Gi'
-#   storageClassName: "local-path"
-
-
-## Enable persistence using Persistent Volume Claims
-## ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
-##
 persistence:
-  ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
-  ##
   enabled: true
-  ## @param backend.persistence.mountPath Path to mount the volume at.
-  ##
   mountPath: /helix/controlplane
-  ## @param backend.persistence.subPath The subdirectory of the volume to mount to, useful in dev environments and one PV for multiple services
-  ##
   subPath: ""
-  ## @param backend.persistence.gitDataPath The subdirectory in `/mountPath` or `/mountPath/subPath` where git connected apps will store their local git data.
-  ##
   gitDataPath: ""
-  ## @param backend.persistence.storageClass Storage class of backing PVC
-  ## If defined, storageClassName: <storageClass>
-  ## If set to "-", storageClassName: "", which disables dynamic provisioning
-  ## If undefined (the default) or set to null, no storageClassName spec is
-  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
-  ##   GKE, AWS & OpenStack)
-  ##
   storageClass: ""
-  ## @param backend.persistence.annotations Persistent Volume Claim annotations
-  ##
   annotations: {}
-  ## @param backend.persistence.accessModes Persistent Volume Access Modes
-  ##
   accessModes:
     - ReadWriteOnce
-  ## @param backend.persistence.size Size of data volume
-  ##
   size: 8Gi
-  ## @param backend.persistence.existingClaim The name of an existing PVC to use for persistence
-  ##
   existingClaim: ""
-  ## @param backend.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
-  ## If set, the PVC can't have a PV dynamically provisioned for it
-  ## E.g.
-  ## selector:
-  ##   matchLabels:
-  ##     app: my-app
-  ##
   selector: {}
-  ## @param backend.persistence.dataSource Custom PVC data source
-  ##
   dataSource: {}
-
-# Additional volumeMounts on the output Deployment definition.
-volumeMounts: []
-# - name: foo
-#   mountPath: "/etc/foo"
-#   readOnly: true
 
 nodeSelector: {}
 
@@ -308,53 +241,99 @@ tolerations: []
 
 affinity: {}
 
-envVariables: {}
-
-## PostgreSQL chart configuration
-## ref: https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml
-## @param postgresql.enabled Switch to enable or disable the PostgreSQL helm chart
-## @param postgresql.auth.postgresPassword Password for the "postgres" admin user. Ignored if `auth.existingSecret` with key `postgres-password` is provided
-## @param postgresql.auth.username Name for a custom user to create
-## @param postgresql.auth.password Password for the custom user to create
-## @param postgresql.auth.database Name for a custom database to create
-## @param postgresql.auth.existingSecret Name of existing secret to use for PostgreSQL credentials
-## @param postgresql.architecture PostgreSQL architecture (`standalone` or `replication`)
-##
 postgresql:
   enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "latest"
+    pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
     username: helix
     password: "oh-hallo-insecure-password"
     database: helix
     existingSecret: ""
+    postgresPasswordKey: "postgres-password"
+    usernameKey: ""
+    passwordKey: ""
+    databaseKey: ""
   architecture: standalone
+  external:
+    host: ""
+    port: 5432
+    user: helix
+    database: helix
+    password: ""
+    existingSecret: ""
+    existingSecretHostKey: ""
+    existingSecretPortKey: ""
+    existingSecretUserKey: ""
+    existingSecretDatabaseKey: ""
+    existingSecretPasswordKey: ""
+    annotations: {}
 
-## External PostgreSQL configuration
-## All of these values are only used when postgresql.enabled is set to false
-## @param externalDatabase.host Database host
-## @param externalDatabase.port Database port number
-## @param externalDatabase.user Non-root username for Keycloak
-## @param externalDatabase.password Password for the non-root username for Keycloak
-## @param externalDatabase.database Keycloak database name
-## @param externalDatabase.existingSecret Name of an existing secret resource containing the database credentials
-## @param externalDatabase.existingSecretHostKey Name of an existing secret key containing the database host name
-## @param externalDatabase.existingSecretPortKey Name of an existing secret key containing the database port
-## @param externalDatabase.existingSecretUserKey Name of an existing secret key containing the database user
-## @param externalDatabase.existingSecretDatabaseKey Name of an existing secret key containing the database name
-## @param externalDatabase.existingSecretPasswordKey Name of an existing secret key containing the database credentials
-## @param externalDatabase.annotations Additional custom annotations for external database secret object
-##
-externalDatabase:
-  host: ""
-  port: 5432
-  user: helix
-  database: helix
-  password: ""
-  existingSecret: ""
-  existingSecretHostKey: ""
-  existingSecretPortKey: ""
-  existingSecretUserKey: ""
-  existingSecretDatabaseKey: ""
-  existingSecretPasswordKey: ""
-  annotations: {}
+# Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix
+kodit:
+  enabled: true
+
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.23"
+    pullPolicy: IfNotPresent
+
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "kodit-password"
+    database: "kodit"
+    # Option: Use existing secret for all auth credentials
+    existingSecret: ""
+    usernameKey: "" # defaults to "username"
+    passwordKey: "" # defaults to "password"
+    databaseKey: "" # defaults to "database"
+
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  enrichment:
+    # Base URL for enrichment API (defaults to Helix controlplane)
+    baseUrl: "" # Defaults to http://<fullname>:80/v1
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+    # API key for enrichment endpoint
+    apiKey: ""
+    # Option: Use existing secret for API key (recommended - use runner token secret)
+    existingSecret: ""
+    existingSecretKey: "" # defaults to "api-token"
+
+  # Persistence for kodit data
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
+
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: "10Gi"
+      storageClass: ""
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      existingClaim: ""
+      selector: {}
+      dataSource: {}

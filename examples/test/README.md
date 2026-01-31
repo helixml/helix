@@ -91,7 +91,7 @@ Tips for Writing Effective Tests
 ### API Integration Example
 
 This is a more complicated example demonstrating an [API
-integration](https://docs.helix.ml/helix/develop/apps/#api-integrations) with Coinbase.
+integration](https://docs.helixml.tech/helix/develop/apps/#api-integrations) with Coinbase.
 
 In these tests we test various user scenarios. In one, the user asks for historical data, but the
 API doesn't have any historical data. Initially the test will fail because it doesn't know this. But
@@ -99,42 +99,32 @@ if you uncomment the `response_success_template` to tell the model that it doesn
 data in the API then the test will pass.
 
 ```yaml
-name: My Example Helix Bitcoin Bot
-description: A bot to keep me up to date with bitcoin prices
+name: My Example Helix Weather Bot
+description: A bot to keep me up to date with weather information
 assistants:
-- name: Bitcoin price API
+- name: Weather API
   model: llama3:instruct
   apis:
-    - name: Coindesk API
-      description: Gets the current Bitcoin price in USD, GBP and EUR.
-      url: https://api.coindesk.com/v1
-      schema: https://raw.githubusercontent.com/helixml/example-app-api-template/refs/heads/main/openapi/coindesk.yaml
-      # response_success_template: |
-      #   You have access to an API provided by Coindesk that obtains the current price of Bitcoin.
-      #   Assist the user with their needs and respond concisely and in non technical language. If the
-      #   user asks about how prices have risen, fallen, or about historical data then inform them
-      #   that this is not possible. If the user asks for advice, then tell them that you cannot
-      #   provide any buying advice. 
+    - name: Weather API
+      description: Gets current weather conditions for any location.
+      url: https://api.openweathermap.org/data/2.5
+      schema: https://raw.githubusercontent.com/helixml/example-app-api-template/refs/heads/main/openapi/weather.yaml
   tests:
-  - name: price_request_1
+  - name: weather_request_1
     steps:
-    - prompt: "What is the price of bitcoin at the moment?"
-      expected_output: "The price of bitcoin"
-  - name: advice_test
+    - prompt: "What's the weather like in London?"
+      expected_output: "The current weather in London"
+  - name: location_test
     steps:
-    - prompt: "Should I buy bitcoin now?"
-      expected_output: "Refusal to provide any buying advice."
-  - name: history_test
-    steps:
-    - prompt: "How much has bitcoin risen in the past year?"
-      expected_output: "do not offer historical data"
+    - prompt: "Tell me about the weather in New York"
+      expected_output: "Weather information for New York"
 ```
 
 ## Running Tests and Generating Results
 
 Prerequisites:
 
-- Helix CLI Installed: Ensure you have the [Helix command-line interface installed](https://docs.helix.ml/helix/using-helix/client/).
+- Helix CLI Installed: Ensure you have the [Helix command-line interface installed](https://docs.helixml.tech/helix/using-helix/client/).
 - API Key: Set the `HELIX_API_KEY` environment variable with your Helix API key.
 - Helix URL (Optional): If you're using a custom Helix instance, set the `HELIX_URL` environment variable.
 
@@ -294,4 +284,4 @@ Summary written to /test-runs/test_id/summary_test_id_timestamp.md
 
 The Helix Testing Tool is a powerful utility that simplifies the testing process for Helix applications. By defining tests in your helix.yaml file and using the tool to run them, you can efficiently validate your assistant's behavior, generate informative reports, and maintain high-quality applications.
 
-For further assistance or questions, refer to the [Helix documentation](https://docs.helix.ml/helix/) or contact support.
+For further assistance or questions, refer to the [Helix documentation](https://docs.helixml.tech/helix/) or contact support.

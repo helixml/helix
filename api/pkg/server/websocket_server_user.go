@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -57,9 +59,37 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 		defer conn.Close()
 
+		// Mutex for thread-safe WebSocket writes (ping and subscription writes can race)
+		var wsMu sync.Mutex
+
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					wsMu.Lock()
+					err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+					wsMu.Unlock()
+					if err != nil {
+						log.Debug().Err(err).Str("session_id", sessionID).Msg("User WebSocket ping failed, connection closing")
+						return
+					}
+				}
+			}
+		}()
+
 		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(user.ID, sessionID), func(payload []byte) error {
-			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-				log.Error().Msgf("Error writing to websocket: %s", err.Error())
+			wsMu.Lock()
+			writeErr := conn.WriteMessage(websocket.TextMessage, payload)
+			wsMu.Unlock()
+			if writeErr != nil {
+				log.Error().Msgf("Error writing to websocket: %s", writeErr.Error())
 			}
 			return nil
 		})

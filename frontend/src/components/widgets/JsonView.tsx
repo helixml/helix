@@ -1,8 +1,13 @@
 import React, { FC, useState } from 'react'
-import { Box, Typography, Switch, FormControlLabel } from '@mui/material'
+import { Box, Typography, Switch, FormControlLabel, IconButton, Tooltip } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
+import useSnackbar from '../../hooks/useSnackbar'
 
 interface JsonViewProps {
   data: any,
+  withFancyRendering?: boolean,
+  withFancyRenderingControls?: boolean,
   scrolling?: boolean
 }
 
@@ -19,6 +24,7 @@ const formatJsonString = (jsonString: string): string => {
 const commonStyles = {
   fontFamily: '"Roboto Mono", monospace',
   color: 'white',
+  fontSize: '0.775rem',
 }
 
 const renderJsonValue = (value: any): JSX.Element => {
@@ -61,22 +67,45 @@ const renderJsonValue = (value: any): JSX.Element => {
 
 const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
   data,
+  withFancyRendering = true,
+  withFancyRenderingControls = true,
   scrolling = false
 }) => {
-  const [useFancyRendering, setUseFancyRendering] = useState(true);
+  const [useFancyRendering, setUseFancyRendering] = useState(withFancyRendering);
+  const [showCopied, setShowCopied] = useState(false);
+  const snackbar = useSnackbar();
 
   const toggleRendering = () => {
     setUseFancyRendering(!useFancyRendering);
   };
 
+  const handleCopy = () => {
+    const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 2);
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => {
+        setShowCopied(true);
+        setTimeout(() => setShowCopied(false), 2000);
+        snackbar.success('Copied to clipboard');
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error);
+        snackbar.error('Failed to copy to clipboard');
+      });
+  };
+
   return (
     <Box>
-      <FormControlLabel
-        control={<Switch checked={useFancyRendering} onChange={toggleRendering} />}
-        label="Fancy Rendering"
-      />
+      {
+        withFancyRenderingControls && (
+          <FormControlLabel
+            control={<Switch checked={useFancyRendering} onChange={toggleRendering} />}
+            label="Fancy Rendering"
+          />
+        )
+      }
       <Box
         sx={{
+          position: 'relative',
           fontFamily: '"Roboto Mono", monospace',
           whiteSpace: 'pre-wrap',
           overflowX: 'auto',
@@ -88,6 +117,26 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
           borderRadius: 1,
         }}
       >
+        <Tooltip 
+          title={showCopied ? "Copied!" : "Copy to clipboard"}
+          placement="top"
+          open={showCopied}
+        >
+          <IconButton
+            onClick={handleCopy}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              },
+            }}
+          >
+            {showCopied ? <CheckIcon /> : <ContentCopyIcon />}
+          </IconButton>
+        </Tooltip>
         {useFancyRendering
           ? renderJsonValue(data)
           : <pre>{JSON.stringify(data, null, 2)}</pre>}

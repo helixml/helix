@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -17,72 +17,53 @@ const (
 	ProviderEmail Provider = "email"
 )
 
-type Event int
+type Notification = types.Notification
 
-const (
-	EventFinetuningStarted  Event = 1
-	EventFinetuningComplete Event = 2
-)
-
-func (e Event) String() string {
-	switch e {
-	case EventFinetuningStarted:
-		return "finetuning_started"
-	case EventFinetuningComplete:
-		return "finetuning_complete"
-	default:
-		return "unknown_event"
-	}
-}
-
-type Notification struct {
-	Event   Event
-	Session *types.Session
-
-	// Populated by the provider
-	Email     string
-	FirstName string
-}
+//go:generate mockgen -source $GOFILE -destination notification_mocks.go -package $GOPACKAGE
 
 type Notifier interface {
 	Notify(ctx context.Context, n *Notification) error
 }
 
 type NotificationsProvider struct {
-	authenticator auth.Authenticator
+	store store.Store
 
 	email *Email
 }
 
-func New(cfg *config.Notifications, authenticator auth.Authenticator) (Notifier, error) {
+func New(cfg *config.Notifications, store store.Store) (Notifier, error) {
 	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &NotificationsProvider{
-		authenticator: authenticator,
-		email:         email,
+		store: store,
+		email: email,
 	}, nil
 }
 
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
-	if n.authenticator == nil {
+	if n.store == nil {
 		return nil
 	}
 
-	user, err := n.authenticator.GetUserByID(ctx, notification.Session.Owner)
+	if !n.email.Enabled() {
+		log.Debug().Str("notification", notification.Event.String()).Msg("email not enabled")
+		return nil
+	}
+
+	user, err := n.store.GetUser(ctx, &store.GetUserQuery{ID: notification.Session.Owner})
 	if err != nil {
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
 	}
-
-	log.Debug().
-		Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 
 	notification.Email = user.Email
 	notification.FirstName = strings.Split(user.FullName, " ")[0]
 
 	if n.email.Enabled() {
+		log.Debug().
+			Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 		err := n.email.Notify(ctx, notification)
 		if err != nil {
 			return err

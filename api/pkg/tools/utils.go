@@ -20,6 +20,10 @@ func AttemptFixJSON(data string) string {
 	parts := strings.Split(data, "```")
 	data = parts[0]
 
+	// sometimes LLMs return inconsistent number of backticks (e.g., 2 instead of 3)
+	// trim any trailing backticks that weren't caught by the split above
+	data = strings.TrimRight(data, "`")
+
 	return data
 }
 
@@ -37,10 +41,7 @@ func GetToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
 					return tool, true
 				}
 			}
-		case types.ToolTypeGPTScript:
-			if tool.Name == action {
-				return tool, true
-			}
+
 		case types.ToolTypeZapier:
 			if tool.Name == action {
 				return tool, true

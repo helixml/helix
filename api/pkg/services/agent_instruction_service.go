@@ -1,0 +1,614 @@
+package services
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"text/template"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
+)
+
+// AgentInstructionService sends automated instructions to agent sessions
+type AgentInstructionService struct {
+	store         store.Store
+	messageSender SpecTaskMessageSender
+}
+
+// NewAgentInstructionService creates a new agent instruction service
+func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender) *AgentInstructionService {
+	return &AgentInstructionService{
+		store:         store,
+		messageSender: messageSender,
+	}
+}
+
+// getTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
+func getTaskDirName(task *types.SpecTask) string {
+	if task.DesignDocPath != "" {
+		return task.DesignDocPath
+	}
+	return task.ID // Backwards compatibility for old tasks
+}
+
+// =============================================================================
+// Template Data Structures
+// =============================================================================
+
+// ApprovalPromptData contains all data for the approval/implementation prompt
+type ApprovalPromptData struct {
+	Guidelines            string // Formatted guidelines section
+	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
+	TaskDirName           string // Design doc directory name
+	BranchName            string // Feature branch name
+	BaseBranch            string // Base branch (e.g., "main")
+	TaskName              string // Human-readable task name
+	OriginalPromptSection string // Formatted original request section (different for cloned vs normal)
+	ClonedTaskPreamble    string // Extra instructions for cloned tasks (empty if not cloned)
+}
+
+// CommentPromptData contains data for design review comment prompts
+type CommentPromptData struct {
+	DocumentLabel string
+	SectionPath   string
+	LineNumber    int
+	QuotedText    string
+	CommentText   string
+	TaskDirName   string
+}
+
+// RevisionPromptData contains data for revision instruction prompts
+type RevisionPromptData struct {
+	TaskDirName string
+	Comments    string
+}
+
+// MergePromptData contains data for merge instruction prompts
+type MergePromptData struct {
+	BranchName string
+	BaseBranch string
+}
+
+// ImplementationReviewPromptData contains data for implementation review prompts
+type ImplementationReviewPromptData struct {
+	BranchName  string
+	TaskDirName string
+}
+
+// =============================================================================
+// Compiled Templates
+// =============================================================================
+
+var approvalPromptTemplate = template.Must(template.New("approval").Parse(`## CURRENT PHASE: IMPLEMENTATION
+
+You are now in the IMPLEMENTATION phase. The planning/spec-writing phase is complete.
+- Your design has been approved - now implement the code changes
+- You MAY now ask the user questions that were deferred from planning (e.g., preferences, clarifications)
+- You MAY now make code changes, edit files, and modify the codebase
+{{.ClonedTaskPreamble}}
+---
+
+# Design Approved - Begin Implementation
+
+Speak English.
+{{.Guidelines}}
+
+Your design has been approved. Implement the code changes now.
+
+## CRITICAL RULES
+
+1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
+2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
+3. **Update tasks.md** - Mark [~] when you START a task, [x] when DONE, push immediately
+4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+
+## CRITICAL: Use tasks.md, NOT Internal To-Do Tools
+
+You may have access to an internal to-do list tool (TodoWrite, todo_write, or similar). **IGNORE IT.**
+
+Your ONLY to-do list is **/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md**.
+
+- Track ALL progress in tasks.md (mark [~] when starting, [x] when done)
+- Update tasks.md as your plan evolves (add new tasks, remove unnecessary ones, reorder)
+- Commit and push to helix-specs after EVERY change to tasks.md
+- The UI reads tasks.md to show progress - internal tools are invisible to users
+
+If you use an internal to-do tool instead of tasks.md, users cannot see your progress.
+
+## Two Repositories - Don't Confuse Them
+
+1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
+2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
+
+## Task Checklist
+
+Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
+
+- [ ] = not started
+- [~] = in progress (currently working on)
+- [x] = done
+
+When you START a task, change [ ] to [~] and push. When DONE, change [~] to [x] and push.
+Small frequent pushes are better than one big push at the end.
+
+` + "```bash" + `
+cd /home/retro/work/helix-specs
+git add -A && git commit -m "Progress update" && git push origin helix-specs
+` + "```" + `
+
+## Steps
+
+1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
+3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
+4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
+
+## Kodit MCP Server - Discover Patterns
+
+You have access to **Kodit**, an MCP server for code intelligence. Use it during implementation:
+
+- Find how similar features are implemented in other repos
+- Discover existing utilities, helpers, or patterns to reuse
+- Search private/internal codebases the organization has indexed
+- Understand conventions before writing new code
+
+When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
+
+## Don't Over-Engineer
+
+- "Start a container" → docker-compose.yaml, NOT a Python wrapper
+- "Create sample data" → write files directly, NOT a generator script
+- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
+- If it can be a one-liner, use a one-liner
+
+## Update Design Docs As You Go (CRITICAL)
+
+**Your design docs will be used to clone this task to similar projects.** Future agents will
+read your notes to skip the discovery process. Write down everything you learn!
+
+**What to capture in design.md:**
+
+1. **User-specified values** - Any explicit choices made
+   - "User specified primary color: #3B82F6"
+   - "User confirmed: use PostgreSQL, not SQLite"
+
+2. **Implementation approach** - How you solved it
+   - Which files you modified and why
+   - The pattern/architecture you used
+   - The order of changes that worked
+
+3. **Discovery learnings** - What you figured out
+   - "Tried X, but Y worked better because..."
+   - "This codebase uses pattern Z, so we adapted by..."
+   - "Watch out for edge case: ..."
+
+4. **Gotchas and blockers** - Problems and solutions
+   - "Blocker: config parser doesn't support X, used workaround Y"
+   - "Note: must restart service after changing Z"
+
+**Also update:**
+- **requirements.md** - Clarifications or discovered constraints
+- **tasks.md** - Add new tasks, remove unnecessary ones, reorder as needed
+
+Push to helix-specs after every update so the record is saved.
+
+Example addition to design.md:
+` + "```markdown" + `
+## Implementation Notes
+
+- Found existing utility AuthHelper, reusing instead of building new
+- User specified: JWT expiry = 24 hours
+- Chose middleware approach over decorator because this codebase uses Express patterns
+- Gotcha: the config loader caches values, must call config.reload() after changes
+- Added task: also need to update the logout endpoint to invalidate tokens
+` + "```" + `
+
+Don't treat the original plan as fixed - update it based on what you learn.
+
+---
+
+**Task:** {{.TaskName}}
+**Feature Branch:** {{.BranchName}} (base: {{.BaseBranch}})
+**Design Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+
+{{.OriginalPromptSection}}
+
+**Primary Project Directory:** /home/retro/work/{{.PrimaryRepoName}}/
+`))
+
+var commentPromptTemplate = template.Must(template.New("comment").Parse(`# Review Comment
+
+Speak English.
+
+**Document:** {{.DocumentLabel}}
+{{if .SectionPath}}**Section:** {{.SectionPath}}
+{{end}}{{if gt .LineNumber 0}}**Line:** {{.LineNumber}}
+{{end}}
+{{if .QuotedText}}> {{.QuotedText}}
+
+{{end}}**Comment:** {{.CommentText}}
+
+---
+
+If changes are needed, update /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ and push:
+` + "```bash" + `
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+` + "```" + `
+`))
+
+var implementationReviewPromptTemplate = template.Must(template.New("implementationReview").Parse(`# Implementation Ready for Review
+
+Speak English.
+
+Your code has been pushed. The user will now test your work.
+
+If this is a web app, please start the dev server and provide the URL.
+
+**Branch:** {{.BranchName}}
+**Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+`))
+
+var revisionPromptTemplate = template.Must(template.New("revision").Parse(`# Changes Requested
+
+Speak English.
+
+Update your design based on this feedback:
+
+{{.Comments}}
+
+---
+
+**Your docs are in:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+
+After updating, push immediately:
+` + "```bash" + `
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+` + "```" + `
+`))
+
+var mergePromptTemplate = template.Must(template.New("merge").Parse(`# Implementation Approved - Please Merge
+
+Speak English.
+
+Your implementation has been approved. Merge to {{.BaseBranch}}:
+
+` + "```bash" + `
+git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.BranchName}} && git push origin {{.BaseBranch}}
+` + "```" + `
+`))
+
+// =============================================================================
+// Prompt Builder Functions
+// =============================================================================
+
+// BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
+// This is the single source of truth for this prompt - used by WebSocket and database approaches
+// guidelines contains concatenated organization + project guidelines (can be empty)
+// primaryRepoName is the name of the primary project repository (e.g., "my-app")
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName string) string {
+	taskDirName := getTaskDirName(task)
+
+	// Build guidelines section if provided
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = `
+## Guidelines
+
+Follow these guidelines when implementing:
+
+` + guidelines + `
+
+---
+`
+	}
+
+	// Build cloned task preamble if this task was cloned from another
+	clonedTaskPreamble := ""
+	if task.ClonedFromID != "" {
+		clonedTaskPreamble = `
+
+## CLONED TASK - User-Provided Values Already Known
+
+This task was cloned from a completed task. The specs contain values discovered through user interaction.
+
+**CRITICAL: Use Discovered Values Directly**
+
+Look in design.md for phrases like "User specified...", "User confirmed...", or specific values
+(hex codes, URLs, etc.). These values override any generic instructions in the task description.
+
+If the task says "ask the user for X" but design.md already has "User specified X = Y" → use Y directly.
+The whole point of cloning is to SKIP re-asking questions that were already answered.
+
+**Before implementing:**
+
+1. **Read design.md carefully** - Extract all user-specified values and use them directly
+2. **Reset tasks.md** - Change [x] back to [ ], remove/add tasks as needed for this repo
+3. **Adapt paths for this repository** - File paths may differ, but user-specified values stay the same
+
+`
+	}
+
+	// Format original prompt section - for cloned tasks, reframe as historical context
+	var originalPromptSection string
+	if task.ClonedFromID != "" {
+		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
+	} else {
+		originalPromptSection = "**Original Request:**\n" + task.OriginalPrompt
+	}
+
+	data := ApprovalPromptData{
+		Guidelines:            guidelinesSection,
+		PrimaryRepoName:       primaryRepoName,
+		TaskDirName:           taskDirName,
+		BranchName:            branchName,
+		BaseBranch:            baseBranch,
+		TaskName:              task.Name,
+		OriginalPromptSection: originalPromptSection,
+		ClonedTaskPreamble:    clonedTaskPreamble,
+	}
+
+	var buf bytes.Buffer
+	if err := approvalPromptTemplate.Execute(&buf, data); err != nil {
+		return "Error generating approval prompt: " + err.Error()
+	}
+	return buf.String()
+}
+
+// BuildCommentPrompt builds a prompt for sending a design review comment to an agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
+	taskDirName := getTaskDirName(specTask)
+
+	// Map document types to readable labels
+	documentTypeLabels := map[string]string{
+		"requirements":        "Requirements (requirements.md)",
+		"technical_design":    "Technical Design (design.md)",
+		"implementation_plan": "Implementation Plan (tasks.md)",
+	}
+	docLabel := documentTypeLabels[comment.DocumentType]
+	if docLabel == "" {
+		docLabel = comment.DocumentType
+	}
+
+	data := CommentPromptData{
+		DocumentLabel: docLabel,
+		SectionPath:   comment.SectionPath,
+		LineNumber:    comment.LineNumber,
+		QuotedText:    comment.QuotedText,
+		CommentText:   comment.CommentText,
+		TaskDirName:   taskDirName,
+	}
+
+	var buf bytes.Buffer
+	if err := commentPromptTemplate.Execute(&buf, data); err != nil {
+		return "Error generating comment prompt: " + err.Error()
+	}
+	return buf.String()
+}
+
+// BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
+	taskDirName := getTaskDirName(task)
+
+	data := ImplementationReviewPromptData{
+		BranchName:  branchName,
+		TaskDirName: taskDirName,
+	}
+
+	var buf bytes.Buffer
+	if err := implementationReviewPromptTemplate.Execute(&buf, data); err != nil {
+		return "Error generating implementation review prompt: " + err.Error()
+	}
+	return buf.String()
+}
+
+// BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
+	taskDirName := getTaskDirName(task)
+
+	data := RevisionPromptData{
+		TaskDirName: taskDirName,
+		Comments:    comments,
+	}
+
+	var buf bytes.Buffer
+	if err := revisionPromptTemplate.Execute(&buf, data); err != nil {
+		return "Error generating revision prompt: " + err.Error()
+	}
+	return buf.String()
+}
+
+// BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
+	data := MergePromptData{
+		BranchName: branchName,
+		BaseBranch: baseBranch,
+	}
+
+	var buf bytes.Buffer
+	if err := mergePromptTemplate.Execute(&buf, data); err != nil {
+		return "Error generating merge prompt: " + err.Error()
+	}
+	return buf.String()
+}
+
+// =============================================================================
+// Service Methods (Database Interaction)
+// =============================================================================
+
+// SendApprovalInstruction sends a message to the agent to start implementation
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildApprovalInstructionPrompt
+// and send via sendChatMessageToExternalAgent instead
+func (s *AgentInstructionService) SendApprovalInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+	baseBranch string,
+	primaryRepoName string,
+) error {
+	// Fetch guidelines from project and organization
+	guidelines := s.getGuidelinesForTask(ctx, task)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending approval instruction to agent")
+
+	// Use messageSender which:
+	// 1. Creates an interaction in the database
+	// 2. Sets up sessionToWaitingInteraction mapping for response routing
+	// 3. Sends the message via WebSocket to the agent
+	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
+	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
+	// to the wrong (empty) interaction.
+	_, err := s.messageSender(ctx, task, message, userID)
+	if err != nil {
+		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
+	}
+
+	return nil
+}
+
+// getGuidelinesForTask fetches concatenated organization/user + project guidelines
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil || project == nil {
+		return ""
+	}
+
+	guidelines := ""
+
+	// Get organization guidelines (if project belongs to an org)
+	if project.OrganizationID != "" {
+		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err == nil && org != nil && org.Guidelines != "" {
+			guidelines = org.Guidelines
+		}
+	} else if project.UserID != "" {
+		// No organization - check for user guidelines (personal workspace)
+		userMeta, err := s.store.GetUserMeta(ctx, project.UserID)
+		if err == nil && userMeta != nil && userMeta.Guidelines != "" {
+			guidelines = userMeta.Guidelines
+		}
+	}
+
+	// Append project guidelines
+	if project.Guidelines != "" {
+		if guidelines != "" {
+			guidelines += "\n\n---\n\n"
+		}
+		guidelines += project.Guidelines
+	}
+
+	return guidelines
+}
+
+// SendImplementationReviewRequest notifies agent that implementation is ready for review
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildImplementationReviewPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendImplementationReviewRequest(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+) error {
+	message := BuildImplementationReviewPrompt(task, branchName)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending implementation review request to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendRevisionInstruction sends a message to the agent with revision feedback
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildRevisionInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendRevisionInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	comments string,
+) error {
+	message := BuildRevisionInstructionPrompt(task, comments)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("task_id", task.ID).
+		Msg("Sending revision instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendMergeInstruction tells agent to merge their branch to main
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildMergeInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendMergeInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	branchName string,
+	baseBranch string,
+) error {
+	message := BuildMergeInstructionPrompt(branchName, baseBranch)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Str("base_branch", baseBranch).
+		Msg("Sending merge instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// sendMessage sends a user message to an agent session (triggers agent response)
+// Uses the same pattern as normal session message handling
+func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, userID string, message string) error {
+	// Create a user interaction that will trigger the agent to respond
+	// This matches how normal user messages are created in spec_driven_task_service.go
+	now := time.Now()
+	interaction := &types.Interaction{
+		ID:            system.GenerateInteractionID(),
+		GenerationID:  0,
+		Created:       now,
+		Updated:       now,
+		Scheduled:     now,
+		SessionID:     sessionID,
+		UserID:        userID, // User who created/owns the task
+		Mode:          types.SessionModeInference,
+		PromptMessage: message,
+		State:         types.InteractionStateWaiting, // Waiting state triggers agent response
+	}
+
+	// Store the interaction - this will queue it for the agent to process
+	_, err := s.store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		return err
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", userID).
+		Str("interaction_id", interaction.ID).
+		Str("state", string(interaction.State)).
+		Msg("Successfully sent instruction to agent (waiting for response)")
+
+	return nil
+}

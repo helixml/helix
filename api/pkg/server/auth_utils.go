@@ -78,6 +78,20 @@ func getRequestToken(r *http.Request) string {
 		return token
 	}
 
+	// Try x-api-key header (used by Anthropic SDK clients like Zed)
+	// When Zed is configured to use Helix as a proxy, it sends the Helix user token
+	// in the x-api-key header (since that's what Anthropic's API expects)
+	token = r.Header.Get("x-api-key")
+	if token != "" {
+		return token
+	}
+
+	// Try api-key header (used by Azure OpenAI SDK clients)
+	token = r.Header.Get("api-key")
+	if token != "" {
+		return token
+	}
+
 	// Then try to get from cookie
 	cookie, err := r.Cookie("access_token")
 	if err == nil && cookie != nil && cookie.Value != "" {
@@ -98,16 +112,28 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 }
 
 func getRequestUser(req *http.Request) *types.User {
+	// First check if user was set in context (e.g., by socket middleware)
+	userIntf := req.Context().Value(userKey)
+	if userIntf != nil {
+		user := userIntf.(types.User)
+		return &user
+	}
+
 	// Check if this is a socket request by looking at the underlying connection type
-	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil && req.URL.Path == "/v1/embeddings" {
+	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
+		// Socket requests are trusted - get user ID from header
+		userID := req.Header.Get("X-Helix-User-ID")
+		if userID == "" {
+			userID = "socket"
+		}
 		return &types.User{
-			ID:        "socket",
+			ID:        userID,
 			Type:      types.OwnerTypeSocket,
 			TokenType: types.TokenTypeSocket,
 		}
 	}
-	user := req.Context().Value(userKey).(types.User)
-	return &user
+
+	return nil
 }
 
 func getOwnerContext(req *http.Request) types.OwnerContext {
@@ -152,19 +178,8 @@ func isRunner(user *types.User) bool {
 	return user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
-func doesOwnSession(user *types.User, session *types.Session) bool {
-	return session.OwnerType == user.Type && session.Owner == user.ID
-}
-
 func canSeeSession(user *types.User, session *types.Session) bool {
-	canEdit := canEditSession(user, session)
-	if canEdit {
-		return true
-	}
-	if session.Metadata.Shared {
-		return true
-	}
-	return false
+	return canEditSession(user, session)
 }
 
 func canEditSession(user *types.User, session *types.Session) bool {

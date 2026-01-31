@@ -13,8 +13,10 @@ type OllamaGenericText struct {
 	Name          string // e.g. "Phi 3.5"
 	Memory        uint64
 	ContextLength int64
+	Concurrency   int // Number of concurrent requests for this model
 	Description   string
 	Hide          bool
+	Prewarm       bool // Whether to prewarm this model to fill free GPU memory on runners
 }
 
 func (i *OllamaGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
@@ -23,6 +25,10 @@ func (i *OllamaGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
 
 func (i *OllamaGenericText) GetContextLength() int64 {
 	return i.ContextLength
+}
+
+func (i *OllamaGenericText) GetConcurrency() int {
+	return i.Concurrency
 }
 
 func (i *OllamaGenericText) GetType() types.SessionType {

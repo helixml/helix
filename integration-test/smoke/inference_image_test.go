@@ -5,27 +5,27 @@ package smoke
 
 import (
 	"testing"
-
-	"github.com/helixml/helix/integration-test/smoke/helper"
-	"github.com/stretchr/testify/require"
 )
 
 func TestImageInference(t *testing.T) {
-	ctx := helper.CreateContext(t)
+	t.Skip("Skipping image inference test, because it is unreliable on prod because of the lack of machines reserved for image generation")
+	return
 
-	browser := createBrowser(ctx)
-	defer browser.MustClose()
+	// ctx := helper.CreateContext(t)
 
-	page := createPage(browser)
+	// browser := createBrowser(ctx)
+	// defer browser.MustClose()
 
-	err := helper.PerformLogin(t, page)
-	require.NoError(t, err, "login should succeed")
+	// page := createPage(browser)
 
-	err = helper.StartNewImageSession(t, page)
-	require.NoError(t, err, "starting new image session should succeed")
+	// err := helper.PerformLogin(t, page)
+	// require.NoError(t, err, "login should succeed")
 
-	helper.SendMessage(t, page, "a beautiful image of a yorkshire rose")
+	// err = helper.StartNewImageSession(t, page)
+	// require.NoError(t, err, "starting new image session should succeed")
 
-	helper.LogStep(t, "Waiting for image to be generated")
-	page.WaitElementsMoreThan("main a > img", 0)
+	// helper.SendMessage(t, page, "a beautiful image of a yorkshire rose")
+
+	// helper.LogStep(t, "Waiting for image to be generated")
+	// page.WaitElementsMoreThan("main a > img", 0)
 }

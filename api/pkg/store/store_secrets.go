@@ -76,15 +76,38 @@ func (s *PostgresStore) GetSecret(ctx context.Context, id string) (*types.Secret
 }
 
 func (s *PostgresStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error) {
-	if q.Owner == "" {
-		return nil, fmt.Errorf("owner not specified")
+	if q.Owner == "" && q.ProjectID == "" {
+		return nil, fmt.Errorf("owner or project_id must be specified")
 	}
 
 	var secrets []*types.Secret
-	err := s.gdb.WithContext(ctx).Where(&types.Secret{
-		Owner:     q.Owner,
-		OwnerType: q.OwnerType,
-	}).Find(&secrets).Error
+	query := s.gdb.WithContext(ctx)
+
+	if q.Owner != "" {
+		query = query.Where("owner = ?", q.Owner)
+	}
+	if q.OwnerType != "" {
+		query = query.Where("owner_type = ?", q.OwnerType)
+	}
+	if q.ProjectID != "" {
+		query = query.Where("project_id = ?", q.ProjectID)
+	}
+
+	err := query.Find(&secrets).Error
+	if err != nil {
+		return nil, err
+	}
+	return secrets, nil
+}
+
+// ListProjectSecrets returns all secrets for a project (by any owner who has access)
+func (s *PostgresStore) ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id not specified")
+	}
+
+	var secrets []*types.Secret
+	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&secrets).Error
 	if err != nil {
 		return nil, err
 	}

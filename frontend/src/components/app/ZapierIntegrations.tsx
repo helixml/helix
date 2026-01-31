@@ -18,7 +18,7 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 interface ZapierIntegrationsProps {
   zapier: IAssistantZapier[];
   onSaveZapierTool: (tool: IAssistantZapier, index?: number) => void;
-  onDeleteZapierTool: (toolId: string) => void;
+  onDeleteZapierTool: (toolIndex: number) => void;
   isReadOnly: boolean;
 }
 
@@ -172,7 +172,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => onDeleteZapierTool(zapierTool.name)}
+                  onClick={() => onDeleteZapierTool(index)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >

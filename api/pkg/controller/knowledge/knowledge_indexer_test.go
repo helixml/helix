@@ -57,7 +57,7 @@ func (suite *IndexerSuite) SetupTest() {
 
 	b := &browser.Browser{}
 
-	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
+	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b, nil)
 	suite.Require().NoError(err)
 
 	suite.reconciler.newRagClient = func(_ *types.RAGSettings) rag.RAG {

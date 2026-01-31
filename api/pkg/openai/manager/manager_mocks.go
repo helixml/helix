@@ -18,6 +18,44 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockRunnerControllerStatus is a mock of RunnerControllerStatus interface.
+type MockRunnerControllerStatus struct {
+	ctrl     *gomock.Controller
+	recorder *MockRunnerControllerStatusMockRecorder
+	isgomock struct{}
+}
+
+// MockRunnerControllerStatusMockRecorder is the mock recorder for MockRunnerControllerStatus.
+type MockRunnerControllerStatusMockRecorder struct {
+	mock *MockRunnerControllerStatus
+}
+
+// NewMockRunnerControllerStatus creates a new mock instance.
+func NewMockRunnerControllerStatus(ctrl *gomock.Controller) *MockRunnerControllerStatus {
+	mock := &MockRunnerControllerStatus{ctrl: ctrl}
+	mock.recorder = &MockRunnerControllerStatusMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRunnerControllerStatus) EXPECT() *MockRunnerControllerStatusMockRecorder {
+	return m.recorder
+}
+
+// RunnerIDs mocks base method.
+func (m *MockRunnerControllerStatus) RunnerIDs() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RunnerIDs")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// RunnerIDs indicates an expected call of RunnerIDs.
+func (mr *MockRunnerControllerStatusMockRecorder) RunnerIDs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunnerIDs", reflect.TypeOf((*MockRunnerControllerStatus)(nil).RunnerIDs))
+}
+
 // MockProviderManager is a mock of ProviderManager interface.
 type MockProviderManager struct {
 	ctrl     *gomock.Controller

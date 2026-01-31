@@ -243,3 +243,12 @@ export const mergeSX = (props: SxProps[]): SxProps => {
     return Object.assign({}, acc, curr)
   }, {})
 }
+
+// Helper for consistent dark menu item typography
+export const DarkMenuItemTypography = (): SxProps => {
+  return {
+    color: '#fff', 
+    fontWeight: 500, 
+    fontSize: '0.92rem'
+  }
+}

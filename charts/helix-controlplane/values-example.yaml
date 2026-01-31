@@ -1,123 +1,519 @@
-# For more information visit:
-# https://docs.helix.ml/helix/private-deployment/manual-install/kubernetes/ and
-# https://docs.helix.ml/helix/private-deployment/environment-variables/
+# Production-ready configuration examples for helix-controlplane
 
+## Global configuration
 global:
-  # Set this AND envVariables.APP_URL to the public URL of your hostname, e.g.
-  # https://helix.mydomain.com if you have set up TLS termination.
+  # Set this to the public URL of your Helix deployment.
+  # This will be used for both SERVER_URL and APP_URL environment variables,
+  # and keycloak.frontendUrl will default to this + "/auth"
+  #
+  # By default we set this up to work with kubectl port-forward, but set this to
+  # something like https://helix.mycorp.net if you have set up ingress and TLS
+  # termination etc
   serverUrl: http://localhost:8080
 
+  # Custom image registry (optional)
+  # imageRegistry: "my-registry.example.com"
+
+  # Image pull secrets for private registries
+  # imagePullSecrets:
+  #   - name: my-registry-secret
+
+  # Default storage class for all persistent volumes
+  # storageClass: "fast-ssd"
+
+## Image configuration
 image:
   # It's good practice to pin the version of the software you're running!
-  # Get this from https://get.helix.ml/latest.txt or check https://github.com/helixml/helix/releases
+  # Get this from https://get.helixml.tech/latest.txt or check https://github.com/helixml/helix/releases
   # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
-  tag: ""
+  tag: "" # Replace with actual version
 
+  # Use a custom registry if needed
+  # repository: "my-registry.example.com/helix/controlplane"
+
+  # Image pull policy
+  # pullPolicy: IfNotPresent
+
+## Services configuration
+searxng:
+  # Enable SearXNG for web search capabilities
+  enabled: true
+  # Use custom image if needed
+  # image:
+  #   repository: searxng/searxng
+  #   tag: "2024.1.1"
+
+chrome:
+  # Enable Chrome for web crawling
+  enabled: true
+  # Use custom image if needed
+  # image:
+  #   repository: ghcr.io/go-rod/rod
+  #   tag: "v0.116.0"
+
+## PGVector configuration (vector database for Haystack RAG)
+pgvector:
+  # Whether to deploy pgvector alongside haystack for RAG functionality
+  enabled: true
+
+  # Configuration for bundled pgvector (when enabled=true)
+  auth:
+    username: postgres
+    password: "pgvector"
+    database: postgres
+
+    # Option: Use existing secret for all auth credentials
+    # existingSecret: "pgvector-auth-secret"
+    # usernameKey: "username"  # defaults to "username" if not specified
+    # passwordKey: "password"  # defaults to "password" if not specified
+    # databaseKey: "database"  # defaults to "database" if not specified
+
+  # Persistence configuration for bundled pgvector
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "" # Use default storage class
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-pgvector-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: pgvector
+    # Custom data source
+    # dataSource:
+    #   name: "my-snapshot"
+    #   kind: "VolumeSnapshot"
+    #   apiGroup: "snapshot.storage.k8s.io"
+
+  # Configuration for external pgvector (when enabled=false)
+  # IMPORTANT: External pgvector must have the following extensions installed:
+  # - vectorchord extension for vector similarity search
+  # - vectorchord-bm25 extension for bm25 search capabilities
+  # The bundled pgvector uses: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
+  # which includes both extensions. For external pgvector, ensure your PostgreSQL
+  # instance has these extensions available.
+  # external:
+  #   host: "my-external-pgvector.example.com"
+  #   port: 5432
+  #   user: "postgres"
+  #   password: "secure-password"
+  #   database: "helix_vectors"
+  #
+  #   # Option: Use existing secret for all connection details
+  #   # existingSecret: "pgvector-external-secret"
+  #   # existingSecretHostKey: "host"      # defaults to "host" if not specified
+  #   # existingSecretPortKey: "port"      # defaults to "port" if not specified
+  #   # existingSecretUserKey: "user"      # defaults to "user" if not specified
+  #   # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
+  #   # existingSecretDatabaseKey: "database"  # defaults to "database" if not specified
+  #
+  #   # Additional annotations for external secret
+  #   # annotations:
+  #   #   kubernetes.io/service-account.name: "pgvector-reader"
+
+## Controlplane configuration
 controlplane:
-  # Haystack configuration to use haystack for production-ready RAG. If set,
-  # haystack will be deployed as a sidecar to the api pod and connected via a
-  # UNIX socket so that haystack can use embeddings from a configured helix
-  # inference (embeddings) provider.
+  # Optional: Custom filestore path
+  # filestorePath: "/shared/filestore"
+
+  # Log level for the controlplane
+  logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
+
+  # Runner token for authentication (should be a secure random string)
+  # Also set this token in the kodit configuration below.
+  runnerToken: "your-secure-runner-token-here"
+  # Option: Use existing secret for runner token
+  # runnerTokenExistingSecret: "runner-token-secret"
+  # runnerTokenExistingSecretKey: "token"  # defaults to "token" if not specified
+
+  # License key for deployment identification
+  # Get your license key from https://deploy.helix.ml/licenses
+  licenseKey: ""
+  # Option: Use existing secret for license key (recommended for production)
+  # Create the license secret with:
+  #   kubectl create secret generic helix-license --from-literal=license="<your-license-key-here>"
+  # licenseKeyExistingSecret: "helix-license"
+  # licenseKeyExistingSecretKey: "license"  # defaults to "license" if not specified
+
+  # Hugging Face token configuration (distributed to all runners automatically,
+  # only required if you need to use vLLM models)
+  huggingface:
+    token: "hf_your_huggingface_token_here"
+    # Option: Use existing secret for Hugging Face token (recommended for production)
+    # Create the secret with:
+    #   kubectl create secret generic huggingface-token --from-literal=token="hf_your_actual_token_here"
+    # existingSecret: "huggingface-token"
+    # existingSecretTokenKey: "token"  # defaults to "token" if not specified
+
+  # Admin configuration
+  admin:
+    # Where to source admin users from: "env" or "keycloak"
+    userSource: "env"
+    # Admin user IDs: comma-separated list of OIDC provider user IDs (e.g. keycloak UUIDs) or "all"
+    userIds: ""
+
+  # Haystack configuration for production-ready RAG
+  # If enabled, haystack will be deployed as a sidecar to the api pod
+  # and connected via a UNIX socket for embeddings
   haystack:
     enabled: true
-    # Option 1: Direct DSN specification
-    pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
-    # Or: Option 2: Reference DSN from existing secret
-    # existingSecret: "helix-pgvector-creds"
-    # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
-    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
-    embeddingsDim: "3584"
+
+    # Custom image configuration
+    # image:
+    #   repository: my-registry.example.com/helix/haystack
+
+    # Embedding model configuration
+    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
+    embeddingsDim: "1536"
+
+    # Document chunking configuration
     chunkSize: "1000"
     chunkOverlap: "50"
     chunkUnit: "word"
+
+    # PGVector connection options (choose one):
+
+    # Option 1: Direct DSN specification
+    # pgvectorDsn: "postgresql://postgres:secure-password@my-pgvector-host:5432/helix_vectors"
+
+    # Option 2: Reference DSN from existing secret
+    # existingSecret: "helix-pgvector-creds"
+    # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
+
+    # Option 3: Use pgvector.external configuration (recommended)
+    # This will automatically use the pgvector.external settings above
+
+    # Additional environment variables for haystack
+    # env:
+    #   - name: CUSTOM_VAR
+    #     value: "custom-value"
+
+    # Resource limits for haystack sidecar
+    # resources:
+    #   requests:
+    #     cpu: "500m"
+    #     memory: "1Gi"
+    #   limits:
+    #     cpu: "2000m"
+    #     memory: "4Gi"
 
   # RAG configuration
   rag:
     # The default RAG provider to use. Valid values: haystack, typesense
     defaultProvider: "haystack"
     # The helix inference provider that will serve embeddings for haystack.
-    # Valid values: vllm (for haystack which uses external GPU-accelerated
-    # embeddings, typesense does its own embeddings so leave this unset for
-    # typesense)
-    embeddingsProvider: "vllm"
+    # Valid values: vllm, helix (for haystack which uses external GPU-accelerated
+    # embeddings, typesense does its own embeddings so leave this unset for typesense)
+    embeddingsProvider: "helix"
 
   # Inference configuration
   inference:
+    # Valid values: openai, togetherai, anthropic, helix, vllm
+    defaultProvider: "helix"
+
+  # Fine-tuning configuration
+  fineTuning:
     # Valid values: openai, togetherai, helix
-    defaultProvider: "openai"
+    defaultProvider: "helix"
 
   # Provider configurations (examples of the three fixed global provider names)
-  # You can also add dynamic providers at runtime through the Dashboard
-  providers:
-    vllm:
-      baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
-    openai:
-      baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
+  # You can also add dynamic providers at runtime through the Admin Panel
+  providers: {}
+    # Examples - uncomment and configure for your specific setup:
+    # vllm:
+    #   baseUrl: "http://vllm-service.default.svc.cluster.local:8000/v1"
+    #   apiKey: "EMPTY"
+    #   # Option: Use existing secret for API key
+    #   # existingSecret: "vllm-credentials"
+    #   # existingSecretApiKeyKey: "api-key"
+    #
+    # openai:
+    #   baseUrl: "http://local-llm-service.default.svc.cluster.local:8000/v1"
+    #   apiKey: "sk-your-api-key"
+    #   # Option: Use existing secret for API key
+    #   # existingSecret: "openai-credentials"
+    #   # existingSecretApiKeyKey: "api-key"
+    #
+    # anthropic:
+    #   baseUrl: "https://api.anthropic.com"
+    #   apiKey: "sk-ant-your-api-key"
+    #   # Option: Use existing secret for API key
+    #   # existingSecret: "anthropic-credentials"
+    #   # existingSecretApiKeyKey: "api-key"
+    #
+    # togetherai:
+    #   baseUrl: "https://api.together.xyz/v1"
+    #   apiKey: "your-together-api-key"
+    #   # Option: Use existing secret for API key
+    #   # existingSecret: "together-credentials"
+    #   # existingSecretApiKeyKey: "api-key"
 
-# Environment variables that will be added to the configmap
-envVariables:
-  LOG_LEVEL: debug
-  APP_URL: http://localhost:8080
-  # Database
-  POSTGRES_HOST: my-helix-controlplane-postgresql
-  POSTGRES_USER: helix
-  POSTGRES_PASSWORD: oh-hallo-insecure-password
-  POSTGRES_DATABASE: helix
-  # Runners
-  RUNNER_TOKEN: oh-hallo-insecure-token
-  # Keycloak location
-  KEYCLOAK_URL: http://keycloak:80/auth
-  # How Keycloak redirects the users on login, should be user facing
-  KEYCLOAK_FRONTEND_URL: http://localhost:8080/auth
-  KEYCLOAK_USER: "admin"
-  KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
-  # Dashboard and admin access
-  ADMIN_USER_SOURCE: "env"
-  # If ADMIN_USER_SOURCE is "env", this will be the comma-separated list of user
-  # ids that are admins or the word "all" if you want to allow all users to be admins
-  ADMIN_USER_IDS: "all"
+  # Sidecar configuration (optional)
+  sidecar:
+    enabled: false
 
-# Environment variables driven from secrets that will be set in the main pod
-secretEnvVariables:
-  LICENSE_KEY: 
-    secretName: foo
-    secretKey: bar
-    
-tika:
+  # Additional environment variables for unsupported/custom settings
+  extraEnv: []
+    # Examples:
+    # - name: CUSTOM_FEATURE_FLAG
+    #   value: "true"
+    # - name: EXTERNAL_API_URL
+    #   value: "https://api.external-service.com"
+
+  # Extra volume mounts for controlplane
+  # extraVolumeMounts:
+  #   custom-config:
+  #     mountPath: "/etc/helix/config"
+  #     readOnly: true
+
+  # Extra volumes for controlplane
+  # extraVolumes:
+  #   custom-config:
+  #     configMap:
+  #       name: helix-custom-config
+
+## Ingress configuration
+ingress:
   enabled: false
+  # Example ingress with TLS:
+  # className: "nginx"
+  # annotations:
+  #   nginx.ingress.kubernetes.io/rewrite-target: /
+  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  #   cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # hosts:
+  #   - host: helix.mydomain.com
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  # tls:
+  #   - secretName: helix-tls
+  #     hosts:
+  #       - helix.mydomain.com
 
-chrome:
+## Resource configuration
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube. If you do want to specify resources, uncomment the following
+# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+resources: {}
+  # requests:
+  #   cpu: "1000m"
+  #   memory: "2Gi"
+  # limits:
+  #   cpu: "4000m"
+  #   memory: "8Gi"
+
+## Persistence configuration
+persistence:
+  enabled: true
+  size: 100Gi
+  storageClass: "" # Use default storage class
+  annotations: {}
+  accessModes:
+    - ReadWriteOnce
+  # Use existing PVC
+  # existingClaim: "helix-data-pvc"
+
+## Additional volume mounts and volumes
+volumeMounts: []
+  # Examples:
+  # - name: temp-storage
+  #   mountPath: "/tmp"
+  # - name: config-volume
+  #   mountPath: "/etc/helix/config"
+  #   readOnly: true
+
+volumes:
+  - name: data
+  # Examples:
+  # - name: temp-storage
+  #   emptyDir:
+  #     sizeLimit: "10Gi"
+  # - name: config-volume
+  #   configMap:
+  #     name: helix-config
+
+## PostgreSQL configuration
+postgresql:
+  # Set to false to use external PostgreSQL
   enabled: true
 
-typesense:
-  enabled: false
+  # PostgreSQL image configuration
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: latest
+    pullPolicy: Always
 
-gptscript:
-  enabled: true
-  replicas: 2
-  concurrency: 20
-  maxTasks: 0
-
-# PGVector configuration to PROVISION pgvector (if using with haystack and not pointing to external PGVector)
-pgvector:
-  enabled: true
+  # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
-    username: postgres
-    password: pgvector
-    database: postgres
+    # Password for the "postgres" admin user
+    postgresPassword: "secure-postgres-admin-password"
+    # Custom user credentials
+    username: helix
+    password: "secure-helix-db-password"
+    database: helix
+
+    # Option: Use existing secret for all auth credentials
+    # existingSecret: "postgresql-auth-secret"
+    # postgresPasswordKey: "postgres-password"  # defaults to "postgres-password"
+    # usernameKey: "username"                   # defaults to "username"
+    # passwordKey: "password"                   # defaults to "password"
+    # databaseKey: "database"                   # defaults to "database"
+
+  # PostgreSQL architecture
+  architecture: standalone
+
+  # For external PostgreSQL configuration (when enabled=false):
+  # external:
+  #   host: "my-external-postgresql.example.com"
+  #   port: 5432
+  #   user: "helix"
+  #   password: "secure-password"
+  #   database: "helix"
+  #
+  #   # Option: Use existing secret for all connection details
+  #   # existingSecret: "postgresql-external-secret"
+  #   # existingSecretHostKey: "host"        # defaults to "host"
+  #   # existingSecretPortKey: "port"        # defaults to "port"
+  #   # existingSecretUserKey: "user"        # defaults to "user"
+  #   # existingSecretPasswordKey: "password"  # defaults to "password"
+  #   # existingSecretDatabaseKey: "database"  # defaults to "database"
+  #
+  #   # Additional annotations for external secret
+  #   # annotations:
+  #   #   kubernetes.io/service-account.name: "postgresql-reader"
+
+## Environment variables from secrets
+# NOTE: For common configurations like LICENSE_KEY, RUNNER_TOKEN, KEYCLOAK credentials,
+# and provider API keys, use the structured configuration under 'controlplane' section above.
+# This section is for additional custom environment variables not covered by structured config.
+secretEnvVariables:
+  # Additional secret-based environment variables for custom configurations
+  # EXTERNAL_API_KEY:
+  #   secretName: external-api-credentials
+  #   secretKey: api-key
+  # SMTP_PASSWORD:
+  #   secretName: smtp-credentials
+  #   secretKey: password
+
+## Legacy Components
+# The following components are legacy and may be removed in future versions
+
+## Tika configuration (legacy document text extraction)
+tika:
+  # Enable Tika for document text extraction (legacy, disabled by default)
+  enabled: false
+  # Use custom image if needed
+  # image:
+  #   repository: apache/tika
+  #   tag: "3.0.0"
+
+## Typesense configuration (legacy RAG provider)
+typesense:
+  # Enable Typesense for search-based RAG (legacy, use haystack + pgvector instead)
+  enabled: false
+  apiKey: "your-secure-typesense-api-key"
+  # Use custom image if needed
+  # image:
+  #   repository: typesense/typesense
+  #   tag: "0.25.2"
   persistence:
     enabled: true
-    size: 8Gi
-    storageClass: ""
+    size: 20Gi
+    storageClass: "" # Use default storage class
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-typesense-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: typesense
+
+## Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix.
+# It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.
+kodit:
+  enabled: true
+
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.23" # Pin to specific version
+    # Use custom registry if needed
+    # repository: "my-registry.example.com/helix/kodit"
+
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "secure-kodit-db-password"
+    database: "kodit"
+
+    # Option: Use existing secret for all auth credentials
+    # existingSecret: "kodit-auth-secret"
+    # usernameKey: "username"  # defaults to "username" if not specified
+    # passwordKey: "password"  # defaults to "password" if not specified
+    # databaseKey: "database"  # defaults to "database" if not specified
+
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  # This allows kodit to generate code enrichments using the Helix inference API
+  enrichment:
+    # Base URL defaults to http://<release-name>:80/v1 (Helix controlplane)
+    # baseUrl: "http://custom-llm-service:8080/v1"
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+
+    # API key for enrichment endpoint
+    # For production, use the runner token secret:
+    # existingSecret: "helix-runner-secrets"
+    # existingSecretKey: "api-token"
+    #
+    # Or create a dedicated secret:
+    #   kubectl create secret generic kodit-enrichment --from-literal=api-key="your-runner-token"
+    # existingSecret: "kodit-enrichment"
+    # existingSecretKey: "api-key"
+
+  # Persistence for kodit data
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "" # Use default storage class
     annotations: {}
     accessModes:
       - ReadWriteOnce
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
+    # Use existing PVC
+    # existingClaim: "my-kodit-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: kodit
+    # Custom data source
+    # dataSource:
+    #   name: "my-snapshot"
+    #   kind: "VolumeSnapshot"
+    #   apiGroup: "snapshot.storage.k8s.io"
 
-persistence: # for api filestore
-  enabled: true
-  size: 8Gi
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  # This is kodit's dedicated vector database, separate from helix's pgvector
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      # Use custom registry if needed
+      # repository: "my-registry.example.com/tensorchord/vchord-suite"
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: "" # Use default storage class
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      # Use existing PVC
+      # existingClaim: "my-kodit-vectorchord-pvc"

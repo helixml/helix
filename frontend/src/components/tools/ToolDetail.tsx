@@ -4,81 +4,68 @@ import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import Tooltip from '@mui/material/Tooltip'
+
 
 import {
   ITool,
 } from '../../types'
+import useLightTheme from '../../hooks/useLightTheme'
+import SettingsIcon from '@mui/icons-material/Settings'
 
 const ToolDetail: FC<React.PropsWithChildren<{
   tool: ITool,
 }>> = ({
   tool,
 }) => {
+  const lightTheme = useLightTheme()
   let details: any = ''
   if(tool.config.api) {
     details = (
-      <>
-        <Box sx={{mb: 2}}>
-          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+      <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Tooltip title="API Tool">
+            <SettingsIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1 }} />
+          </Tooltip>
+          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded, mb: 0}}>
             { tool.config.api.url }
           </Typography>
-          <Typography variant="caption" gutterBottom>
-            { tool.description }
-          </Typography>
         </Box>
-        {
-          tool.config.api.actions.map((action, index) => {
-            return (
-              <Box key={index}>
-                <Row>
-                  <Cell sx={{width:'50%'}}>
-                    <Typography>
-                      {action.name}
-                    </Typography>
-                  </Cell>
-                  <Cell sx={{width:'50%'}}>
-                    <Row>
-                      <Cell sx={{width: '70px'}}>
-                        <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
-                      </Cell>
-                      <Cell>
-                        <Typography>
-                          {action.path}
-                        </Typography>
-                      </Cell>
-                    </Row>
-                  </Cell>
-                </Row>
-                <Row sx={{mt: 0.5, mb: 2}}>
-                  <Cell>
-                    <Typography variant="caption" sx={{color: '#999'}}>
-                      {action.description}
-                    </Typography>
-                  </Cell>
-                </Row>
-              </Box>
-            )
-          })
-        }
-      </>
+        <Box component="ul" sx={{ listStyle: 'disc', pl: 7, mt: 0 }}>
+          {
+            tool.config.api.actions?.map((action, index) => (
+              <Tooltip 
+                key={index}
+                title={action.description || ''}
+              >
+                <Box component="li">
+                  <Typography sx={{ color: lightTheme.textColorFaded }}>
+                    {action.name}
+                  </Typography>
+                </Box>
+              </Tooltip>
+            ))
+          }
+        </Box>
+      </Box>
     )
   }
   if(tool.config.gptscript) {
     details = (
-      <>
+      <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 2 }}>
         <Box sx={{mb: 2}}>
           {
             tool.config.gptscript.script_url && (
-              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline', color: 'rgba(255, 255, 255, 0.7)'}}>
                 { tool.config.gptscript.script_url }
               </Typography>
             )
           }
-          <Typography variant="caption" gutterBottom>
+          <Typography variant="caption" gutterBottom sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
             { tool.description }
           </Typography>
         </Box>
-      </>
+      </Box>
     )
   }
 

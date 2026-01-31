@@ -1,0 +1,156 @@
+apiVersion: helix/v1
+kind: Application
+metadata:
+  name: github-repo-analyzer
+spec:
+  name: GitHub Repository Analyzer
+  description: A powerful assistant that analyzes GitHub repositories, issues, and pull requests.
+  avatar: github-logo.png
+  
+  assistants:
+    - name: Repository Analyzer
+      description: Analyzes GitHub repositories and helps with code reviews, issue tracking, and PR analysis
+      model: gpt-4
+      system_prompt: |
+        You are a GitHub repository analysis assistant. You can help the user analyze and understand
+        GitHub repositories, issues, and pull requests. You can fetch repository information,
+        list issues, and examine pull requests using the GitHub API tools.
+        
+        When responding to the user, always format code blocks with proper syntax highlighting.
+        For GitHub API responses, use markdown to present the information in a structured way.
+  
+      apis:
+        - name: github-api
+          description: Access GitHub repositories, issues, and pull requests
+          url: https://api.github.com
+          oauth_provider: github
+          oauth_scopes:
+            - "repo"
+            - "read:org"
+          schema: |
+            openapi: 3.0.0
+            info:
+              title: GitHub API
+              version: "v3"
+            servers:
+              - url: https://api.github.com
+            paths:
+              /repos/{owner}/{repo}:
+                get:
+                  summary: Get repository information
+                  operationId: getRepository
+                  parameters:
+                    - name: owner
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: repo
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                  responses:
+                    '200':
+                      description: Repository information
+              
+              /repos/{owner}/{repo}/issues:
+                get:
+                  summary: List repository issues
+                  operationId: listIssues
+                  parameters:
+                    - name: owner
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: repo
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: state
+                      in: query
+                      schema:
+                        type: string
+                        enum: [open, closed, all]
+                        default: open
+                    - name: per_page
+                      in: query
+                      schema:
+                        type: integer
+                        default: 30
+                  responses:
+                    '200':
+                      description: List of issues
+              
+              /repos/{owner}/{repo}/pulls:
+                get:
+                  summary: List pull requests
+                  operationId: listPullRequests
+                  parameters:
+                    - name: owner
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: repo
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                    - name: state
+                      in: query
+                      schema:
+                        type: string
+                        enum: [open, closed, all]
+                        default: open
+                  responses:
+                    '200':
+                      description: List of pull requests
+          headers:
+            Accept: application/vnd.github+json
+            X-GitHub-Api-Version: 2022-11-28
+
+        - name: jira-api
+          description: Access Jira issues and projects
+          url: https://your-domain.atlassian.net/rest/api/3
+          oauth_provider: atlassian
+          oauth_scopes:
+            - "read:jira-work"
+            - "read:jira-user"
+          schema: |
+            openapi: 3.0.0
+            info:
+              title: Jira API
+              version: "3"
+            servers:
+              - url: https://your-domain.atlassian.net/rest/api/3
+            paths:
+              /issue/{issueIdOrKey}:
+                get:
+                  summary: Get issue information
+                  operationId: getIssue
+                  parameters:
+                    - name: issueIdOrKey
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                  responses:
+                    '200':
+                      description: Issue information
+          headers:
+            Accept: application/json
+  
+  # Tests for the assistant
+  tests:
+    - name: Basic repository info
+      steps:
+        - prompt: Get information about the microsoft/vscode repository
+          expected_output: Visual Studio Code is Microsoft's open source code editor
+
+    - name: Issue analysis
+      steps:
+        - prompt: List open issues in the helixml/helix repository
+          expected_output: Here are the open issues in the helixml/helix repository 

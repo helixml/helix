@@ -21,7 +21,7 @@ const (
 	// TODO: take from assistant
 	discordModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
 	// Users will be redirected to this URL to install the bot
-	installationDocsURL = "https://docs.helix.ml/helix/"
+	installationDocsURL = "https://docs.helixml.tech/helix/"
 	// history limit
 	historyLimit = 30
 )
@@ -311,7 +311,8 @@ func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Se
 			Messages: messages,
 		},
 		&controller.ChatCompletionOptions{
-			AppID: app.ID,
+			OrganizationID: app.OrganizationID,
+			AppID:          app.ID,
 		},
 	)
 	if err != nil {

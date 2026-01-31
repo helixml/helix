@@ -11,18 +11,26 @@ import (
 )
 
 func TestBrowser_Get(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err)
 
 	browserManager, err := New(&cfg)
 	require.NoError(t, err)
 
+	// Ensure proper cleanup of browser resources
+	defer browserManager.Close()
+
 	browser, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
 	assert.NotNil(t, browser)
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: "https://docs.helix.ml/"})
+	page, err := browser.Page(proto.TargetCreateTarget{URL: "https://docs.helixml.tech/"})
 	require.NoError(t, err)
 	assert.NotNil(t, page)
 
@@ -38,16 +46,24 @@ func TestBrowser_Get(t *testing.T) {
 }
 
 func TestBrowser_BrowsePages(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err)
 
 	browserManager, err := New(&cfg)
 	require.NoError(t, err)
 
+	// Ensure proper cleanup of browser resources
+	defer browserManager.Close()
+
 	browser, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helix.ml/"})
+	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helixml.tech/"})
 	require.NoError(t, err)
 	assert.NotNil(t, page1)
 
@@ -61,7 +77,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 
 	browserManager.PutPage(page1)
 
-	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helix.ml/helix/help/"})
+	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helixml.tech/helix/help/"})
 	require.NoError(t, err)
 
 	err = page2.WaitLoad()

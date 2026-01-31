@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	gormpostgres "gorm.io/driver/postgres"
@@ -25,12 +28,16 @@ import (
 type PostgresStore struct {
 	cfg config.Store
 
-	gdb *gorm.DB
+	gdb    *gorm.DB
+	pubsub pubsub.PubSub
 }
 
 func NewPostgresStore(
 	cfg config.Store,
+	pubsub pubsub.PubSub,
 ) (*PostgresStore, error) {
+
+	schema.RegisterSerializer("json", schema.JSONSerializer{})
 
 	// Waiting for connection
 	gormDB, err := connect(context.Background(), connectConfig{
@@ -51,14 +58,22 @@ func NewPostgresStore(
 	}
 
 	store := &PostgresStore{
-		cfg: cfg,
-		gdb: gormDB,
+		cfg:    cfg,
+		gdb:    gormDB,
+		pubsub: pubsub,
 	}
 
 	if cfg.AutoMigrate {
 		err = store.autoMigrate()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+		}
+	}
+
+	if cfg.SeedModels {
+		err = store.seedModels(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to seed models: %w", err)
 		}
 	}
 
@@ -106,18 +121,62 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.AccessGrantRoleBinding{},
 		&types.UserMeta{},
 		&types.Session{},
+		&types.Interaction{},
 		&types.App{},
 		&types.ApiKey{},
 		&types.Tool{},
 		&types.Knowledge{},
 		&types.KnowledgeVersion{},
 		&types.DataEntity{},
-		&types.ScriptRun{},
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
 		&types.LicenseKey{},
 		&types.ProviderEndpoint{},
+		&types.OAuthProvider{},
+		&types.OAuthConnection{},
+		&types.OAuthRequestToken{},
+		&types.GitProviderConnection{},
+		&types.ServiceConnection{},
+		&types.UsageMetric{},
+		&types.Model{},
+		&types.DynamicModelInfo{},
+		&types.StepInfo{},
+		&types.RunnerSlot{},
+		&types.SlackThread{},
+		&types.TeamsThread{},
+		&types.CrispThread{},
+		&types.TriggerConfiguration{},
+		&types.TriggerExecution{},
+		&types.SystemSettings{},
+		&types.Wallet{},
+		&types.Transaction{},
+		&types.TopUp{},
+		&types.Project{},
+		&types.ProjectAuditLog{}, // Audit trail for project activity
+		&types.SampleProject{},
+		&types.SpecTask{},
+		&types.SpecTaskWorkSession{},
+		&types.SpecTaskZedThread{},
+		&types.SpecTaskExternalAgent{},
+		&types.SpecTaskDesignReview{},
+		&types.SpecTaskDesignReviewComment{},
+		&types.SpecTaskDesignReviewCommentReply{},
+		&types.SpecTaskGitPushEvent{},
+		&types.GitRepository{},
+		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
+		&types.SpecTaskImplementationTask{},
+		&types.AgentRunner{},
+		&types.ZedSettingsOverride{},
+		&types.Memory{},
+		&types.QuestionSet{},
+		&types.QuestionSetExecution{},
+		&types.SandboxInstance{},
+		&types.DiskUsageHistory{},
+		&types.GuidelinesHistory{},
+		&types.PromptHistoryEntry{},
+		&types.GlobalCounter{},
+		&types.CloneGroup{},
 	)
 	if err != nil {
 		return err
@@ -160,12 +219,60 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.ScriptRun{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.StepInfo{}, types.Session{}, "session_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Interaction{}, types.Session{}, "session_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.SlackThread{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.CrispThread{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TriggerConfiguration{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TriggerExecution{}, types.TriggerConfiguration{}, "trigger_configuration_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.QuestionSetExecution{}, types.QuestionSet{}, "question_set_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	// Project-Repository junction table FKs (cascade delete when project or repo is deleted)
+	if err := createFK(s.gdb, types.ProjectRepository{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for project_repositories -> projects")
+	}
+	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
+	}
+
+	// Migrate existing project_id values to junction table
+	if err := s.migrateProjectRepositories(context.Background()); err != nil {
+		log.Err(err).Msg("failed to migrate project repositories to junction table")
+		// Don't return error - this is a one-time migration, data will be migrated on next startup
+	}
+
+	// Ensure default project exists for spec tasks
+	if err := s.ensureDefaultProject(context.Background()); err != nil {
+		log.Err(err).Msg("failed to ensure default project exists")
+		return err
 	}
 
 	return nil
@@ -201,7 +308,9 @@ func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpda
 	}
 
 	// Dealing with custom table names that contain schema in them
-	constraintName := "fk_" + strings.ReplaceAll(srcTableName, ".", "_") + "_" + strings.ReplaceAll(dstTableName, ".", "_")
+	// Use a hash-based approach to ensure constraint names stay under PostgreSQL's 63-character limit
+	// while remaining deterministic and avoiding collisions
+	constraintName := generateConstraintName(srcTableName, dstTableName, fk)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -220,6 +329,47 @@ func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpda
 		}
 	}
 	return nil
+}
+
+// generateConstraintName creates a deterministic constraint name that stays under PostgreSQL's 63-character limit
+// It uses a hash-based approach to avoid collisions while keeping names readable
+func generateConstraintName(srcTableName, dstTableName, fkColumn string) string {
+	// Extract just the table names without schema prefixes for readability
+	srcTable := extractTableName(srcTableName)
+	dstTable := extractTableName(dstTableName)
+
+	// Create a base name that's human-readable
+	baseName := fmt.Sprintf("fk_%s_%s_%s", srcTable, dstTable, fkColumn)
+
+	// If the base name is short enough AND the table names don't contain schema prefixes, use it as-is
+	if len(baseName) <= 63 && !strings.Contains(srcTableName, ".") && !strings.Contains(dstTableName, ".") {
+		return baseName
+	}
+
+	// Otherwise, create a hash-based name that includes the full table names for uniqueness
+	// This ensures different schemas produce different constraint names
+	fullName := fmt.Sprintf("%s_%s_%s", srcTableName, dstTableName, fkColumn)
+	hash := sha256.Sum256([]byte(fullName))
+	hashStr := hex.EncodeToString(hash[:])[:16] // Use first 16 characters of hash
+
+	// Create a constraint name that's guaranteed to be under 63 characters
+	constraintName := fmt.Sprintf("fk_%s_%s_%s", srcTable, dstTable, hashStr)
+
+	// Final safety check - truncate if still too long (shouldn't happen with our format)
+	if len(constraintName) > 63 {
+		constraintName = constraintName[:63]
+	}
+
+	return constraintName
+}
+
+// extractTableName extracts the table name from a potentially schema-qualified table name
+func extractTableName(fullTableName string) string {
+	parts := strings.Split(fullTableName, ".")
+	if len(parts) > 1 {
+		return parts[len(parts)-1] // Return the last part (table name)
+	}
+	return fullTableName
 }
 
 type Scanner interface {
@@ -384,4 +534,276 @@ func (s *PostgresStore) GetAppCount() (int, error) {
 		return 0, fmt.Errorf("error getting app count: %w", err)
 	}
 	return count, nil
+}
+
+// CreateProject creates a new project
+func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
+	err := s.gdb.WithContext(ctx).Create(project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating project: %w", err)
+	}
+	return project, nil
+}
+
+// GetProject gets a project by ID
+func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting project: %w", err)
+	}
+	return &project, nil
+}
+
+// UpdateProject updates an existing project
+func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Project) error {
+	err := s.gdb.WithContext(ctx).Save(project).Error
+	if err != nil {
+		return fmt.Errorf("error updating project: %w", err)
+	}
+	return nil
+}
+
+// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the current value
+// Uses raw SQL with RETURNING for database-level atomicity - no race conditions
+// Returns the value BEFORE incrementing (so first task gets 1, second gets 2, etc.)
+func (s *PostgresStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
+	var currentNumber int
+	err := s.gdb.WithContext(ctx).Raw(`
+		UPDATE projects
+		SET next_task_number = next_task_number + 1
+		WHERE id = ?
+		RETURNING next_task_number - 1
+	`, projectID).Scan(&currentNumber).Error
+	if err != nil {
+		return 0, fmt.Errorf("error incrementing project task number: %w", err)
+	}
+	return currentNumber, nil
+}
+
+// IncrementGlobalTaskNumber atomically increments the global task counter and returns the new value
+// Uses INSERT ON CONFLICT (upsert) to handle first-time creation, then UPDATE RETURNING for atomicity
+// Returns the value AFTER incrementing (so first task gets 1, second gets 2, etc.)
+func (s *PostgresStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
+	var newNumber int
+	err := s.gdb.WithContext(ctx).Raw(`
+		INSERT INTO global_counters (name, value, updated_at)
+		VALUES ('task_number', 1, NOW())
+		ON CONFLICT (name) DO UPDATE
+		SET value = global_counters.value + 1, updated_at = NOW()
+		RETURNING value
+	`).Scan(&newNumber).Error
+	if err != nil {
+		return 0, fmt.Errorf("error incrementing global task number: %w", err)
+	}
+	return newNumber, nil
+}
+
+// ListProjects lists all projects for a given user
+func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
+	var projects []*types.Project
+
+	q := s.gdb.WithContext(ctx).Model(&types.Project{})
+
+	if req.UserID != "" {
+		q = q.Where("user_id = ?", req.UserID)
+	}
+
+	if req.OrganizationID != "" {
+		q = q.Where("organization_id = ?", req.OrganizationID)
+	} else {
+		// If we are listing just for the user, we don't want to filter by organization
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	err := q.Order("created_at DESC").Find(&projects).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing projects: %w", err)
+	}
+	return projects, nil
+}
+
+// DeleteProject deletes a project by ID
+func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.Project{}, "id = ?", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error deleting project: %w", err)
+	}
+	return nil
+}
+
+// GetProjectRepositories gets all repositories attached to a project
+// func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*types.GitRepository, error) {
+// 	if projectID == "" {
+// 		return nil, fmt.Errorf("project id not specified")
+// 	}
+
+// 	var repos []*types.GitRepository
+// 	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&repos).Error
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error getting project repositories: %w", err)
+// 	}
+// 	return repos, nil
+// }
+
+// SetProjectPrimaryRepository sets the primary repository for a project
+func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&types.Project{}).Where("id = ?", projectID).Update("default_repo_id", repoID).Error
+	if err != nil {
+		return fmt.Errorf("error setting project primary repository: %w", err)
+	}
+	return nil
+}
+
+// AttachRepositoryToProject attaches a repository to a project.
+// This writes to BOTH the junction table (for many-to-many support) AND the legacy
+// project_id column (for backward compatibility/rollback).
+func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	if projectID == "" || repoID == "" {
+		return fmt.Errorf("project id or repository id not specified")
+	}
+
+	// Get repository to find organization_id
+	repo, err := s.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	// Write to junction table (idempotent - does nothing if already exists)
+	err = s.CreateProjectRepository(ctx, projectID, repoID, repo.OrganizationID)
+	if err != nil {
+		return fmt.Errorf("error creating project repository junction: %w", err)
+	}
+
+	// Also write to legacy project_id column for backward compatibility
+	// This allows rollback to older code versions
+	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error updating legacy project_id: %w", err)
+	}
+
+	return nil
+}
+
+// DetachRepositoryFromProject detaches a repository from a specific project.
+// NOTE: Signature changed to require projectID since a repo can now be attached to multiple projects.
+func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project id not specified")
+	}
+	if repoID == "" {
+		return fmt.Errorf("repository id not specified")
+	}
+
+	// Delete from junction table
+	err := s.DeleteProjectRepository(ctx, projectID, repoID)
+	if err != nil {
+		return fmt.Errorf("error deleting project repository junction: %w", err)
+	}
+
+	// Check if this repo is still attached to other projects
+	projectIDs, err := s.GetProjectsForRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("error checking remaining project attachments: %w", err)
+	}
+
+	// Update legacy project_id column:
+	// - If attached to other projects, set to the first one (for backward compat)
+	// - If not attached to any project, clear it
+	var newProjectID string
+	if len(projectIDs) > 0 {
+		newProjectID = projectIDs[0]
+	}
+
+	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", newProjectID).Error
+	if err != nil {
+		return fmt.Errorf("error updating legacy project_id: %w", err)
+	}
+
+	return nil
+}
+
+// CreateSampleProject creates a new sample project
+func (s *PostgresStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	err := s.gdb.WithContext(ctx).Create(sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating sample project: %w", err)
+	}
+	return sample, nil
+}
+
+// GetSampleProject gets a sample project by ID
+func (s *PostgresStore) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) {
+	var sample types.SampleProject
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting sample project: %w", err)
+	}
+	return &sample, nil
+}
+
+// ListSampleProjects lists all available sample projects
+func (s *PostgresStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
+	var samples []*types.SampleProject
+	err := s.gdb.WithContext(ctx).Order("created_at DESC").Find(&samples).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing sample projects: %w", err)
+	}
+	return samples, nil
+}
+
+// DeleteSampleProject deletes a sample project by ID
+func (s *PostgresStore) DeleteSampleProject(ctx context.Context, id string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.SampleProject{}, "id = ?", id).Error
+	if err != nil {
+		return fmt.Errorf("error deleting sample project: %w", err)
+	}
+	return nil
+}
+
+// ensureDefaultProject ensures that the default project exists for spec tasks
+// This project is used as a singleton board for all spec tasks until multi-project support is fully implemented
+func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", "default").First(&project).Error
+
+	if err == gorm.ErrRecordNotFound {
+		// Create default project with board settings
+		defaultProject := &types.Project{
+			ID:          "default",
+			Name:        "Default Project",
+			Description: "Default project for spec-driven tasks",
+			Status:      "active",
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Metadata: types.ProjectMetadata{
+				BoardSettings: &types.BoardSettings{
+					WIPLimits: types.WIPLimits{
+						Planning:       3,
+						Review:         2,
+						Implementation: 5,
+					},
+				},
+			},
+		}
+
+		err = s.gdb.WithContext(ctx).Create(defaultProject).Error
+		if err != nil {
+			return fmt.Errorf("failed to create default project: %w", err)
+		}
+
+		log.Info().Msg("Created default project for spec tasks")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check for default project: %w", err)
+	}
+
+	// Project exists, nothing to do
+	return nil
+}
+
+// GetDB returns the underlying GORM database connection for testing purposes
+// This should only be used in tests when direct database access is needed
+func (s *PostgresStore) GetDB() *gorm.DB {
+	return s.gdb
 }

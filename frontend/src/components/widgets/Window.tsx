@@ -33,6 +33,7 @@ export interface WindowProps {
   },
   theme?: Record<string, string>,
   disabled?: boolean,
+  children?: ReactNode,
 }
 
 const Window: FC<WindowProps> = ({

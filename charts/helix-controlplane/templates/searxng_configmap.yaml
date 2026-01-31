@@ -1,0 +1,40 @@
+{{- if .Values.searxng.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-searxng-config
+  labels:
+    app.kubernetes.io/component: searxng
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+data:
+  settings.yml: |
+    use_default_settings: true
+
+    general:
+      instance_name: 'searxng'
+
+    search:
+      autocomplete: 'google'
+      formats:
+        - html
+        - json
+
+    server:
+      secret_key: 'replace_me' # Is overwritten by ${SEARXNG_SECRET}
+
+    engines:
+      - name: wolframalpha
+        disabled: false
+
+  limiter.toml: |
+    # This configuration file updates the default configuration file
+    # See https://github.com/searxng/searxng/blob/master/searx/botdetection/limiter.toml
+
+    [botdetection.ip_limit]
+    # activate link_token method in the ip_limit method
+    link_token = false
+
+    [botdetection.ip_lists]
+    block_ip = []
+    pass_ip = []
+{{- end }}

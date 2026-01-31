@@ -37,7 +37,7 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 	}
 
 	if app.OrganizationID == "" {
-		writeErrResponse(rw, errors.New("app is not associated with an organization"), http.StatusBadRequest)
+		writeErrResponse(rw, errors.New("agent is not associated with an organization"), http.StatusBadRequest)
 		return
 	}
 
@@ -73,8 +73,8 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 }
 
 // createAppAccessGrant godoc
-// @Summary Grant access to an app to a team or organization member
-// @Description Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)
+// @Summary Grant access to an agent to a team or organization member
+// @Description Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)
 // @Tags    apps
 // @Success 200 {object} types.AccessGrant
 // @Param request body types.CreateAccessGrantRequest true "Request body with team or organization member ID and role"
@@ -95,7 +95,7 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 	}
 
 	if app.OrganizationID == "" {
-		writeErrResponse(rw, errors.New("app is not associated with an organization"), http.StatusBadRequest)
+		writeErrResponse(rw, errors.New("agent is not associated with an organization"), http.StatusBadRequest)
 		return
 	}
 
@@ -173,7 +173,6 @@ func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r 
 	grants, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
 		UserID:         userID,
 		TeamID:         req.TeamID,
 	}, roles)

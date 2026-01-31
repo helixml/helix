@@ -13,7 +13,9 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 		call.ID = system.GenerateLLMCallID()
 	}
 
-	call.Created = time.Now()
+	if call.Created.IsZero() {
+		call.Created = time.Now()
+	}
 
 	err := s.gdb.WithContext(ctx).Create(call).Error
 	if err != nil {
@@ -24,11 +26,13 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 
 type ListLLMCallsQuery struct {
 	AppID         string
-	SessionFilter string
+	SessionID     string
+	InteractionID string
 	UserID        string
 
 	Page    int
 	PerPage int
+	Order   string
 }
 
 func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
@@ -39,8 +43,12 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 
 	query := s.gdb.WithContext(ctx).Model(&types.LLMCall{})
 
-	if q.SessionFilter != "" {
-		query = query.Where("session_id LIKE ?", "%"+q.SessionFilter+"%")
+	if q.SessionID != "" {
+		query = query.Where("session_id = ?", q.SessionID)
+	}
+
+	if q.InteractionID != "" {
+		query = query.Where("interaction_id = ?", q.InteractionID)
 	}
 
 	if q.AppID != "" {
@@ -49,6 +57,10 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 
 	if q.UserID != "" {
 		query = query.Where("user_id = ?", q.UserID)
+	}
+
+	if q.Order != "" {
+		query = query.Order(q.Order)
 	}
 
 	err := query.Count(&totalCount).Error

@@ -102,7 +102,7 @@ export const WaitingInQueue: FC<{
                 emitEvent({
                   name: 'queue_on_prem_clicked'
                 })
-                window.open('https://docs.helix.ml/docs/controlplane')
+                window.open('https://docs.helixml.tech/docs/controlplane')
               }}>View Docs</Button>
           </CardActions>
         </Card>
@@ -135,7 +135,7 @@ export const WaitingInQueue: FC<{
                 emitEvent({
                   name: 'queue_get_in_touch_clicked'
                 })
-                window.open('mailto:founders@helix.ml')
+                window.open('mailto:info@helix.ml')
               }}>Get in touch</Button>
           </CardActions>
         </Card>

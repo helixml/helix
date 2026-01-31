@@ -4,13 +4,27 @@ import (
 	"fmt"
 )
 
-type SessionOriginType string
+type SessionType string
 
 const (
-	SessionOriginTypeNone        SessionOriginType = ""
-	SessionOriginTypeUserCreated SessionOriginType = "user_created"
-	SessionOriginTypeCloned      SessionOriginType = "cloned"
+	SessionTypeNone  SessionType = ""
+	SessionTypeText  SessionType = "text"
+	SessionTypeImage SessionType = "image"
 )
+
+func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, error) {
+	switch sessionType {
+	case string(SessionTypeText):
+		return SessionTypeText, nil
+	case string(SessionTypeImage):
+		return SessionTypeImage, nil
+	default:
+		if acceptEmpty && sessionType == string(SessionTypeNone) {
+			return SessionTypeNone, nil
+		}
+		return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
+	}
+}
 
 // this will change from finetune to inference (so the user can chat to their fine tuned model)
 // if they then turn back to "add more documents" / "add more images", then it will change back to finetune
@@ -41,52 +55,14 @@ func ValidateSessionMode(sessionMode string, acceptEmpty bool) (SessionMode, err
 	}
 }
 
-type SessionType string
+type CreatorType string
 
 const (
-	SessionTypeNone  SessionType = ""
-	SessionTypeText  SessionType = "text"
-	SessionTypeImage SessionType = "image"
+	CreatorTypeSystem    CreatorType = "system"
+	CreatorTypeAssistant CreatorType = "assistant"
+	CreatorTypeUser      CreatorType = "user"
+	CreatorTypeTool      CreatorType = "tool"
 )
-
-func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, error) {
-	switch sessionType {
-	case string(SessionTypeText):
-		return SessionTypeText, nil
-	case string(SessionTypeImage):
-		return SessionTypeImage, nil
-	default:
-		if acceptEmpty && sessionType == string(SessionTypeNone) {
-			return SessionTypeNone, nil
-		}
-		return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
-	}
-}
-
-type CloneInteractionMode string
-
-const (
-	CloneInteractionModeNone          CloneInteractionMode = ""
-	CloneInteractionModeJustData      CloneInteractionMode = "just_data"
-	CloneInteractionModeWithQuestions CloneInteractionMode = "with_questions"
-	CloneInteractionModeAll           CloneInteractionMode = "all"
-)
-
-func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneInteractionMode, error) {
-	switch cloneTextType {
-	case string(CloneInteractionModeJustData):
-		return CloneInteractionModeJustData, nil
-	case string(CloneInteractionModeWithQuestions):
-		return CloneInteractionModeWithQuestions, nil
-	case string(CloneInteractionModeAll):
-		return CloneInteractionModeAll, nil
-	default:
-		if acceptEmpty && cloneTextType == string(CloneInteractionModeNone) {
-			return CloneInteractionModeNone, nil
-		}
-		return CloneInteractionModeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
-	}
-}
 
 type InteractionState string
 
@@ -105,6 +81,7 @@ const (
 	OwnerTypeRunner OwnerType = "runner"
 	OwnerTypeSystem OwnerType = "system"
 	OwnerTypeSocket OwnerType = "socket"
+	OwnerTypeOrg    OwnerType = "org"
 )
 
 type PaymentType string
@@ -115,22 +92,16 @@ const (
 	PaymentTypeJob    PaymentType = "job"
 )
 
-type CreatorType string
-
-const (
-	CreatorTypeSystem    CreatorType = "system"
-	CreatorTypeAssistant CreatorType = "assistant"
-	CreatorTypeUser      CreatorType = "user"
-	CreatorTypeTool      CreatorType = "tool"
-)
-
 type WebsocketEventType string
 
 const (
-	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
-	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
-	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
-	WebsocketEventProcessingStepInfo WebsocketEventType = "step_info" // Helix tool use, rag search, etc
+	WebsocketEventSessionUpdate        WebsocketEventType = "session_update"
+	WebsocketEventInteractionUpdate    WebsocketEventType = "interaction_update" // Single interaction update (optimized for streaming)
+	WebsocketEventWorkerTaskResponse   WebsocketEventType = "worker_task_response"
+	WebsocketLLMInferenceResponse      WebsocketEventType = "llm_inference_response"
+	WebsocketEventProcessingStepInfo   WebsocketEventType = "step_info"            // Helix tool use, rag search, etc
+	WebsocketEventCommentResponseChunk WebsocketEventType = "comment_response_chunk" // Streaming agent response to design review comment
+	WebsocketEventCommentResponse      WebsocketEventType = "comment_response"       // Final agent response to design review comment
 )
 
 type WorkerTaskResponseType string
@@ -208,7 +179,7 @@ const (
 	InferenceRuntimeOllama    InferenceRuntime = "ollama"
 	InferenceRuntimeCog       InferenceRuntime = "cog"
 	InferenceRuntimeDiffusers InferenceRuntime = "diffusers"
-	// TODO: vllm
+	InferenceRuntimeVLLM      InferenceRuntime = "vllm"
 )
 
 func ValidateRuntime(runtime string) InferenceRuntime {
@@ -217,6 +188,8 @@ func ValidateRuntime(runtime string) InferenceRuntime {
 		return InferenceRuntimeAxolotl
 	case string(InferenceRuntimeOllama):
 		return InferenceRuntimeOllama
+	case string(InferenceRuntimeVLLM):
+		return InferenceRuntimeVLLM
 	default:
 		return ""
 	}
@@ -268,8 +241,6 @@ const (
 	APIkeytypeNone APIKeyType = ""
 	// generic access token for a user
 	APIkeytypeAPI APIKeyType = "api"
-	// a github oauth token
-	APIkeytypeGithub APIKeyType = "github"
 	// a helix access token for a specific app
 	APIkeytypeApp APIKeyType = "app"
 )
@@ -313,12 +284,11 @@ func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, e
 type TokenType string
 
 const (
-	TokenTypeNone     TokenType = ""
-	TokenTypeRunner   TokenType = "runner"
-	TokenTypeKeycloak TokenType = "keycloak"
-	TokenTypeOIDC     TokenType = "oidc"
-	TokenTypeAPIKey   TokenType = "api_key"
-	TokenTypeSocket   TokenType = "socket"
+	TokenTypeNone   TokenType = ""
+	TokenTypeRunner TokenType = "runner"
+	TokenTypeOIDC   TokenType = "oidc"
+	TokenTypeAPIKey TokenType = "api_key"
+	TokenTypeSocket TokenType = "socket"
 )
 
 type ScriptRunState string

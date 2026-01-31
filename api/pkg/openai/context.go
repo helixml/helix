@@ -7,17 +7,19 @@ import (
 )
 
 type (
-	contextValuesKeyType    int
-	contextAppIDKeyType     int
-	contextSessionIDKeyType int
-	stepKeyType             int
+	contextValuesKeyType         int
+	contextAppIDKeyType          int
+	contextOrganizationIDKeyType int
+	contextSessionIDKeyType      int
+	stepKeyType                  int
 )
 
 var (
-	contextValuesKey    contextValuesKeyType
-	contextAppIDKey     contextAppIDKeyType
-	contextSessionIDKey contextSessionIDKeyType
-	stepKey             stepKeyType
+	contextValuesKey         contextValuesKeyType
+	contextAppIDKey          contextAppIDKeyType
+	contextSessionIDKey      contextSessionIDKeyType
+	contextOrganizationIDKey contextOrganizationIDKeyType
+	stepKey                  stepKeyType
 )
 
 const (
@@ -36,6 +38,8 @@ type ContextValues struct {
 	OwnerID         string
 	SessionID       string
 	InteractionID   string
+	ProjectID       string
+	SpecTaskID      string
 	OriginalRequest []byte
 }
 
@@ -46,6 +50,15 @@ func SetContextAppID(ctx context.Context, appID string) context.Context {
 func GetContextAppID(ctx context.Context) (string, bool) {
 	appID, ok := ctx.Value(contextAppIDKey).(string)
 	return appID, ok
+}
+
+func SetContextOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, contextOrganizationIDKey, organizationID)
+}
+
+func GetContextOrganizationID(ctx context.Context) (string, bool) {
+	organizationID, ok := ctx.Value(contextOrganizationIDKey).(string)
+	return organizationID, ok
 }
 
 func SetContextSessionID(ctx context.Context, sessionID string) context.Context {

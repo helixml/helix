@@ -154,7 +154,7 @@ func TestValidate(t *testing.T) {
 			knowledge: &types.AssistantKnowledge{
 				Name: "Test",
 				Source: types.KnowledgeSource{
-					Content: &basicContent,
+					Text: &basicContent,
 				},
 			},
 			expectError: false,

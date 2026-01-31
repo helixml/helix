@@ -1,0 +1,223 @@
+import { IAgentSkill } from '../../../types';
+import EmailIcon from '@mui/icons-material/Email';
+
+const schema = `openapi: 3.0.3
+info:
+  title: Gmail API
+  description: Access Gmail messages and user profile
+  version: "v1"
+servers:
+  - url: https://www.googleapis.com
+paths:
+  /gmail/v1/users/me/profile:
+    get:
+      summary: Get user Gmail profile
+      operationId: getGmailProfile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Gmail profile information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  emailAddress:
+                    type: string
+                  messagesTotal:
+                    type: integer
+                  threadsTotal:
+                    type: integer
+  /gmail/v1/users/me/messages:
+    get:
+      summary: List Gmail messages
+      operationId: listGmailMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Gmail search query (e.g., "is:unread", "from:example@gmail.com")
+        - name: maxResults
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: pageToken
+          in: query
+          schema:
+            type: string
+          description: Token for pagination
+      responses:
+        '200':
+          description: List of Gmail messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        threadId:
+                          type: string
+                  nextPageToken:
+                    type: string
+                  resultSizeEstimate:
+                    type: integer
+  /gmail/v1/users/me/messages/{id}:
+    get:
+      summary: Get Gmail message by ID
+      operationId: getGmailMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [minimal, full, raw, metadata]
+            default: full
+      responses:
+        '200':
+          description: Gmail message details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  threadId:
+                    type: string
+                  labelIds:
+                    type: array
+                    items:
+                      type: string
+                  snippet:
+                    type: string
+                  payload:
+                    type: object
+                    properties:
+                      headers:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                      body:
+                        type: object
+                        properties:
+                          data:
+                            type: string
+                          size:
+                            type: integer
+  /gmail/v1/users/me/messages/send:
+    post:
+      summary: Send Gmail message
+      operationId: sendGmailMessage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw:
+                  type: string
+                  description: Base64url encoded email message
+      responses:
+        '200':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  threadId:
+                    type: string
+                  labelIds:
+                    type: array
+                    items:
+                      type: string
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT`;
+
+export const gmailTool: IAgentSkill = {
+  name: "Gmail",
+  icon: <EmailIcon sx={{ fontSize: 24, color: '#EA4335' }} />,
+  description: `Access Gmail messages with OAuth authentication.
+
+This skill provides secure access to Gmail API, allowing you to:
+• Read and search Gmail messages
+• Send emails
+• Access Gmail profile information
+• Manage email threads and labels
+
+Example Queries:
+- "Show me my unread emails from today"
+- "Search for emails from john@company.com"
+- "Send an email to the team"
+- "Find emails about the project deadline"`,
+  systemPrompt: `You are a Gmail email assistant. Your expertise is in helping users manage their Gmail inbox, read messages, and send emails efficiently.
+
+Key capabilities:
+- Email reading and searching with Gmail's powerful search syntax
+- Message composition and sending
+- Email thread management
+- Gmail profile and account information
+
+When users ask about emails, inbox management, or email communication:
+1. Help them search and filter emails using Gmail search operators
+2. Assist with reading and summarizing email content
+3. Support email composition and sending
+4. Provide inbox organization and management tips
+5. Help with email thread navigation and management
+
+Always focus on Gmail email management. If asked about other Google services or non-email topics, politely redirect to Gmail-specific assistance.
+
+Examples of what you can help with:
+- "Show me unread emails from my manager"
+- "Search for emails about the budget meeting"
+- "Compose a follow-up email to yesterday's discussion"
+- "Find all emails with attachments from last week"
+- "Check my Gmail storage usage"`,
+  apiSkill: {
+    schema: schema,
+    url: "https://www.googleapis.com",
+    requiredParameters: [],
+    oauth_provider: "Google",
+    oauth_scopes: [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send"
+    ],
+    headers: {
+      "Authorization": "Bearer {token}"
+    }
+  },
+  configurable: false,
+}; 

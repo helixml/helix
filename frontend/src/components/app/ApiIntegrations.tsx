@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -10,7 +10,7 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { IAssistantApi } from '../../types';
+import { IAppFlatState, IAssistantApi, ITool } from '../../types';
 import Window from '../widgets/Window';
 import StringMapEditor from '../widgets/StringMapEditor';
 import ClickLink from '../widgets/ClickLink';
@@ -18,8 +18,6 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
-import { coindeskSchema } from './coindesk_schema';
-import { jobVacanciesSchema } from './jobvacancies_schema';
 import DeleteIcon from '@mui/icons-material/Delete';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -27,45 +25,126 @@ import ListItemText from '@mui/material/ListItemText';
 import EditIcon from '@mui/icons-material/Edit';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import { exchangeratesSchema } from './exchangerates_schema';
+
+import Avatar from '@mui/material/Avatar';
+import IconButton from '@mui/material/IconButton';
+import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+import useApi from '../../hooks/useApi';
+import Link from '@mui/material/Link';
+
+
+import { jobVacanciesTool } from './examples/jobVacanciesApi';
+import { exchangeRatesTool } from './examples/exchangeRatesApi';
+import { productsTool } from './examples/productsApi';
+import { climateTool } from './examples/climateApi';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
+  tools: ITool[];
   onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
-  onDeleteApiTool: (toolId: string) => void;
+  onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
+  app: IAppFlatState,
+  onUpdate: (updates: IAppFlatState) => Promise<void>,
+}
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   apis,
+  tools,
   onSaveApiTool,
   onDeleteApiTool,
-  isReadOnly
+  isReadOnly,
+  app,
+  onUpdate,
 }) => {
   const [editingTool, setEditingTool] = useState<{tool: IAssistantApi, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
+  const [oauthProvider, setOAuthProvider] = useState('');
+  const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
+  const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
+  const [actionableTemplate, setActionableTemplate] = useState(app.is_actionable_template || '');
+  
+  const [actionableHistoryLength, setActionableHistoryLength] = useState(app.is_actionable_history_length || 0);
+  const api = useApi();
+
+  // Initialize local state when app prop changes
+  useEffect(() => {
+    setActionableTemplate(app.is_actionable_template || '');
+    setActionableHistoryLength(app.is_actionable_history_length || 0);
+  }, [app]);
+
+  const handleBlur = (field: 'template' | 'history') => {
+    // Only update if values have changed
+    if (field === 'template' && actionableTemplate !== app.is_actionable_template) {
+      onUpdate({...app, is_actionable_template: actionableTemplate});
+    } else if (field === 'history' && actionableHistoryLength !== app.is_actionable_history_length) {
+      onUpdate({...app, is_actionable_history_length: actionableHistoryLength});
+    }
+  };
+
+  // Fetch configured OAuth providers from the API
+  useEffect(() => {
+    const fetchOAuthProviders = async () => {
+      try {
+        const providers = await api.get('/api/v1/oauth/providers');
+        const enabledProviders = Array.isArray(providers) 
+          ? providers.filter((p: OAuthProvider) => p.enabled)
+          : [];
+        setConfiguredProviders(enabledProviders);
+      } catch (error) {
+        console.error('Error fetching OAuth providers:', error);
+        setConfiguredProviders([]);
+      }
+    };
+
+    fetchOAuthProviders();
+  }, []);
 
   const onAddApiTool = useCallback(() => {
     const newTool: IAssistantApi = {
       name: '',
       description: '',
+      system_prompt: '',
       schema: '',
       url: '',
       headers: {},
       query: {},
     };
     setEditingTool({tool: newTool, index: -1});
+    setOAuthProvider('');
+    setOAuthScopes([]);
   }, []);
 
   const validate = () => {
     if (!editingTool) return false;
     if (!editingTool.tool.name) return false;
     if (!editingTool.tool.description) return false;
+    if (app.agent_mode && !editingTool.tool.system_prompt) return false;
     if (!editingTool.tool.url) return false;
     if (!editingTool.tool.schema) return false;
     return true;
+  };
+
+  const handleEditTool = (apiTool: IAssistantApi, index: number) => {
+    console.log('ApiIntegrations - editing tool at index:', index);
+    
+    // Look for OAuth settings directly on the API tool
+    let providerName = apiTool.oauth_provider || '';
+    let oauthScopes = apiTool.oauth_scopes || [];
+    
+    setOAuthProvider(providerName);
+    setOAuthScopes(oauthScopes);
+    setEditingTool({tool: apiTool, index});
   };
 
   const handleSaveTool = () => {
@@ -75,13 +154,39 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       return;
     }
     setShowErrors(false);
+    
+    // Include OAuth settings directly in the IAssistantApi tool
+    const updatedTool = {
+      ...editingTool.tool,
+      oauth_provider: oauthProvider || undefined,
+      oauth_scopes: oauthScopes.filter(s => s.trim() !== '')
+    };
+    
     console.log('ApiIntegrations - saving tool:', {
-      tool: editingTool.tool,
+      tool: updatedTool,
       index: editingTool.index,
-      isNew: editingTool.index === -1
+      isNew: editingTool.index === -1,
+      oauthSettings: { provider: oauthProvider, scopes: oauthScopes }
     });
-    onSaveApiTool(editingTool.tool, editingTool.index >= 0 ? editingTool.index : undefined);
+    
+    onSaveApiTool(updatedTool, editingTool.index >= 0 ? editingTool.index : undefined);
     setEditingTool(null);
+  };
+  
+  const addScope = () => {
+    setOAuthScopes([...oauthScopes, '']);
+  };
+
+  const removeScope = (index: number) => {
+    const newScopes = [...oauthScopes];
+    newScopes.splice(index, 1);
+    setOAuthScopes(newScopes);
+  };
+
+  const handleScopeChange = (index: number, value: string) => {
+    const newScopes = [...oauthScopes];
+    newScopes[index] = value;
+    setOAuthScopes(newScopes);
   };
 
   const updateEditingTool = (updates: Partial<IAssistantApi>) => {
@@ -96,27 +201,14 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const handleSchemaTemplateChange = (selectedTemplate: string) => {
     setSchemaTemplate(selectedTemplate);
 
-    if (selectedTemplate === 'coindesk') {
-      updateEditingTool({
-        name: "CoinDesk API",
-        description: "API for CoinDesk",
-        schema: coindeskSchema,
-        url: "https://api.coindesk.com/v1"
-      });
+    if (selectedTemplate === 'climate') {
+      updateEditingTool(climateTool);
     } else if (selectedTemplate === 'jobvacancies') {
-      updateEditingTool({
-        name: "Job Vacancies API",
-        description: "API for job vacancies",
-        schema: jobVacanciesSchema,
-        url: "https://demos.tryhelix.ai"
-      });
+      updateEditingTool(jobVacanciesTool);
     } else if (selectedTemplate === 'exchangerates') {
-      updateEditingTool({
-        name: "Exchange Rates API",
-        description: "Get latest currency exchange rates",
-        schema: exchangeratesSchema,
-        url: "https://open.er-api.com/v6"
-      });
+      updateEditingTool(exchangeRatesTool);
+    } else if (selectedTemplate === 'productStore') {
+      updateEditingTool(productsTool);
     }
   };
 
@@ -151,6 +243,45 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       >
         Add API Tool
       </Button>
+
+      <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography>Advanced Configuration</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            You can view default template
+            in the <Link href="https://github.com/helixml/helix/blob/a27b8c53cdcfafb6663a6553d23c56ef67ebd50a/api/pkg/tools/informative_or_actionable.go#L232-L321" target="_blank">
+              Helix repository
+            </Link>. The goal is to help the model decide whether a tool should be used to perform an action or not.
+          </Typography>
+          <TextField
+            value={actionableTemplate}
+            onChange={(e) => setActionableTemplate(e.target.value)}
+            onBlur={() => handleBlur('template')}
+            label="'Is Actionable' template"
+            fullWidth
+            multiline
+            rows={4}
+            disabled={isReadOnly}
+            sx={{ mb: 2 }}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The history length is the number of messages that will be used to determine if the tool should be used to perform an action.
+            The more context you provide, the worse results you will get on smaller models. For large models this can have an opposite effect.
+          </Typography>          
+          <TextField
+            value={actionableHistoryLength}
+            onChange={(e) => setActionableHistoryLength(Number(e.target.value))}
+            onBlur={() => handleBlur('history')}
+            label="'Is Actionable' history length"
+            type="number"
+            fullWidth
+            disabled={isReadOnly}
+          />
+        </AccordionDetails>
+      </Accordion>
+
       <Box sx={{ mb: 2, overflowY: 'auto' }}>
         {apis.map((apiTool, index) => (
           <Box
@@ -163,6 +294,25 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           >
             <Typography variant="h6">{apiTool.name}</Typography>
             <Typography variant="subtitle2" sx={{ mt: 2 }}>Description: {apiTool.description}</Typography>
+
+            {(() => {
+              const matchingTool = tools.find(t => t.name === apiTool.name);
+              const actions = matchingTool?.config?.api?.actions;
+              if (!actions || actions.length === 0) return null;
+              
+              return (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="subtitle2">Actions:</Typography>
+                  <ul>
+                    {actions.map((action: {name: string, method: string, path: string, description: string}, index: number) => (
+                      <li key={index}>
+                        {action.name}: {action.method} {action.path} ({action.description})
+                      </li>
+                    ))}
+                  </ul>
+                </Box>
+              );
+            })()}
             
             <Box sx={{ mt: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -170,7 +320,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   variant="outlined"
                   onClick={() => {
                     console.log('ApiIntegrations - editing tool at index:', index);
-                    setEditingTool({tool: apiTool, index})
+                    handleEditTool(apiTool, index)
                   }}
                   sx={{ mr: 1 }}
                   disabled={isReadOnly}
@@ -181,7 +331,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => onDeleteApiTool(apiTool.name)}
+                  onClick={() => onDeleteApiTool(index)}
                   disabled={isReadOnly}
                   startIcon={<DeleteIcon />}
                 >
@@ -221,9 +371,11 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     <MenuItem value="custom">
                       <em>Custom</em>
                     </MenuItem>
+                    <MenuItem value="climate">Climate</MenuItem>                    
                     <MenuItem value="exchangerates">Exchange Rates</MenuItem>
-                    <MenuItem value="coindesk">CoinDesk</MenuItem>
+
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
+                    <MenuItem value="productStore">Laptops Store</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -233,6 +385,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   onChange={(e) => updateEditingTool({ name: e.target.value })}
                   label="Name"
                   fullWidth
+                  required
                   error={showErrors && !editingTool.tool.name}
                   helperText={showErrors && !editingTool.tool.name ? 'Please enter a name' : ''}
                   disabled={isReadOnly}
@@ -243,9 +396,23 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   value={editingTool.tool.description}
                   onChange={(e) => updateEditingTool({ description: e.target.value })}
                   label="Description"
+                  required
                   fullWidth
                   error={showErrors && !editingTool.tool.description}
-                  helperText={showErrors && !editingTool.tool.description ? "Description is required" : ""}
+                  helperText="Description of the API, e.g. 'API for currency exchange rates, can be used to get the latest rates'"
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingTool.tool.system_prompt || ''}
+                  onChange={(e) => updateEditingTool({ system_prompt: e.target.value })}
+                  label="System Prompt"
+                  fullWidth
+                  required={app.agent_mode}
+                  multiline
+                  rows={4}
+                  helperText="Instructions when using this API. E.g. 'You are an expert at using the currency exchange API to get the latest rates'. Only required when used with the agent mode"
                   disabled={isReadOnly}
                 />
               </Grid>
@@ -293,6 +460,85 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   entityTitle="query parameter"
                   disabled={isReadOnly}
                 />
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
+                  OAuth Configuration
+                </Typography>
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="oauth-provider-label">OAuth Provider</InputLabel>
+                  <Select
+                    labelId="oauth-provider-label"
+                    id="oauth-provider"
+                    value={oauthProvider}
+                    label="OAuth Provider"
+                    onChange={(e) => setOAuthProvider(e.target.value)}
+                    disabled={isReadOnly}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {configuredProviders.map((provider) => (
+                      <MenuItem key={provider.id} value={provider.name}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Avatar 
+                            sx={{ 
+                              bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                              color: 'white',
+                              mr: 1,
+                              width: 24,
+                              height: 24
+                            }}
+                          >
+                            {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                          </Avatar>
+                          <span>{provider.name}</span>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {oauthProvider && (
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle1">Required Scopes</Typography>
+                      <Button 
+                        startIcon={<AddIcon />} 
+                        onClick={addScope}
+                        disabled={isReadOnly}
+                        variant="outlined"
+                        size="small"
+                      >
+                        Add Scope
+                      </Button>
+                    </Box>
+                    
+                    {oauthScopes.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No scopes defined. Add scopes to request specific permissions.
+                      </Typography>
+                    ) : (
+                      oauthScopes.map((scope, index) => (
+                        <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <TextField
+                            value={scope}
+                            onChange={(e) => handleScopeChange(index, e.target.value)}
+                            fullWidth
+                            placeholder="Enter scope"
+                            size="small"
+                            disabled={isReadOnly}
+                          />
+                          <IconButton 
+                            onClick={() => removeScope(index)}
+                            disabled={isReadOnly}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      ))
+                    )}
+                  </Box>
+                )}
               </Grid>
               <Grid item xs={12}>
                 <Accordion>

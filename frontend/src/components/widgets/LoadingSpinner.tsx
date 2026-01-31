@@ -7,7 +7,10 @@ const LoadingSpinner = () => {
       display: 'flex',
       justifyContent: 'flex-start',
       alignItems: 'center',
-      height: '60px'
+      height: '20px',
+      width: '20px',
+      p: 0,
+      m: 0,
     }}>
       <Box sx={dotStyle(0)} />
       <Box sx={dotStyle(0.2)} />
@@ -17,11 +20,11 @@ const LoadingSpinner = () => {
 };
 
 const dotStyle = (delay: number) => ({
-  width: '8px',
-  height: '8px',
+  width: '4px',
+  height: '4px',
   backgroundColor: '#999',
   borderRadius: '50%',
-  margin: '0 3px',
+  margin: '0 1px',
   animation: 'wave 0.9s infinite',
   animationDelay: `${delay}s`,
   '@keyframes wave': {
@@ -29,7 +32,7 @@ const dotStyle = (delay: number) => ({
       transform: 'translateY(0)',
     },
     '30%': {
-      transform: 'translateY(-15px)',
+      transform: 'translateY(-6px)',
     },
   }
 });

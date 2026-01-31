@@ -120,11 +120,12 @@ ON {schema_name}.{table_name}
 USING vchordrq (embedding {operator_type}) WITH (options = '{options}')
 """
 
+
 class VectorchordDocumentStore:
     """
     Store for documents using VectorChord (PostgreSQL with vector search capability).
 
-    VectorChord is a scalable, fast, and disk-friendly vector search extension for Postgres, 
+    VectorChord is a scalable, fast, and disk-friendly vector search extension for Postgres,
     the successor of pgvecto.rs.
 
     It allows to store and search for documents by their embeddings, as well as content-based keyword search.
@@ -163,9 +164,13 @@ class VectorchordDocumentStore:
         table_name: str = "haystack_documents",
         language: str = "english",
         embedding_dimension: int = 768,
-        vector_function: Literal["cosine_similarity", "inner_product", "l2_distance"] = "cosine_similarity",
+        vector_function: Literal[
+            "cosine_similarity", "inner_product", "l2_distance"
+        ] = "cosine_similarity",
         recreate_table: bool = False,
-        search_strategy: Literal["exact_nearest_neighbor", "vchordrq"] = "exact_nearest_neighbor",
+        search_strategy: Literal[
+            "exact_nearest_neighbor", "vchordrq"
+        ] = "exact_nearest_neighbor",
         vchordrq_recreate_index_if_exists: bool = False,
         vchordrq_index_name: str = "haystack_vchordrq_index",
         vchordrq_lists: int = 1000,
@@ -253,9 +258,9 @@ class VectorchordDocumentStore:
                 conn_str = self.connection_string.resolve_value()
             else:
                 conn_str = str(self.connection_string)
-                
+
             self._conn = connect(conn_str)
-            
+
             # Create the VectorChord extension if needed - MUST BE DONE BEFORE register_vector
             if self.create_extension:
                 try:
@@ -263,20 +268,22 @@ class VectorchordDocumentStore:
                         # First ensure we have the required extensions
                         cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
                         cur.execute("CREATE EXTENSION IF NOT EXISTS vchord CASCADE;")
-                        
+
                         # Add the VectorChord-BM25 extension
-                        cur.execute("CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;")
-                        
+                        cur.execute(
+                            "CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;"
+                        )
+
                         # Set up search path for bm25_catalog schema (session level instead of system level)
                         # This adds bm25_catalog to the search path so PostgreSQL can find the bm25vector type
-                        cur.execute("SET search_path TO \"$user\", public, bm25_catalog;")
-                        
+                        cur.execute('SET search_path TO "$user", public, bm25_catalog;')
+
                         self._conn.commit()
                 except Error as err:
                     error_msg = f"Failed to create VectorChord extension: {err}"
                     logger.error(error_msg)
                     raise DocumentStoreError(error_msg) from err
-                    
+
             # Register vector AFTER creating the extension
             register_vector(self._conn)
 
@@ -302,7 +309,7 @@ class VectorchordDocumentStore:
 
             # Create keyword index
             self._create_keyword_index_if_not_exists()
-            
+
             # Create BM25 index
             self._create_bm25_index_if_not_exists()
 
@@ -363,14 +370,22 @@ class VectorchordDocumentStore:
             Deserialized document store.
         """
         init_params = data["init_parameters"]
-        
+
         # Handle migration from old parameter names (HNSW) to new ones (VectorChord RaBitQ)
-        if "hnsw_recreate_index_if_exists" in init_params and "vchordrq_recreate_index_if_exists" not in init_params:
-            init_params["vchordrq_recreate_index_if_exists"] = init_params.pop("hnsw_recreate_index_if_exists")
-        
-        if "hnsw_index_name" in init_params and "vchordrq_index_name" not in init_params:
+        if (
+            "hnsw_recreate_index_if_exists" in init_params
+            and "vchordrq_recreate_index_if_exists" not in init_params
+        ):
+            init_params["vchordrq_recreate_index_if_exists"] = init_params.pop(
+                "hnsw_recreate_index_if_exists"
+            )
+
+        if (
+            "hnsw_index_name" in init_params
+            and "vchordrq_index_name" not in init_params
+        ):
             init_params["vchordrq_index_name"] = init_params.pop("hnsw_index_name")
-            
+
         if "hnsw_index_creation_kwargs" in init_params:
             # Extract m and convert to lists parameter if possible
             hnsw_kwargs = init_params.pop("hnsw_index_creation_kwargs")
@@ -380,15 +395,19 @@ class VectorchordDocumentStore:
             else:
                 # Default to 1000 if we can't get a reasonable value
                 init_params["vchordrq_lists"] = 1000
-                
+
         # Handle removal of ef_search parameter which doesn't have a direct equivalent
         if "hnsw_ef_search" in init_params:
             init_params.pop("hnsw_ef_search")
-            
+
         return default_from_dict(cls, data)
 
     def _execute_sql(
-        self, sql_query: Query, params: Optional[tuple] = None, error_msg: str = "", cursor: Optional[Cursor] = None
+        self,
+        sql_query: Query,
+        params: Optional[tuple] = None,
+        error_msg: str = "",
+        cursor: Optional[Cursor] = None,
     ):
         """Execute a SQL query."""
         try:
@@ -411,7 +430,10 @@ class VectorchordDocumentStore:
             table_name=Identifier(self.table_name),
             embedding_dimension=SQLLiteral(self.embedding_dimension),
         )
-        self._execute_sql(query, error_msg=f"Failed to create table {self.schema_name}.{self.table_name}")
+        self._execute_sql(
+            query,
+            error_msg=f"Failed to create table {self.schema_name}.{self.table_name}",
+        )
 
     def delete_table(self):
         """
@@ -422,12 +444,17 @@ class VectorchordDocumentStore:
             schema_name=Identifier(self.schema_name),
             table_name=Identifier(self.table_name),
         )
-        self._execute_sql(query, error_msg=f"Failed to delete table {self.schema_name}.{self.table_name}")
+        self._execute_sql(
+            query,
+            error_msg=f"Failed to delete table {self.schema_name}.{self.table_name}",
+        )
 
     def _create_keyword_index_if_not_exists(self):
         """Create the keyword index if it doesn't exist."""
         if not self.keyword_index_name:
-            logger.info(f"Skipping keyword index creation for {self.schema_name}.{self.table_name}")
+            logger.info(
+                f"Skipping keyword index creation for {self.schema_name}.{self.table_name}"
+            )
             return
 
         query = SQL(CREATE_KEYWORD_INDEX_STATEMENT).format(
@@ -436,34 +463,67 @@ class VectorchordDocumentStore:
             index_name=Identifier(self.keyword_index_name),
             language=SQLLiteral(self.language),
         )
-        self._execute_sql(query, error_msg=f"Failed to create keyword index for {self.schema_name}.{self.table_name}")
+        self._execute_sql(
+            query,
+            error_msg=f"Failed to create keyword index for {self.schema_name}.{self.table_name}",
+        )
         # logger.info(f"Created keyword index {self.keyword_index_name} for {self.schema_name}.{self.table_name}")
 
     def _create_bm25_index_if_not_exists(self):
         """Create the BM25 index if it doesn't exist and update content_bm25vector column."""
         try:
-            # First, update all existing documents to have their content tokenized
-            # Use 'Bert' as the default tokenizer
-            tokenizer = "Bert"
-            query = SQL("""
-                UPDATE {schema_name}.{table_name}
-                SET content_bm25vector = tokenize(content, %s)
-                WHERE content IS NOT NULL AND content_bm25vector IS NULL
+            # First, check if the content_bm25vector column exists
+            check_column_query = SQL("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = {schema_name}
+                    AND table_name = {table_name}
+                    AND column_name = 'content_bm25vector'
+                );
             """).format(
-                schema_name=Identifier(self.schema_name),
-                table_name=Identifier(self.table_name),
+                schema_name=SQLLiteral(self.schema_name),
+                table_name=SQLLiteral(self.table_name),
             )
-            self._execute_sql(query, params=(tokenizer,), 
-                             error_msg=f"Failed to update content_bm25vector for {self.schema_name}.{self.table_name}")
+            
+            self.cursor.execute(check_column_query)
+            column_exists = self.cursor.fetchone()[0]
+            
+            # If the column doesn't exist, add it
+            if not column_exists:
+                logger.info(f"Column content_bm25vector does not exist in {self.schema_name}.{self.table_name}. Creating it.")
+                
+                # Ensure the search path includes bm25_catalog for bm25vector type
+                self._execute_sql(
+                    SQL('SET search_path TO "$user", public, bm25_catalog;'),
+                    error_msg="Failed to set search path for BM25 vector column creation"
+                )
+                
+                # Add the content_bm25vector column
+                add_column_query = SQL("""
+                    ALTER TABLE {schema_name}.{table_name} 
+                    ADD COLUMN content_bm25vector bm25vector;
+                """).format(
+                    schema_name=Identifier(self.schema_name),
+                    table_name=Identifier(self.table_name),
+                )
+                
+                self._execute_sql(
+                    add_column_query,
+                    error_msg=f"Failed to add content_bm25vector column to {self.schema_name}.{self.table_name}"
+                )
+                
+                logger.info(f"Column content_bm25vector added to {self.schema_name}.{self.table_name}")
             
             # Then create the index
-            index_name = SQL("{table_name}_bm25_idx").format(
-                table_name=Identifier(self.table_name)
-            ).as_string(self.cursor)
-            
+            index_name = (
+                SQL("{table_name}_bm25_idx")
+                .format(table_name=Identifier(self.table_name))
+                .as_string(self.cursor)
+            )
+
             # Remove quotes that psycopg might add
-            index_name = index_name.replace('"', '')
-            
+            index_name = index_name.replace('"', "")
+
             query = SQL("""
                 CREATE INDEX IF NOT EXISTS {index_name}
                 ON {schema_name}.{table_name}
@@ -473,10 +533,15 @@ class VectorchordDocumentStore:
                 table_name=Identifier(self.table_name),
                 index_name=Identifier(index_name),
             )
-            self._execute_sql(query, 
-                             error_msg=f"Failed to create BM25 index for {self.schema_name}.{self.table_name}")
             
-            logger.info(f"Created BM25 index {index_name} for {self.schema_name}.{self.table_name}")
+            self._execute_sql(
+                query,
+                error_msg=f"Failed to create BM25 index for {self.schema_name}.{self.table_name}",
+            )
+
+            logger.info(
+                f"Created BM25 index {index_name} for {self.schema_name}.{self.table_name}"
+            )
         except Exception as e:
             logger.error(f"Critical error creating BM25 index: {str(e)}")
             self.connection.rollback()
@@ -502,11 +567,16 @@ class VectorchordDocumentStore:
         if full_index_name in existing_indexes:
             if self.vchordrq_recreate_index_if_exists:
                 # If it exists and we want to recreate it, drop the index first
-                drop_query = SQL("DROP INDEX IF EXISTS {schema_name}.{index_name}").format(
+                drop_query = SQL(
+                    "DROP INDEX IF EXISTS {schema_name}.{index_name}"
+                ).format(
                     schema_name=Identifier(self.schema_name),
                     index_name=Identifier(full_index_name),
                 )
-                self._execute_sql(drop_query, error_msg=f"Failed to drop VectorChord RaBitQ index {full_index_name}")
+                self._execute_sql(
+                    drop_query,
+                    error_msg=f"Failed to drop VectorChord RaBitQ index {full_index_name}",
+                )
                 # Create a new index
                 self._create_vchordrq_index()
         else:
@@ -543,10 +613,10 @@ class VectorchordDocumentStore:
             spherical_centroids = true
             """
             operator_type = "vector_cosine_ops"
-            
+
         # Escape single quotes in options for SQL
         options_escaped = options_content.replace("'", "''")
-            
+
         # Create the index using raw SQL to avoid parameterization issues
         # We're building the SQL directly rather than using parameters for the options
         # as PostgreSQL doesn't support parameterized values in CREATE INDEX WITH clauses
@@ -555,23 +625,34 @@ class VectorchordDocumentStore:
         ON {self.schema_name}.{self.table_name}
         USING vchordrq (embedding {operator_type}) WITH (options = '{options_escaped}')
         """
-        
+
         # Execute the raw SQL
-        self._execute_sql(SQL(raw_sql), error_msg="Failed to create VectorChord RaBitQ index")
-        logger.info(f"Created VectorChord RaBitQ index {self.table_name}_{self.vchordrq_index_name} for {self.schema_name}.{self.table_name}")
+        self._execute_sql(
+            SQL(raw_sql), error_msg="Failed to create VectorChord RaBitQ index"
+        )
+        logger.info(
+            f"Created VectorChord RaBitQ index {self.table_name}_{self.vchordrq_index_name} for {self.schema_name}.{self.table_name}"
+        )
 
         # Set probes and epsilon for better performance
         try:
             # Set probes to 10% of lists for better recall
             probes = max(int(self.vchordrq_lists * 0.1), 10)
-            self._execute_sql(SQL("SET vchordrq.probes = %s"), params=(probes,), 
-                             error_msg="Failed to set vchordrq.probes")
-            
+            self._execute_sql(
+                SQL("SET vchordrq.probes = %s"),
+                params=(probes,),
+                error_msg="Failed to set vchordrq.probes",
+            )
+
             # Set epsilon to 1.5 for a balance of precision and speed
-            self._execute_sql(SQL("SET vchordrq.epsilon = 1.5"), 
-                             error_msg="Failed to set vchordrq.epsilon")
-            
-            logger.info(f"Configured VectorChord RaBitQ with probes={probes} and epsilon=1.5")
+            self._execute_sql(
+                SQL("SET vchordrq.epsilon = 1.5"),
+                error_msg="Failed to set vchordrq.epsilon",
+            )
+
+            logger.info(
+                f"Configured VectorChord RaBitQ with probes={probes} and epsilon=1.5"
+            )
         except Exception as e:
             # Don't fail if we can't set the parameters
             logger.warning(f"Could not set VectorChord RaBitQ parameters: {str(e)}")
@@ -591,7 +672,9 @@ class VectorchordDocumentStore:
         count = self.cursor.fetchone()[0]
         return count
 
-    def filter_documents(self, filters: Optional[Dict[str, Any]] = None) -> List[Document]:
+    def filter_documents(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> List[Document]:
         """
         Get documents from the document store using filters.
 
@@ -606,22 +689,23 @@ class VectorchordDocumentStore:
 
         # Prepare parameters and WHERE clause
         params = []
-        
+
         # If filters are provided, add a WHERE clause
         if filters:
             try:
                 # Import here to avoid circular imports
                 from .filters import _convert_filters_to_where_clause_and_params
-                
+
                 # Convert the filters to a SQL WHERE clause
-                where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
-                
+                where_clause, filter_params = (
+                    _convert_filters_to_where_clause_and_params(filters)
+                )
+
                 # Create the full query with WHERE clause
                 query = SQL("{base_query} {where_clause}").format(
-                    base_query=base_query, 
-                    where_clause=where_clause
+                    base_query=base_query, where_clause=where_clause
                 )
-                
+
                 # Add filter parameters to our list - ensure positional style
                 if isinstance(filter_params, tuple):
                     params.extend(filter_params)
@@ -642,9 +726,13 @@ class VectorchordDocumentStore:
             # Convert the results to Document objects
             return self._from_pg_to_haystack_documents(results)
         except Exception as e:
-            raise DocumentStoreError(f"Error retrieving documents with filters: {str(e)}") from e
+            raise DocumentStoreError(
+                f"Error retrieving documents with filters: {str(e)}"
+            ) from e
 
-    def write_documents(self, documents: List[Document], policy: DuplicatePolicy = DuplicatePolicy.NONE) -> int:
+    def write_documents(
+        self, documents: List[Document], policy: DuplicatePolicy = DuplicatePolicy.NONE
+    ) -> int:
         """
         Write documents to the document store.
 
@@ -654,6 +742,15 @@ class VectorchordDocumentStore:
         """
         if not documents:
             return 0
+
+        # Filter out any NUL bytes in document content before writing to PostgreSQL
+        logger = logging.getLogger(__name__)
+        for doc in documents:
+            if doc.content and "\x00" in doc.content:
+                logger.warning(
+                    f"Document store: removing NUL bytes from document content before database write: {doc.id}"
+                )
+                doc.content = doc.content.replace("\x00", "")
 
         # Convert Document objects to Postgres compatible format
         pg_documents = self._from_haystack_to_pg_documents(documents)
@@ -687,21 +784,27 @@ class VectorchordDocumentStore:
                 except IntegrityError as err:
                     if policy == DuplicatePolicy.FAIL:
                         self.connection.rollback()
-                        error_msg = f"Failed to write documents due to duplicate IDs: {err}"
+                        error_msg = (
+                            f"Failed to write documents due to duplicate IDs: {err}"
+                        )
                         logger.error(error_msg)
                         raise DuplicateDocumentError(error_msg) from err
                     raise
 
             # Get the IDs of documents we just inserted with content
-            doc_ids = [doc["id"] for doc in pg_documents if doc["content"]]
-            
+            doc_ids = [
+                doc["id"]
+                for doc in pg_documents
+                if doc["content"] and not doc["blob_data"]
+            ]
+
             if doc_ids:
                 # Convert list of IDs to a comma-separated string of quoted IDs
                 id_list = ", ".join([f"'{doc_id}'" for doc_id in doc_ids])
-                
+
                 # Use the 'Bert' tokenizer by default
                 tokenizer = "Bert"
-                
+
                 # Build and execute the query to update BM25 vectors as part of the same transaction
                 query = SQL("""
                     UPDATE {schema_name}.{table_name}
@@ -710,23 +813,28 @@ class VectorchordDocumentStore:
                 """).format(
                     schema_name=Identifier(self.schema_name),
                     table_name=Identifier(self.table_name),
-                    id_list=SQL(id_list)
+                    id_list=SQL(id_list),
                 )
-                
+
                 try:
-                    self._execute_sql(query, params=(tokenizer,), 
-                                     error_msg="Failed to update BM25 vectors for newly inserted documents")
+                    self._execute_sql(
+                        query,
+                        params=(tokenizer,),
+                        error_msg="Failed to update BM25 vectors for newly inserted documents",
+                    )
                     logger.info(f"Updated BM25 vectors for {len(doc_ids)} documents")
                 except Exception as e:
                     # Roll back the entire transaction if BM25 vector update fails
                     self.connection.rollback()
-                    error_msg = f"Failed to update BM25 vectors: {str(e)}. Operation aborted."
+                    error_msg = (
+                        f"Failed to update BM25 vectors: {str(e)}. Operation aborted."
+                    )
                     logger.error(error_msg)
                     raise DocumentStoreError(error_msg) from e
-            
+
             # Commit the changes
             self.connection.commit()
-            
+
             return len(pg_documents)
 
         except Error as err:
@@ -736,7 +844,9 @@ class VectorchordDocumentStore:
             raise DocumentStoreError(error_msg) from err
 
     @staticmethod
-    def _from_haystack_to_pg_documents(documents: List[Document]) -> List[Dict[str, Any]]:
+    def _from_haystack_to_pg_documents(
+        documents: List[Document],
+    ) -> List[Dict[str, Any]]:
         """
         Convert Haystack Document objects to PostgreSQL compatible format.
 
@@ -764,10 +874,10 @@ class VectorchordDocumentStore:
             blob_mime_type = None
 
             if hasattr(document, "blob") and document.blob:
-                blob_dict = document.blob
-                blob_data = blob_dict.get("data")
-                blob_meta = blob_dict.get("meta", {})
-                blob_mime_type = blob_dict.get("mime_type")
+                blob: ByteStream = document.blob
+                blob_data = blob.data
+                blob_meta = blob.meta
+                blob_mime_type = blob.mime_type
 
             # Return a dict with PostgreSQL compatible keys and values
             pg_document = {
@@ -786,7 +896,9 @@ class VectorchordDocumentStore:
         return pg_documents
 
     @staticmethod
-    def _from_pg_to_haystack_documents(documents: List[Dict[str, Any]]) -> List[Document]:
+    def _from_pg_to_haystack_documents(
+        documents: List[Dict[str, Any]],
+    ) -> List[Document]:
         """
         Convert PostgreSQL result dictionaries to Haystack Document objects.
 
@@ -815,9 +927,11 @@ class VectorchordDocumentStore:
                 else:
                     meta = {}
             except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Failed to parse meta for document {doc.get('id')}, using empty dict")
+                logger.warning(
+                    f"Failed to parse meta for document {doc.get('id')}, using empty dict"
+                )
                 meta = {}
-                
+
             # Add score to meta if available
             if "score" in doc and doc["score"] is not None:
                 meta["score"] = doc["score"]
@@ -867,7 +981,9 @@ class VectorchordDocumentStore:
         *,
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
-        vector_function: Optional[Literal["cosine_similarity", "inner_product", "l2_distance"]] = None,
+        vector_function: Optional[
+            Literal["cosine_similarity", "inner_product", "l2_distance"]
+        ] = None,
     ) -> List[Document]:
         """
         Retrieve documents using embedding similarity.
@@ -880,109 +996,95 @@ class VectorchordDocumentStore:
         """
         # Enhanced validation for query_embedding
         if not isinstance(query_embedding, list):
-            raise ValueError(f"query_embedding must be a list of floats, got {type(query_embedding)}: {query_embedding}")
-        
+            raise ValueError(
+                f"query_embedding must be a list of floats, got {type(query_embedding)}: {query_embedding}"
+            )
+
         if not query_embedding:
             raise ValueError("query_embedding cannot be empty")
-            
+
         if not all(isinstance(val, (int, float)) for val in query_embedding):
             raise ValueError(f"query_embedding must contain only numeric values")
-            
+
         # Use the provided vector_function or fall back to the default
         vector_function = vector_function or self.vector_function
-        # Get the operator and order direction for the vector function
-        operator = VECTOR_FUNCTION_TO_OPERATOR.get(vector_function, VECTOR_FUNCTION_TO_OPERATOR["cosine_similarity"])
-        direction = VECTOR_FUNCTION_TO_ORDER_DIRECTION.get(
-            vector_function, VECTOR_FUNCTION_TO_ORDER_DIRECTION["cosine_similarity"]
-        )
-        
+
+        # Define score based on vector function
+        if vector_function == "cosine_similarity":
+            score_definition = SQL("1 - (embedding <=> %s::vector) AS score")
+            direction = "DESC"  # Higher score (closer to 1) means more similar
+        elif vector_function == "inner_product":
+            score_definition = SQL("(embedding <#> %s::vector) * -1 AS score")
+            direction = "DESC"  # Higher score means more similar
+        else:  # l2_distance
+            score_definition = SQL("(embedding <-> %s::vector) AS score")
+            direction = "ASC"  # Lower distance means more similar
+
         # Convert query_embedding to proper PostgreSQL vector format
         try:
             query_embedding_str = f"[{','.join(str(val) for val in query_embedding)}]"
-            # Verify the vector format starts with "[" and ends with "]"
-            if not (query_embedding_str.startswith("[") and query_embedding_str.endswith("]")):
-                raise ValueError(f"Failed to create valid vector string, got: {query_embedding_str}")
+            if not (
+                query_embedding_str.startswith("[")
+                and query_embedding_str.endswith("]")
+            ):
+                raise ValueError(
+                    f"Failed to create valid vector string, got: {query_embedding_str}"
+                )
         except Exception as e:
             raise ValueError(f"Error formatting query_embedding as vector: {str(e)}")
 
-        # Prepare parameters
-        params = []
-        
-        # Construct the base query without filters
-        if not filters:
-            base_query = SQL("""
-                SELECT 
-                    *,
-                    embedding {operator} (%s)::vector AS score
-                FROM {schema_name}.{table_name}
-                WHERE embedding IS NOT NULL
-                ORDER BY score {direction}
-                LIMIT %s
-            """).format(
-                schema_name=Identifier(self.schema_name),
-                table_name=Identifier(self.table_name),
-                operator=SQL(operator),
-                direction=SQL(direction),
-            )
-            
-            # Add parameters in correct order: first vector, then top_k
-            params.append(query_embedding_str)
-            params.append(top_k)
-            
-            # Use the base query
-            query = base_query
-        else:
-            # Handle query with filters
+        # Prepare parameters starting with the query embedding
+        params = [query_embedding_str]
+
+        # Build the WHERE clause
+        where_clause = SQL("WHERE embedding IS NOT NULL")
+        if filters:
             try:
-                # Import here to avoid circular imports
                 from .filters import _convert_filters_to_where_clause_and_params
-                
-                # Get the filter clause
-                where_clause, filter_params = _convert_filters_to_where_clause_and_params(filters)
-                
-                # Create a query template with the WHERE clause
-                query_template = SQL("""
-                    SELECT 
-                        *,
-                        embedding {operator} (%s)::vector AS score
-                    FROM {schema_name}.{table_name}
-                    {where_clause} AND embedding IS NOT NULL
-                    ORDER BY score {direction}
-                    LIMIT %s
-                """)
-                
-                # Format the query with all the parts
-                query = query_template.format(
-                    schema_name=Identifier(self.schema_name),
-                    table_name=Identifier(self.table_name),
-                    where_clause=where_clause,
-                    operator=SQL(operator),
-                    direction=SQL(direction),
+
+                filter_where_clause, filter_params = (
+                    _convert_filters_to_where_clause_and_params(filters)
                 )
-                
-                # IMPORTANT: Parameter order matters!
-                # 1. First add the vector parameter
-                params.append(query_embedding_str)
-                
-                # 2. Then add filter parameters
+                where_clause = SQL(
+                    "{filter_where_clause} AND embedding IS NOT NULL"
+                ).format(filter_where_clause=filter_where_clause)
+                # Add filter parameters
                 if isinstance(filter_params, tuple):
                     params.extend(filter_params)
                 else:
                     params.append(filter_params)
-                
-                # 3. Finally add the top_k parameter
-                params.append(top_k)
             except Exception as e:
-                # Raise exception instead of logging a warning
                 raise ValueError(f"Failed to apply filters: {str(e)}")
-        
+
+        # Add top_k parameter
+        params.append(top_k)
+
+        # Construct the unified query
+        query = SQL("""
+            SELECT 
+                *,
+                {score_definition}
+            FROM {schema_name}.{table_name}
+            {where_clause}
+            ORDER BY score {direction}
+            LIMIT %s
+        """).format(
+            schema_name=Identifier(self.schema_name),
+            table_name=Identifier(self.table_name),
+            score_definition=score_definition,
+            where_clause=where_clause,
+            direction=SQL(direction),
+        )
+
         try:
             # Execute the query with parameters
             self.dict_cursor.execute(query, params)
             results = self.dict_cursor.fetchall()
-            
+
             # Convert the results to Document objects
             documents = self._from_pg_to_haystack_documents(results)
             return documents
         except Exception as e:
-            raise DocumentStoreError(f"Error during embedding retrieval: {str(e)}") from e
+            raise DocumentStoreError(
+                f"Error during embedding retrieval: {str(e)}"
+            ) from e

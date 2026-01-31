@@ -39,7 +39,7 @@ export const FineTuneImageLabels: FC<{
     <Box sx={{ mt: 2 }}>
       {showAssistantInteraction && (
         <Box sx={{ mt: 4, mb: 4 }}>
-          <InteractionContainer name="System">
+          <InteractionContainer>
             <Box sx={{ mt: 2 }}>
               <Typography className="interactionMessage" gutterBottom>
                 Describe in as much detail as you can, what is present in each image. Try to describe:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -11,90 +12,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
 )
-
-// RectifyApp handles the migration of app configurations from the old format
-// (which used both Tools and specific fields like APIs, GPTScripts, Zapier) to
-// a new canonical AISpec compatible format where tools are only stored in their
-// specific fields (APIs, GPTScripts, Zapier).
-//
-// This function:
-//  1. Processes any tools found in the deprecated Tools field and converts them
-//     to their appropriate specific fields (APIs, GPTScripts, Zapier)
-//  2. Handles deduplication by name - if a tool already exists in a specific
-//     field (e.g., in APIs), it won't be duplicated from the Tools field
-//  3. Gives precedence to tools defined in their specific fields over those in
-//     the Tools field
-//  4. Clears the Tools field after processing (as it's now deprecated)
-//
-// This allows us to handle old database records that might have tools defined
-// in either or both places, while ensuring we move forward with a clean,
-// consistent format where tools are only stored in their specific fields.
-func RectifyApp(app *types.App) {
-	for i := range app.Config.Helix.Assistants {
-		assistant := &app.Config.Helix.Assistants[i]
-
-		// Create maps to track existing tools by name
-		existingAPIs := make(map[string]bool)
-		existingGPTScripts := make(map[string]bool)
-		existingZapier := make(map[string]bool)
-
-		// First mark all existing non-Tools items
-		for _, api := range assistant.APIs {
-			existingAPIs[api.Name] = true
-		}
-		for _, script := range assistant.GPTScripts {
-			existingGPTScripts[script.Name] = true
-		}
-		for _, zapier := range assistant.Zapier {
-			existingZapier[zapier.Name] = true
-		}
-
-		// Convert tools to their appropriate fields
-		// but only if they don't already exist in the non-Tools fields
-		for _, tool := range assistant.Tools {
-			switch tool.ToolType {
-			case types.ToolTypeAPI:
-				if !existingAPIs[tool.Name] && tool.Config.API != nil {
-					assistant.APIs = append(assistant.APIs, types.AssistantAPI{
-						Name:                    tool.Name,
-						Description:             tool.Description,
-						URL:                     tool.Config.API.URL,
-						Schema:                  tool.Config.API.Schema,
-						Headers:                 tool.Config.API.Headers,
-						Query:                   tool.Config.API.Query,
-						RequestPrepTemplate:     tool.Config.API.RequestPrepTemplate,
-						ResponseSuccessTemplate: tool.Config.API.ResponseSuccessTemplate,
-						ResponseErrorTemplate:   tool.Config.API.ResponseErrorTemplate,
-					})
-					existingAPIs[tool.Name] = true
-				}
-			case types.ToolTypeGPTScript:
-				if !existingGPTScripts[tool.Name] && tool.Config.GPTScript != nil {
-					assistant.GPTScripts = append(assistant.GPTScripts, types.AssistantGPTScript{
-						Name:        tool.Name,
-						Description: tool.Description,
-						Content:     tool.Config.GPTScript.Script,
-					})
-					existingGPTScripts[tool.Name] = true
-				}
-			case types.ToolTypeZapier:
-				if !existingZapier[tool.Name] && tool.Config.Zapier != nil {
-					assistant.Zapier = append(assistant.Zapier, types.AssistantZapier{
-						Name:          tool.Name,
-						Description:   tool.Description,
-						APIKey:        tool.Config.Zapier.APIKey,
-						Model:         tool.Config.Zapier.Model,
-						MaxIterations: tool.Config.Zapier.MaxIterations,
-					})
-					existingZapier[tool.Name] = true
-				}
-			}
-		}
-
-		// Clear the tools field as it's now deprecated
-		assistant.Tools = nil
-	}
-}
 
 func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	if app.ID == "" {
@@ -108,13 +25,25 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	app.Created = time.Now()
 
 	setAppDefaults(app)
-	RectifyApp(app)
+	sortAppTools(app)
+
+	// Filter out empty triggers
+	app.Config.Helix.Triggers = filterOutEmptyTriggers(app.Config.Helix.Triggers)
 
 	err := s.gdb.WithContext(ctx).Create(app).Error
 	if err != nil {
 		return nil, err
 	}
 	return s.GetApp(ctx, app.ID)
+}
+
+func sortAppTools(app *types.App) {
+	for idx, assistant := range app.Config.Helix.Assistants {
+		sort.SliceStable(assistant.Tools, func(i, j int) bool {
+			return assistant.Tools[i].Name < assistant.Tools[j].Name
+		})
+		app.Config.Helix.Assistants[idx] = assistant
+	}
 }
 
 func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.App, error) {
@@ -128,7 +57,10 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 
 	app.Updated = time.Now()
 
-	RectifyApp(app)
+	sortAppTools(app)
+
+	// Filter out empty triggers
+	app.Config.Helix.Triggers = filterOutEmptyTriggers(app.Config.Helix.Triggers)
 
 	err := s.gdb.WithContext(ctx).Save(&app).Error
 	if err != nil {
@@ -148,24 +80,6 @@ func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, erro
 	}
 
 	setAppDefaults(&app)
-
-	// Check if any tools need to be rectified
-	hasTools := false
-	for _, assistant := range app.Config.Helix.Assistants {
-		if len(assistant.Tools) > 0 {
-			hasTools = true
-			break
-		}
-	}
-
-	// If we found tools, rectify and save back to database
-	if hasTools {
-		RectifyApp(&app)
-		err = s.gdb.WithContext(ctx).Save(&app).Error
-		if err != nil {
-			return nil, fmt.Errorf("error saving rectified app: %w", err)
-		}
-	}
 
 	return &app, nil
 }
@@ -208,18 +122,25 @@ func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 // ConvertAPIToTool converts an AssistantAPI to a Tool
 func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
 	t := &types.Tool{
-		Name:        api.Name,
-		Description: api.Description,
-		ToolType:    types.ToolTypeAPI,
+		Name:         api.Name,
+		Description:  api.Description,
+		SystemPrompt: api.SystemPrompt,
+		ToolType:     types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:                     api.URL,
 				Schema:                  api.Schema,
 				Headers:                 api.Headers,
 				Query:                   api.Query,
+				PathParams:              api.PathParams,
+				OAuthProvider:           api.OAuthProvider,
+				OAuthScopes:             api.OAuthScopes,
+				SystemPrompt:            api.SystemPrompt,
 				RequestPrepTemplate:     api.RequestPrepTemplate,
 				ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 				ResponseErrorTemplate:   api.ResponseErrorTemplate,
+				SkipUnknownKeys:         api.SkipUnknownKeys,
+				TransformOutput:         api.TransformOutput,
 			},
 		},
 	}
@@ -240,11 +161,106 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 	if err != nil {
 		return nil, err
 	}
+	return ParseAppTools(app)
+}
 
+func ParseAppTools(app *types.App) (*types.App, error) {
 	// Convert each assistant's specific tool fields into the deprecated Tools field
 	for i := range app.Config.Helix.Assistants {
 		assistant := &app.Config.Helix.Assistants[i]
 		var tools []*types.Tool
+
+		initializedTools := make(map[string]*types.Tool)
+
+		for _, tool := range assistant.Tools {
+			initializedTools[tool.Name] = tool
+		}
+
+		// Browser is simple, just add it to the tools, nothing to validate for now
+		if assistant.Browser.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Browser",
+				Description: "Use the browser to search the web",
+				ToolType:    types.ToolTypeBrowser,
+				Config: types.ToolConfig{
+					Browser: &types.ToolBrowserConfig{
+						Enabled:                assistant.Browser.Enabled,
+						MarkdownPostProcessing: assistant.Browser.MarkdownPostProcessing,
+						ProcessOutput:          assistant.Browser.ProcessOutput,
+						Cache:                  assistant.Browser.Cache,
+						NoBrowser:              assistant.Browser.NoBrowser,
+					},
+				},
+			})
+		}
+
+		if assistant.WebSearch.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Web Search",
+				Description: "Use the web search to find information on the web",
+				ToolType:    types.ToolTypeWebSearch,
+				Config: types.ToolConfig{
+					WebSearch: &types.ToolWebSearchConfig{
+						Enabled: assistant.WebSearch.Enabled,
+					},
+				},
+			})
+		}
+
+		if assistant.ProjectManager.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Project Manager",
+				Description: "Use the project manager to manage Helix projects",
+				ToolType:    types.ToolTypeProjectManager,
+				Config: types.ToolConfig{
+					ProjectManager: &types.ToolProjectManagerConfig{
+						Enabled:   assistant.ProjectManager.Enabled,
+						ProjectID: assistant.ProjectManager.ProjectID,
+					},
+				},
+			})
+		}
+
+		if assistant.Calculator.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Calculator",
+				Description: "Use the calculator to perform calculations",
+				ToolType:    types.ToolTypeCalculator,
+				Config: types.ToolConfig{
+					Calculator: &types.ToolCalculatorConfig{
+						Enabled: assistant.Calculator.Enabled,
+					},
+				},
+			})
+		}
+
+		if assistant.Email.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Email",
+				Description: "Send an email to the user",
+				ToolType:    types.ToolTypeEmail,
+				Config: types.ToolConfig{
+					Email: &types.ToolEmailConfig{
+						Enabled: assistant.Email.Enabled,
+					},
+				},
+			})
+		}
+
+		if assistant.AzureDevOps.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Azure DevOps",
+				Description: "Use the Azure DevOps to interact with Azure DevOps",
+				ToolType:    types.ToolTypeAzureDevOps,
+				Config: types.ToolConfig{
+					AzureDevOps: &types.ToolAzureDevOpsConfig{
+						Enabled:             assistant.AzureDevOps.Enabled,
+						OrganizationURL:     assistant.AzureDevOps.OrganizationURL,
+						PersonalAccessToken: assistant.AzureDevOps.PersonalAccessToken,
+					},
+				},
+			})
+		}
 
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
@@ -271,26 +287,28 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 			})
 		}
 
-		// Convert GPTScripts to Tools
-		for _, script := range assistant.GPTScripts {
+		// Convert MCP to Tools
+		for _, mcp := range assistant.MCPs {
 			tools = append(tools, &types.Tool{
-				Name:        script.Name,
-				Description: script.Description,
-				ToolType:    types.ToolTypeGPTScript,
+				Name:        mcp.Name,
+				Description: mcp.Description,
+				ToolType:    types.ToolTypeMCP,
 				Config: types.ToolConfig{
-					GPTScript: &types.ToolGPTScriptConfig{
-						Script: script.Content,
+					MCP: &types.ToolMCPClientConfig{
+						Name:          mcp.Name,
+						Description:   mcp.Description,
+						URL:           mcp.URL,
+						Transport:     mcp.Transport,
+						Headers:       mcp.Headers,
+						OAuthProvider: mcp.OAuthProvider,
+						OAuthScopes:   mcp.OAuthScopes,
+						Tools:         mcp.Tools,
 					},
 				},
 			})
 		}
 
 		assistant.Tools = tools
-		// empty out the canonical fields to avoid confusion. Callers of this
-		// function should ONLY use the internal Tools field
-		assistant.APIs = nil
-		assistant.GPTScripts = nil
-		assistant.Zapier = nil
 	}
 
 	return app, nil
@@ -298,36 +316,39 @@ func (s *PostgresStore) GetAppWithTools(ctx context.Context, id string) (*types.
 
 func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	var apps []*types.App
-	err := s.gdb.WithContext(ctx).Where(&types.App{
-		Owner:          q.Owner,
-		OwnerType:      q.OwnerType,
-		Global:         q.Global,
-		OrganizationID: q.OrganizationID,
-	}).Order("id DESC").Find(&apps).Error
+
+	// Build the query conditionally based on the query parameters
+	query := s.gdb.WithContext(ctx)
+
+	// Add owner and owner type conditions if provided
+	if q.Owner != "" {
+		query = query.Where("owner = ?", q.Owner)
+	}
+
+	if q.OwnerType != "" {
+		query = query.Where("owner_type = ?", q.OwnerType)
+	}
+
+	// Handle global flag
+	if q.Global {
+		query = query.Where("global = ?", q.Global)
+	}
+
+	// Handle organization_id based on specific conditions
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	} else if q.Owner != "" {
+		// Listing for specific user
+		query = query.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	// Execute the query
+	err := query.Order("id DESC").Find(&apps).Error
 	if err != nil {
 		return nil, err
 	}
 
 	setAppDefaults(apps...)
-
-	// Check and rectify any apps that have tools
-	for _, app := range apps {
-		hasTools := false
-		for _, assistant := range app.Config.Helix.Assistants {
-			if len(assistant.Tools) > 0 {
-				hasTools = true
-				break
-			}
-		}
-
-		if hasTools {
-			RectifyApp(app)
-			err = s.gdb.WithContext(ctx).Save(app).Error
-			if err != nil {
-				return nil, fmt.Errorf("error saving rectified app: %w", err)
-			}
-		}
-	}
 
 	return apps, nil
 }
@@ -343,11 +364,86 @@ func (s *PostgresStore) DeleteApp(ctx context.Context, id string) error {
 	return nil
 }
 
+// setAppDefaults sets the default values for the app
+// If you are updating these, also update
+// AppSettings.tsx DEFAULT_VALUES for the defaults to match
 func setAppDefaults(apps ...*types.App) {
 	for idx := range apps {
 		app := apps[idx]
 		if app.Config.Helix.Assistants == nil {
 			app.Config.Helix.Assistants = []types.AssistantConfig{}
 		}
+
+		// Migrate agent types for backward compatibility
+		app.Config.Helix.MigrateAgentTypes()
+
+		for idx := range app.Config.Helix.Assistants {
+			assistant := &app.Config.Helix.Assistants[idx]
+			if assistant.ContextLimit == 0 {
+				assistant.ContextLimit = 20 // 20 messages
+			}
+
+			if assistant.FrequencyPenalty == 0 {
+				assistant.FrequencyPenalty = 0
+			}
+
+			if assistant.MaxTokens == 0 {
+				assistant.MaxTokens = 2000
+			}
+
+			if assistant.PresencePenalty == 0 {
+				assistant.PresencePenalty = 0
+			}
+
+			if assistant.ReasoningEffort == "" {
+				assistant.ReasoningEffort = types.ReasoningEffortNone
+			}
+
+			if assistant.Temperature == 0 {
+				assistant.Temperature = 0.1
+			}
+
+			if assistant.TopP == 0 {
+				assistant.TopP = 1
+			}
+		}
 	}
+}
+
+func filterOutEmptyTriggers(triggers []types.Trigger) []types.Trigger {
+	var filtered []types.Trigger
+	for _, trigger := range triggers {
+		if trigger.Cron != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.AzureDevOps != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Slack != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Discord != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Crisp != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Teams != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		// If we get here, the trigger is empty, safe to skip
+	}
+	return filtered
 }

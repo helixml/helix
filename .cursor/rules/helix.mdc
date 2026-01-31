@@ -3,4 +3,55 @@ description: Everything
 globs: *
 alwaysApply: false
 ---
-Don't make unrelated changes
+Act as expert senior Golang/Python engineer
+
+**Stack:** Go API, Docker, Postgres, PGVector/Typesense (RAG), NATS (embedded)
+
+**Code Style:**
+- No unrelated changes
+- Never use `map[string]interface{}` or `map[string]any` - declare typed structs
+- Never return `nil, nil` - if struct nil, return error
+- Use `github.com/rs/zerolog/log` for logging
+- Log keys: snake_case (`user_id` not `userID`)
+
+**Logging example:**
+```go
+logger.Debug().
+  Str("user_id", user.ID).
+  Str("user_type", string(user.Type)).
+  Msg("User information")
+```
+
+**Naming:**
+- "App" → "Agent" (transitioning terminology, use "Agent" in new code)
+
+**Testing:**
+- Use `github.com/stretchr/testify/assert` and `require`
+- Examples: `assert.Equal(t, "expected", actual)`, `require.NoError(t, err)`
+
+**Interfaces:**
+Never inline interface type assertions:
+```go
+// ❌ WRONG
+if toolsPlanner, ok := t.planner.(interface {
+    GetTokenForTool(ctx context.Context, userID, provider string, scopes []string) (string, error)
+}); ok { ... }
+
+// ✅ CORRECT: Add to interface first
+t.oauthManager.GetTokenForTool(ctx, user, provider, scopes)
+```
+
+
+## Defining prompts for agents
+
+All prompts should be defined in the `prompts` package that are sent to external (zed, claude, etc.) agents and functions need to be written with expected parameters, for example:
+
+```
+func ImplementationApprovedPushInstruction(branchName string) (string, error) {
+  ... construct the prompt here...
+}
+```
+
+
+Do not add natural language strings that are sent to agents in random places like HTTP handlers, etc. 
+

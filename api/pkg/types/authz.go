@@ -39,6 +39,12 @@ type Organization struct {
 	Teams       []Team                   `json:"teams" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Teams in the organization
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
+
+	// Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects
+	Guidelines          string    `json:"guidelines" gorm:"type:text"`
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
 }
 
 type Team struct {
@@ -110,6 +116,14 @@ type TeamMembership struct {
 	Team Team `json:"team,omitempty" yaml:"team,omitempty"`
 }
 
+type AuthProvider string
+
+const (
+	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
+	AuthProviderOIDC    AuthProvider = "oidc"
+	// TODO: oauth github, google, etc
+)
+
 type User struct {
 	ID        string         `json:"id" gorm:"primaryKey"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -117,20 +131,47 @@ type User struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// the actual token used and its type
-	Token string
+	Token string `json:"token"`
 	// none, runner. keycloak, api_key
-	TokenType TokenType
+	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
-	Admin bool
+	Admin bool `json:"admin"`
 	// if the token is associated with an app
-	AppID string
+	AppID      string `json:"app_id"`
+	ProjectID  string `json:"project_id" gorm:"-"`   // When running in Helix Code sandbox
+	SpecTaskID string `json:"spec_task_id" gorm:"-"` // When running in Helix Code sandbox
+	SessionID  string `json:"session_id" gorm:"-"`   // Session this API key is scoped to (ephemeral keys)
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
-	Type     OwnerType
-	Email    string
-	Username string
-	FullName string
+	Type     OwnerType `json:"type"`
+	Email    string    `json:"email"`
+	Username string    `json:"username"`
+	FullName string    `json:"full_name"`
+
+	AuthProvider AuthProvider `json:"auth_provider"`
+
+	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
+	PasswordHash       []byte `json:"password_hash"`        // bcrypt hash of the password
+	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
+
+	SB          bool `json:"sb"`
+	Deactivated bool `json:"deactivated"`
+}
+
+type UserSearchResponse struct {
+	Users      []*User `json:"users"`
+	TotalCount int64   `json:"total_count"`
+	Limit      int     `json:"limit"`
+	Offset     int     `json:"offset"`
+}
+
+type UserTokenUsageResponse struct {
+	QuotasEnabled   bool    `json:"quotas_enabled"`
+	MonthlyUsage    int     `json:"monthly_usage"`
+	MonthlyLimit    int     `json:"monthly_limit"`
+	IsProTier       bool    `json:"is_pro_tier"`
+	UsagePercentage float64 `json:"usage_percentage"`
 }
 
 // CreateAccessGrantRequest - request to create an access grant for a team or user
@@ -146,7 +187,6 @@ type AccessGrant struct {
 	ID             string    `json:"id" yaml:"id" gorm:"primaryKey"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
-	ResourceType   Resource  `json:"resource_type" yaml:"resource_type"`     // Kind of resource (app, knowledge, provider endpoint, etc)
 	ResourceID     string    `json:"resource_id" yaml:"resource_id"`         // App ID, Knowledge ID, etc
 	OrganizationID string    `json:"organization_id" yaml:"organization_id"` // If granted to an organization
 	TeamID         string    `json:"team_id" yaml:"team_id"`                 // If granted to a team
@@ -169,7 +209,27 @@ type AccessGrantRoleBinding struct {
 // there might not be a record for every user
 type UserMeta struct {
 	ID     string     `json:"id"`
+	Slug   string     `json:"slug" gorm:"uniqueIndex"` // URL-friendly username slug for GitHub-style URLs
 	Config UserConfig `json:"config" gorm:"type:json"`
+
+	// Guidelines for AI agents - personal workspace style guides, conventions, and instructions
+	Guidelines          string    `json:"guidelines" gorm:"type:text"`
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
+}
+
+// UpdateUserGuidelinesRequest is the request body for updating user guidelines
+type UpdateUserGuidelinesRequest struct {
+	Guidelines string `json:"guidelines"`
+}
+
+// UserGuidelinesResponse is the response for user guidelines endpoints
+type UserGuidelinesResponse struct {
+	Guidelines          string    `json:"guidelines"`
+	GuidelinesVersion   int       `json:"guidelines_version"`
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"`
 }
 
 type UserConfig struct {
@@ -235,6 +295,8 @@ const (
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"
 	ResourceTypeDataset           Resource = "Dataset"
+	ResourceProject               Resource = "Project"
+	ResourceGitRepository         Resource = "GitRepository"
 )
 
 type Action string

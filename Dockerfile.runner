@@ -2,30 +2,43 @@
 
 ARG TAG=latest-small
 ARG UV_VERSION="0.5.4"
+# Add arg for CPU/GPU mode
+ARG DEVELOPMENT_CPU_ONLY=""
+# Set vLLM version consistently - 0.11.2 (latest) works with PyTorch 2.9.x
+ARG VLLM_VERSION="0.11.2"
+
+# Temporarily disable diffusers build to save space - uncomment to re-enable
+# FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+# ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
+# WORKDIR /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
+#     --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
+#     --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
+#     uv sync --frozen --no-install-project --no-dev
+# ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv sync --frozen --no-dev
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
-FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
-WORKDIR /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
-    --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
-    --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
-ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 
 ### BUILD
 
-FROM golang:1.23 AS go-build-env
+FROM golang:1.25-bookworm AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
 COPY go.mod .
 COPY go.sum .
 
-RUN go mod download
+# Create and set permissions on Go cache directories
+RUN mkdir -p /go/pkg/mod /root/.cache/go-build && \
+    chmod -R 777 /go/pkg/mod /root/.cache/go-build && \
+    go mod download
+
+# Install air for hot reloading (cached in go modules)
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod \
+    go install github.com/air-verse/air@v1.52.3
 
 # COPY the source code as the last step
 COPY . .
@@ -33,36 +46,151 @@ COPY . .
 # Run tidy and show git diff for go.sum
 # RUN go mod tidy && git diff --exit-code -- go.sum
 
+# Install C++ compiler for CGO compilation
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
+
 # Build the Go app
 # RUN go mod tidy && go mod download && CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 ARG APP_VERSION="v0.0.0+unknown"
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix-runner ./runner-cmd/helix-runner
 
+# Stage for downloading vLLM templates
+FROM alpine:latest as vllm-templates
+ARG VLLM_VERSION
+
+# Install git to clone the repository
+RUN apk add --no-cache git curl
+
+# Clone the vLLM repository at the specific version to get the example templates
+WORKDIR /tmp
+RUN git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git
+# Create templates directory and copy all jinja templates
+RUN mkdir -p /vllm-templates
+RUN if [ -d "/tmp/vllm/examples" ]; then \
+        cp /tmp/vllm/examples/*.jinja /vllm-templates/ 2>/dev/null || true; \
+    fi
 
 ### RUNNER CONTAINER
 
-FROM registry.helix.ml/helix/runner-base:${TAG}
+# ============================================================================
+# CLEAN vLLM-ONLY SETUP (MINIMAL CUDA BASE)
+# ============================================================================
+# The runner-base image has been updated to use CUDA runtime base:
+# nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 with system Python 3.10
+# This provides a minimal, modern foundation for vLLM while preserving model caching.
+# Python 3.12 is installed here for best vLLM compatibility and future-proofing.
+#
+# WHAT WAS CHANGED IN BASE IMAGE:
+# 1. Base: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 (CUDA 12.4 + Ubuntu 22.04)
+# 2. Python: System Python 3.10 (no miniconda complexity)
+# 3. Axolotl: Installation commented out (easy to restore)
+# 4. Packages: Minimal system packages only
+# 5. Build tools + Python 3.12: Added here for best vLLM compatibility and future-proofing
+#
+# HOW TO RESTORE AXOLOTL:
+# 1. In base-images/Dockerfile.runner: Change FROM back to winglian/axolotl image
+# 2. In base-images/Dockerfile.runner: Re-add miniconda installation
+# 3. In base-images/Dockerfile.runner: Uncomment axolotl installation section
+# 4. Update Go runtime files to use miniconda paths (see comments in files)
+# ============================================================================
 
-# Install ollama
+FROM registry.helixml.tech/helix/runner-base:${TAG}
+
+# Pass the CPU flag through to this stage
+ARG DEVELOPMENT_CPU_ONLY=""
+# Pass the vLLM version
+ARG VLLM_VERSION
+
+# Install ollama (keeping independent version for upgrade flexibility)
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
-    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.6.1-rc0/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
+    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.13.0/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
     tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
     mv $TEMP_DIR/bin/ollama /usr/bin/ollama && \
     chmod +x /usr/bin/ollama && \
     cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
     rm -rf $TEMP_DIR
 
-RUN mkdir -p /workspace/helix
+# Install build tools and Python 3.12 for best future compatibility
+# cmake >= 3.26 + ninja-build are required for building vLLM from source (ROCm)
+# Use Kitware's APT repo for newer cmake (Ubuntu 22.04 only has 3.22)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ninja-build \
+    software-properties-common \
+    ca-certificates \
+    gpg \
+    wget \
+    && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
+    && echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | tee /etc/apt/sources.list.d/kitware.list >/dev/null \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    cmake \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace/helix
+# Copy UV binary before we use it
+COPY --from=uv /uv /bin/uv
+
+# Create CUDA vLLM virtualenv using Python 3.12 (NVIDIA GPUs)
+# This isolates vLLM from any system packages - completely clean environment
+# PyPI vLLM wheels include torch dependency (torch==2.9.0 for vLLM 0.11.2)
+ARG VLLM_VERSION
+RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
+    echo "Installing vLLM ${VLLM_VERSION} for CUDA into clean virtualenv" && \
+    /workspace/vllm-cuda/venv/bin/python -m pip install uv && \
+    cd /workspace && \
+    VIRTUAL_ENV=/workspace/vllm-cuda/venv PATH="/workspace/vllm-cuda/venv/bin:$PATH" \
+    /workspace/vllm-cuda/venv/bin/uv pip install vllm==${VLLM_VERSION}
+
+# Create ROCm vLLM virtualenv using Python 3.12 (AMD GPUs)
+# Install PyTorch ROCm 6.4 + build vLLM from source (no ROCm wheels on PyPI)
+# Version pinning: torch 2.9.0 (required by vLLM 0.11.2), matching torchvision/torchaudio
+# VLLM_TARGET_DEVICE=rocm tells vLLM to build for ROCm instead of CUDA
+RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
+    echo "Installing PyTorch 2.9.0 ROCm 6.4 for AMD GPUs" && \
+    /workspace/vllm-rocm/venv/bin/python -m pip install uv && \
+    cd /workspace && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    /workspace/vllm-rocm/venv/bin/uv pip install --index-url https://download.pytorch.org/whl/rocm6.4 \
+        torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 && \
+    echo "Building vLLM ${VLLM_VERSION} from source for ROCm (this takes ~10 minutes)" && \
+    git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git /tmp/vllm-rocm-src && \
+    cd /tmp/vllm-rocm-src && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    /workspace/vllm-rocm/venv/bin/uv pip install -r requirements/rocm.txt && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    VLLM_TARGET_DEVICE=rocm \
+    PYTORCH_ROCM_ARCH="gfx908;gfx90a;gfx942;gfx1100;gfx1101;gfx1030" \
+    /workspace/vllm-rocm/venv/bin/pip install --no-build-isolation . && \
+    cd /workspace && rm -rf /tmp/vllm-rocm-src
+
+# Create the examples directory in both vLLM venv packages where they will look for templates
+RUN mkdir -p /workspace/vllm-cuda/venv/lib/python3.12/site-packages/vllm/examples && \
+    mkdir -p /workspace/vllm-rocm/venv/lib/python3.12/site-packages/vllm/examples
+
+# Copy the example templates to both vLLM venv package examples directories
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm-cuda/venv/lib/python3.12/site-packages/vllm/examples/
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm-rocm/venv/lib/python3.12/site-packages/vllm/examples/
+
+# Create symlink for backward compatibility: /workspace/vllm/venv → /workspace/vllm-cuda/venv
+# This ensures existing code paths work (will be updated to use vendor-specific paths)
+RUN ln -s /workspace/vllm-cuda /workspace/vllm
+
+# Create a clean /vllm directory with examples subdirectory
+RUN mkdir -p /vllm/examples
+
+# Copy templates directly to /vllm/examples where the Go code will look for them
+COPY --from=vllm-templates /vllm-templates/* /vllm/examples/
 
 # Copy runner directory from the repo
 COPY runner ./runner
 
-# Copy the diffusers build environment including Python
-COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /bin/uv
-COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
+# Diffusers disabled to save space - uncomment to re-enable:
+# COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
 
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)
@@ -72,8 +200,18 @@ RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-c
     rm -rf /.config && ln -s /tmp/helix/config /.config && \
     rm -rf /src && ln -s /tmp/helix/src /src && \
     rm -rf /.ollama && ln -s /tmp/helix/ollama /.ollama && \
-    chmod -R 0777 /tmp/helix && chmod 0777 /root /workspace/axolotl /workspace/axolotl/dataset_cache
+    chmod -R 0777 /tmp/helix && chmod 0777 /root
 
-COPY --from=go-build-env /helix /workspace/helix/helix
+# ============================================================================
+# AXOLOTL FAKE VENV (for future axolotl restoration)
+# The helix runner expects /workspace/axolotl/venv/ to exist even when not using axolotl
+# When axolotl is re-enabled, this fake venv becomes a pointer to miniconda
+# ============================================================================
+#RUN mkdir -p /workspace/axolotl/dataset_cache /workspace/axolotl/venv/bin && \
+#    echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate && \
+#    chmod 0777 /workspace/axolotl /workspace/axolotl/dataset_cache
 
-ENTRYPOINT ["/workspace/helix/helix", "runner"]
+COPY --from=go-build-env /helix-runner /workspace/helix/helix-runner
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
+
+ENTRYPOINT ["/workspace/helix/helix-runner"]

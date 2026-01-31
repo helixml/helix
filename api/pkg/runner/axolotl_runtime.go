@@ -14,7 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/system"
@@ -29,18 +32,22 @@ var (
 )
 
 type AxolotlRuntime struct {
-	version       string
-	axolotlClient *AxolotlClient
-	port          int
-	cmd           *exec.Cmd
-	cancel        context.CancelFunc
-	startTimeout  time.Duration
-	runnerOptions *Options
+	version        string
+	axolotlClient  *AxolotlClient
+	port           int
+	cmd            *exec.Cmd
+	cancel         context.CancelFunc
+	startTimeout   time.Duration
+	runnerOptions  *Options
+	logBuffer      *system.ModelInstanceLogBuffer // Log buffer for this instance
+	processTracker *ProcessTracker                // Process tracker for monitoring
+	slotID         *uuid.UUID                     // Associated slot ID
 }
 type AxolotlRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
 	StartTimeout  *time.Duration // How long to wait for axolotl to start
 	RunnerOptions *Options
+	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewAxolotlRuntime(_ context.Context, params AxolotlRuntimeParams) (*AxolotlRuntime, error) {
@@ -63,6 +70,7 @@ func NewAxolotlRuntime(_ context.Context, params AxolotlRuntimeParams) (*Axolotl
 		port:          *params.Port,
 		startTimeout:  *params.StartTimeout,
 		runnerOptions: params.RunnerOptions,
+		logBuffer:     params.LogBuffer,
 	}, nil
 }
 
@@ -87,7 +95,7 @@ func (d *AxolotlRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start axolotl cmd
-	cmd, err := startAxolotlCmd(ctx, axolotlCommander, d.port)
+	cmd, err := startAxolotlCmd(ctx, axolotlCommander, d.port, d.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building axolotl cmd: %w", err)
 	}
@@ -138,6 +146,12 @@ func (d *AxolotlRuntime) Stop() error {
 
 func (d *AxolotlRuntime) URL() string {
 	return fmt.Sprintf("http://localhost:%d", d.port)
+}
+
+// SetProcessTracker sets the process tracker for monitoring
+func (d *AxolotlRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUID) {
+	d.processTracker = tracker
+	d.slotID = &slotID
 }
 
 func (d *AxolotlRuntime) Runtime() types.Runtime {
@@ -191,6 +205,10 @@ func (d *AxolotlRuntime) PullModel(_ context.Context, model string, progress fun
 	return nil
 }
 
+func (d *AxolotlRuntime) ListModels(_ context.Context) ([]string, error) {
+	return []string{}, nil // TODO: implement
+}
+
 func (d *AxolotlRuntime) Warm(ctx context.Context, model string) error {
 	// Extract the session ID from the model name
 	_, sessionID, _, err := parseHelixLoraModelName(model)
@@ -224,7 +242,7 @@ func (d *AxolotlRuntime) Version() string {
 	return d.version
 }
 
-func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.Cmd, error) {
+func startAxolotlCmd(ctx context.Context, commander Commander, port int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	log.Trace().Msg("Preparing Axolotl command")
 	cmd := commander.CommandContext(
 		ctx,
@@ -237,7 +255,16 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	cmd.Dir = "runner"
 
 	cmd.Env = append(cmd.Env,
-		"PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
+		// AXOLOTL RESTORATION NOTE:
+		// When axolotl is re-enabled, you'll need to:
+		// 1. Install miniconda in base-images/Dockerfile.runner (see git history)
+		// 2. Uncomment axolotl installation in base-images/Dockerfile.runner
+		// 3. Change base image FROM to winglian/axolotl image
+		// 4. Enable this PYTHONPATH:
+		// "PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages"
+		//
+		// Currently using clean Ubuntu 24.04 + Python 3.12 base, no miniconda:
+		"PYTHONPATH=/workspace/axolotl/src:/usr/lib/python3.12/site-packages",
 		// Add the APP_FOLDER environment variable which is required by the old code
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join("..", "..", "axolotl"))),
 		// Set python to be unbuffered so we get logs in real time
@@ -254,6 +281,11 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -289,6 +321,12 @@ func (d *AxolotlRuntime) Status(_ context.Context) string {
 		return "not ready"
 	}
 	return "ready"
+}
+
+func (d *AxolotlRuntime) CommandLine() string {
+	// Axolotl doesn't expose the command line in a structured way
+	// Return a placeholder for now
+	return "axolotl serve (command line not captured)"
 }
 
 func (d *AxolotlRuntime) waitUntilReady(ctx context.Context) error {

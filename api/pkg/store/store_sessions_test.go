@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -15,13 +16,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method
@@ -45,13 +39,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method to create the session
@@ -77,12 +64,11 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Create a sample session
 	session := types.Session{
-		ID:           system.GenerateSessionID(),
-		Owner:        "user_id",
-		Name:         "name",
-		Created:      time.Now(),
-		Updated:      time.Now(),
-		Interactions: []*types.Interaction{},
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Name:    "name",
+		Created: time.Now(),
+		Updated: time.Now(),
 	}
 
 	// Call the CreateSession method to create the session
@@ -95,18 +81,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Update the session
 	session.Name = "new_name"
-	session.Interactions = []*types.Interaction{
-		{
-			ID:      "id-1",
-			State:   types.InteractionStateComplete,
-			Creator: types.CreatorTypeSystem,
-		},
-		{
-			ID:      "id-2",
-			State:   types.InteractionStateComplete,
-			Creator: types.CreatorTypeSystem,
-		},
-	}
 
 	// Call the UpdateSession method to update the session
 	updatedSession, err := suite.db.UpdateSession(context.Background(), session)
@@ -116,15 +90,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Assert that the updated session matches the modified session
 	suite.Equal("new_name", updatedSession.Name)
-	suite.Equal(2, len(updatedSession.Interactions))
-
-	// Assert that the interactions are in the correct order
-	suite.Equal("id-1", updatedSession.Interactions[0].ID)
-	suite.Equal("id-2", updatedSession.Interactions[1].ID)
-
-	// Assert that the interactions have the correct state
-	suite.Equal(types.InteractionStateComplete, updatedSession.Interactions[0].State)
-	suite.Equal(types.InteractionStateComplete, updatedSession.Interactions[1].State)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
@@ -134,13 +99,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method to create the session
@@ -155,4 +113,83 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 
 	// Assert that the deleted session matches the original session
 	suite.Equal(session.ID, deletedSession.ID)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSessionsPagination() {
+	// Create 100 sessions with sequential names
+	const totalSessions = 100
+	sessionIDs := make([]string, totalSessions)
+
+	for i := 1; i <= totalSessions; i++ {
+		session := types.Session{
+			ID:        system.GenerateSessionID(),
+			Name:      fmt.Sprintf("session-%d", i),
+			Owner:     "user_id",
+			OwnerType: types.OwnerTypeUser,
+			Created:   time.Now(),
+			Updated:   time.Now(),
+		}
+
+		createdSession, err := suite.db.CreateSession(context.Background(), session)
+		suite.NoError(err)
+		sessionIDs[i-1] = createdSession.ID
+	}
+
+	// Cleanup all created sessions
+	suite.T().Cleanup(func() {
+		for _, id := range sessionIDs {
+			_, _ = suite.db.DeleteSession(context.Background(), id)
+		}
+	})
+
+	// Test pagination with different page sizes
+	testCases := []struct {
+		name     string
+		page     int
+		perPage  int
+		expected int
+	}{
+		{"first page with 10 items", 1, 10, 10},
+		{"second page with 10 items", 2, 10, 10},
+		{"last page with 10 items", 10, 10, 10},
+		{"page with 25 items", 1, 25, 25},
+		{"page with 50 items", 1, 50, 50},
+		{"page with 100 items", 1, 100, 100},
+		{"page beyond available data", 15, 10, 0},
+		{"page with 0 per page (should return all)", 1, 0, totalSessions},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			query := ListSessionsQuery{
+				Owner:     "user_id",
+				OwnerType: types.OwnerTypeUser,
+				Page:      tc.page,
+				PerPage:   tc.perPage,
+			}
+
+			sessions, totalCount, err := suite.db.ListSessions(context.Background(), query)
+			suite.NoError(err)
+
+			suite.Equal(totalCount, int64(totalSessions))
+
+			if tc.page == 1 && tc.perPage == 0 {
+				// When perPage is 0, it should return all sessions
+				suite.Equal(totalSessions, len(sessions))
+			} else if tc.page > (totalSessions/tc.perPage)+1 {
+				// Page beyond available data should return empty
+				suite.Equal(0, len(sessions))
+			} else {
+				// Regular pagination
+				suite.Equal(tc.expected, len(sessions))
+			}
+
+			// Verify sessions are ordered by created DESC (newest first)
+			if len(sessions) > 1 {
+				for i := 0; i < len(sessions)-1; i++ {
+					suite.True(sessions[i].Created.After(sessions[i+1].Created) || sessions[i].Created.Equal(sessions[i+1].Created))
+				}
+			}
+		})
+	}
 }

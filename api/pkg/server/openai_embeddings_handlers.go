@@ -10,15 +10,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 // createEmbeddings godoc
 // @Summary Creates an embedding vector representing the input text
-// @Description Creates an embedding vector representing the input text
+// @Description Creates an embedding vector representing the input text. Supports both standard OpenAI embedding format and Chat Embeddings API format with messages.
 // @Tags    embeddings
-// @Success 200 {object} openai.EmbeddingResponse
-// @Param request    body openai.EmbeddingRequest true "Request body with options for embeddings.")
+// @Success 200 {object} types.FlexibleEmbeddingResponse
+// @Param request    body types.FlexibleEmbeddingRequest true "Request body with options for embeddings. Can use either 'input' field (standard) or 'messages' field (Chat Embeddings API).")
 // @Router /v1/embeddings [post]
 // @Security BearerAuth
 // @externalDocs.url https://platform.openai.com/docs/api-reference/embeddings/create
@@ -29,10 +28,9 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		isSocket = true
 	}
 
-	var user *types.User
 	// Socket connections are pre-authorized, only check authorization for non-socket requests
 	if !isSocket {
-		user = getRequestUser(r)
+		user := getRequestUser(r)
 		if !hasUser(user) {
 			http.Error(rw, "unauthorized", http.StatusUnauthorized)
 			log.Error().Msg("unauthorized")
@@ -40,20 +38,28 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// Read and parse the request body as FlexibleEmbeddingRequest
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
-		log.Error().Err(err).Msg("error reading body")
+		log.Error().Err(err).Msg("error reading request body")
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	var embeddingRequest openai.EmbeddingRequest
+	var embeddingRequest types.FlexibleEmbeddingRequest
 	if err := json.Unmarshal(body, &embeddingRequest); err != nil {
-		log.Error().Err(err).Msg("error unmarshalling body")
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		log.Error().Err(err).Msg("error parsing embedding request")
+		http.Error(rw, "invalid JSON request", http.StatusBadRequest)
 		return
 	}
 
+	if embeddingRequest.Model == "" {
+		log.Error().Msg("model field is required")
+		http.Error(rw, "model field is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the appropriate client for the provider
 	client, err := s.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
 		Provider: s.Cfg.RAG.PGVector.Provider,
 	})
@@ -63,38 +69,13 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Create a clean request without unsupported parameters
-	cleanRequest := openai.EmbeddingRequest{
-		Model:          embeddingRequest.Model,
-		Input:          embeddingRequest.Input,
-		EncodingFormat: "float",
-		// Explicitly omit dimensions
-	}
-
-	resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
+	// Forward the request to the provider using the flexible embeddings method
+	resp, err := client.CreateFlexibleEmbeddings(r.Context(), embeddingRequest)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("model", string(embeddingRequest.Model)).
-			Str("provider", s.Cfg.RAG.PGVector.Provider).
-			Msg("error creating embeddings")
-		if apiErr, ok := err.(*openai.APIError); ok {
-			errLog := log.Error().
-				Int("status_code", apiErr.HTTPStatusCode).
-				Str("type", apiErr.Type)
-			if apiErr.Code != nil {
-				errLog.Interface("code", apiErr.Code)
-			}
-			if apiErr.Param != nil {
-				errLog.Str("param", *apiErr.Param)
-			}
-			errLog.Msg("vllm api error details")
-		}
+		log.Error().Err(err).Msg("error creating embeddings")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(rw).Encode(resp)
+	writeResponse(rw, resp, http.StatusOK)
 }

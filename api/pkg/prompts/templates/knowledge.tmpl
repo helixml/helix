@@ -1,74 +1,189 @@
-{{- if .RagResults }}
+{{ if .IsVision }} {{/* Start of if .IsVision */}}
+
+{{- if or .RagResults .KnowledgeResults }}
 We have found the following context you may refer to in your answer:
-{{- range .RagResults }}
-<article>
-<document_id>
-{{ .DocumentID }}
-</document_id>
-<content>
-{{ .Content }}
-</content>
-</article>
 {{- end }}
 
-Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]."
-
-Always provide references in the body of your answer!
-
-After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
-
----
-<excerpts>
-<excerpt>
-<document_id>[DocumentID]</document_id>
-<snippet>[Excerpt]</snippet>
-</excerpt>
-</excerpts>
----
-
+{{- if .RagResults }}
+{{- range .RagResults }}
+<chunk>
+  <document_id>
+    {{ .DocumentID }}
+  </document_id>
+  <content>
+    ### START OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+    {{ .Content }}
+    ### END OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+  </content>
+</chunk>
+{{- end }}
 {{- end }}
 
 {{- if .KnowledgeResults }}
-We have found the following context you may refer to in your answer:
 {{- range .KnowledgeResults }}
-{{- if .DocumentID }}
-<document_id>
-{{ .DocumentID }}
-</document_id>
+<chunk>
+  {{- if .DocumentID }}
+  <document_id>
+    {{ .DocumentID }}
+  </document_id>
+  {{- end }}
+  {{- if .Description }}
+  <description>
+    {{ .Description }}
+  </description>
+  {{- end }}
+  <content>
+    ### START OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+    {{ .Content }}
+    ### END OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+  </content>
+</chunk>
 {{- end }}
-<article>
-{{- if .Source }}
-<source>
-{{ .Source }}
-</source>
-{{- end }}
-{{- if .Description }}
-<description>
-{{ .Description }}
-</description>
-{{- end }}
-<content>
-{{ .Content }}
-</content>
-</article>
 {{- end }}
 
-Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]."
+# RAG
 
-Always provide references in the body of your answer!
+Your job is to provide high quality RAG results based on the above images, text snippets and the
+user's question at the end. Refer to the above images and text snippets as "context" in your answer.
 
-After your answer, include one excerpt per document_id in XML format surrounded by three dashes like ---. These should be short sentence-long excerpts from the content that you referenced when answering the question, in the form below. Provide one excerpt per document. Provide one EXACT QUOTE per document. Do not include any other text inside the --- markers.
+You will provide references in two ways:
+1. In the body of your answer, provide inline references relating to all images in your answer.
+2. In the excerpts XML section below the body of your answer.
 
----
+The following sections describe how to provide these references in detail.
+
+## Referencing documents (in the main body of the answer)
+
+IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
+Be careful not to mis-spell the document_id. Double check it to ensure you have copied it accurately.
+
+Always provide references in the body of your answer, but not too many. Don't repeat the same reference many times.
+Users like it if the format of the answer is structured, for example using a numbered list rather than just a big blob of text. Where there are many concepts to communicate, consider using a numbered list.
+
+## Providing excerpts (in XML after the answer)
+
+After completing your answer, without any visible header, write the excerpts with important quotes from each referenced document.
+
+Follow these steps:
+1. Identify each unique document_id you cited in your answer
+2. For each document, select a representative, EXACT QUOTE (1-2 sentences) that best supports your answer
+3. Be EXTREMELY careful to quote from the correct document. I have included "### START OF CONTENT FOR DOCUMENT XXX ###" and "### END OF CONTENT FOR DOCUMENT XXX ###" tags to help you keep track of which document each chunk of context is drawn from. DO NOT MIS-ATTRIBUTE QUOTES TO THE WRONG DOCUMENTS. Do not include the "###" tags in the quotes.
+4. Include each document exactly once in the excerpt block using the format below
+
+Required excerpt format:
+
+...provided answer with inline references like [DOC_ID:012f95df5f]...
+
 <excerpts>
-<excerpt>
-<document_id>[DocumentID]</document_id>
-<snippet>[Excerpt]</snippet>
-</excerpt>
+  <excerpt>
+    <document_id>012f95df5f</document_id>
+    <snippet>If an image, a short description of the image</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>3e0e669338</document_id>
+    <snippet>If text, an exact quote from this document that supports your references.</snippet>
+  </excerpt>
 </excerpts>
----
+
+## FINAL CHECK:
+- No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) before writing the excerpts
+- Do not mix-up document_id and source or other metadata, these are two different things and things will break if you do
+- Each document_id appears zero or one times in your excerpts, NOT more than once
+- No introductory text appears before the excerpt block
+- All document_ids match those you cited in your answer. Quote from the correct document
+
+{{- else }} {{/* if not .IsVision */}}
+
+{{- if or .RagResults .KnowledgeResults }}
+We have found the following context you may refer to in your answer:
+{{- end }}
+
+{{- if .RagResults }}
+{{- range .RagResults }}
+<chunk>
+  <document_id>
+    {{ .DocumentID }}
+  </document_id>
+  <content>
+    ### START OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+    {{ .Content }}
+    ### END OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+  </content>
+</chunk>
+{{- end }}
+{{- end }}
+
+{{- if .KnowledgeResults }}
+{{- range .KnowledgeResults }}
+<chunk>
+  {{- if .DocumentID }}
+  <document_id>
+    {{ .DocumentID }}
+  </document_id>
+  {{- end }}
+  {{- if .Description }}
+  <description>
+    {{ .Description }}
+  </description>
+  {{- end }}
+  <content>
+    ### START OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+    {{ .Content }}
+    ### END OF CONTENT FOR DOCUMENT {{ .DocumentID }} ###
+  </content>
+</chunk>
+{{- end }}
+{{- end }}
+
+{{ if or .RagResults .KnowledgeResults }}
+
+Your job is to provide high quality RAG results based on the above chunks and the user's question below.
+Refer to the above chunks as "context" in your answer.
+You will provide references in two ways:
+1. In the body of your answer, provide inline references like [DOC_ID:document-id-you-cited]
+2. In the excerpts XML section below the body of your answer, provide a representative quote from each cited document, but only one quote per document (i.e. document_id).  They must be EXACT QUOTES.  If there are multiple quotes (maybe because there are multiple inline references, or because multiple chunks come from the same document), choose the best or most general quote that captures what the document is about.
+
+## Referencing documents (in the main body of the answer)
+IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
+Be careful not to mis-spell the document_id. Double check it to ensure you have copied it accurately.
+
+Always provide references in the body of your answer, but not too many. Don't repeat the same reference many times.
+Users like it if the format of the answer is structured, for example using a numbered list rather than just a big blob of text. Where there are many concepts to communicate, consider using a numbered list.
+
+## Providing excerpts (in XML after the answer)
+After completing your answer, without any visible header, write the excerpts with important quotes from each referenced document.
+
+Follow these steps:
+1. Identify each unique document_id you cited in your answer
+2. For each document, select a representative, EXACT QUOTE (1-2 sentences) that best supports your answer
+3. Be EXTREMELY careful to quote from the correct document. I have included "### START OF CONTENT FOR DOCUMENT XXX ###" and "### END OF CONTENT FOR DOCUMENT XXX ###" tags to help you keep track of which document each chunk of context is drawn from. DO NOT MIS-ATTRIBUTE QUOTES TO THE WRONG DOCUMENTS. Do not include the "###" tags in the quotes.
+4. Include each document exactly once in the excerpt block using the format below
+
+Required excerpt format:
+
+...provided answer with inline references like [DOC_ID:document-id-you-cited]...
+
+<excerpts>
+  <excerpt>
+    <document_id>document-id-you-cited</document_id>
+    <snippet>An exact quote from this document that supports your references.</snippet>
+  </excerpt>
+  <excerpt>
+    <document_id>another-document-id-you-cited</document_id>
+    <snippet>An exact quote from this document that supports your references.</snippet>
+  </excerpt>
+</excerpts>
+
+## FINAL CHECK:
+- No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) before writing the excerpts
+- Do not mix-up document_id and source or other metadata, these are two different things and things will break if you do
+- Each document_id appears zero or one times in your excerpts, NOT more than once
+- No introductory text appears before the excerpt block
+- All document_ids match those you cited in your answer. Quote from the correct document
 
 {{- end }}
 
-Here is the question from the user:
+{{- end }} {{/* End of if .IsVision */}}
+
+# Here is the question from the user:
 {{.Question}}

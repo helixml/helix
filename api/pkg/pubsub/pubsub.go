@@ -76,8 +76,10 @@ func GetSessionQueue(ownerID, sessionID string) string {
 }
 
 const (
-	ScriptRunnerStream   = "SCRIPTS"
-	AppQueue             = "apps"
+	ZedAgentRunnerStream = "ZED_AGENTS"
+	ZedAgentQueue        = "zed_agents"
+	ScriptRunnerStream   = "SCRIPT_RUNNERS"
+	AppQueue             = "app"
 	RunnerQueue          = "runner"
 	HelixNatsReplyHeader = "helix-nats-reply"
 )
@@ -104,4 +106,26 @@ func ParseRunnerID(subject string) (string, error) {
 		return "", fmt.Errorf("invalid subject: %s", subject)
 	}
 	return parts[2], nil
+}
+
+// External agent specific queue functions
+func GetExternalAgentRegistrationQueue() string {
+	return "external_agents.register"
+}
+
+func GetExternalAgentHeartbeatQueue() string {
+	return "external_agents.heartbeat"
+}
+
+func GetExternalAgentResponseQueue() string {
+	return "external_agents.response"
+}
+
+func GetExternalAgentStreamForMessageType(messageType string) string {
+	switch messageType {
+	case "agent.register", "agent.heartbeat", "agent.response":
+		return ZedAgentRunnerStream
+	default:
+		return ZedAgentRunnerStream
+	}
 }

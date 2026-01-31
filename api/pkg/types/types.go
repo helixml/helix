@@ -5,63 +5,228 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 type Interaction struct {
-	ID        string      `json:"id"`
-	Created   time.Time   `json:"created"`
-	Updated   time.Time   `json:"updated"`
-	Scheduled time.Time   `json:"scheduled"`
-	Completed time.Time   `json:"completed"`
-	Creator   CreatorType `json:"creator"` // e.g. User
-	// this let's us know if this interaction is part of the fine tuning process
-	// or if it's a chat interaction that the user is using to interact with the model
-	// once it's been fine-tuned
-	// for fine-tune models, we can filter out inference interactions
-	// to get down to what actually matters
-	Mode SessionMode `json:"mode"`
+	ID string `json:"id" gorm:"primaryKey"`
+	// GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
+	// it is used to keep a timeline when querying the database for messages or viewing previous generations
+	GenerationID int `json:"generation_id" gorm:"primaryKey"`
+
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+	Scheduled time.Time `json:"scheduled"`
+	Completed time.Time `json:"completed"`
 	// the ID of the runner that processed this interaction
-	Runner         string         `json:"runner"`          // e.g. 0
-	Message        string         `json:"message"`         // e.g. Prove pythagoras
-	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
+	Runner string `json:"runner"` // e.g. 0
 
-	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
-	Progress       int               `json:"progress"`        // e.g. 0-100
-	Files          []string          `json:"files"`           // list of filepath paths
-	Finished       bool              `json:"finished"`        // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata       map[string]string `json:"metadata"`        // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State          InteractionState  `json:"state"`
-	Status         string            `json:"status"`
-	Error          string            `json:"error"`
-	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir             string                     `json:"lora_dir"`
-	DataPrepChunks      map[string][]DataPrepChunk `json:"data_prep_chunks"`
-	DataPrepStage       TextDataPrepStage          `json:"data_prep_stage"`
-	DataPrepLimited     bool                       `json:"data_prep_limited"` // If true, the data prep is limited to a certain number of chunks due to quotas
-	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
-	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
+	Mode SessionMode `json:"mode"`
 
-	RagResults []*SessionRAGResult `json:"rag_results"`
+	AppID     string `json:"app_id" gorm:"index"`
+	SessionID string `json:"session_id" gorm:"index"`
+	UserID    string `json:"user_id" gorm:"index"`
+
+	SystemPrompt string `json:"system_prompt"` // System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)
+
+	PromptMessage        string         `json:"prompt_message"`                                           // User prompt (text)
+	PromptMessageContent MessageContent `json:"prompt_message_content" gorm:"type:jsonb;serializer:json"` // User prompt (multi-part)
+
+	// TODO: add the full multi-part response content
+	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
+	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
+	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
+
+	DisplayMessage string           `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
+	DurationMs     int              `json:"duration_ms"`     // How long the interaction took to complete in milliseconds
+	State          InteractionState `json:"state"`
+	Status         string           `json:"status"`
+	Error          string           `json:"error"`
+
+	Trigger string `json:"trigger"` // Session (default), slack, crisp, etc
+
+	RagResults []*SessionRAGResult `json:"rag_results" gorm:"type:jsonb;serializer:json"`
 
 	// Model function calling, not to be mistaken with Helix tools
-	Tools []openai.Tool `json:"tools"`
+	Tools []openai.Tool `json:"tools" gorm:"type:jsonb;serializer:json"`
 
 	// This can be either a string or an ToolChoice object.
-	ToolChoice any `json:"tool_choice,omitempty"`
+	// ToolChoice any `json:"tool_choice,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.
-	ToolCalls []openai.ToolCall `json:"tool_calls,omitempty"`
+	ToolCalls []openai.ToolCall `json:"tool_calls,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
-	Usage Usage `json:"usage"`
+	// LastZedMessageID tracks the last Zed message ID received for this interaction.
+	// Used to detect multi-message responses: same ID = streaming update (overwrite),
+	// different ID = new distinct message (append). Persisted in DB for restart resilience.
+	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
+
+	// Summary is a one-line description of this interaction for search/indexing.
+	// Generated lazily on first access or via background job.
+	Summary          string     `json:"summary,omitempty"`
+	SummaryUpdatedAt *time.Time `json:"summary_updated_at,omitempty"`
+
+	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
+
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
+}
+
+type FeedbackRequest struct {
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
+}
+
+type Feedback string
+
+const (
+	FeedbackLike    Feedback = "like"
+	FeedbackDislike Feedback = "dislike"
+)
+
+// DesiredState constants for session reconciliation
+const (
+	DesiredStateRunning = "running" // Container should exist, reconciler will restart if missing
+	DesiredStateStopped = "stopped" // Container can be terminated, no auto-restart
+)
+
+func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
+	messages := []openai.ChatCompletionMessage{}
+
+	if systemPrompt != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		})
+	}
+
+	// Each interaction will have user and assistant messages
+	for _, interaction := range interactions {
+		switch interaction.State {
+		case InteractionStateComplete:
+			// Interaction contains both user and assistant messages
+			messages = append(messages, interaction.ToOpenAIUserMessage())
+
+			assistantMessage, ok := interaction.ToOpenAIAssistantMessage()
+			if ok {
+				messages = append(messages, assistantMessage)
+			}
+		case InteractionStateWaiting:
+			// Interaction contains only user message
+			messages = append(messages, interaction.ToOpenAIUserMessage())
+		}
+	}
+
+	return messages
+}
+
+func (i *Interaction) ToOpenAISystemMessage() openai.ChatCompletionMessage {
+	return openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: i.SystemPrompt,
+	}
+}
+
+func (i *Interaction) ToOpenAIUserMessage() openai.ChatCompletionMessage {
+	if len(i.PromptMessageContent.Parts) == 0 {
+		return openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: i.PromptMessage,
+		}
+	}
+
+	return openai.ChatCompletionMessage{
+		Role:         openai.ChatMessageRoleUser,
+		MultiContent: i.GetMessageMultiContentPart(),
+	}
+}
+
+func (i *Interaction) ToOpenAIAssistantMessage() (openai.ChatCompletionMessage, bool) {
+	if i.ResponseMessage == "" {
+		return openai.ChatCompletionMessage{}, false
+	}
+
+	return openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: i.ResponseMessage,
+	}, true
+}
+
+type ListInteractionsQuery struct {
+	AppID         string
+	SessionID     string
+	InteractionID string
+	UserID        string
+	GenerationID  int // Use -1 to get all generations for a session
+	Page          int
+	PerPage       int
+	Feedback      string
+	Order         string // Defaults to ID ASC
+}
+
+// GetMessageMultiContentPart - probably specifically for PromptContent
+func (i *Interaction) GetMessageMultiContentPart() []openai.ChatMessagePart {
+	parts := []openai.ChatMessagePart{}
+
+	// If content is empty, return one slice with text message
+	if len(i.PromptMessageContent.Parts) == 0 {
+		return []openai.ChatMessagePart{
+			{Type: "text", Text: i.PromptMessage},
+		}
+	}
+
+	for _, part := range i.PromptMessageContent.Parts {
+		switch p := part.(type) {
+		case string:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p})
+		case TextPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p.Text})
+		case ImageURLPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "image_url", ImageURL: &openai.ChatMessageImageURL{
+				URL:    p.ImageURL.URL,
+				Detail: openai.ImageURLDetail(p.ImageURL.Detail),
+			}})
+		case map[string]interface{}:
+			if typeVal, typeOk := p["type"].(string); typeOk {
+				switch typeVal {
+				case "text":
+					if textVal, textOk := p["text"].(string); textOk {
+						parts = append(parts, openai.ChatMessagePart{Type: "text", Text: textVal})
+					}
+				case "image_url":
+					if imageURLVal, imageURLOk := p["image_url"].(map[string]interface{}); imageURLOk {
+						if urlVal, urlOk := imageURLVal["url"].(string); urlOk {
+							detail := "auto"
+							if detailVal, detailOk := imageURLVal["detail"].(string); detailOk {
+								detail = detailVal
+							}
+							parts = append(parts, openai.ChatMessagePart{
+								Type: "image_url",
+								ImageURL: &openai.ChatMessageImageURL{
+									URL:    urlVal,
+									Detail: openai.ImageURLDetail(detail),
+								},
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	return parts
 }
 
 type ResponseFormatType string
@@ -79,12 +244,6 @@ type ResponseFormat struct {
 type InteractionMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-
-type SessionOrigin struct {
-	Type                SessionOriginType `json:"type"`
-	ClonedSessionID     string            `json:"cloned_session_id"`
-	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
 type TextSplitterType string
@@ -105,6 +264,7 @@ type RAGSettings struct {
 	DisableChunking    bool             `json:"disable_chunking" yaml:"disable_chunking"`       // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
 	DisableDownloading bool             `json:"disable_downloading" yaml:"disable_downloading"` // if true, we will not download the file and send the URL to the RAG indexing endpoint
 	PromptTemplate     string           `json:"prompt_template" yaml:"prompt_template"`         // the prompt template to use for the RAG query
+	EnableVision       bool             `json:"enable_vision" yaml:"enable_vision"`             // if true, we will use the vision pipeline -- Future - might want to specify different pipelines
 
 	// RAG endpoint configuration if used with a custom RAG service
 	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
@@ -140,6 +300,13 @@ func (RAGSettings) GormDataType() string {
 	return "json"
 }
 
+type RAGPipeline string
+
+var (
+	TextPipeline   RAGPipeline = "text_pipeline"
+	VisionPipeline RAGPipeline = "vision_pipeline"
+)
+
 // the data we send off to rag implementations to be indexed
 type SessionRAGIndexChunk struct {
 	DataEntityID    string            `json:"data_entity_id"`
@@ -150,18 +317,20 @@ type SessionRAGIndexChunk struct {
 	ContentOffset   int               `json:"content_offset"`
 	Content         string            `json:"content"`
 	Metadata        map[string]string `json:"metadata"`
+	Pipeline        RAGPipeline       `json:"pipeline"` // RAG providers can have different pipelines
 }
 
 // the query we post to llamaindex to get results back from a user
 // prompt against a rag enabled session
 type SessionRAGQuery struct {
-	Prompt            string   `json:"prompt"`
-	DataEntityID      string   `json:"data_entity_id"`
-	DistanceThreshold float64  `json:"distance_threshold"`
-	DistanceFunction  string   `json:"distance_function"`
-	MaxResults        int      `json:"max_results"`
-	ExhaustiveSearch  bool     `json:"exhaustive_search"`
-	DocumentIDList    []string `json:"document_id_list"` // TODO(Phil): I can see this getting out of hand, should make it more generic to handle any kind of metadata filter
+	Prompt            string      `json:"prompt"`
+	DataEntityID      string      `json:"data_entity_id"`
+	DistanceThreshold float64     `json:"distance_threshold"`
+	DistanceFunction  string      `json:"distance_function"`
+	MaxResults        int         `json:"max_results"`
+	ExhaustiveSearch  bool        `json:"exhaustive_search"`
+	DocumentIDList    []string    `json:"document_id_list"` // TODO(Phil): I can see this getting out of hand, should make it more generic to handle any kind of metadata filter
+	Pipeline          RAGPipeline `json:"pipeline"`         // RAG providers can have different pipelines
 }
 
 type DeleteIndexRequest struct {
@@ -184,19 +353,61 @@ type SessionRAGResult struct {
 	Metadata        map[string]string `json:"metadata"`
 }
 
+// TitleHistoryEntry tracks a session title change for the title history feature.
+// Shown on hover in the SpecTask tab view - click to jump to that interaction.
+type TitleHistoryEntry struct {
+	Title         string    `json:"title"`          // The title that was set
+	ChangedAt     time.Time `json:"changed_at"`     // When the title was changed
+	Turn          int       `json:"turn"`           // Turn number that triggered the change (1-indexed)
+	InteractionID string    `json:"interaction_id"` // Interaction ID for navigation - click to jump here
+}
+
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	OriginalMode            SessionMode       `json:"original_mode"`
-	Origin                  SessionOrigin     `json:"origin"`
-	Shared                  bool              `json:"shared"`
-	Avatar                  string            `json:"avatar"`
-	Priority                bool              `json:"priority"`
-	DocumentIDs             map[string]string `json:"document_ids"`
-	DocumentGroupID         string            `json:"document_group_id"`
-	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
-	SystemPrompt            string            `json:"system_prompt"`
-	HelixVersion            string            `json:"helix_version"`
-	Stream                  bool              `json:"stream"`
+	Avatar                  string              `json:"avatar"`
+	Priority                bool                `json:"priority"`
+	DocumentIDs             map[string]string   `json:"document_ids"`
+	SessionRAGResults       []*SessionRAGResult `json:"session_rag_results"`
+	DocumentGroupID         string              `json:"document_group_id"`
+	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
+	SystemPrompt            string              `json:"system_prompt"`
+	HelixVersion            string              `json:"helix_version"`
+	Stream                  bool                `json:"stream"`
+	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
+	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
+
+	// Title history - tracks evolution of session topics (newest first)
+	// Shown on hover in the SpecTask tab view to see what topics were covered
+	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
+
+	// Multi-session SpecTask context
+	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
+	ProjectID               string               `json:"project_id,omitempty"`                // ID of associated Project (for exploratory sessions)
+	WorkSessionID           string               `json:"work_session_id,omitempty"`           // ID of associated WorkSession
+	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
+	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
+	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
+	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
+	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
+	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
+	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
+	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
+	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
+	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
+	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	// Container fields (Hydra executor)
+	ContainerName string `json:"container_name,omitempty"` // Docker container name
+	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
+	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on bridge network
+	ExecutorMode  string `json:"executor_mode,omitempty"`  // Executor mode (deprecated - always "hydra")
+	// Video settings for external agent sessions (Phase 3.5)
+	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
+	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
+	AgentVideoRefreshRate int `json:"agent_video_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -218,10 +429,7 @@ type SessionMetadata struct {
 	ActiveTools         []string    `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
 	UploadedDataID string `json:"uploaded_data_entity_id"`
-	// the RAG source data entity we produced from this session
-	RAGSourceID string `json:"rag_source_data_entity_id"`
-	// the fine tuned data entity we produced from this session
-	LoraID string `json:"finetune_data_entity_id"`
+
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
 	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
@@ -235,42 +443,161 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
+type PaginatedSessionsList struct {
+	Sessions   []*SessionSummary `json:"sessions"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"pageSize"`
+	TotalCount int64             `json:"totalCount"`
+	TotalPages int               `json:"totalPages"`
+}
+
 // this is the incoming REST api struct sent from the outside world
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID        string      `json:"app_id"`       // Assign the session settings from the specified app
-	AssistantID  string      `json:"assistant_id"` // Which assistant are we speaking to?
-	SessionID    string      `json:"session_id"`   // If empty, we will start a new session
-	Stream       bool        `json:"stream"`       // If true, we will stream the response
-	Type         SessionType `json:"type"`         // e.g. text, image
-	LoraDir      string      `json:"lora_dir"`
-	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
-	Messages     []*Message  `json:"messages"` // Initial messages
-	Tools        []string    `json:"tools"`    // Available tools to use in the session
-	Provider     Provider    `json:"provider"` // The provider to use
-	Model        string      `json:"model"`    // The model to use
-	RAGSourceID  string      `json:"rag_source_id"`
-	// the fine tuned data entity we produced from this session
-	LoraID string `json:"lora_id"`
+	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`      // The project this session belongs to, if any
+	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	Type                SessionType          `json:"type"`            // e.g. text, image
+	LoraDir             string               `json:"lora_dir"`
+	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
+	Messages            []*Message           `json:"messages"`                        // Initial messages
+	AgentType           string               `json:"agent_type"`                      // Agent type: "helix" or "zed_external"
+	ExternalAgentConfig *ExternalAgentConfig `json:"external_agent_config,omitempty"` // Configuration for external agents
+	Tools               []string             `json:"tools"`                           // Available tools to use in the session
+	Provider            Provider             `json:"provider"`                        // The provider to use
+	Model               string               `json:"model"`                           // The model to use
+	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
+}
+
+// ExternalAgentConfig holds display configuration for external agent sessions
+// (Desktop, Spec Task, or Exploratory sessions)
+type ExternalAgentConfig struct {
+	// Display resolution - either use Resolution preset or explicit dimensions
+	Resolution         string `json:"resolution,omitempty"`           // Preset: "1080p" (default), "4k", or "5k"
+	DisplayWidth       int    `json:"display_width,omitempty"`        // Explicit width (default: 1920)
+	DisplayHeight      int    `json:"display_height,omitempty"`       // Explicit height (default: 1080)
+	DisplayRefreshRate int    `json:"display_refresh_rate,omitempty"` // Refresh rate (default: 60)
+
+	// Desktop environment
+	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
+
+	// Video capture/encoding mode
+	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
+}
+
+// Validate checks if the external agent configuration is valid
+func (c *ExternalAgentConfig) Validate() error {
+	// No validation needed - all fields have sensible defaults
+	return nil
+}
+
+// GetEffectiveResolution returns the display dimensions based on Resolution preset
+// Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
+func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
+	// If Resolution preset is set, use it
+	switch c.Resolution {
+	case "5k":
+		return 5120, 2880
+	case "4k":
+		return 3840, 2160
+	case "1080p":
+		return 1920, 1080
+	}
+
+	// Fall back to explicit dimensions if set
+	if c.DisplayWidth > 0 && c.DisplayHeight > 0 {
+		return c.DisplayWidth, c.DisplayHeight
+	}
+
+	// Default to 1080p
+	return 1920, 1080
+}
+
+// GetEffectiveDesktopType returns the desktop type with default
+func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
+	if c.DesktopType != "" {
+		return c.DesktopType
+	}
+	return "ubuntu" // Default to Ubuntu
+}
+
+// GetEffectiveZoomLevel returns the zoom level with auto-detection for high-res displays
+func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
+	if c.ZoomLevel > 0 {
+		return c.ZoomLevel
+	}
+	// Auto-set 200% zoom only when user explicitly selects "4k" or "5k" preset
+	// (these presets imply 2x scaling for readable UI)
+	switch c.Resolution {
+	case "5k", "4k":
+		return 200
+	default:
+		return 100
+	}
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
 	if len(s.Messages) == 0 {
 		return "", false
 	}
-	if len(s.Messages[0].Content.Parts) == 0 {
+
+	msg := s.Messages[len(s.Messages)-1]
+	if msg == nil || len(msg.Content.Parts) == 0 {
 		return "", false
 	}
 
-	message, ok := s.Messages[0].Content.Parts[0].(string)
-	return message, ok
+	for _, part := range msg.Content.Parts {
+		if part == nil {
+			continue
+		}
+
+		switch p := part.(type) {
+		case string: // Case 1: Part is a simple string
+			return p, true
+		case TextPart: // Handle TextPart struct directly
+			return p.Text, true
+		// Note: ImageURLPart struct doesn't need explicit handling here if we are only looking for text.
+		// It will fall through the default case of the switch, and the loop will continue.
+		case map[string]interface{}: // Case 2: Part is a generic map (e.g., from JSON unmarshal)
+			// Check for {"type": "text", "text": "..."}
+			if typeVal, typeOk := p["type"].(string); typeOk && typeVal == "text" {
+				if textVal, textOk := p["text"].(string); textOk {
+					return textVal, true
+				}
+			}
+			// If partMap["type"] is "image_url" or another non-text type,
+			// this map is skipped, and the loop continues to the next part.
+		}
+	}
+
+	// If the loop completes, it means no text part was found.
+	// The original code returned `"", true` if parts existed but no text was found.
+	// This is consistent with Test_SessionChatRequest_ImageURL expecting "", true.
+	return "", true
+}
+
+func (s *SessionChatRequest) MessageContent() MessageContent {
+	if len(s.Messages) == 0 {
+		return MessageContent{
+			ContentType: "text",
+			Parts:       []any{""},
+		}
+	}
+
+	return s.Messages[len(s.Messages)-1].Content
 }
 
 // the user wants to create a Lora or RAG source
 // we turn this into a InternalSessionRequest
 type SessionLearnRequest struct {
-	Type SessionType `json:"type"` // e.g. text, image
+	Type           SessionType `json:"type"`            // e.g. text, image
+	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
 	// FINE-TUNE MODE ONLY
 	DataEntityID string `json:"data_entity_id"` // The uploaded files we want to use for fine-tuning and/or RAG
 	// Do we want to create a RAG data entity from this session?
@@ -287,7 +614,7 @@ type SessionLearnRequest struct {
 
 type Message struct {
 	ID        string           `json:"id"` // Interaction ID
-	Role      CreatorType      `json:"role"`
+	Role      string           `json:"role"`
 	Content   MessageContent   `json:"content"`
 	CreatedAt time.Time        `json:"created_at,omitempty"`
 	UpdatedAt time.Time        `json:"updated_at,omitempty"`
@@ -301,7 +628,7 @@ const (
 )
 
 type MessageContent struct {
-	ContentType MessageContentType `json:"content_type"` // text, image, multimodal_text
+	ContentType MessageContentType `json:"content_type"` // text, image_url, multimodal_text
 	// Parts is a list of strings or objects. For example for text, it's a list of strings, for
 	// multi-modal it can be an object:
 	// "parts": [
@@ -323,12 +650,11 @@ type MessageContent struct {
 type InternalSessionRequest struct {
 	ID                      string
 	Stream                  bool
-	Mode                    SessionMode
 	Type                    SessionType
 	SystemPrompt            string
-	LoraDir                 string
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
+	OrganizationID          string // the organization this session belongs to, if any
 	AssistantID             string // target a specific assistant - defaults to "0" (i.e. the first assistant)
 	ModelName               string
 	Owner                   string
@@ -362,19 +688,25 @@ type Session struct {
 	ID string `json:"id"`
 	// name that goes in the UI - ideally autogenerated by AI but for now can be
 	// named manually
-	Name          string    `json:"name"`
-	Created       time.Time `json:"created"`
-	Updated       time.Time `json:"updated"`
-	ParentSession string    `json:"parent_session"`
+	Name          string         `json:"name"`
+	Created       time.Time      `json:"created"`
+	Updated       time.Time      `json:"updated"`
+	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
+	ProjectID     string         `json:"project_id"`
+	ParentSession string         `json:"parent_session"`
 	// the app this session was spawned from
-	ParentApp string          `json:"parent_app"`
-	Metadata  SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
+	// TODO: rename to AppID
+	ParentApp string `json:"parent_app"`
+	// the organization this session belongs to, if any
+	OrganizationID string          `json:"organization_id" gorm:"index"`
+	Metadata       SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
 	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
+	Provider  string `json:"provider"`
 	ModelName string `json:"model_name"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
@@ -382,35 +714,20 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions Interactions `json:"interactions" gorm:"type:jsonb"`
+	Interactions []*Interaction `json:"interactions" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	GenerationID int            `json:"generation_id"` // Current generation ID
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
-}
 
-type Interactions []*Interaction
+	QuestionSetID          string `json:"question_set_id"`           // The question set this session belongs to, if any
+	QuestionSetExecutionID string `json:"question_set_execution_id"` // The question set execution this session belongs to, if any
 
-func (m Interactions) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
-	return j, err
-}
+	Trigger string `json:"trigger"`
 
-func (m *Interactions) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result Interactions
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*m = result
-	return nil
-}
-
-func (Interactions) GormDataType() string {
-	return "json"
+	// SandboxID tracks which sandbox instance is running this session's dev container (if any)
+	SandboxID string `json:"sandbox_id" gorm:"type:varchar(255);index"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -506,13 +823,16 @@ type InferenceRequestFilter struct {
 }
 
 type ApiKey struct { //nolint:revive
-	Created   time.Time       `json:"created"`
-	Owner     string          `json:"owner"`
-	OwnerType OwnerType       `json:"owner_type"`
-	Key       string          `json:"key" gorm:"primaryKey"`
-	Name      string          `json:"name"`
-	Type      APIKeyType      `json:"type" gorm:"default:api"`
-	AppID     *sql.NullString `json:"app_id"`
+	Created    time.Time       `json:"created"`
+	Owner      string          `json:"owner"`
+	OwnerType  OwnerType       `json:"owner_type"`
+	Key        string          `json:"key" gorm:"primaryKey"`
+	Name       string          `json:"name"`
+	Type       APIKeyType      `json:"type" gorm:"default:api"`
+	AppID      *sql.NullString `json:"app_id"`
+	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
+	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
+	SessionID  string          `json:"session_id"`   // Session this key is scoped to (ephemeral keys)
 }
 
 type OwnerContext struct {
@@ -521,17 +841,18 @@ type OwnerContext struct {
 }
 
 type StripeUser struct {
-	StripeID        string
-	HelixID         string
-	Email           string
-	SubscriptionID  string
-	SubscriptionURL string
+	StripeCustomerID string
+	UserID           string
+	Email            string
+	SubscriptionID   string
+	SubscriptionURL  string
 }
 
 // this is given to the frontend as user context
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
+	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
 	Config UserConfig `json:"config"`
 }
 
@@ -541,7 +862,8 @@ type WebsocketEvent struct {
 	SessionID          string                      `json:"session_id"`
 	InteractionID      string                      `json:"interaction_id"`
 	Owner              string                      `json:"owner"`
-	Session            *Session                    `json:"session"`
+	Session            *Session                    `json:"session,omitempty"`     // Full session (for session_update)
+	Interaction        *Interaction                `json:"interaction,omitempty"` // Single interaction (for interaction_update)
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
@@ -553,12 +875,50 @@ const (
 	StepInfoTypeWebSearch = "web_search"
 	StepInfoTypeRAG       = "rag"
 	StepInfoTypeToolUse   = "tool_use"
+	StepInfoTypeThinking  = "thinking"
 )
 
 type StepInfo struct {
-	Name    string       `json:"name"`
-	Type    StepInfoType `json:"type"`
-	Message string       `json:"message"`
+	ID            string          `json:"id" gorm:"primaryKey"`
+	Created       time.Time       `json:"created"`
+	Updated       time.Time       `json:"updated"`
+	AppID         string          `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	SessionID     string          `json:"session_id" gorm:"index"`
+	InteractionID string          `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	Name          string          `json:"name"`
+	Icon          string          `json:"icon"` // Either Material UI icon, emoji or SVG. Leave empty for default
+	Type          StepInfoType    `json:"type"`
+	Message       string          `json:"message"`
+	Error         string          `json:"error"`
+	Details       StepInfoDetails `json:"details" gorm:"type:jsonb"` // That were used to call the tool
+	DurationMs    int64           `json:"duration_ms"`               // How long the step took in milliseconds (useful for API calls, database queries, etc.)
+}
+
+type StepInfoDetails struct {
+	Arguments map[string]interface{} `json:"arguments"`
+	// TODO: OAuth tokens supplied or not
+}
+
+func (t StepInfoDetails) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
+	return j, err
+}
+
+func (t *StepInfoDetails) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed")
+	}
+	var result StepInfoDetails
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (StepInfoDetails) GormDataType() string {
+	return "json"
 }
 
 // the context of a long running python process
@@ -639,41 +999,50 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	FilestorePrefix         string               `json:"filestore_prefix"`
-	StripeEnabled           bool                 `json:"stripe_enabled"`
-	SentryDSNFrontend       string               `json:"sentry_dsn_frontend"`
-	GoogleAnalyticsFrontend string               `json:"google_analytics_frontend"`
-	EvalUserID              string               `json:"eval_user_id"`
-	ToolsEnabled            bool                 `json:"tools_enabled"`
-	AppsEnabled             bool                 `json:"apps_enabled"`
-	RudderStackWriteKey     string               `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL string               `json:"rudderstack_data_plane_url"`
-	DisableLLMCallLogging   bool                 `json:"disable_llm_call_logging"`
-	Version                 string               `json:"version"`
-	LatestVersion           string               `json:"latest_version"`
-	DeploymentID            string               `json:"deployment_id"`
-	License                 *FrontendLicenseInfo `json:"license,omitempty"`
+	RegistrationEnabled                    bool                 `json:"registration_enabled"`
+	AuthProvider                           AuthProvider         `json:"auth_provider"`
+	FilestorePrefix                        string               `json:"filestore_prefix"`
+	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
+	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
+	EvalUserID                             string               `json:"eval_user_id"`
+	ToolsEnabled                           bool                 `json:"tools_enabled"`
+	AppsEnabled                            bool                 `json:"apps_enabled"`
+	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL                string               `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging                  bool                 `json:"disable_llm_call_logging"`
+	Version                                string               `json:"version"`
+	LatestVersion                          string               `json:"latest_version"`
+	DeploymentID                           string               `json:"deployment_id"`
+	License                                *FrontendLicenseInfo `json:"license,omitempty"`
+	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
+	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 }
 
 // a short version of a session that we keep for the dashboard
 type SessionSummary struct {
 	// these are all values of the last interaction
-	Created       time.Time   `json:"created"`
-	Updated       time.Time   `json:"updated"`
-	Scheduled     time.Time   `json:"scheduled"`
-	Completed     time.Time   `json:"completed"`
-	SessionID     string      `json:"session_id"`
-	Name          string      `json:"name"`
-	InteractionID string      `json:"interaction_id"`
-	ModelName     string      `json:"model_name"`
-	Mode          SessionMode `json:"mode"`
-	Type          SessionType `json:"type"`
-	Owner         string      `json:"owner"`
-	LoraDir       string      `json:"lora_dir,omitempty"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+	SessionID string    `json:"session_id"`
+	Name      string    `json:"name"`
+	// InteractionID string      `json:"interaction_id"`
+	ModelName string      `json:"model_name"`
+	Type      SessionType `json:"type"`
+	Owner     string      `json:"owner"`
+
 	// this is either the prompt or the summary of the training data
-	Summary  string `json:"summary"`
-	Priority bool   `json:"priority"`
-	AppID    string `json:"app_id,omitempty"`
+	Summary        string `json:"summary"`
+	Priority       bool   `json:"priority"`
+	AppID          string `json:"app_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
+
+	QuestionSetID          string `json:"question_set_id"`
+	QuestionSetExecutionID string `json:"question_set_execution_id"`
+
+	// Metadata includes container information for external agent sessions
+	Metadata SessionMetadata `json:"metadata,omitempty"`
 }
 
 type WorkloadSummary struct {
@@ -685,39 +1054,95 @@ type WorkloadSummary struct {
 	Runtime   string    `json:"runtime"`
 	LoraDir   string    `json:"lora_dir"`
 	Summary   string    `json:"summary"`
-
-	// Created       time.Time   `json:"created"`
-	// Updated       time.Time   `json:"updated"`
-	// Scheduled     time.Time   `json:"scheduled"`
-	// Completed     time.Time   `json:"completed"`
-	// SessionID     string      `json:"session_id"`
-	// Name          string      `json:"name"`
-	// InteractionID string      `json:"interaction_id"`
-	// ModelName     string      `json:"model_name"`
-	// Mode          SessionMode `json:"mode"`
-	// Type          SessionType `json:"type"`
-	// Owner         string      `json:"owner"`
-	// LoraDir       string      `json:"lora_dir,omitempty"`
-	// // this is either the prompt or the summary of the training data
-	// Summary  string `json:"summary"`
-	// Priority bool   `json:"priority"`
-	// AppID    string `json:"app_id,omitempty"`
 }
 
 type DashboardData struct {
-	Runners []*DashboardRunner `json:"runners"`
-	Queue   []*WorkloadSummary `json:"queue"`
+	Runners                   []*DashboardRunner          `json:"runners"`
+	Queue                     []*WorkloadSummary          `json:"queue"`
+	SchedulingDecisions       []*SchedulingDecision       `json:"scheduling_decisions"`
+	GlobalAllocationDecisions []*GlobalAllocationDecision `json:"global_allocation_decisions"`
+}
+
+// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
+type GPUMemoryDataPoint struct {
+	Timestamp     time.Time `json:"timestamp"`
+	GPUIndex      int       `json:"gpu_index"`
+	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
+	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
+	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
+	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
+}
+
+// SchedulingEvent represents a scheduling event for correlation with memory usage
+type SchedulingEvent struct {
+	Timestamp   time.Time `json:"timestamp"`
+	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
+	SlotID      string    `json:"slot_id,omitempty"`
+	ModelName   string    `json:"model_name,omitempty"`
+	Runtime     string    `json:"runtime,omitempty"`
+	GPUIndices  []int     `json:"gpu_indices,omitempty"`
+	MemoryMB    uint64    `json:"memory_mb,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+// GPUMemoryReading represents a single memory reading during stabilization
+type GPUMemoryReading struct {
+	PollNumber  int    `json:"poll_number"`
+	MemoryMB    uint64 `json:"memory_mb"`
+	DeltaMB     int64  `json:"delta_mb"`
+	StableCount int    `json:"stable_count"`
+	IsStable    bool   `json:"is_stable"`
+}
+
+// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
+type GPUMemoryStabilizationEvent struct {
+	Timestamp              time.Time          `json:"timestamp"`
+	Context                string             `json:"context"` // "startup" or "deletion"
+	SlotID                 string             `json:"slot_id,omitempty"`
+	Runtime                string             `json:"runtime,omitempty"`
+	TimeoutSeconds         int                `json:"timeout_seconds"`
+	PollIntervalMs         int                `json:"poll_interval_ms"`
+	RequiredStablePolls    int                `json:"required_stable_polls"`
+	MemoryDeltaThresholdMB uint64             `json:"memory_delta_threshold_mb"`
+	Success                bool               `json:"success"`
+	PollsTaken             int                `json:"polls_taken"`
+	TotalWaitSeconds       int                `json:"total_wait_seconds"`
+	StabilizedMemoryMB     uint64             `json:"stabilized_memory_mb,omitempty"`
+	ErrorMessage           string             `json:"error_message,omitempty"`
+	MemoryReadings         []GPUMemoryReading `json:"memory_readings,omitempty"`
+}
+
+// GPUMemoryStats tracks GPU memory stabilization statistics
+type GPUMemoryStats struct {
+	TotalStabilizations      int                           `json:"total_stabilizations"`
+	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
+	FailedStabilizations     int                           `json:"failed_stabilizations"`
+	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
+	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
+	AverageWaitTimeSeconds   float64                       `json:"average_wait_time_seconds"`
+	MaxWaitTimeSeconds       int                           `json:"max_wait_time_seconds"`
+	MinWaitTimeSeconds       int                           `json:"min_wait_time_seconds"`
+	MemoryTimeSeries         []GPUMemoryDataPoint          `json:"memory_time_series"` // Last 10 minutes of memory data
+	SchedulingEvents         []SchedulingEvent             `json:"scheduling_events"`  // Last 10 minutes of scheduling events
 }
 
 type DashboardRunner struct {
-	ID          string            `json:"id"`
-	Created     time.Time         `json:"created"`
-	Updated     time.Time         `json:"updated"`
-	Version     string            `json:"version"`
-	TotalMemory uint64            `json:"total_memory"`
-	FreeMemory  uint64            `json:"free_memory"`
-	Labels      map[string]string `json:"labels"`
-	Slots       []*RunnerSlot     `json:"slots"`
+	ID              string               `json:"id"`
+	Created         time.Time            `json:"created"`
+	Updated         time.Time            `json:"updated"`
+	Version         string               `json:"version"`
+	TotalMemory     uint64               `json:"total_memory"`
+	FreeMemory      uint64               `json:"free_memory"`
+	UsedMemory      uint64               `json:"used_memory"`
+	AllocatedMemory uint64               `json:"allocated_memory"`
+	GPUCount        int                  `json:"gpu_count"` // Number of GPUs detected
+	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
+	Labels          map[string]string    `json:"labels"`
+	Slots           []*RunnerSlot        `json:"slots"`
+	MemoryString    string               `json:"memory_string"`
+	Models          []*RunnerModelStatus `json:"models"`
+	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
+	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
 }
 
 type GlobalSchedulingDecision struct {
@@ -728,6 +1153,79 @@ type GlobalSchedulingDecision struct {
 	ModelName     string        `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
+}
+
+// AllocationPlanView represents a plan option for visualization
+type AllocationPlanView struct {
+	ID                  string         `json:"id"`
+	RunnerID            string         `json:"runner_id"`
+	GPUs                []int          `json:"gpus"`
+	GPUCount            int            `json:"gpu_count"`
+	IsMultiGPU          bool           `json:"is_multi_gpu"`
+	TotalMemoryRequired uint64         `json:"total_memory_required"`
+	MemoryPerGPU        uint64         `json:"memory_per_gpu"`
+	Cost                int            `json:"cost"`
+	RequiresEviction    bool           `json:"requires_eviction"`
+	EvictionsNeeded     []string       `json:"evictions_needed"` // Slot IDs
+	TensorParallelSize  int            `json:"tensor_parallel_size"`
+	Runtime             Runtime        `json:"runtime"`
+	IsValid             bool           `json:"is_valid"`
+	ValidationError     string         `json:"validation_error,omitempty"`
+	RunnerMemoryState   map[int]uint64 `json:"runner_memory_state"` // GPU index -> allocated memory
+	RunnerCapacity      map[int]uint64 `json:"runner_capacity"`     // GPU index -> total memory
+}
+
+// GlobalAllocationDecision represents a complete global allocation decision for visualization
+type GlobalAllocationDecision struct {
+	ID         string    `json:"id"`
+	Created    time.Time `json:"created"`
+	WorkloadID string    `json:"workload_id"`
+	SessionID  string    `json:"session_id"`
+	ModelName  string    `json:"model_name"`
+	Runtime    Runtime   `json:"runtime"`
+
+	// All plans considered
+	ConsideredPlans []*AllocationPlanView `json:"considered_plans"`
+	SelectedPlan    *AllocationPlanView   `json:"selected_plan"`
+
+	// Timing information
+	PlanningTimeMs  int64 `json:"planning_time_ms"`
+	ExecutionTimeMs int64 `json:"execution_time_ms"`
+	TotalTimeMs     int64 `json:"total_time_ms"`
+
+	// Decision outcome
+	Success      bool   `json:"success"`
+	Reason       string `json:"reason"`
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// Global state snapshots
+	BeforeState map[string]*RunnerStateView `json:"before_state"`
+	AfterState  map[string]*RunnerStateView `json:"after_state"`
+
+	// Decision metadata
+	TotalRunnersEvaluated int     `json:"total_runners_evaluated"`
+	TotalPlansGenerated   int     `json:"total_plans_generated"`
+	OptimizationScore     float64 `json:"optimization_score"` // How optimal the final decision was
+}
+
+// RunnerStateView represents a runner's state for visualization
+type RunnerStateView struct {
+	RunnerID    string            `json:"runner_id"`
+	GPUStates   map[int]*GPUState `json:"gpu_states"` // GPU index -> state
+	TotalSlots  int               `json:"total_slots"`
+	ActiveSlots int               `json:"active_slots"`
+	WarmSlots   int               `json:"warm_slots"`
+	IsConnected bool              `json:"is_connected"`
+}
+
+// GPUState represents a single GPU's state
+type GPUState struct {
+	Index           int      `json:"index"`
+	TotalMemory     uint64   `json:"total_memory"`
+	AllocatedMemory uint64   `json:"allocated_memory"`
+	FreeMemory      uint64   `json:"free_memory"`
+	ActiveSlots     []string `json:"active_slots"` // Slot IDs using this GPU
+	Utilization     float64  `json:"utilization"`  // 0.0 - 1.0
 }
 
 // keep track of the state of the data prep
@@ -770,9 +1268,11 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 
 	// Copy the messages from the request into history messages
 	for _, message := range req.Messages {
-		if message.Content == "" {
+		contentString, err := GetMessageText(&message)
+		if err != nil {
 			continue
 		}
+
 		if message.Role == openai.ChatMessageRoleSystem {
 			// it is a VERY bad idea to include >1 system message when talking to an LLM
 			// https://x.com/lmarsden/status/1826406206996693431
@@ -780,45 +1280,38 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 		}
 		history = append(history, &ToolHistoryMessage{
 			Role:    message.Role,
-			Content: message.Content,
+			Content: contentString,
 		})
 	}
 
 	return history
 }
 
-func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
-	var history []*ToolHistoryMessage
-
-	for _, interaction := range interactions {
-		switch interaction.Creator {
-		case CreatorTypeUser:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleUser,
-				Content: interaction.Message,
-			})
-		case CreatorTypeAssistant:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.Message,
-			})
-		case CreatorTypeSystem:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: interaction.Message,
-			})
-		case CreatorTypeTool:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleTool,
-				Content: interaction.Message,
-			})
+// GetMessageText extracts the plain text content from an OpenAI chat message
+// of any type (user, assistant, or developer message)
+func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
+	// For multi-content messages
+	if len(message.MultiContent) > 0 {
+		var builder strings.Builder
+		for _, part := range message.MultiContent {
+			if part.Type == "text" {
+				builder.WriteString(part.Text)
+			}
 		}
+		return builder.String(), nil
 	}
 
-	return history
-}
+	if message.Content == "" {
+		return "", fmt.Errorf("message %+v content is empty", message)
+	}
 
-// Add this struct to the existing types.go file
+	// For simple string content
+	if message.Content != "" {
+		return message.Content, nil
+	}
+
+	return "", fmt.Errorf("unsupported message type %+v", message)
+}
 
 type PaginatedLLMCalls struct {
 	Calls      []*LLMCall `json:"calls"`
@@ -828,33 +1321,103 @@ type PaginatedLLMCalls struct {
 	TotalPages int        `json:"totalPages"`
 }
 
+type PaginatedInteractions struct {
+	Interactions []*Interaction `json:"interactions"`
+	Page         int            `json:"page"`
+	PageSize     int            `json:"pageSize"`
+	TotalCount   int64          `json:"totalCount"`
+	TotalPages   int            `json:"totalPages"`
+}
+
+type PaginatedUsersList struct {
+	Users      []*User `json:"users"`
+	Page       int     `json:"page"`
+	PageSize   int     `json:"pageSize"`
+	TotalCount int64   `json:"totalCount"`
+	TotalPages int     `json:"totalPages"`
+}
+
 type ToolType string
 
 const (
-	ToolTypeAPI       ToolType = "api"
-	ToolTypeGPTScript ToolType = "gptscript"
-	ToolTypeZapier    ToolType = "zapier"
+	ToolTypeAPI            ToolType = "api"
+	ToolTypeBrowser        ToolType = "browser"
+	ToolTypeZapier         ToolType = "zapier"
+	ToolTypeCalculator     ToolType = "calculator"
+	ToolTypeEmail          ToolType = "email"
+	ToolTypeWebSearch      ToolType = "web_search"
+	ToolTypeAzureDevOps    ToolType = "azure_devops"
+	ToolTypeMCP            ToolType = "mcp"
+	ToolTypeProjectManager ToolType = "project_manager"
 )
 
 type Tool struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
-	// uuid of owner entity
-	Owner string `json:"owner" gorm:"index"`
-	// e.g. user, system, org
-	OwnerType   OwnerType  `json:"owner_type"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	ToolType    ToolType   `json:"tool_type"`
-	Global      bool       `json:"global"`
-	Config      ToolConfig `json:"config" gorm:"jsonb"`
+	ID           string     `json:"id" gorm:"primaryKey"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	SystemPrompt string     `json:"system_prompt"` // E.g. As a restaurant expert, you provide personalized restaurant recommendations
+	ToolType     ToolType   `json:"tool_type"`
+	Global       bool       `json:"global"`
+	Config       ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
-	API       *ToolAPIConfig       `json:"api"`
-	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
-	Zapier    *ToolZapierConfig    `json:"zapier"`
+	API            *ToolAPIConfig            `json:"api"`
+	Zapier         *ToolZapierConfig         `json:"zapier"`
+	Browser        *ToolBrowserConfig        `json:"browser"`
+	WebSearch      *ToolWebSearchConfig      `json:"web_search"`
+	Calculator     *ToolCalculatorConfig     `json:"calculator"`
+	Email          *ToolEmailConfig          `json:"email"`
+	AzureDevOps    *ToolAzureDevOpsConfig    `json:"azure_devops"`
+	MCP            *ToolMCPClientConfig      `json:"mcp"`
+	ProjectManager *ToolProjectManagerConfig `json:"project"` // Helix project management skill
+}
+
+type ToolMCPClientConfig struct {
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	Enabled       bool              `json:"enabled" yaml:"enabled"`
+	URL           string            `json:"url" yaml:"url"`
+	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
+}
+
+type ToolAzureDevOpsConfig struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
+	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
+type ToolBrowserConfig struct {
+	Enabled                bool `json:"enabled" yaml:"enabled"`
+	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
+	Cache                  bool `json:"cache" yaml:"cache"`                                       // If true, the browser will cache the results of the tool call
+	NoBrowser              bool `json:"no_browser" yaml:"no_browser"`                             // If true, the browser will not be used to open URLs, it will be a simple GET request
+	// TODO: whitelist URLs?
+}
+
+type ToolWebSearchConfig struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
+}
+
+type ToolEmailConfig struct {
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	TemplateExample string `json:"template_example" yaml:"template_example"`
+}
+
+type ToolCalculatorConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type ToolProjectManagerConfig struct {
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	ProjectID string `json:"project_id" yaml:"project_id"`
 }
 
 func (t ToolConfig) Value() (driver.Value, error) {
@@ -884,12 +1447,27 @@ type ToolAPIConfig struct {
 	Schema  string           `json:"schema" yaml:"schema"`
 	Actions []*ToolAPIAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
 
-	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
-	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
+	Headers    map[string]string `json:"headers" yaml:"headers"`         // Headers (authentication, etc)
+	Query      map[string]string `json:"query" yaml:"query"`             // Query parameters that will be always set
+	PathParams map[string]string `json:"path_params" yaml:"path_params"` // Path parameters that will be substituted in URLs
+
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // System prompt to guide the AI when using this API
 
 	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
+
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skip_unknown_keys" yaml:"skip_unknown_keys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transform_output" yaml:"transform_output"`
+
+	// OAuth configuration
+	OAuthProvider string   `json:"oauth_provider" yaml:"oauth_provider"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string `json:"oauth_scopes" yaml:"oauth_scopes"`     // Required OAuth scopes for this API
 
 	Model string `json:"model" yaml:"model"`
 }
@@ -902,31 +1480,10 @@ type ToolAPIAction struct {
 	Path        string `json:"path" yaml:"path"`
 }
 
-type ToolGPTScriptConfig struct {
-	Script    string `json:"script"`     // Program code
-	ScriptURL string `json:"script_url"` // URL to download the script
-}
-
 type ToolZapierConfig struct {
 	APIKey        string `json:"api_key"`
 	Model         string `json:"model"`
 	MaxIterations int    `json:"max_iterations"`
-}
-
-type AppSource string
-
-const (
-	// this means the configuration for the app lives in the Helix database
-	AppSourceHelix AppSource = "helix"
-	// this means the configuration for the app lives in a helix.yaml in a Github repository
-	AppSourceGithub AppSource = "github"
-)
-
-type AssistantGPTScript struct {
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"` // When to use this tool (required)
-	File        string `json:"file" yaml:"file"`
-	Content     string `json:"content" yaml:"content"`
 }
 
 type AssistantZapier struct {
@@ -937,6 +1494,29 @@ type AssistantZapier struct {
 	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
 }
 
+type AssistantMCP struct {
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+
+	// Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+	// For stdio transport, use Command/Args/Env fields instead of URL
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+
+	// HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set)
+	URL           string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
+
+	// Stdio transport fields (used when Transport is "stdio")
+	// The MCP server runs as a subprocess inside the dev container
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"` // Executable to run (e.g., "npx", "sh")
+	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`       // Command arguments
+	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // Environment variables for the subprocess
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
+}
+
 type AssistantAPI struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
@@ -944,43 +1524,185 @@ type AssistantAPI struct {
 	URL         string            `json:"url" yaml:"url"`
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
+	PathParams  map[string]string `json:"path_params,omitempty" yaml:"path_params,omitempty"`
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skip_unknown_keys" yaml:"skip_unknown_keys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transform_output" yaml:"transform_output"`
+
+	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RequestPrepTemplate     string `json:"request_prep_template,omitempty" yaml:"request_prep_template,omitempty"`
 	ResponseSuccessTemplate string `json:"response_success_template,omitempty" yaml:"response_success_template,omitempty"`
 	ResponseErrorTemplate   string `json:"response_error_template,omitempty" yaml:"response_error_template,omitempty"`
+
+	// OAuth configuration
+	OAuthProvider string   `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
+}
+
+type AssistantAzureDevOps struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
+	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
+// AssistantSkills groups all skill-related configuration.
+// Used for project-level skills that overlay on top of agent skills.
+type AssistantSkills struct {
+	APIs           []AssistantAPI           `json:"apis,omitempty" yaml:"apis,omitempty"`
+	Zapier         []AssistantZapier        `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs           []AssistantMCP           `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	Browser        *AssistantBrowser        `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch      *AssistantWebSearch      `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Calculator     *AssistantCalculator     `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email          *AssistantEmail          `json:"email,omitempty" yaml:"email,omitempty"`
+	ProjectManager *AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+	AzureDevOps    *AssistantAzureDevOps    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	ID          string      `json:"id,omitempty" yaml:"id,omitempty"`
-	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
-	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
-	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
-	Provider    string      `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
-	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	Name        string `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar      string `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	Image       string `json:"image,omitempty" yaml:"image,omitempty"`
+	Provider    string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
+
+	// ConversationStarters is a list of messages that will be presented to the user
+	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
+	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
+
+	// AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)
+	AgentMode bool `json:"agent_mode" yaml:"agent_mode"`
+	// AgentType specifies the type of agent to use
+	AgentType     AgentType `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
+	MaxIterations int       `json:"max_iterations" yaml:"max_iterations"`
+
+	ReasoningModelProvider string `json:"reasoning_model_provider" yaml:"reasoning_model_provider"`
+	ReasoningModel         string `json:"reasoning_model" yaml:"reasoning_model"`
+	ReasoningModelEffort   string `json:"reasoning_model_effort" yaml:"reasoning_model_effort"`
+
+	GenerationModelProvider string `json:"generation_model_provider" yaml:"generation_model_provider"`
+	GenerationModel         string `json:"generation_model" yaml:"generation_model"`
+
+	SmallReasoningModelProvider string `json:"small_reasoning_model_provider" yaml:"small_reasoning_model_provider"`
+	SmallReasoningModel         string `json:"small_reasoning_model" yaml:"small_reasoning_model"`
+	SmallReasoningModelEffort   string `json:"small_reasoning_model_effort" yaml:"small_reasoning_model_effort"`
+
+	SmallGenerationModelProvider string `json:"small_generation_model_provider" yaml:"small_generation_model_provider"`
+	SmallGenerationModel         string `json:"small_generation_model" yaml:"small_generation_model"`
+
+	// CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+	// Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+	// If empty, defaults to "zed_agent".
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime,omitempty" yaml:"code_agent_runtime,omitempty"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
 	LoraID      string `json:"lora_id,omitempty" yaml:"lora_id,omitempty"`
 
+	Memory bool `json:"memory,omitempty" yaml:"memory,omitempty"` // Enable/disable user based memory for the agent
+
+	// ContextLimit - the number of messages to include in the context for the AI assistant.
+	// When set to 1, the AI assistant will only see and remember the most recent message.
+	ContextLimit int `json:"context_limit,omitempty" yaml:"context_limit,omitempty"`
+
+	// Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+	// 0.01 - precise
+	// 1 - neutral
+	// 2 - creative
+	Temperature float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+
+	// How much to penalize new tokens based on whether they appear in the text so far.
+	// Increases the model's likelihood to talk about new topics
+	// 0 - balanced
+	// 2 - open minded
+	PresencePenalty float32 `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
+
+	// How much to penalize new tokens based on their frequency in the text so far.
+	// Increases the model's likelihood to talk about new topics
+	// 0 - balanced
+	// 2 - less repetitive
+	FrequencyPenalty float32 `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
+
+	// An alternative to sampling with temperature, called nucleus sampling,
+	// where the model considers the results of the tokens with top_p probability mass.
+	// So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+	// 0 - balanced
+	// 2 - more creative
+	TopP float32 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+
+	// The maximum number of tokens to generate before stopping.
+	MaxTokens int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+
+	// Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high".
+	ReasoningEffort string `json:"reasoning_effort,omitempty" yaml:"reasoning_effort,omitempty"`
+
 	Knowledge []*AssistantKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 
-	IsActionableTemplate string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
+	IsActionableTemplate      string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
+	IsActionableHistoryLength int    `json:"is_actionable_history_length,omitempty" yaml:"is_actionable_history_length,omitempty"` // Defaults to 4
 
-	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
-	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
-	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
-	Tools      []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
+	APIs []AssistantAPI `json:"apis,omitempty" yaml:"apis,omitempty"`
+
+	Zapier []AssistantZapier `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs   []AssistantMCP    `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+
+	ProjectManager AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+
+	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+
+	Calculator  AssistantCalculator  `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email       AssistantEmail       `json:"email,omitempty" yaml:"email,omitempty"`
+	AzureDevOps AssistantAzureDevOps `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Tools       []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
 		Steps []TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
 	} `json:"tests,omitempty" yaml:"tests,omitempty"`
 }
+
+type AssistantProjectManager struct {
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	ProjectID string `json:"project_id" yaml:"project_id"`
+}
+
+type AssistantBrowser struct {
+	Enabled                bool `json:"enabled" yaml:"enabled"`
+	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
+	Cache                  bool `json:"cache" yaml:"cache"`                                       // If true, the browser will cache the results of the tool call
+	NoBrowser              bool `json:"no_browser" yaml:"no_browser"`                             // If true, the browser will not be used to open URLs, it will be a simple GET request
+	// TODO: whitelist URLs?
+}
+
+type AssistantWebSearch struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
+}
+
+type AssistantCalculator struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+// AssistantEmail - email sending tool, will use default email provider
+// configured in helix
+type AssistantEmail struct {
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	TemplateExample string `json:"template_example" yaml:"template_example"`
+}
+
+const ReasoningEffortNone = "none" // Don't set
 
 // Add this new type
 type TestStep struct {
@@ -989,14 +1711,22 @@ type TestStep struct {
 }
 
 type AppHelixConfig struct {
-	Name        string            `json:"name,omitempty" yaml:"name,omitempty"`
-	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-	Avatar      string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
-	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
-	ExternalURL string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
-	Assistants  []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
-	Triggers    []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+	Name              string            `json:"name,omitempty" yaml:"name,omitempty"`
+	Description       string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar            string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	AvatarContentType string            `json:"avatar_content_type,omitempty" yaml:"avatar_content_type,omitempty"`
+	Image             string            `json:"image,omitempty" yaml:"image,omitempty"`
+	ExternalURL       string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
+	Assistants        []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
+	Triggers          []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+
+	// Agent configuration
+	DefaultAgentType     AgentType            `json:"default_agent_type,omitempty" yaml:"default_agent_type,omitempty"`
+	ExternalAgentEnabled bool                 `json:"external_agent_enabled,omitempty" yaml:"external_agent_enabled,omitempty"`
+	ExternalAgentConfig  *ExternalAgentConfig `json:"external_agent_config,omitempty" yaml:"external_agent_config,omitempty"`
 }
+
+// Helper functions for agent type checking with backward compatibility
 
 type AppHelixConfigMetadata struct {
 	Name string `json:"name" yaml:"name"`
@@ -1015,19 +1745,10 @@ type AppGithubConfigUpdate struct {
 	Error   string    `json:"error"`
 }
 
-type AppGithubConfig struct {
-	Repo          string                `json:"repo"`
-	Hash          string                `json:"hash"`
-	KeyPair       KeyPair               `json:"key_pair"`
-	WebhookSecret string                `json:"webhook_secret"`
-	LastUpdate    AppGithubConfigUpdate `json:"last_update"`
-}
-
 type AppConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          AppHelixConfig    `json:"helix"`
-	Github         *AppGithubConfig  `json:"github"`
+	Helix          AppHelixConfig    `json:"helix" yaml:"helix"`
 }
 
 func (c AppConfig) Value() (driver.Value, error) {
@@ -1056,14 +1777,52 @@ type DiscordTrigger struct {
 	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
-type CronTrigger struct {
-	Schedule string `json:"schedule,omitempty"`
-	Input    string `json:"input,omitempty"`
+type SlackTrigger struct {
+	Enabled  bool     `json:"enabled,omitempty"`
+	AppToken string   `json:"app_token" yaml:"app_token"`
+	BotToken string   `json:"bot_token" yaml:"bot_token"`
+	Channels []string `json:"channels" yaml:"channels"`
 }
 
+// TeamsTrigger - Microsoft Teams bot integration
+// Register a bot at https://dev.botframework.com/ or Azure Portal
+type TeamsTrigger struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	AppID       string `json:"app_id" yaml:"app_id"`                           // Microsoft App ID
+	AppPassword string `json:"app_password" yaml:"app_password"`               // Microsoft App Password
+	TenantID    string `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"` // Optional: restrict to specific tenant
+}
+
+// Crisp trigger configuration, create yours
+// here https://marketplace.crisp.chat/plugins/
+type CrispTrigger struct {
+	Enabled    bool   `json:"enabled,omitempty"`
+	Nickname   string `json:"nickname" yaml:"nickname"`     // Optional
+	Identifier string `json:"identifier" yaml:"identifier"` // Token identifier
+	Token      string `json:"token" yaml:"token"`
+}
+
+type CronTrigger struct {
+	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
+}
+
+// AzureDevOpsTrigger - once enabled, a trigger in the database will be created
+// that you can supply to Azure DevOps to trigger a session.
+type AzureDevOpsTrigger struct {
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
+// AgentWorkQueueTrigger represents a trigger for agent work queue items
+
 type Trigger struct {
-	Discord *DiscordTrigger `json:"discord,omitempty"`
-	Cron    *CronTrigger    `json:"cron,omitempty"`
+	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Teams       *TeamsTrigger       `json:"teams,omitempty" yaml:"teams,omitempty"`
+	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
+	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
@@ -1117,13 +1876,11 @@ type App struct {
 	Created        time.Time `json:"created"`
 	Updated        time.Time `json:"updated"`
 	OrganizationID string    `json:"organization_id" gorm:"index"`
-	// uuid of owner entity
+	// uuid of user ID
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
-	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
 	Global    bool      `json:"global"`
-	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
@@ -1136,63 +1893,162 @@ type KeyPair struct {
 }
 
 // the low level "please run me a gptsript" request
-type GptScript struct {
-	// if the script is inline then we use loader.ProgramFromSource
-	Source string `json:"source"`
-	// if we have a file path then we use loader.Program
-	// and gptscript will sort out relative paths
-	// if this script is part of a github app
-	// it will be a relative path inside the repo
-	FilePath string `json:"file_path"`
-	// if the script lives on a URL then we download it
-	URL string `json:"url"`
-	// the program inputs
-	Input string `json:"input"`
-	// this is the env passed into the program
-	Env []string `json:"env"`
-}
 
 // higher level "run a script inside this repo" request
-type GptScriptGithubApp struct {
-	Script     GptScript `json:"script"`
-	Repo       string    `json:"repo"`
-	CommitHash string    `json:"commit"`
-	// we will need this to clone the repo (in the case of private repos)
-	KeyPair KeyPair `json:"key_pair"`
-}
 
 // for an app, run which script with what input?
-type GptScriptRequest struct {
-	FilePath string `json:"file_path"`
-	Input    string `json:"input"`
+
+// DesktopAgent represents a Zed editor instance configuration
+type DesktopAgent struct {
+	// Session ID - the Helix session this desktop agent serves
+	SessionID string `json:"session_id"`
+	// User ID for security validation and access control
+	UserID string `json:"user_id"`
+	// Initial prompt or task for the agent
+	Input string `json:"input"`
+	// Environment variables for the Zed instance
+	Env []string `json:"env"`
+	// Working directory for the Zed instance
+	WorkDir string `json:"work_dir"`
+	// Project path to open in Zed (optional)
+	ProjectPath string `json:"project_path"`
+	// Multi-session support
+	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
+	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// SpecTask support (for task-scoped workspace and repository checkout)
+	SpecTaskID          string   `json:"spec_task_id,omitempty"`          // SpecTask ID for workspace scoping
+	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
+	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
+	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+
+	// Branch configuration (for starting on correct branch)
+	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"
+	BaseBranch    string `json:"base_branch,omitempty"`    // For new mode: branch to create from
+	WorkingBranch string `json:"working_branch,omitempty"` // For existing mode: branch to checkout; for new mode: new branch name
+
+	// Video settings for streaming (Phase 3.5) - defaults to 1080p
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
+	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+
+	// Resolution and desktop configuration
+	Resolution   string `json:"resolution,omitempty"`    // Resolution preset: "1080p" (default), "4k", or "5k"
+	DesktopType  string `json:"desktop_type,omitempty"`  // Desktop environment: "ubuntu" (default) or "sway"
+	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
+	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
+
+	// Privileged mode - use host Docker socket instead of isolated dockerd
+	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
+	UseHostDocker bool `json:"use_host_docker,omitempty"`
+
+	// Hydra executor settings
+	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
+	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers
+	CustomImage    string `json:"custom_image,omitempty"`     // Custom container image (overrides desktop type)
+	GitRepoURL     string `json:"git_repo_url,omitempty"`     // Git repository URL for cloning
+	GitBranch      string `json:"git_branch,omitempty"`       // Git branch to checkout
+
+	// Video capture/encoding mode for streaming
+	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
 
-type GptScriptResponse struct {
-	Output  string `json:"output"`
-	Error   string `json:"error"`
-	Retries int    `json:"retries"`
-}
-
-func (g GptScriptResponse) Value() (driver.Value, error) {
-	j, err := json.Marshal(g)
-	return j, err
-}
-
-func (g *GptScriptResponse) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
+// GetEffectiveResolution returns the display dimensions based on Resolution preset
+// Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
+func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int) {
+	// If Resolution preset is set, use it
+	switch z.Resolution {
+	case "5k":
+		width, height = 5120, 2880
+	case "4k":
+		width, height = 3840, 2160
+	case "1080p":
+		width, height = 1920, 1080
+	default:
+		// Fall back to explicit dimensions if set
+		if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
+			width, height = z.DisplayWidth, z.DisplayHeight
+		} else {
+			// Default to 1080p
+			width, height = 1920, 1080
+		}
 	}
-	var result GptScriptResponse
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
+
+	// Get refresh rate (default to 60Hz)
+	if z.DisplayRefreshRate > 0 {
+		refreshRate = z.DisplayRefreshRate
+	} else {
+		refreshRate = 60
 	}
-	*g = result
-	return nil
+
+	return width, height, refreshRate
 }
 
-func (GptScriptResponse) GormDataType() string {
-	return "json"
+// DesktopAgentAPIEnvVars returns the standard API-related environment variables
+// that desktop agents need for LLM access and Git operations.
+// This function ensures consistent env var names across all code paths.
+func DesktopAgentAPIEnvVars(apiKey string) []string {
+	return []string{
+		"USER_API_TOKEN=" + apiKey,    // Git operations and RevDial
+		"ANTHROPIC_API_KEY=" + apiKey, // Zed built-in agent (Anthropic)
+		"OPENAI_API_KEY=" + apiKey,    // Zed built-in agent (OpenAI)
+		"ZED_HELIX_TOKEN=" + apiKey,   // Zed external sync WebSocket auth
+	}
+}
+
+// DesktopAgentResponse represents the response from a Zed agent execution
+type DesktopAgentResponse struct {
+	// Session ID of the Zed instance
+	SessionID string `json:"session_id"`
+	// Screenshot URL for viewing the desktop (read-only)
+	ScreenshotURL string `json:"screenshot_url"`
+	// Stream URL for WebSocket video streaming (interactive)
+	StreamURL string `json:"stream_url"`
+	// Container app ID (deprecated)
+	ContainerAppID string `json:"container_app_id,omitempty"`
+	// Dev container ID
+	DevContainerID string `json:"dev_container_id,omitempty"`
+	// Sandbox ID running this container
+	SandboxID string `json:"sandbox_id,omitempty"`
+	// Container name for direct access
+	ContainerName string `json:"container_name,omitempty"`
+	// Container IP address on bridge network (Hydra executor only)
+	ContainerIP string `json:"container_ip,omitempty"`
+	// helix-sway image version (commit hash) running in this sandbox
+	SwayVersion string `json:"sway_version,omitempty"`
+	// WebSocket URL for thread sync connection
+	WebSocketURL string `json:"websocket_url,omitempty"`
+	// Auth token for WebSocket connection
+	AuthToken string `json:"auth_token,omitempty"`
+	// Error message if any
+	Error string `json:"error,omitempty"`
+	// Status of the Zed instance (starting, running, stopped, error)
+	Status string `json:"status"`
+}
+
+// DesktopAgentRequest represents a request to execute a Zed agent
+type DesktopAgentRequest struct {
+	Agent DesktopAgent `json:"agent"`
+}
+
+// ZedTaskMessage represents a task message sent via NATS to external agent runners
+type ZedTaskMessage struct {
+	Type      string       `json:"type"`       // "zed_task"
+	Agent     DesktopAgent `json:"agent"`      // Agent configuration including RDP password
+	AuthToken string       `json:"auth_token"` // Authentication token for WebSocket
+}
+
+// DesktopAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
+type DesktopAgentRDPData struct {
+	SessionID string `json:"session_id"`
+	Type      string `json:"type"` // "rdp_data", "rdp_control", etc.
+	Data      []byte `json:"data"` // Raw RDP protocol data
+	Timestamp int64  `json:"timestamp"`
+}
+
+// ClipboardData represents clipboard content from remote desktop
+type ClipboardData struct {
+	Type string `json:"type"` // "text" or "image"
+	Data string `json:"data"` // text content or base64-encoded image
 }
 
 type DataEntityConfig struct {
@@ -1242,80 +2098,160 @@ type DataEntity struct {
 
 type ScriptRunType string
 
-const (
-	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
-	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
-	// TODO: add more types, like python script, etc.
-)
-
-// ScriptRun is an internal type that is used when GPTScript
-// tasks are invoked by the user and the runner runs
-type ScriptRun struct {
-	ID         string         `json:"id" gorm:"primaryKey"`
-	Created    time.Time      `json:"created"`
-	Updated    time.Time      `json:"updated"`
-	Owner      string         `json:"owner" gorm:"index"` // uuid of owner entity
-	OwnerType  OwnerType      `json:"owner_type"`         // e.g. user, system, org
-	AppID      string         `json:"app_id"`
-	State      ScriptRunState `json:"state"`
-	Type       ScriptRunType  `json:"type"`
-	Retries    int            `json:"retries"`
-	DurationMs int            `json:"duration_ms"`
-
-	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
-	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
-	SystemError string                  `json:"system_error"` // If we didn't get the response from the runner
-}
-
-type GptScriptRunsQuery struct {
+// DesktopAgentRunsQuery represents a query for Zed agent runs
+type DesktopAgentRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
-	AppID     string
-	State     ScriptRunState
+	SessionID string
+	Status    string
 }
 
-type GptScriptRunnerRequest struct {
-	GithubApp *GptScriptGithubApp `json:"github_app"`
+// DesktopAgentRunnerRequest represents a request to run a Zed agent
+type DesktopAgentRunnerRequest struct {
+	Agent *DesktopAgent `json:"agent"`
 }
 
-func (r GptScriptRunnerRequest) Value() (driver.Value, error) {
-	j, err := json.Marshal(r)
-	return j, err
+// WebSocket sync message types for external agent communication
+type SyncMessage struct {
+	SessionID string                 `json:"session_id"`
+	EventType string                 `json:"event_type"`
+	Data      map[string]interface{} `json:"data"`
+	Timestamp time.Time              `json:"timestamp"`
 }
 
-func (r *GptScriptRunnerRequest) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result GptScriptRunnerRequest
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*r = result
-	return nil
+// Commands sent from Helix to external agents (Zed)
+type ExternalAgentCommand struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
 }
 
-func (GptScriptRunnerRequest) GormDataType() string {
-	return "json"
+// External agent connection info
+type ExternalAgentConnection struct {
+	SessionID   string    `json:"session_id"`
+	ConnectedAt time.Time `json:"connected_at"`
+	LastPing    time.Time `json:"last_ping"`
+	Status      string    `json:"status"`
 }
+
+// External agent auth token
+type ExternalAgentToken struct {
+	Token     string    `json:"token"`
+	SessionID string    `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// ExternalAgentConnectionInfo is the response from GET /api/v1/external-agents/{sessionID}
+type ExternalAgentConnectionInfo struct {
+	SessionID          string `json:"session_id"`
+	ScreenshotURL      string `json:"screenshot_url"`
+	StreamURL          string `json:"stream_url"`
+	Status             string `json:"status"`
+	WebsocketURL       string `json:"websocket_url"`
+	WebsocketConnected bool   `json:"websocket_connected"`
+}
+
+// ExternalAgentUpdateRequest is the request body for PUT /api/v1/external-agents/{sessionID}
+type ExternalAgentUpdateRequest struct {
+	// Add fields as needed for external agent updates
+	LastAccess *time.Time `json:"last_access,omitempty"`
+}
+
+// ExternalAgentStats is the response from GET /api/v1/external-agents/{sessionID}/stats
+type ExternalAgentStats struct {
+	SessionID    string    `json:"session_id"`
+	PID          int       `json:"pid"`
+	StartTime    time.Time `json:"start_time"`
+	LastAccess   time.Time `json:"last_access"`
+	Uptime       float64   `json:"uptime"`
+	WorkspaceDir string    `json:"workspace_dir"`
+	DisplayNum   int       `json:"display_num"`
+	Status       string    `json:"status"`
+}
+
+// SessionResumeResponse is the response from POST /api/v1/sessions/{id}/resume
+type SessionResumeResponse struct {
+	SessionID      string `json:"session_id"`
+	Status         string `json:"status"`
+	DevContainerID string `json:"dev_container_id,omitempty"`
+	ScreenshotURL  string `json:"screenshot_url"`
+}
+
+// SpecTaskStopResponse is the response from POST /api/v1/spec-tasks/{id}/stop
+type SpecTaskStopResponse struct {
+	Message         string `json:"message"`
+	Status          string `json:"status,omitempty"` // For "already stopped" case
+	ExternalAgentID string `json:"external_agent_id"`
+	WorkspaceDir    string `json:"workspace_dir"`
+	Note            string `json:"note,omitempty"`
+}
+
+// SpecTaskStartResponse is the response from POST /api/v1/spec-tasks/{id}/start
+type SpecTaskStartResponse struct {
+	Message         string `json:"message"`
+	ExternalAgentID string `json:"external_agent_id"`
+	ContainerAppID  string `json:"container_app_id"`
+	WorkspaceDir    string `json:"workspace_dir"`
+	ScreenshotURL   string `json:"screenshot_url,omitempty"`
+	StreamURL       string `json:"stream_url,omitempty"`
+	Note            string `json:"note,omitempty"`
+}
+
+// SpecTaskStatusResponse is the response from GET /api/v1/spec-tasks/{id}/status
+type SpecTaskStatusResponse struct {
+	Exists          bool       `json:"exists"`
+	Message         string     `json:"message,omitempty"`
+	ExternalAgentID string     `json:"external_agent_id,omitempty"`
+	Status          string     `json:"status,omitempty"`
+	ContainerAppID  string     `json:"container_app_id,omitempty"`
+	WorkspaceDir    string     `json:"workspace_dir,omitempty"`
+	HelixSessionIDs []string   `json:"helix_session_ids,omitempty"`
+	ZedThreadIDs    []string   `json:"zed_thread_ids,omitempty"`
+	SessionCount    int        `json:"session_count,omitempty"`
+	Created         time.Time  `json:"created,omitempty"`
+	LastActivity    *time.Time `json:"last_activity,omitempty"`
+	IdleMinutes     int        `json:"idle_minutes,omitempty"`
+}
+
+// SessionIdleStatus represents the idle status of an external agent session
+type SessionIdleStatus struct {
+	HasExternalAgent bool `json:"has_external_agent"`
+	IdleMinutes      int  `json:"idle_minutes,omitempty"`
+	WillTerminateIn  int  `json:"will_terminate_in,omitempty"`
+	WarningThreshold bool `json:"warning_threshold,omitempty"`
+}
+
+// DocumentUpdateResponse is the response from PUT /api/v1/spec-tasks/{id}/documents/{doc_id}
+type DocumentUpdateResponse struct {
+	DocumentID string `json:"document_id"`
+	Version    int    `json:"version"`
+}
+
+// ProgressUpdateData is the request body for POST /api/v1/spec-tasks/{id}/documents/{doc_id}/progress
+type ProgressUpdateData struct {
+	Phase      string `json:"phase,omitempty"`
+	Progress   int    `json:"progress,omitempty"`
+	Status     string `json:"status,omitempty"`
+	LastUpdate string `json:"last_update,omitempty"`
+}
+
+// Zed event handlers use map[string]interface{} for dynamic data - no types needed here
 
 type RunnerEventRequestType int
 
 func (r RunnerEventRequestType) String() string {
 	switch r {
-	case RunnerEventRequestTool:
-		return "tool"
-	case RunnerEventRequestApp:
-		return "app"
+	case RunnerEventRequestDesktopAgent:
+		return "zed_agent"
+	case RunnerEventRequestRDPData:
+		return "rdp_data"
 	default:
 		return "unknown"
 	}
 }
 
 const (
-	RunnerEventRequestTool RunnerEventRequestType = iota
-	RunnerEventRequestApp
+	RunnerEventRequestDesktopAgent RunnerEventRequestType = iota
+	RunnerEventRequestRDPData
 )
 
 type RunnerEventRequestEnvelope struct {
@@ -1329,6 +2265,48 @@ type RunnerEventResponseEnvelope struct {
 	RequestID string `json:"request_id"`
 	Reply     string `json:"reply"` // Where to send the reply
 	Payload   []byte `json:"payload"`
+}
+
+// ZedSettingsOverride stores user's custom Zed settings that override Helix-managed settings
+type ZedSettingsOverride struct {
+	SessionID string          `json:"session_id" gorm:"primaryKey"`
+	Overrides json.RawMessage `json:"overrides" gorm:"type:jsonb;not null"`
+	UpdatedAt time.Time       `json:"updated_at" gorm:"default:current_timestamp"`
+}
+
+// ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
+type ZedConfigResponse struct {
+	ContextServers  map[string]interface{} `json:"context_servers"`
+	LanguageModels  map[string]interface{} `json:"language_models,omitempty"`
+	Assistant       map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
+	Agent           map[string]interface{} `json:"agent,omitempty"`
+	Theme           string                 `json:"theme,omitempty"`
+	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
+	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+}
+
+// CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
+// This is dynamically generated based on the spec task's assistant configuration.
+type CodeAgentConfig struct {
+	// Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter")
+	Provider string `json:"provider"`
+	// Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o")
+	Model string `json:"model"`
+	// AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code")
+	AgentName string `json:"agent_name"`
+	// BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
+	BaseURL string `json:"base_url"`
+	// APIType specifies the API format: "anthropic", "openai", or "azure_openai"
+	APIType string `json:"api_type"`
+	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
+	Runtime CodeAgentRuntime `json:"runtime"`
+	// MaxTokens is the model's context window size (max input tokens)
+	// Looked up from model_info.json, 0 if not found
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// MaxOutputTokens is the model's max completion tokens
+	// Looked up from model_info.json, 0 if not found
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -1345,6 +2323,11 @@ type RunnerLLMInferenceRequest struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+
+	// Added fields for embeddings
+	Embeddings               bool                      `json:"embeddings,omitempty"`
+	EmbeddingRequest         openai.EmbeddingRequest   `json:"embedding_request,omitempty"`
+	FlexibleEmbeddingRequest *FlexibleEmbeddingRequest `json:"flexible_embedding_request,omitempty"`
 }
 
 type RunnerLLMInferenceResponse struct {
@@ -1372,23 +2355,27 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
-	LLMCallStepDefault           LLMCallStep = "default"
-	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
-	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
-	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
-	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+	LLMCallStepDefault               LLMCallStep = "default"
+	LLMCallStepIsActionable          LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest     LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse     LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle         LLMCallStep = "generate_title"
+	LLMCallStepSummarizeConversation LLMCallStep = "summarize_conversation"
 )
 
 // LLMCall used to store the request and response of LLM calls
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
-	AppID            string         `json:"app_id" gorm:"index"`
+	AppID            string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID   string         `json:"organization_id" gorm:"index"`
 	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
-	InteractionID    string         `json:"interaction_id" gorm:"index"`
+	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID        string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID       string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`
@@ -1396,15 +2383,21 @@ type LLMCall struct {
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
+	PromptTokens     int64          `json:"prompt_tokens"`
+	CompletionTokens int64          `json:"completion_tokens"`
+	TotalTokens      int64          `json:"total_tokens"`
+	PromptCost       float64        `json:"prompt_cost"`
+	CompletionCost   float64        `json:"completion_cost"`
+	TotalCost        float64        `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	Stream           bool           `json:"stream"`
+	Error            string         `json:"error"`
 }
 
 type CreateSecretRequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	AppID string `json:"app_id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	AppID     string `json:"app_id"`
+	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
 }
 
 type Secret struct {
@@ -1415,7 +2408,8 @@ type Secret struct {
 	OwnerType OwnerType
 	Name      string `json:"name" yaml:"name"`
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
-	AppID     string `json:"app_id" yaml:"app_id"` // optional, if set, the secret will be available to the specified app
+	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
+	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
 }
 
 // LicenseKey represents a license key in the database
@@ -1470,10 +2464,12 @@ type RunnerActualSlotAttributes struct {
 }
 
 type RunAPIActionRequest struct {
-	Action     string            `json:"action"`
-	Parameters map[string]string `json:"parameters"`
+	Action     string                 `json:"action"`
+	Parameters map[string]interface{} `json:"parameters"`
 
 	Tool *Tool `json:"-"` // Set internally
+
+	OAuthTokens map[string]string `json:"-"` // OAuth tokens mapped by provider type (lowercase)
 }
 
 type RunAPIActionResponse struct {
@@ -1513,6 +2509,43 @@ type FrontendLicenseInfo struct {
 
 type LoginRequest struct {
 	RedirectURI string `json:"redirect_uri"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+}
+
+type RegisterRequest struct {
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	FullName        string `json:"full_name"`
+	PasswordConfirm string `json:"password_confirm"`
+}
+
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type PasswordResetCompleteRequest struct {
+	AccessToken string `json:"access_token"`
+	NewPassword string `json:"new_password"`
+}
+
+type PasswordUpdateRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+type AccountUpdateRequest struct {
+	FullName string `json:"full_name"`
+}
+
+type AdminCreateUserRequest struct {
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Admin    bool   `json:"admin"`
+}
+
+type AdminResetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
 }
 
 type UserResponse struct {
@@ -1520,6 +2553,7 @@ type UserResponse struct {
 	Email string `json:"email"`
 	Token string `json:"token"`
 	Name  string `json:"name"`
+	Admin bool   `json:"admin"`
 }
 
 type AuthenticatedResponse struct {
@@ -1528,4 +2562,565 @@ type AuthenticatedResponse struct {
 
 type TokenResponse struct {
 	Token string `json:"token"`
+}
+
+// This response represents what can be done with the context menu. The goal is to provide a list of
+// actions that can be taken, like "filter" or "include".
+// The UI is designed so that it groups each action into a section. If you want a multi-level menu,
+// you will need to implement that.
+type ContextMenuResponse struct {
+	Data []ContextMenuAction `json:"data"`
+}
+type ContextMenuAction struct {
+	ActionLabel string `json:"action_label"` // Forms the grouping in the UI
+	Label       string `json:"label"`        // The label that will be shown in the UI
+	Value       string `json:"value"`        // The value written to the text area when the action is selected
+}
+
+type UsageMetric struct {
+	ID                string    `json:"id" gorm:"primaryKey"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
+	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	OrganizationID    string    `json:"organization_id"`
+	InteractionID     string    `json:"interaction_id"`
+	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	UserID            string    `json:"user_id"`
+	Provider          string    `json:"provider"`
+	Model             string    `json:"model"`
+	PromptTokens      int       `json:"prompt_tokens"`
+	CompletionTokens  int       `json:"completion_tokens"`
+	TotalTokens       int       `json:"total_tokens"`
+	PromptCost        float64   `json:"prompt_cost"`
+	CompletionCost    float64   `json:"completion_cost"`
+	TotalCost         float64   `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	DurationMs        int       `json:"duration_ms"`
+	RequestSizeBytes  int       `json:"request_size_bytes"`
+	ResponseSizeBytes int       `json:"response_size_bytes"`
+}
+
+type UsersAggregatedUsageMetric struct {
+	User    User                    `json:"user"`
+	Metrics []AggregatedUsageMetric `json:"metrics"`
+}
+
+type AggregatedUsageMetric struct {
+	// ID    string    `json:"id" gorm:"primaryKey"`
+	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
+
+	PromptTokens      int     `json:"prompt_tokens"`
+	CompletionTokens  int     `json:"completion_tokens"`
+	TotalTokens       int     `json:"total_tokens"`
+	PromptCost        float64 `json:"prompt_cost"`
+	CompletionCost    float64 `json:"completion_cost"`
+	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	LatencyMs         float64 `json:"latency_ms"`
+	RequestSizeBytes  int     `json:"request_size_bytes"`
+	ResponseSizeBytes int     `json:"response_size_bytes"`
+	TotalRequests     int     `json:"total_requests"`
+}
+
+// Response for the user access endpoint
+type UserAppAccessResponse struct {
+	CanRead  bool `json:"can_read"`
+	CanWrite bool `json:"can_write"`
+	IsAdmin  bool `json:"is_admin"`
+}
+
+// TextPart represents a text content part for explicit typing if needed elsewhere.
+type TextPart struct {
+	Type string `json:"type"` // Expected to be "text"
+	Text string `json:"text"`
+}
+
+// ImageURLData represents the data for an image URL.
+type ImageURLData struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // e.g., "auto", "low", "high"
+}
+
+// ImageURLPart represents an image URL content part for explicit typing if needed elsewhere.
+type ImageURLPart struct {
+	Type     string       `json:"type"` // Expected to be "image_url"
+	ImageURL ImageURLData `json:"image_url"`
+}
+
+// FlexibleEmbeddingRequest represents a flexible embedding request that can handle both
+// standard OpenAI embedding format and Chat Embeddings API format with messages
+type FlexibleEmbeddingRequest struct {
+	Model          string                  `json:"model"`
+	Input          interface{}             `json:"input,omitempty"`    // Can be string, []string, [][]int, etc.
+	Messages       []ChatCompletionMessage `json:"messages,omitempty"` // For Chat Embeddings API format
+	EncodingFormat string                  `json:"encoding_format,omitempty"`
+	Dimensions     int                     `json:"dimensions,omitempty"`
+}
+
+// FlexibleEmbeddingResponse represents a flexible embedding response
+type FlexibleEmbeddingResponse struct {
+	Object string `json:"object"`
+	Data   []struct {
+		Object    string    `json:"object"`
+		Index     int       `json:"index"`
+		Embedding []float32 `json:"embedding"`
+	} `json:"data"`
+	Model string `json:"model"`
+	Usage struct {
+		PromptTokens int `json:"prompt_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
+type SchedulingDecisionType string
+
+const (
+	SchedulingDecisionTypeQueued         SchedulingDecisionType = "queued"           // Added to queue
+	SchedulingDecisionTypeReuseWarmSlot  SchedulingDecisionType = "reuse_warm_slot"  // Reused existing warm model instance
+	SchedulingDecisionTypeCreateNewSlot  SchedulingDecisionType = "create_new_slot"  // Started new model instance
+	SchedulingDecisionTypeEvictStaleSlot SchedulingDecisionType = "evict_stale_slot" // Evicted stale slot to free memory
+	SchedulingDecisionTypeRejected       SchedulingDecisionType = "rejected"         // Rejected (insufficient resources, etc.)
+	SchedulingDecisionTypeError          SchedulingDecisionType = "error"            // Error during scheduling
+	SchedulingDecisionTypeUnschedulable  SchedulingDecisionType = "unschedulable"    // Cannot be scheduled (no warm slots available)
+)
+
+// SchedulingDecision represents a decision made by the central scheduler
+type SchedulingDecision struct {
+	ID               string                 `json:"id"`
+	Created          time.Time              `json:"created"`
+	WorkloadID       string                 `json:"workload_id"`
+	SessionID        string                 `json:"session_id"`
+	ModelName        string                 `json:"model_name"`
+	Mode             SessionMode            `json:"mode"`
+	DecisionType     SchedulingDecisionType `json:"decision_type"`
+	RunnerID         string                 `json:"runner_id,omitempty"`
+	SlotID           string                 `json:"slot_id,omitempty"`
+	Reason           string                 `json:"reason"`
+	Success          bool                   `json:"success"`
+	ProcessingTimeMs int64                  `json:"processing_time_ms"`
+	QueuePosition    int                    `json:"queue_position,omitempty"`
+	AvailableRunners []string               `json:"available_runners,omitempty"`
+	MemoryRequired   uint64                 `json:"memory_required,omitempty"`
+	MemoryAvailable  uint64                 `json:"memory_available,omitempty"`
+	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
+	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
+	RepeatCount      int                    `json:"repeat_count,omitempty"`
+}
+
+// SlackThread used to track the state of slack threads where Helix agent is invoked
+type SlackThread struct {
+	ThreadKey string    `json:"thread_key" gorm:"primaryKey"`
+	AppID     string    `json:"app_id" gorm:"primaryKey"`
+	Channel   string    `json:"channel" gorm:"primaryKey"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`
+
+	// Progress updates for external agent sessions
+	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread
+	IncludeScreenshots  bool `json:"include_screenshots"`   // Include desktop screenshots in updates
+}
+
+// TeamsThread used to track the state of Teams conversations where Helix agent is invoked
+type TeamsThread struct {
+	ConversationID string    `json:"conversation_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	ChannelID      string    `json:"channel_id" gorm:"index"`
+	TeamID         string    `json:"team_id" gorm:"index"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`
+
+	// Teams requires ServiceURL for posting messages back
+	ServiceURL string `json:"service_url"`
+
+	// Progress updates for external agent sessions
+	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread
+	IncludeScreenshots  bool `json:"include_screenshots"`   // Include desktop screenshots in updates
+}
+
+type CrispThread struct {
+	CrispSessionID string    `json:"crisp_session_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"` // Helix session ID
+}
+
+type TriggerType string
+
+func (t TriggerType) String() string {
+	return string(t)
+}
+
+const (
+	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeTeams       TriggerType = "teams"
+	TriggerTypeCrisp       TriggerType = "crisp"
+	TriggerTypeAzureDevOps TriggerType = "azure_devops"
+	TriggerTypeCron        TriggerType = "cron"
+	// TODO: discord
+)
+
+// TriggerStatus is used to provide trigger status
+// to the frontend (discord, slack bots, etc)
+type TriggerStatus struct {
+	Type    TriggerType `json:"type"`
+	OK      bool        `json:"ok"`
+	Message string      `json:"message"`
+}
+
+type TriggerConfiguration struct {
+	ID             string      `json:"id"`
+	Created        time.Time   `json:"created"`
+	Updated        time.Time   `json:"updated"`
+	Archived       bool        `json:"archived"`
+	Enabled        bool        `json:"enabled"`
+	AppID          string      `json:"app_id"`          // App ID
+	OrganizationID string      `json:"organization_id"` // Organization ID
+	Owner          string      `json:"owner"`           // User ID
+	OwnerType      OwnerType   `json:"owner_type"`      // User or Organization
+	Name           string      `json:"name"`            // Name of the trigger configuration
+	Trigger        Trigger     `json:"trigger" gorm:"jsonb"`
+	TriggerType    TriggerType `json:"trigger_type"`
+
+	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
+
+	OK     bool   `json:"ok" gorm:"-"`
+	Status string `json:"status" gorm:"-"`
+}
+
+type TriggerExecuteResponse struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
+}
+
+type TriggerExecutionStatus string
+
+const (
+	TriggerExecutionStatusPending TriggerExecutionStatus = "pending"
+	TriggerExecutionStatusRunning TriggerExecutionStatus = "running"
+	TriggerExecutionStatusSuccess TriggerExecutionStatus = "success"
+	TriggerExecutionStatusError   TriggerExecutionStatus = "error"
+)
+
+type TriggerExecution struct {
+	ID                     string                 `json:"id"`
+	Created                time.Time              `json:"created"`
+	Updated                time.Time              `json:"updated"`
+	TriggerConfigurationID string                 `json:"trigger_configuration_id"`
+	Name                   string                 `json:"name"` // Will most likely match session name, based on the trigger name at the time of execution
+	DurationMs             int64                  `json:"duration_ms"`
+	Status                 TriggerExecutionStatus `json:"status"`
+	Error                  string                 `json:"error"`
+	Output                 string                 `json:"output"`
+	SessionID              string                 `json:"session_id"`
+}
+
+// QuestionSet represents a set of questions to be asked to a model/agent
+type QuestionSet struct {
+	ID             string     `json:"id"`
+	Created        time.Time  `json:"created"`
+	Updated        time.Time  `json:"updated"`
+	UserID         string     `json:"user_id"`         // Creator of the question set
+	OrganizationID string     `json:"organization_id"` // The organization this session belongs to, if any
+	Name           string     `json:"name"`
+	Description    string     `json:"description"`
+	Questions      []Question `json:"questions" gorm:"type:jsonb;serializer:json"`
+}
+
+// Question - question that will be asked to the agent/model
+type Question struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	Question string    `json:"question"`
+}
+
+type ListQuestionSetsRequest struct {
+	UserID         string
+	OrganizationID string
+}
+
+type ExecuteQuestionSetRequest struct {
+	QuestionSetID string `json:"question_set_id"`
+	AppID         string `json:"app_id"`
+}
+
+// ExecuteQuestionSetResponse contains the response to each question in the question set
+// Each response is a unique session where users can drill down into the response and ask follow-up questions
+type ExecuteQuestionSetResponse struct {
+	Results []QuestionResponse `json:"results"`
+}
+
+type QuestionResponse struct {
+	QuestionID    string `json:"question_id"`    // ID of the question
+	Question      string `json:"question"`       // Original question
+	SessionID     string `json:"session_id"`     // Session ID
+	InteractionID string `json:"interaction_id"` // Interaction ID
+	Response      string `json:"response"`       // Response
+	Error         string `json:"error"`          // Error
+}
+
+type QuestionSetExecutionStatus string
+
+const (
+	QuestionSetExecutionStatusPending QuestionSetExecutionStatus = "pending"
+	QuestionSetExecutionStatusRunning QuestionSetExecutionStatus = "running"
+	QuestionSetExecutionStatusSuccess QuestionSetExecutionStatus = "success"
+	QuestionSetExecutionStatusError   QuestionSetExecutionStatus = "error"
+)
+
+type QuestionSetExecution struct {
+	ID            string                     `json:"id"`
+	Created       time.Time                  `json:"created"`
+	Updated       time.Time                  `json:"updated"`
+	QuestionSetID string                     `json:"question_set_id"`
+	AppID         string                     `json:"app_id"`
+	DurationMs    int64                      `json:"duration_ms"`
+	Status        QuestionSetExecutionStatus `json:"status"`
+	Error         string                     `json:"error"`
+	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
+}
+
+type Event int
+
+const (
+	EventCronTriggerComplete  Event = 1
+	EventCronTriggerFailed    Event = 2
+	EventPasswordResetRequest Event = 3
+)
+
+func (e Event) String() string {
+	switch e {
+	case EventCronTriggerComplete:
+		return "cron_trigger_complete"
+	case EventCronTriggerFailed:
+		return "cron_trigger_failed"
+	case EventPasswordResetRequest:
+		return "password_reset_request"
+	default:
+		return "unknown_event"
+	}
+}
+
+type Notification struct {
+	Event   Event
+	Session *Session
+	Message string
+
+	RenderMarkdown bool // Set to true to render markdown to HTML when sending email
+
+	// Populated by the provider
+	Email     string
+	FirstName string
+}
+
+// StreamingTokenResponse contains token for accessing streaming session
+type StreamingTokenResponse struct {
+	StreamToken    string    `json:"stream_token"`
+	DevContainerID string    `json:"dev_container_id,omitempty"`
+	AccessLevel    string    `json:"access_level"`
+	ExpiresAt      time.Time `json:"expires_at"`
+}
+
+// Memory provides agent user memories
+type Memory struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	UserID   string    `json:"user_id"`
+	AppID    string    `json:"app_id"`
+	Contents string    `json:"contents"`
+}
+
+type ListMemoryRequest struct {
+	UserID string
+	AppID  string
+}
+
+// ForkSimpleProjectRequest represents request to fork a simple sample project
+type ForkSimpleProjectRequest struct {
+	SampleProjectID string `json:"sample_project_id"`
+	ProjectName     string `json:"project_name"`
+	Description     string `json:"description,omitempty"`
+	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+
+	// GitHub OAuth connection ID for authenticated cloning
+	// Required for sample projects with RequiresGitHubAuth=true
+	GitHubConnectionID string `json:"github_connection_id,omitempty"`
+
+	// For repos the user doesn't have write access to, fork them to this target
+	// If empty, forks to user's personal GitHub account
+	ForkToOrganization string `json:"fork_to_organization,omitempty"`
+
+	// RepositoryDecisions maps repo URLs to the user's decision about access
+	// Key: GitHub URL (e.g., "github.com/helixml/helix")
+	// Value: "use_original" (has write access) or "fork" (will fork)
+	RepositoryDecisions map[string]string `json:"repository_decisions,omitempty"`
+}
+
+// ForkSimpleProjectResponse represents the fork response
+type ForkSimpleProjectResponse struct {
+	ProjectID     string `json:"project_id"`
+	GitHubRepoURL string `json:"github_repo_url"`
+	TasksCreated  int    `json:"tasks_created"`
+	Message       string `json:"message"`
+
+	// RepositoriesCreated lists the repositories attached to the project
+	RepositoriesCreated []CreatedRepository `json:"repositories_created,omitempty"`
+
+	// CloningInProgress indicates repos are still being cloned
+	CloningInProgress bool `json:"cloning_in_progress,omitempty"`
+}
+
+// CreatedRepository represents a repository created during sample project fork
+type CreatedRepository struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	GitHubURL   string `json:"github_url"`
+	IsForked    bool   `json:"is_forked"`
+	IsPrimary   bool   `json:"is_primary"`
+	CloneStatus string `json:"clone_status"` // "pending", "cloning", "ready", "error"
+}
+
+// CheckSampleProjectAccessRequest represents a request to check repo access for a sample project
+type CheckSampleProjectAccessRequest struct {
+	SampleProjectID    string `json:"sample_project_id"`
+	GitHubConnectionID string `json:"github_connection_id"`
+}
+
+// CheckSampleProjectAccessResponse represents the result of checking repo access
+type CheckSampleProjectAccessResponse struct {
+	SampleProjectID    string                  `json:"sample_project_id"`
+	HasGitHubConnected bool                    `json:"has_github_connected"`
+	GitHubUsername     string                  `json:"github_username,omitempty"`
+	Repositories       []RepositoryAccessCheck `json:"repositories"`
+	AllHaveWriteAccess bool                    `json:"all_have_write_access"`
+}
+
+// RepositoryAccessCheck represents the access check result for a single repository
+type RepositoryAccessCheck struct {
+	GitHubURL      string `json:"github_url"`
+	Owner          string `json:"owner"`
+	Repo           string `json:"repo"`
+	HasWriteAccess bool   `json:"has_write_access"`
+	CanFork        bool   `json:"can_fork"`
+	ExistingFork   string `json:"existing_fork,omitempty"` // URL of existing fork if any
+	IsPrimary      bool   `json:"is_primary"`
+	DefaultBranch  string `json:"default_branch"`
+}
+
+// ForkRepositoriesRequest represents a request to fork repos for a sample project
+type ForkRepositoriesRequest struct {
+	SampleProjectID    string   `json:"sample_project_id"`
+	GitHubConnectionID string   `json:"github_connection_id"`
+	RepositoriesToFork []string `json:"repositories_to_fork"` // List of GitHub URLs to fork
+	ForkToOrganization string   `json:"fork_to_organization,omitempty"`
+}
+
+// ForkRepositoriesResponse represents the result of forking repos
+type ForkRepositoriesResponse struct {
+	ForkedRepositories []ForkedRepository `json:"forked_repositories"`
+}
+
+// ForkedRepository represents a successfully forked repository
+type ForkedRepository struct {
+	OriginalURL string `json:"original_url"`
+	ForkedURL   string `json:"forked_url"`
+	Owner       string `json:"owner"`
+	Repo        string `json:"repo"`
+}
+
+// =============================================================================
+// Sandbox Instance Types (multi-sandbox deployment support)
+// =============================================================================
+
+// SandboxInstance represents a sandbox (GPU node) running desktop containers.
+// Each sandbox has Docker-in-Docker, Hydra for isolation, and RevDial for API access.
+type SandboxInstance struct {
+	ID        string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	Created   time.Time `json:"created" gorm:"autoCreateTime"`
+	Updated   time.Time `json:"updated" gorm:"autoUpdateTime"`
+	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"` // IP address of the sandbox
+	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`  // Hostname for DNS resolution
+	Status    string    `json:"status" gorm:"type:varchar(50)"`     // "online", "offline", "degraded"
+	LastSeen  time.Time `json:"last_seen" gorm:"index"`             // Last heartbeat time
+
+	// Desktop image versions available on this sandbox
+	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+
+	// GPU configuration
+	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
+	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
+
+	// Sandbox capacity
+	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
+	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
+	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+}
+
+// TableName returns the table name for GORM
+func (SandboxInstance) TableName() string {
+	return "sandbox_instances"
+}
+
+// SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
+type SandboxHeartbeatRequest struct {
+	// Desktop image versions (content-addressable Docker image hashes)
+	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+	// Value: image hash (e.g., "a1b2c3d4e5f6...")
+	DesktopVersions map[string]string `json:"desktop_versions,omitempty"`
+
+	// Disk usage metrics for monitored mount points
+	DiskUsage []DiskUsageMetric `json:"disk_usage,omitempty"`
+
+	// Container disk usage (per-container storage)
+	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
+
+	// GPU configuration
+	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
+	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
+
+	// Privileged mode (host Docker access for development)
+	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+}
+
+// DiskUsageMetric represents disk usage for a single mount point
+type DiskUsageMetric struct {
+	MountPoint  string  `json:"mount_point"`
+	TotalBytes  uint64  `json:"total_bytes"`
+	UsedBytes   uint64  `json:"used_bytes"`
+	AvailBytes  uint64  `json:"avail_bytes"`
+	UsedPercent float64 `json:"used_percent"`
+	AlertLevel  string  `json:"alert_level"` // "ok", "warning", "critical"
+}
+
+// ContainerDiskUsage represents disk usage for a single container
+type ContainerDiskUsage struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	SizeBytes     uint64 `json:"size_bytes"`
+	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// DiskUsageHistory stores historical disk usage for trend analysis and alerting
+type DiskUsageHistory struct {
+	ID         string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	SandboxID  string    `json:"sandbox_id" gorm:"type:varchar(255);index"`
+	MountPoint string    `json:"mount_point" gorm:"type:varchar(255)"`
+	TotalBytes uint64    `json:"total_bytes"`
+	UsedBytes  uint64    `json:"used_bytes"`
+	AvailBytes uint64    `json:"avail_bytes"`
+	AlertLevel string    `json:"alert_level" gorm:"type:varchar(20)"`
+	Recorded   time.Time `json:"recorded" gorm:"autoCreateTime;index"`
+}
+
+// TableName returns the table name for GORM
+func (DiskUsageHistory) TableName() string {
+	return "disk_usage_history"
 }

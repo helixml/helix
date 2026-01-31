@@ -31,13 +31,7 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization for all membership tests
 	orgID := system.GenerateOrganizationID()

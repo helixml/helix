@@ -1,7 +1,9 @@
+api/pkg/skills/test_results/
+.hydra-resolved*.yaml
 .env
 .env.*
 node_modules
-*.sw*
+.*.sw*
 frontend/lib
 gradio/__pycache__
 __pycache__
@@ -17,3 +19,75 @@ build-errors.log
 .DS_Store
 vendor
 */**/out.md
+charts/helix-controlplane/charts/*.tgz
+helix-runner
+zed-build
+helix
+tmp
+zed-config/development_credentials
+
+# Large binary files
+*.deb
+*.ddeb
+*.buildinfo
+*.changes
+*.log
+hyprland-crash-report.txt
+raw-hyprland.deb
+logs/
+Hyprland-*
+*.deb
+sunshine-*
+test-zed-config/
+*.dump
+wolf/config.toml
+wolf/config.toml.v4.old
+wolf/cfg/
+# Don't ignore sway-config - it's part of the codebase
+!wolf/sway-config/
+moonlight-web-config/data.json
+moonlight-web-config/config.json
+
+# Integration test artifacts
+integration-test/**/integration_*
+integration-test/**/*_sync
+.test_runner_token
+/screenshot-server
+simple-moonlight-server
+test-websocket-sync.sh
+test-screenshot.png
+screencopy-frames/
+
+wolf-debug-dumps/
+
+# Wolf certificates
+wolf/cert.pem
+wolf/key.pem
+
+# Helix sway build artifacts
+sandbox-heartbeat
+sandbox-images
+
+# Hydra binary (not the api/pkg/hydra directory)
+/hydra
+qwen-code-build/
+
+# Screenshots from spectask testing
+screenshot-*.png
+
+# Build artifacts
+api/screenshot-server
+helix-cli
+
+# Moonlight config backups
+moonlight-web-config/data.json.bak
+
+# Build artifacts
+api/api
+
+# Screenshots
+screenshot-*.jpg
+
+# Rust build artifacts
+desktop/gst-pipewire-zerocopy/target/
+desktop/gst-pipewire-zerocopy/Cargo.lock

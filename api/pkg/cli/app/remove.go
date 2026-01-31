@@ -16,11 +16,11 @@ func init() {
 var removeCmd = &cobra.Command{
 	Use:     "remove",
 	Aliases: []string{"rm"},
-	Short:   "Delete helix app",
+	Short:   "Delete helix agent",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			return fmt.Errorf("app name or ID is required")
+			return fmt.Errorf("agent name or ID is required")
 		}
 
 		organization, err := cmd.Flags().GetString("organization")
@@ -40,15 +40,15 @@ var removeCmd = &cobra.Command{
 
 		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to lookup app: %w", err)
+			return fmt.Errorf("failed to lookup agent: %w", err)
 		}
 
 		// Delete the app
 		if err := apiClient.DeleteApp(cmd.Context(), app.ID, knowledge); err != nil {
-			return fmt.Errorf("failed to delete app: %w", err)
+			return fmt.Errorf("failed to delete agent: %w", err)
 		}
 
-		fmt.Printf("App %s deleted\n", app.ID)
+		fmt.Printf("Agent %s deleted\n", app.ID)
 
 		return nil
 	},

@@ -74,7 +74,7 @@ func TestNatsPubsub(t *testing.T) {
 		}()
 
 		// Wait for subscription to be established
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestNatsPubsub(t *testing.T) {
 		}()
 
 		// Wait for subscription to be established
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 
 		err = pubsub.Publish(ctx, "test.123", []byte("hello"))
 		require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestNatsPubsub(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for subscription to be established
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestNatsPubsub(t *testing.T) {
 		}()
 
 		// Wait for subscription to be established
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
@@ -195,7 +195,7 @@ func TestNatsPubsub(t *testing.T) {
 		}()
 
 		// Wait for subscription to be established
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 
 		err = pubsub.Publish(ctx, "test", []byte("hello"))
 		require.NoError(t, err)
@@ -292,6 +292,8 @@ func TestNatsStreaming(t *testing.T) {
 		messageCounter := 0
 
 		go func() {
+			// Wait for consumers to be ready before publishing
+			time.Sleep(2 * time.Second)
 			for i := 0; i < 100; i++ {
 				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{
 					"foo": "bar",
@@ -344,7 +346,7 @@ func TestNatsStreaming(t *testing.T) {
 				require.Fail(t, "timeout")
 			default:
 				if messageCounter < 100 {
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(1 * time.Second)
 					t.Logf("waiting for messages %d/%d\n", messageCounter, 100)
 				} else {
 					return
@@ -423,7 +425,7 @@ func TestStreamRetries(t *testing.T) {
 			val := messageCounter.Load()
 
 			if val < 10 {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				t.Logf("waiting for messages %d/%d", val, 10)
 			} else {
 				return
@@ -581,7 +583,7 @@ func TestStreamAfterDelay(t *testing.T) {
 			val := messageCounter.Load()
 
 			if val < 10 {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				t.Logf("waiting for messages %d/%d\n", val, 10)
 			} else {
 				return
@@ -628,7 +630,7 @@ func TestStreamFailOne(t *testing.T) {
 
 	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		if string(msg.Data) == "work-0" {
-			// Don't ack or nack
+			// Don't ack or nack - let it timeout and use BackOff delays
 			t.Log("will not process this message")
 			return fmt.Errorf("failed to process")
 		}

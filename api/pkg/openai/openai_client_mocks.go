@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	model "github.com/helixml/helix/api/pkg/model"
+	types "github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -54,6 +54,34 @@ func (m *MockClient) APIKey() string {
 func (mr *MockClientMockRecorder) APIKey() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "APIKey", reflect.TypeOf((*MockClient)(nil).APIKey))
+}
+
+// BaseURL mocks base method.
+func (m *MockClient) BaseURL() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BaseURL")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// BaseURL indicates an expected call of BaseURL.
+func (mr *MockClientMockRecorder) BaseURL() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BaseURL", reflect.TypeOf((*MockClient)(nil).BaseURL))
+}
+
+// BillingEnabled mocks base method.
+func (m *MockClient) BillingEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BillingEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// BillingEnabled indicates an expected call of BillingEnabled.
+func (mr *MockClientMockRecorder) BillingEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BillingEnabled", reflect.TypeOf((*MockClient)(nil).BillingEnabled))
 }
 
 // CreateChatCompletion mocks base method.
@@ -101,11 +129,26 @@ func (mr *MockClientMockRecorder) CreateEmbeddings(ctx, request any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEmbeddings", reflect.TypeOf((*MockClient)(nil).CreateEmbeddings), ctx, request)
 }
 
+// CreateFlexibleEmbeddings mocks base method.
+func (m *MockClient) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateFlexibleEmbeddings", ctx, request)
+	ret0, _ := ret[0].(types.FlexibleEmbeddingResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateFlexibleEmbeddings indicates an expected call of CreateFlexibleEmbeddings.
+func (mr *MockClientMockRecorder) CreateFlexibleEmbeddings(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateFlexibleEmbeddings", reflect.TypeOf((*MockClient)(nil).CreateFlexibleEmbeddings), ctx, request)
+}
+
 // ListModels mocks base method.
-func (m *MockClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+func (m *MockClient) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListModels", ctx)
-	ret0, _ := ret[0].([]model.OpenAIModel)
+	ret0, _ := ret[0].([]types.OpenAIModel)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

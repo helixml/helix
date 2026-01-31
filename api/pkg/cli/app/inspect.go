@@ -18,9 +18,9 @@ func init() {
 }
 
 var inspectCmd = &cobra.Command{
-	Use:   "inspect [app ID]",
-	Short: "Inspect an app entry",
-	Long:  `Retrieve and display detailed information about a specific app in JSON or YAML format.`,
+	Use:   "inspect [agent ID]",
+	Short: "Inspect an agent entry",
+	Long:  `Retrieve and display detailed information about a specific agent in JSON or YAML format.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
@@ -35,11 +35,16 @@ var inspectCmd = &cobra.Command{
 
 		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to lookup app: %w", err)
+			return fmt.Errorf("failed to lookup agent: %w", err)
 		}
 
 		// only show app.Config.Helix since that is the thing that roundtrips with helix apply -f
 		appConfig := app.Config.Helix
+
+		// Remove tools section from all assistants
+		for i := range appConfig.Assistants {
+			appConfig.Assistants[i].Tools = nil
+		}
 
 		// Convert to CRD format for both JSON and YAML output
 		crd := types.AppHelixConfigCRD{
@@ -50,6 +55,7 @@ var inspectCmd = &cobra.Command{
 			},
 			Spec: appConfig,
 		}
+
 		// Clear the name from the spec since it's now in metadata
 		crd.Spec.Name = ""
 
@@ -67,7 +73,7 @@ var inspectCmd = &cobra.Command{
 		}
 
 		if err != nil {
-			return fmt.Errorf("failed to marshal app to %s: %w", outputFormat, err)
+			return fmt.Errorf("failed to marshal agent to %s: %w", outputFormat, err)
 		}
 
 		fmt.Println(string(output))

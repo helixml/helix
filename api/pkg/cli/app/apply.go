@@ -18,7 +18,6 @@ func init() {
 	rootCmd.AddCommand(applyCmd)
 
 	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
-	applyCmd.Flags().Bool("shared", false, "Shared application")
 	applyCmd.Flags().Bool("global", false, "Global application")
 	applyCmd.Flags().Bool("refresh-knowledge", false, "Refresh knowledge, re-index all knowledge for the app")
 	applyCmd.Flags().StringVarP(&organization, "organization", "o", "", "Organization ID or name")
@@ -35,7 +34,7 @@ func NewApplyCmd() *cobra.Command {
 // applyCmd represents the apply command
 var applyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Apply a Helix app configuration",
+	Short: "Apply a Helix agent configuration",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Get flags
 		yamlFile, err := cmd.Flags().GetString("filename")
@@ -47,11 +46,6 @@ var applyCmd = &cobra.Command{
 		}
 
 		organization, err := cmd.Flags().GetString("organization")
-		if err != nil {
-			return err
-		}
-
-		shared, err := cmd.Flags().GetBool("shared")
 		if err != nil {
 			return err
 		}
@@ -109,7 +103,6 @@ var applyCmd = &cobra.Command{
 
 		for _, app := range existingApps {
 			if app.Config.Helix.Name == appConfig.GetAppConfig().Name {
-				// log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.GetAppConfig().Name)
 				existingApp = app
 				appID = app.ID
 				break
@@ -117,12 +110,12 @@ var applyCmd = &cobra.Command{
 		}
 
 		if existingApp != nil {
-			err = updateApp(cmd.Context(), apiClient, existingApp, appConfig.GetAppConfig(), shared, global)
+			err = updateApp(cmd.Context(), apiClient, existingApp, appConfig.GetAppConfig(), global)
 			if err != nil {
 				return err
 			}
 		} else {
-			appID, err = createApp(cmd.Context(), apiClient, organization, appConfig.GetAppConfig(), shared, global)
+			appID, err = createApp(cmd.Context(), apiClient, organization, appConfig.GetAppConfig(), global)
 			if err != nil {
 				return err
 			}
@@ -195,9 +188,8 @@ func RefreshAppKnowledge(ctx context.Context, apiClient client.Client, appID str
 	return nil
 }
 
-func updateApp(ctx context.Context, apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, shared, global bool) error {
+func updateApp(ctx context.Context, apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, global bool) error {
 	app.Config.Helix = *appConfig
-	app.Shared = shared
 	app.Global = global
 
 	app, err := apiClient.UpdateApp(ctx, app)
@@ -210,11 +202,9 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 	return nil
 }
 
-func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, shared, global bool) (string, error) {
+func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, global bool) (string, error) {
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
-		Global:    global,
-		Shared:    shared,
+		Global: global,
 		Config: types.AppConfig{
 			AllowedDomains: []string{}, // TODO: make configurable
 			Helix:          *appConfig,

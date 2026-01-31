@@ -6,13 +6,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -59,50 +63,131 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 	return apiServer.sessionLoaderWithID(req, mux.Vars(req)["id"], writeMode)
 }
 
+// getSession godoc
+// @Summary Get a session by ID
+// @Description Get a session by ID
+// @Tags    sessions
+// @Success 200 {object} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	return apiServer.sessionLoader(req, false)
-}
-
-func (apiServer *HelixAPIServer) getSessionSummary(_ http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, false)
-	if err != nil {
-		return nil, err
+	id := mux.Vars(req)["id"]
+	if id == "" {
+		return nil, system.NewHTTPError400("cannot load session without id")
 	}
-	return system.DefaultController(data.GetSessionSummary(session))
-}
-
-func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 
-	query := store.GetSessionsQuery{}
+	session, err := apiServer.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	canSee := canSeeSession(user, session)
+	if !canSee {
+		return nil, system.NewHTTPError403(fmt.Sprintf("access denied for session id %s", id))
+	}
+
+	// Load interactions
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    id,
+		GenerationID: session.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	session.Interactions = interactions
+
+	// Check if the external agent (sandbox container) is actually running
+	// If not running, update status to "stopped"
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if err != nil {
+				// External agent not running - mark as stopped
+				session.Metadata.ExternalAgentStatus = "stopped"
+			} else {
+				// External agent is running
+				session.Metadata.ExternalAgentStatus = "running"
+			}
+		} else {
+			// No external agent executor available - assume stopped
+			session.Metadata.ExternalAgentStatus = "stopped"
+		}
+	}
+
+	return session, nil
+}
+
+// listSessions godoc
+// @Summary List sessions
+// @Description List sessions
+// @Tags    sessions
+// @Param   page            query    int     false  "Page number"
+// @Param   page_size       query    int     false  "Page size"
+// @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   question_set_id query    string  false  "Question set ID"
+// @Param   question_set_execution_id query    string  false  "Question set execution ID"
+// @Param   app_id          query    string  false  "App ID"
+// @Param   search          query    string  false  "Search sessions by name"
+// @Param   project_id      query    string  false  "Project ID"
+// @Success 200 {object} types.PaginatedSessionsList
+// @Router /api/v1/sessions [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	query := store.ListSessionsQuery{
+		Search:                 req.URL.Query().Get("search"),
+		QuestionSetID:          req.URL.Query().Get("question_set_id"),
+		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
+		AppID:                  req.URL.Query().Get("app_id"),
+		ProjectID:              req.URL.Query().Get("project_id"),
+	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
 
-	// Extract offset and limit values from query parameters
-	offsetStr := req.URL.Query().Get("offset")
-	limitStr := req.URL.Query().Get("limit")
+	// Extract organization_id query parameter if present
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		// Lookup org
+		org, err := apiServer.lookupOrg(ctx, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError404(err.Error())
+		}
 
-	// Convert offset and limit values to integers
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		offset = 0 // Default value if offset is not provided or conversion fails
+		orgID = org.ID
+
+		_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+
+		query.OrganizationID = orgID
+	} else {
+		// When no organization is specified, we only want personal sessions
+		// Setting empty string explicitly ensures we only get sessions with no organization
+		query.OrganizationID = ""
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		limit = 0 // Default value if limit is not provided or conversion fails
+	// Parse query parameters
+	page, err := strconv.Atoi(req.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 0
 	}
 
-	query.Offset = offset
-	query.Limit = limit
-
-	sessions, err := apiServer.Store.GetSessions(ctx, query)
-	if err != nil {
-		return nil, err
+	pageSize, err := strconv.Atoi(req.URL.Query().Get("page_size"))
+	if err != nil || pageSize < 1 {
+		pageSize = 50 // Default page size
 	}
 
-	counter, err := apiServer.Store.GetSessionsCounter(ctx, query)
+	query.Page = page
+	query.PerPage = pageSize
+
+	sessions, totalCount, err := apiServer.Store.ListSessions(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -111,86 +196,32 @@ func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Re
 	for _, session := range sessions {
 		summary, err := data.GetSessionSummary(session)
 		if err != nil {
-			return nil, err
+			log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get session summary")
+			continue
 		}
 		sessionSummaries = append(sessionSummaries, summary)
 	}
 
-	return &types.SessionsList{
-		Sessions: sessionSummaries,
-		Counter:  counter,
+	return &types.PaginatedSessionsList{
+		Sessions:   sessionSummaries,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
-	entity, err := apiServer.getDataEntityFromForm(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return apiServer.Store.CreateDataEntity(req.Context(), entity)
-}
-
-func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	// now upload any files that were included
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, session.Mode, "")
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-	if userInteraction == nil {
-		return nil, system.NewHTTPError404("no interaction found")
-	}
-
-	sessionData, err := apiServer.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-		SessionID:       session.ID,
-		UserInteraction: userInteraction,
-		SessionMode:     session.Mode,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err))
-	}
-
-	return sessionData, nil
-}
-
-func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	var data *types.SessionMetadata
-
-	// Decode the JSON from the request body
-	err := json.NewDecoder(req.Body).Decode(&data)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	result, err := apiServer.Controller.UpdateSessionMetadata(req.Context(), session, data)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	return result, nil
-}
-
+// getConfig godoc
+// @Summary Get config
+// @Description Get config
+// @Tags    config
+// @Success 200 {object} types.ServerConfigForFrontend
+// @Router /api/v1/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
-	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
+
+	if apiServer.Cfg.FileStore.LocalFSPath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, APIPrefix)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
@@ -233,20 +264,25 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
-		FilestorePrefix:         filestorePrefix,
-		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
-		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
-		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
-		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
-		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
-		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
-		DisableLLMCallLogging:   apiServer.Cfg.DisableLLMCallLogging,
-		Version:                 currentVersion,
-		LatestVersion:           latestVersion,
-		DeploymentID:            deploymentID,
-		License:                 licenseInfo,
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		AuthProvider:                           apiServer.Cfg.Auth.Provider,
+		FilestorePrefix:                        filestorePrefix,
+		StripeEnabled:                          apiServer.Stripe.Enabled(),
+		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
+		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
+		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
+		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
+		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
+		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
+		AppsEnabled:                            apiServer.Cfg.Apps.Enabled,
+		DisableLLMCallLogging:                  apiServer.Cfg.DisableLLMCallLogging,
+		Version:                                currentVersion,
+		LatestVersion:                          latestVersion,
+		DeploymentID:                           deploymentID,
+		License:                                licenseInfo,
+		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		ProvidersManagementEnabled:             apiServer.Cfg.ProvidersManagementEnabled,
 	}
 
 	return config, nil
@@ -273,6 +309,7 @@ window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 window.HELIX_VERSION = "%s"
 window.HELIX_LATEST_VERSION = "%s"
+window.ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS = %t
 `,
 		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
@@ -281,6 +318,7 @@ window.HELIX_LATEST_VERSION = "%s"
 		config.RudderStackDataPlaneURL,
 		config.Version,
 		config.LatestVersion,
+		config.OrganizationsCreateEnabledForNonAdmins,
 	)
 	if _, err := res.Write([]byte(content)); err != nil {
 		log.Error().Msgf("Failed to write response: %v", err)
@@ -294,10 +332,29 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
+// filestoreConfig godoc
+// @Summary Get filestore configuration
+// @Description Get the filestore configuration including user prefix and available folders
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Success 200 {object} filestore.Config
+// @Router /api/v1/filestore/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.Config, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
+// filestoreList godoc
+// @Summary List filestore items
+// @Description List files and folders in the specified path. Supports both user and app-scoped paths
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string false "Path to list (e.g., 'documents', 'apps/app_id/folder')"
+// @Success 200 {array} filestore.Item
+// @Router /api/v1/filestore/list [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -337,6 +394,16 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
+// filestoreGet godoc
+// @Summary Get filestore item
+// @Description Get information about a specific file or folder in the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/get [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -368,6 +435,16 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
+// filestoreCreateFolder godoc
+// @Summary Create filestore folder
+// @Description Create a new folder in the filestore at the specified path
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   request body object{path=string} true "Request body with folder path"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/folder [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	var request struct {
 		Path string `json:"path"`
@@ -404,12 +481,50 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
+// filestoreRename godoc
+// @Summary Rename filestore item
+// @Description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Current path of the file or folder"
+// @Param   new_path query string true "New path for the file or folder"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/rename [put]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 	newPath := req.URL.Query().Get("new_path")
 
+	// Prevent cross-scope renaming
+	// Check if paths are in different scopes (user vs app or different apps)
+	fromAppPath := controller.IsAppPath(path)
+	toAppPath := controller.IsAppPath(newPath)
+
+	// Don't allow moving between user space and app space
+	if fromAppPath != toAppPath {
+		return filestore.Item{}, fmt.Errorf("cannot rename files between different scopes (user/app)")
+	}
+
+	// For app paths, ensure it's the same app
+	if fromAppPath && toAppPath {
+		fromAppID, err := controller.ExtractAppID(path)
+		if err != nil {
+			return filestore.Item{}, fmt.Errorf("invalid source app path: %s", err)
+		}
+
+		toAppID, err := controller.ExtractAppID(newPath)
+		if err != nil {
+			return filestore.Item{}, fmt.Errorf("invalid destination app path: %s", err)
+		}
+
+		if fromAppID != toAppID {
+			return filestore.Item{}, fmt.Errorf("cannot rename files between different apps")
+		}
+	}
+
 	// Check app filestore access for app-scoped paths
-	if strings.HasPrefix(path, "apps/") {
+	if fromAppPath {
 		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionUpdate)
 		if err != nil {
 			return filestore.Item{}, err
@@ -419,20 +534,20 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// Also check access to the new path if it's app-scoped
-	if strings.HasPrefix(newPath, "apps/") {
-		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), newPath, req, types.ActionUpdate)
-		if err != nil {
-			return filestore.Item{}, err
-		}
-		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", newPath)
-		}
-	}
-
+	// Return to the controller which handles path sanitization for user context
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
+// filestoreDelete godoc
+// @Summary Delete filestore item
+// @Description Delete a file or folder from the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder to delete"
+// @Success 200 {object} object{path=string} "Path of the deleted item"
+// @Router /api/v1/filestore/delete [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 
@@ -466,6 +581,17 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	return path, err
 }
 
+// filestoreUpload godoc
+// @Summary Upload files to filestore
+// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Tags    filestore
+// @Accept  multipart/form-data
+// @Produce json
+// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   files formData file true "Files to upload (multipart form data)"
+// @Success 200 {object} object{success=bool} "Upload success status"
+// @Router /api/v1/filestore/upload [post]
+// @Security BearerAuth
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
@@ -474,15 +600,18 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
 			return false, fmt.Errorf("invalid app path format: %s", err)
 		}
 
 		// Check app filestore access for app-scoped paths
 		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("error checking app filestore access")
 			return false, err
 		}
 		if !hasAccess {
+			log.Error().Str("path", path).Msg("access denied to app filestore path")
 			return false, fmt.Errorf("access denied to app filestore path: %s", path)
 		}
 
@@ -490,6 +619,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		err = req.ParseMultipartForm(10 << 20)
 		if err != nil {
 			return false, err
+		}
+
+		if len(req.MultipartForm.File["files"]) == 0 {
+			return false, fmt.Errorf("no files to upload")
 		}
 
 		files := req.MultipartForm.File["files"]
@@ -503,6 +636,12 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			// Extract the relative path within the app
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Strip filename from path if it contains the filename to prevent duplication
+			if strings.HasSuffix(relativePath, fileHeader.Filename) {
+				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
+				relativePath = strings.TrimSuffix(relativePath, "/")
+			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
@@ -520,6 +659,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		return false, err
 	}
 
+	if len(req.MultipartForm.File["files"]) == 0 {
+		return false, fmt.Errorf("no files to upload")
+	}
+
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
@@ -527,7 +670,15 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
+
+		// Strip filename from path if it contains the filename to prevent duplication
+		uploadPath := path
+		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
+			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
+			uploadPath = strings.TrimSuffix(uploadPath, "/")
+		}
+
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -713,210 +864,375 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 	return &finalFolder, nil
 }
 
-func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, true)
-	if err != nil {
-		return nil, err
-	}
-	// If it is a text inference session, then restart using the "new" openai controllers
-	if session.Metadata.OriginalMode != types.SessionModeFinetune && session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
-		apiServer.restartChatSessionHandler(res, req)
-		return session, nil
-	}
-	return system.DefaultController(apiServer.Controller.RestartSession(req.Context(), session))
-}
-
-func (apiServer *HelixAPIServer) retryTextFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, true)
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		if _, err := apiServer.Controller.PrepareSession(req.Context(), session); err != nil {
-			log.Error().Err(err).Msg("failed to prepare session")
-		}
-	}()
-	return session, nil
-}
-
-func (apiServer *HelixAPIServer) cloneFinetuneInteraction(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	// clone the session into the eval user account
-	// only admins can do this
-	cloneIntoEvalUser := req.URL.Query().Get("clone_into_eval_user")
-	if cloneIntoEvalUser != "" && !apiServer.isAdmin(req) {
-		return nil, system.NewHTTPError403("access denied")
-	}
-
-	// we only need to check for read only access here because
-	// we are only reading the original session and then writing a new one
-	// into our account
-	session, httpError := apiServer.sessionLoader(req, false)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	vars := mux.Vars(req)
+func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	user := getRequestUser(req)
-	ctx := req.Context()
-
-	// if we own the session then we don't need to copy all files
-	copyAllFiles := true
-	if doesOwnSession(user, session) {
-		copyAllFiles = false
+	if user.ID == "" {
+		return false
 	}
-
-	interaction, err := data.GetInteraction(session, vars["interaction"])
-	if err != nil {
-		return nil, system.NewHTTPError404(err.Error())
-	}
-	mode, err := types.ValidateCloneTextType(vars["mode"], false)
-	if err != nil {
-		return nil, system.NewHTTPError404(err.Error())
-	}
-	// switch the target user to be the eval user
-	if cloneIntoEvalUser != "" {
-		user.ID = apiServer.Cfg.WebServer.EvalUserID
-	}
-	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(ctx, user, session, controller.CloneUntilInteractionRequest{
-		InteractionID: interaction.ID,
-		Mode:          mode,
-		CopyAllFiles:  copyAllFiles,
-	}))
+	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
-func (apiServer *HelixAPIServer) finetuneAddDocuments(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
+// dashboard godoc
+// @Summary Get dashboard data
+// @Description Get dashboard data
+// @Tags    dashboard
 
-	// if this is set then it means we are adding files to the existing interaction
-	interactionID := req.URL.Query().Get("interactionID")
-
-	err := req.ParseMultipartForm(10 << 20)
+// @Success 200 {object} types.DashboardData
+// @Router /api/v1/dashboard [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
+	data, err := apiServer.Controller.GetDashboardData(req.Context())
 	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	// the user interaction is the request from the user
-	newUserInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-	if newUserInteraction == nil {
-		return nil, system.NewHTTPError404("no user interaction found")
-	}
-
-	// this means we are adding the files to an existing interaction
-	// rather than appending new interactions
-	if interactionID != "" {
-		return system.DefaultController(apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files))
-	}
-	return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
-}
-
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
-	vars := mux.Vars(req)
-	session, httpError := apiServer.sessionLoader(req, false)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	interactionID := vars["interaction"]
-
-	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-	return system.DefaultController(apiServer.Controller.ReadTextFineTuneQuestions(foundFile))
-}
-
-func (apiServer *HelixAPIServer) setSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
-	vars := mux.Vars(req)
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-	interactionID := vars["interaction"]
-	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	var data []types.DataPrepTextQuestion
-
-	// Decode the JSON from the request body
-	err = json.NewDecoder(req.Body).Decode(&data)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	err = apiServer.Controller.WriteTextFineTuneQuestions(foundFile, data)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
+		return nil, err
 	}
 
 	return data, nil
 }
 
-func (apiServer *HelixAPIServer) startSessionFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	err := apiServer.Controller.BeginFineTune(req.Context(), session)
-
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	return session, nil
-}
-
-func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	_, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
+// usersList godoc
+// @Summary List users with pagination and filtering
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param page query int false "Page number (default: 1)"
+// @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
+// @Param username query string false "Filter by username (partial match)"
+// @Param admin query bool false "Filter by admin status"
+// @Param type query string false "Filter by user type"
+// @Param token_type query string false "Filter by token type"
+// @Success 200 {object} types.PaginatedUsersList
+// @Router /api/v1/users [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Request) (*types.PaginatedUsersList, error) {
 	ctx := req.Context()
+	user := getRequestUser(req)
 
-	update := &types.SessionMetaUpdate{}
-	err := json.NewDecoder(req.Body).Decode(update)
+	// Only admins can list users
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can list users")
+	}
+
+	// Parse query parameters
+	page := 1
+	if p := req.URL.Query().Get("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	perPage := 50
+	if pp := req.URL.Query().Get("per_page"); pp != "" {
+		if parsedPerPage, err := strconv.Atoi(pp); err == nil && parsedPerPage > 0 {
+			perPage = parsedPerPage
+		}
+	}
+
+	// Build query
+	query := &store.ListUsersQuery{
+		Page:    page,
+		PerPage: perPage,
+		Order:   "created_at DESC",
+	}
+
+	// Add filters
+	if email := req.URL.Query().Get("email"); email != "" {
+		query.Email = email
+	}
+	if username := req.URL.Query().Get("username"); username != "" {
+		query.Username = username
+	}
+	if admin := req.URL.Query().Get("admin"); admin != "" {
+		if adminBool, err := strconv.ParseBool(admin); err == nil {
+			query.Admin = adminBool
+		}
+	}
+	if userType := req.URL.Query().Get("type"); userType != "" {
+		query.Type = types.OwnerType(userType)
+	}
+	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
+		query.TokenType = types.TokenType(tokenType)
+	}
+
+	// Get users from store
+	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
 	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, err
 	}
 
-	return system.DefaultController(apiServer.Store.UpdateSessionMeta(ctx, *update))
-}
-
-func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
-	auth := apiServer.authMiddleware
-
-	switch auth.cfg.adminUserSrc {
-	case config.AdminSrcTypeEnv:
-		user := getRequestUser(req)
-		return auth.isUserAdmin(user.ID)
-	case config.AdminSrcTypeJWT:
-		token := getRequestToken(req)
-		if token == "" {
-			return false
+	// Apply ADMIN_USER_IDS logic to compute effective admin status
+	// This ensures the list reflects both database admin field and env var overrides
+	adminUserIDs := apiServer.Cfg.WebServer.AdminUserIDs
+	for i := range users {
+		// Check if user is in ADMIN_USER_IDS list
+		for _, adminID := range adminUserIDs {
+			if adminID == config.AdminAllUsers {
+				users[i].Admin = true
+				break
+			}
+			if adminID == users[i].ID {
+				users[i].Admin = true
+				break
+			}
 		}
-		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
-		if err != nil {
-			return false
-		}
-		return user.Admin
 	}
-	return false
+
+	// Calculate total pages
+	totalPages := int((totalCount + int64(perPage) - 1) / int64(perPage))
+
+	// Create response
+	response := &types.PaginatedUsersList{
+		Users:      users,
+		Page:       page,
+		PageSize:   perPage,
+		TotalCount: totalCount,
+		TotalPages: totalPages,
+	}
+
+	return response, nil
 }
 
-// admin is required by the auth middleware
-func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	return apiServer.Controller.GetDashboardData(req.Context())
+// createUser godoc
+// @Summary Create a new user (Admin only)
+// @Description Create a new user with the specified details. Only admins can create users.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param request body types.AdminCreateUserRequest true "User creation request"
+// @Success 200 {object} types.User
+// @Router /api/v1/users [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can create users")
+	}
+
+	var request types.AdminCreateUserRequest
+
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.Email == "" {
+		return nil, system.NewHTTPError400("email is required")
+	}
+
+	if request.Password == "" {
+		return nil, system.NewHTTPError400("password is required")
+	}
+
+	existingUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+		Email: request.Email,
+	})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, system.NewHTTPError500("failed to check if user exists: " + err.Error())
+	}
+	if existingUser != nil {
+		return nil, system.NewHTTPError400("email is already taken")
+	}
+
+	userID := system.GenerateUserID()
+	newUser := &types.User{
+		ID:           userID,
+		Email:        request.Email,
+		FullName:     request.FullName,
+		Username:     request.Email,
+		Password:     request.Password,
+		Admin:        request.Admin,
+		Type:         types.OwnerTypeUser,
+		AuthProvider: types.AuthProviderRegular,
+		CreatedAt:    time.Now(),
+	}
+
+	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create user: " + err.Error())
+	}
+
+	return createdUser, nil
 }
 
+// adminResetPassword godoc
+// @Summary Reset a user's password (Admin only)
+// @Description Reset the password for any user. Only admins can use this endpoint.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param id path string true "User ID"
+// @Param request body types.AdminResetPasswordRequest true "New password"
+// @Success 200 {object} types.User
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id}/password [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can reset user passwords")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	var request types.AdminResetPasswordRequest
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.NewPassword == "" {
+		return nil, system.NewHTTPError400("new password is required")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Update the password using the authenticator
+	err = apiServer.authenticator.UpdatePassword(ctx, targetUserID, request.NewPassword)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("target_user_id", targetUserID).
+		Str("target_user_email", targetUser.Email).
+		Msg("admin reset user password")
+
+	// Return the updated user (without password hash)
+	updatedUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get updated user: " + err.Error())
+	}
+
+	return updatedUser, nil
+}
+
+// adminDeleteUser godoc
+// @Summary Delete a user (Admin only)
+// @Description Permanently delete a user and all associated data. Only admins can use this endpoint.
+// @Tags    users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} map[string]string "Success message"
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *http.Request) (map[string]string, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can delete users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	// Prevent admin from deleting themselves
+	if targetUserID == adminUser.ID {
+		return nil, system.NewHTTPError400("cannot delete your own account")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Delete the user
+	err = apiServer.Store.DeleteUser(ctx, targetUserID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to delete user: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("deleted_user_id", targetUserID).
+		Str("deleted_user_email", targetUser.Email).
+		Msg("admin deleted user")
+
+	return map[string]string{
+		"message": "user deleted successfully",
+		"user_id": targetUserID,
+	}, nil
+}
+
+// getSchedulerHeartbeats godoc
+// @Summary Get scheduler goroutine heartbeat status
+// @Description Get the health status of all scheduler goroutines
+// @Tags    dashboard
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/scheduler/heartbeats [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
+}
+
+// deleteSlot godoc
+// @Summary Delete a slot from scheduler state
+// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+// @Tags    dashboard
+// @Param   slot_id path string true "Slot ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/slots/{slot_id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	vars := mux.Vars(req)
+	slotID := vars["slot_id"]
+
+	if slotID == "" {
+		return nil, fmt.Errorf("slot_id is required")
+	}
+
+	// Parse slot ID as UUID
+	slotUUID, err := uuid.Parse(slotID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid slot_id format: %w", err)
+	}
+	// Delete the slot from scheduler's desired state
+	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete slot: %w", err)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
+	}, nil
+}
+
+// deleteSession godoc
+// @Summary Delete a session by ID
+// @Description Delete a session by ID
+// @Tags    sessions
+// @Success 200 {object} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
@@ -926,6 +1242,47 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
+// updateSession godoc
+// @Summary Update a session by ID
+// @Description Update a session by ID
+// @Tags    sessions
+// @Param id path string true "Session ID"
+// @Param request body types.Session true "Session to update"
+// @Success 200 {object} types.Session
+// @Router /api/v1/sessions/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	session, httpError := apiServer.sessionLoader(req, true)
+	if httpError != nil {
+		return nil, httpError
+	}
+
+	var update *types.Session
+
+	err := json.NewDecoder(req.Body).Decode(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	session.Name = update.Name
+	session.Provider = update.Provider
+	session.ModelName = update.ModelName
+
+	updated, err := apiServer.Store.UpdateSession(req.Context(), *session)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return updated, nil
+}
+
+// createAPIKey godoc
+// @Summary Create a new API key
+// @Description Create a new API key
+// @Tags    api-keys
+// @Param request body map[string]interface{} true "Request body with name and type"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	newAPIKey := &types.ApiKey{}
 	name := req.URL.Query().Get("name")
@@ -989,6 +1346,15 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
+// getAPIKeys godoc
+// @Summary Get API keys
+// @Description Get API keys
+// @Tags    api-keys
+// @Param types query string false "Filter by types (comma-separated list)"
+// @Param app_id query string false "Filter by app ID"
+// @Success 200 {array} types.ApiKey
+// @Router /api/v1/api_keys [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -1017,9 +1383,33 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
+
+	// If filter is missing, we are getting user keys. If we haven't got any. create a new one.
+	if typesParam == "" && appIDParam == "" && len(apiKeys) == 0 {
+		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
+			Created: time.Now(),
+			Key:     uuid.New().String(),
+			Name:    "API Key",
+			Type:    types.APIkeytypeAPI,
+			Owner:   user.ID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		apiKeys = append(apiKeys, createdKey)
+		return apiKeys, nil
+	}
+
 	return apiKeys, nil
 }
 
+// deleteAPIKey godoc
+// @Summary Delete an API key
+// @Description Delete an API key
+// @Tags    api-keys
+// @Param key query string true "API key to delete"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [delete]
 func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -1042,31 +1432,4 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 		return nil, err
 	}
 	return key, nil
-}
-
-func (apiServer *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-
-	return apiServer.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
-}
-
-func (apiServer *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	userMeta, err := apiServer.Store.GetUserMeta(ctx, user.ID)
-	if err != nil {
-		return "", err
-	}
-	if userMeta == nil {
-		return "", fmt.Errorf("no such user")
-	}
-	if userMeta.Config.StripeCustomerID == "" {
-		return "", fmt.Errorf("no stripe customer id found")
-	}
-	return apiServer.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
-}
-
-func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
-	apiServer.Stripe.ProcessWebhook(res, req)
 }

@@ -55,6 +55,24 @@ export interface ITheme {
   deepPurple: string,
   deepBlue: string,
   deepGreen: string,
+  // Chart gradients
+  chartGradientStart: string,
+  chartGradientEnd: string,
+  chartGradientStartOpacity: number,
+  chartGradientEndOpacity: number,
+  chartHighlightGradientStart: string,
+  chartHighlightGradientEnd: string,
+  chartHighlightGradientStartOpacity: number,
+  chartHighlightGradientEndOpacity: number,
+  // Action info gradients
+  chartActionGradientStart: string,
+  chartActionGradientEnd: string,
+  chartActionGradientStartOpacity: number,
+  chartActionGradientEndOpacity: number,
+  chartErrorGradientStart: string,
+  chartErrorGradientEnd: string,
+  chartErrorGradientStartOpacity: number,
+  chartErrorGradientEndOpacity: number,
   // active sections
   activeSections: string[],
   logo: {
@@ -64,27 +82,27 @@ export interface ITheme {
 
 export const THEMES: Record<string, ITheme> = {
   helix: {
-    drawerWidth: 320,
-    smallDrawerWidth: 240,
+    drawerWidth: 360,
+    smallDrawerWidth: 300,
     company: 'Helix',
-    url: 'https://tryhelix.ai/',
+    url: 'https://helix.ml/',
     // primary: '#5d5d7b',
     // secondary: '#00d5ff',
     primary: '#8989a5',
     secondary: '#00d5ff',
-    darkIcon: '#5d5d7b',
-    darkIconHover: '#00d5ff',
-    darkHighlight: '#00d5ff',
-    darkScrollbar: '#1a1a1d',
-    darkScrollbarThumb: '#505D7B',
-    darkScrollbarHover: '#B1B1D1',
-    darkBackgroundColor: "#070714",
-    darkBackgroundImage: "url('/img/nebula-dark.png')",
-    darkBorder: "0.1rem solid #303047",
-    darkText: "#ffffff",
-    darkTextFaded: "#b1b1d1",
-    darkPanel: "#10101e",
-    lightIcon: '#5d5d7b',
+    darkIcon: '#7fd8ff',
+    darkIconHover: '#4fc3f7',
+    darkHighlight: '#4fc3f7',
+    darkScrollbar: '#23232e',
+    darkScrollbarThumb: '#35354a',
+    darkScrollbarHover: '#505070',
+    darkBackgroundColor: "#121214",
+    darkBackgroundImage: "linear-gradient(135deg, #101014 0%, #18181c 100%)",
+    darkBorder: "1px solid #282838",
+    darkText: "#e0e0e0",
+    darkTextFaded: "#a0a0b0",
+    darkPanel: "#1e1e24",
+    lightIcon: ' #5d5d7b',
     lightIconHover: '#00d5ff',
     lightHighlight: '#00d5ff',
     lightBackgroundColor: "#ffffff",
@@ -118,6 +136,24 @@ export const THEMES: Record<string, ITheme> = {
     deepPurple: '#250B1A',
     deepBlue: '#1F2236',
     deepGreen: '#193533',
+    // Chart gradients
+    chartGradientStart: '#00c8ff',
+    chartGradientEnd: '#6f00ff',
+    chartGradientStartOpacity: 0.8,
+    chartGradientEndOpacity: 0.8,
+    chartHighlightGradientStart: '#ffb300',
+    chartHighlightGradientEnd: '#ff4081',
+    chartHighlightGradientStartOpacity: 0.9,
+    chartHighlightGradientEndOpacity: 0.9,
+    // Action info gradients
+    chartActionGradientStart: '#00cc7e',
+    chartActionGradientEnd: '#0099cc',
+    chartActionGradientStartOpacity: 0.8,
+    chartActionGradientEndOpacity: 0.8,
+    chartErrorGradientStart: '#ff3d00',
+    chartErrorGradientEnd: '#ff1744',
+    chartErrorGradientStartOpacity: 0.8,
+    chartErrorGradientEndOpacity: 0.8,
     // this means ALL
     activeSections: [],
     logo: () => (
@@ -141,7 +177,7 @@ export const THEMES: Record<string, ITheme> = {
 }
 
 export const THEME_DOMAINS: Record<string, string> = {
-  'helix.ml': 'helix',
+  'helixml.tech': 'helix',
 }
 
 

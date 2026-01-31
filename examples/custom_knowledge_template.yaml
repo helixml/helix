@@ -1,0 +1,99 @@
+apiVersion: app.aispec.org/v1alpha1
+kind: AIApp
+metadata:
+  name: rag-app
+spec:
+  assistants:
+    - name: Default Assistant
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      type: text
+      knowledge:
+        - name: arxiv
+          rag_settings:
+            prompt_template: |
+              {{- if or .RagResults .KnowledgeResults }}
+              We have found the following context you may refer to in your answer:
+              {{- end }}
+              
+              {{- if .RagResults }}
+              {{- range .RagResults }}
+              <chunk>
+                <document_id>
+                  {{ .DocumentID }}
+                </document_id>
+                <content>
+                  {{ .Content }}
+                </content>
+              </chunk>
+              {{- end }}
+              {{- end }}
+              
+              {{- if .KnowledgeResults }}
+              {{- range .KnowledgeResults }}
+              <chunk>
+                {{- if .DocumentID }}
+                <document_id>
+                  {{ .DocumentID }}
+                </document_id>
+                {{- end }}
+                {{- if .Description }}
+                <description>
+                  {{ .Description }}
+                </description>
+                {{- end }}
+                <content>
+                  {{ .Content }}
+                </content>
+              </chunk>
+              {{- end }}
+              {{- end }}
+              
+              {{ if or .RagResults .KnowledgeResults }}
+              
+              Your job is to provide high quality RAG results based on the above chunks and the user's question below.
+              You will provide references in two ways:
+              1. In the body of your answer, provide inline references like [DOC_ID:document-id-you-cited]
+              2. In the excerpts XML section below the body of your answer, provide a representative quote from each cited document, but only one quote per document (i.e. document_id).  They must be EXACT QUOTES.  If there are multiple quotes (maybe because there are multiple inline references, or because multiple chunks come from the same document), choose the best or most general quote that captures what the document is about.
+              
+              IMPORTANT: When referencing documents, always use EXACTLY the document_id values provided above. DO NOT extract or use page IDs from URLs within the content. Always provide references in the body of your answer in the format '[DOC_ID:DocumentID]'. For example, "The answer is 42 [DOC_ID:f6962c8007]." NOT "[DOC_ID:123456]" where 123456 might be a page ID in a URL.
+              
+              Always provide references in the body of your answer!
+              
+              After completing your answer, without any visible header, write the excerpts with important quotes from each referenced document.
+              
+              Follow these steps:
+              1. Identify each unique document_id you cited in your answer
+              2. For each document, select a representative quote (1-2 sentences) that best supports your answer
+              3. Include each document exactly once in the excerpt block using the format below
+              
+              Required excerpt format:
+              
+              ...provided answer with inline references like [DOC_ID:document-id-you-cited]...
+              
+              <excerpts>
+                <excerpt>
+                  <document_id>document-id-you-cited</document_id>
+                  <snippet>A key quote from this document that supports your answer.</snippet>
+                </excerpt>
+                <excerpt>
+                  <document_id>another-document-id-you-cited</document_id>
+                  <snippet>A key quote from this document that supports your answer.</snippet>
+                </excerpt>
+              </excerpts>
+              
+              FINAL CHECK:
+              - No title/header should ever be included (no "#", "##", "**Excerpts:**", "Excerpts:", etc.) before writing the excerpts
+              - Do not mix-up document_id and source or other metadata, these are two different things and things will break if you do
+              - Each document_id appears zero or one times in your excerpts, NOT more than once
+              - No introductory text appears before the excerpt block
+              - All document_ids match those you cited in your answer
+              
+              {{- end }}
+              
+              Here is the question from the user:
+              {{.Question}}
+          source:
+            filestore:
+              path: arxiv
+          refresh_enabled: false

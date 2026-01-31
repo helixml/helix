@@ -16,6 +16,7 @@ type DiffusersGenericImage struct {
 	Memory      uint64
 	Description string
 	Hide        bool
+	Prewarm     bool // Whether to prewarm this model (usually false for image models due to high memory usage)
 }
 
 func (i *DiffusersGenericImage) GetMemoryRequirements(_ types.SessionMode) uint64 {
@@ -28,6 +29,10 @@ func (i *DiffusersGenericImage) GetType() types.SessionType {
 
 func (i *DiffusersGenericImage) GetContextLength() int64 {
 	return 0 // Default to 0 (use model's default)
+}
+
+func (i *DiffusersGenericImage) GetConcurrency() int {
+	return 0 // Default to 0 (use runtime default)
 }
 
 func (i *DiffusersGenericImage) GetID() string {

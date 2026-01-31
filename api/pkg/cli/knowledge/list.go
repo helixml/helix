@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -33,29 +33,13 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("failed to list knowledge: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh", "Schedule", "Next Run", "Version", "Size"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Name", "Created", "Source", "State", "Refresh", "Schedule", "Next Run", "Version", "Size"})
 
 		for _, k := range knowledge {
 			var sourceStr string
 
 			switch {
-			case k.Source.Content != nil:
+			case k.Source.Text != nil:
 				sourceStr = "plain_content"
 			case k.Source.Web != nil:
 				sourceStr = "web"
@@ -97,10 +81,10 @@ var listCmd = &cobra.Command{
 				humanize.Bytes(uint64(k.Size)),
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

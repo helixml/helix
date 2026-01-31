@@ -30,13 +30,7 @@ func (suite *RolesTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization for all role tests
 	orgID := uuid.New().String()
@@ -49,6 +43,10 @@ func (suite *RolesTestSuite) SetupTest() {
 	createdOrg, err := suite.db.CreateOrganization(suite.ctx, org)
 	suite.Require().NoError(err)
 	suite.org = createdOrg
+}
+
+func (suite *RolesTestSuite) TearDownTestSuite() {
+	_ = suite.db.Close()
 }
 
 func (suite *RolesTestSuite) TearDownTest() {

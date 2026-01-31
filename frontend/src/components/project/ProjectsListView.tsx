@@ -1,0 +1,229 @@
+import React, { FC } from 'react'
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Grid,
+  Typography,
+  IconButton,
+  Alert,
+  TextField,
+  InputAdornment,
+  Pagination,
+  Chip,
+  Tooltip,
+} from '@mui/material'
+import { useTheme } from '@mui/material/styles'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import SearchIcon from '@mui/icons-material/Search'
+import { Kanban } from 'lucide-react'
+
+import CreateProjectButton from './CreateProjectButton'
+import { TypesProject } from '../../services'
+import type { ServerSampleProject } from '../../api/api'
+
+interface ProjectsListViewProps {
+  projects: TypesProject[]
+  error: Error | null
+  searchQuery: string
+  onSearchChange: (query: string) => void
+  page: number
+  onPageChange: (page: number) => void
+  filteredProjects: TypesProject[]
+  paginatedProjects: TypesProject[]
+  totalPages: number
+  onViewProject: (project: TypesProject) => void
+  onMenuOpen: (event: React.MouseEvent<HTMLElement>, project: TypesProject) => void
+  onNavigateToSettings: (projectId: string) => void
+  onCreateEmpty: () => void
+  onCreateFromSample: (sampleId: string, sampleName: string) => Promise<void>
+  sampleProjects: ServerSampleProject[]
+  isCreating: boolean
+  appNamesMap?: Record<string, string>
+}
+
+const ProjectsListView: FC<ProjectsListViewProps> = ({
+  projects,
+  error,
+  searchQuery,
+  onSearchChange,
+  page,
+  onPageChange,
+  filteredProjects,
+  paginatedProjects,
+  totalPages,
+  onViewProject,
+  onMenuOpen,
+  onNavigateToSettings,
+  onCreateEmpty,
+  onCreateFromSample,
+  sampleProjects,
+  isCreating,
+  appNamesMap = {},
+}) => {
+  const theme = useTheme()
+
+  return (
+    <>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error instanceof Error ? error.message : 'Failed to load projects'}
+        </Alert>
+      )}
+
+      {/* Header with description */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+          Projects
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Each Project has a Swarm of Agents working in parallel and a Team Desktop for manual testing.
+        </Typography>
+      </Box>
+
+      {/* Local project filter */}
+      {projects.length > 0 && (
+        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
+          <TextField
+            placeholder="Filter projects..."
+            size="small"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchChange(e.target.value)
+              onPageChange(0) // Reset to first page on search
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18 }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ maxWidth: 300 }}
+          />
+          {searchQuery && (
+            <Typography variant="caption" color="text.secondary">
+              {filteredProjects.length} of {projects.length} projects
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {filteredProjects.length === 0 && searchQuery ? (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No projects found
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Try adjusting your search query
+          </Typography>
+          <Button
+            variant="outlined"
+            onClick={() => onSearchChange('')}
+          >
+            Clear Search
+          </Button>
+        </Box>
+      ) : projects.length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Box sx={{ color: 'text.disabled', mb: 2 }}>
+            <Kanban size={80} />
+          </Box>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No projects yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Create your first project to get started
+          </Typography>
+          <CreateProjectButton
+            onCreateEmpty={onCreateEmpty}
+            onCreateFromSample={onCreateFromSample}
+            sampleProjects={sampleProjects}
+            isCreating={isCreating}
+            variant="contained"
+            color="primary"
+          />
+        </Box>
+      ) : (
+        <>
+        <Grid container spacing={2}>
+          {paginatedProjects.map((project) => (
+            <Grid item xs={6} sm={4} md={3} key={project.id}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flexGrow: 1, cursor: 'pointer', p: 2, '&:last-child': { pb: 2 } }} onClick={() => onViewProject(project)}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Kanban size={24} style={{ color: theme.palette.secondary.main }} />
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onMenuOpen(e, project)
+                      }}
+                      sx={{ p: 0.5, mt: -0.5, mr: -0.5 }}
+                    >
+                      <MoreVertIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.4 }}>
+                    {project.name}
+                  </Typography>
+                  {project.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      mt: 0.5,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      lineHeight: 1.4,
+                    }}>
+                      {project.description}
+                    </Typography>
+                  )}
+                  {/* Agent lozenge - show if project has a default agent */}
+                  {project.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
+                    <Tooltip title="Default agent for this project">
+                      <Chip
+                        label={appNamesMap[project.default_helix_app_id]}
+                        size="small"
+                        sx={{
+                          mt: 1,
+                          height: 20,
+                          fontSize: '0.7rem',
+                          background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          fontWeight: 500,
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                          '& .MuiChip-label': { px: 1 },
+                        }}
+                      />
+                    </Tooltip>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4, mb: 4 }}>
+            <Pagination
+              count={totalPages}
+              page={page + 1}
+              onChange={(_, newPage) => onPageChange(newPage - 1)}
+              color="primary"
+              showFirstButton
+              showLastButton
+            />
+          </Box>
+        )}
+        </>
+      )}
+    </>
+  )
+}
+
+export default ProjectsListView

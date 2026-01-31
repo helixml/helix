@@ -38,7 +38,7 @@ export const LicenseKeyPrompt: React.FC = () => {
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4, p: 3 }}>
       <Typography variant="h5" gutterBottom>
-        License Key Required
+        Get your free Community License Key! 🕺🏽
       </Typography>
       {account.serverConfig?.license && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -50,7 +50,7 @@ export const LicenseKeyPrompt: React.FC = () => {
         </Alert>
       )}
       <Typography paragraph>
-        Please get a valid license key from{' '}
+        Get your free Community license key from{' '}
         <Link href="https://deploy.helix.ml/licenses" target="_blank" rel="noopener">
           deploy.helix.ml/licenses
         </Link>

@@ -1,27 +1,39 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
-import useSessions from '../hooks/useSessions';
-import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
+import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
+import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
+import { useQueryClient } from '@tanstack/react-query';
+import { invalidateSessionsQuery } from '../services/sessionService';
 
 interface NewInferenceParams {
+  regenerate?: boolean;
   type: ISessionType;
   message: string;
+  messages?: TypesMessage[];
+  image?: string;
+  image_filename?: string;
   appId?: string;
+  projectId?: string;
   assistantId?: string;
-  ragSourceId?: string;
+  interactionId?: string;
+  provider?: string;
   modelName?: string;
-  loraDir?: string;
   sessionId?: string;
+  orgId?: string;
+  attachedImages?: File[];
+  agentType?: IAgentType;
+  externalAgentConfig?: any;
+  interrupt?: boolean; // If true, interrupt current agent work; if false/undefined, queue after current work
 }
 
 interface StreamingContextType {
-  NewInference: (params: NewInferenceParams) => Promise<ISession>;
+  NewInference: (params: NewInferenceParams) => Promise<TypesSession>;
   setCurrentSessionId: (sessionId: string) => void;
-  currentResponses: Map<string, Partial<IInteraction>>;
+  currentResponses: Map<string, Partial<TypesInteraction>>;
   stepInfos: Map<string, any[]>;
-  updateCurrentResponse: (sessionId: string, interaction: Partial<IInteraction>) => void;
+  updateCurrentResponse: (sessionId: string, interaction: Partial<TypesInteraction>) => void;
 }
 
 const StreamingContext = createContext<StreamingContextType | undefined>(undefined);
@@ -36,8 +48,8 @@ export const useStreaming = (): StreamingContextType => {
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
-  const sessions = useSessions()
-  const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
+  const queryClient = useQueryClient();
+  const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
 
@@ -45,6 +57,24 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const messageBufferRef = useRef<Map<string, string[]>>(new Map());
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
+  const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear stepInfos when setting a new session
+  const clearSessionData = useCallback((sessionId: string | null) => {
+    // Don't clear anything if setting to the same session ID
+    if (sessionId === currentSessionId) return;
+    
+    if (sessionId) {
+      // Clear stepInfos for the new session
+      setStepInfos(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(sessionId);
+        return newMap;
+      });
+    }
+    
+    setCurrentSessionId(sessionId);
+  }, [currentSessionId]);
 
   // Function to flush message buffer to state
   const flushMessageBuffer = useCallback((sessionId: string) => {
@@ -65,7 +95,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       
       return new Map(prev).set(sessionId, {
         ...current,
-        message: newMessage
+        response_message: newMessage
       });
     });
   }, []);
@@ -82,7 +112,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [flushMessageBuffer]);
 
   // Function to add a message chunk to the buffer
-  const addMessageChunk = useCallback((sessionId: string, chunk: string) => {
+  const addMessageChunk = useCallback((sessionId: string, chunk: string) => {      
     const chunks = messageBufferRef.current.get(sessionId) || [];
     chunks.push(chunk);
     messageBufferRef.current.set(sessionId, chunks);
@@ -94,6 +124,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     if (parsedData.type as string === "step_info") {
         const stepInfo = parsedData.step_info;
+
         setStepInfos(prev => {
             const currentSteps = prev.get(currentSessionId) || [];
             const updatedSteps = [...currentSteps, stepInfo];
@@ -108,12 +139,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       requestAnimationFrame(() => {
         setCurrentResponses(prev => {
           const current = prev.get(currentSessionId) || {};
-          let updatedInteraction: Partial<IInteraction> = { ...current };
+          let updatedInteraction: Partial<TypesInteraction> = { ...current };
 
           if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
-            if (workerResponse.progress !== undefined) {
-              updatedInteraction.progress = workerResponse.progress;
-            }
             if (workerResponse.status) {
               updatedInteraction.status = workerResponse.status;
             }
@@ -125,18 +153,114 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         });
       });
     }
-  }, [currentSessionId]);
+    
+    // If there's a session update with state changes
+    if (parsedData.type === "session_update" && parsedData.session) {
+      const newInteractionCount = parsedData.session.interactions?.length || 0;
 
-  // Use a debounced effect to update sessions
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (currentSessionId) {
-        sessions.loadSessions(true);
+      // Always reject session updates with 0 interactions - these are invalid
+      if (newInteractionCount === 0) {
+        return;
       }
-    }, 2000); // Update every 2 seconds instead of on every message
 
-    return () => clearInterval(timer);
-  }, [currentSessionId, sessions]);
+      // Get current session data to compare interaction counts
+      // NOTE: React Query cache stores { data: TypesSession } (Axios response format)
+      const cachedResponse = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as { data?: TypesSession } | undefined;
+      const currentSessionData = cachedResponse?.data;
+      if (currentSessionData && currentSessionData.interactions) {
+        const currentInteractionCount = currentSessionData.interactions.length;
+        // Reject updates with fewer interactions than current (stale updates)
+        if (newInteractionCount < currentInteractionCount) {
+          return;
+        }
+      }
+
+      const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
+
+      if (!lastInteraction) return;
+
+      // CRITICAL: Update React Query cache directly with session data from WebSocket
+      // This prevents the race condition where:
+      // 1. WebSocket sends session_update with state=complete
+      // 2. isLive becomes false, InteractionLiveStream stops rendering
+      // 3. Interaction component renders with OLD cached data (before refetch completes)
+      // By updating cache immediately, the Interaction component gets fresh data
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        { data: parsedData.session }  // Wrap in { data: ... } to match Axios response format
+      );
+
+      // Update currentResponses with the latest interaction state
+      // This ensures useLiveInteraction will receive the updated state
+      // CRITICAL: Include response_message for external agent streaming (WebSocket-based, not SSE)
+      if (lastInteraction.id) {
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updatedInteraction: Partial<TypesInteraction> = {
+              ...current,
+              id: lastInteraction.id,
+              state: lastInteraction.state,
+              // Copy all important fields from the interaction
+              prompt_message: lastInteraction.prompt_message || current.prompt_message,
+              response_message: lastInteraction.response_message || current.response_message,
+            };
+
+            const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+            return newMap;
+          });
+        });
+      }
+    }
+
+    // OPTIMIZED: Handle single interaction updates (reduces O(n) to O(1) updates)
+    // This is used for streaming updates from external agents (Zed) where we only
+    // need to update a single interaction, not replace the entire session
+    if (parsedData.type === "interaction_update" && parsedData.interaction) {
+      const updatedInteraction = parsedData.interaction;
+
+      // Surgically update just this interaction in the React Query cache
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        (oldData: { data?: TypesSession } | undefined) => {
+          if (!oldData?.data) return oldData;
+
+          const session = oldData.data;
+          const interactions = [...(session.interactions || [])];
+
+          // Find and update the specific interaction
+          const idx = interactions.findIndex(i => i.id === updatedInteraction.id);
+          if (idx >= 0) {
+            interactions[idx] = updatedInteraction;
+          } else {
+            // New interaction - append it
+            interactions.push(updatedInteraction);
+          }
+
+          return { data: { ...session, interactions } };
+        }
+      );
+
+      // Also update currentResponses for live streaming display
+      if (updatedInteraction.id) {
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updated: Partial<TypesInteraction> = {
+              ...current,
+              id: updatedInteraction.id,
+              state: updatedInteraction.state,
+              prompt_message: updatedInteraction.prompt_message || current.prompt_message,
+              response_message: updatedInteraction.response_message || current.response_message,
+            };
+
+            const newMap = new Map(prev).set(currentSessionId, updated);
+            return newMap;
+          });
+        });
+      }
+    }
+  }, [currentSessionId]);
 
   useEffect(() => {
     if (!account.token || !currentSessionId) return;
@@ -149,9 +273,24 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
-      // Reload all sessions to refresh the name in the sidebar
-      sessions.loadSessions(true)
+
       handleWebsocketEvent(parsedData);
+
+      if (parsedData.step_info && parsedData.step_info.type === "thinking") {
+        // Don't reload on thinking info events as we will get a lot of them
+        return
+      }
+
+      // Use debounced invalidation to prevent excessive re-renders
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+      }
+      invalidateTimerRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
+        invalidateSessionsQuery(queryClient);
+        invalidateTimerRef.current = null;
+      }, 500);
     };
 
     rws.addEventListener('message', messageHandler);
@@ -159,40 +298,138 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     return () => {
       rws.removeEventListener('message', messageHandler);
       rws.close();
+      // Clear any pending invalidation timer
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+      }
     };
-  }, [account.token, currentSessionId, handleWebsocketEvent]);
+  }, [account.token, currentSessionId, handleWebsocketEvent, queryClient]);
 
   const NewInference = async ({
+    regenerate = false,
     type,
     message,
+    messages,
     appId = '',
-    assistantId = '',
-    ragSourceId = '',
-    modelName = '',
-    loraDir = '',
-    sessionId = ''
-  }: NewInferenceParams): Promise<ISession> => {
+    projectId = '',
+    assistantId = '',    
+    provider = '',
+    modelName = '',    
+    sessionId = '',
+    interactionId = '',
+    orgId = '',
+    image = undefined,
+    image_filename = undefined,
+    attachedImages = [],
+    agentType = 'helix_basic',
+    externalAgentConfig = undefined,
+    interrupt = true, // Default to interrupt for backwards compatibility
+  }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
     messageHistoryRef.current.delete(sessionId);
+    
+    // Clear stepInfos for the session to reset the Glowing Orb list between interactions
+    setStepInfos(prev => {
+      const newMap = new Map(prev);
+      if (sessionId) {
+        newMap.delete(sessionId);
+      }
+      return newMap;
+    });
 
+    // Construct the content parts first
+    const currentContentParts: any[] = [];
+    let determinedContentType: string = "text"; // Default for MessageContent.content_type
+
+    // Add text part if message is provided
+    if (message) {
+      currentContentParts.push({
+        type: 'text',
+        text: message,
+      });
+    }
+
+    // Handle attached images
+    if (attachedImages && attachedImages.length > 0) {
+      for (const file of attachedImages) {
+        const reader = new FileReader();
+        const imageData = await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        
+        currentContentParts.push({
+          type: 'image_url',
+          image_url: {
+            url: imageData,
+          },
+        });
+      }
+      determinedContentType = "multimodal_text";
+    } else if (image && image_filename) {
+      currentContentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: image,
+        },
+      });
+      determinedContentType = "multimodal_text";
+    } else if (!message) {
+      console.warn("NewInference called with no message and no image.");
+    }
+
+    // This is the payload for Message.Content, matching the Go types.MessageContent struct
+    const messagePayloadContent = {
+      content_type: determinedContentType,
+      parts: currentContentParts,
+    };
+
+    // Serialize external agent config to ensure no React elements are included
+    const sanitizedExternalAgentConfig = externalAgentConfig ? {
+      workspace_dir: externalAgentConfig.workspace_dir,
+      project_path: externalAgentConfig.project_path,
+      env_vars: externalAgentConfig.env_vars,
+      auto_connect_rdp: externalAgentConfig.auto_connect_rdp,
+    } : undefined;
+
+    // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
-      type,
+      regenerate: regenerate,
+      type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
+      project_id: projectId,
+      organization_id: orgId,
       assistant_id: assistantId,
-      rag_source_id: ragSourceId,
+      interaction_id: interactionId,
+      provider: provider,
       model: modelName,
-      lora_dir: loraDir,
       session_id: sessionId,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [message]
+      agent_type: agentType,
+      external_agent_config: sanitizedExternalAgentConfig,
+      interrupt: interrupt,
+      messages: [
+        {
+          role: 'user',
+          content: messagePayloadContent as any, // Use the correctly structured object, cast to any to bypass TS type mismatch
         },
-      }]
+      ],
     };
+
+    // If messages are supplied in the request, overwrite the default user message
+    if (messages && messages.length > 0) {
+      sessionChatRequest.messages = messages;
+    }
+
+    console.log('📡 Sending session chat request:', {
+      url: '/api/v1/sessions/chat',
+      payload: sessionChatRequest,
+      modelName: sessionChatRequest.model,
+      agentType: sessionChatRequest.agent_type,
+      externalAgentConfig: sessionChatRequest.external_agent_config
+    });
 
     try {
       const response = await fetch('/api/v1/sessions/chat', {
@@ -213,7 +450,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       }
 
       const reader = response.body.getReader();
-      let sessionData: ISession | null = null;
+      let sessionData: TypesSession | null = null;
       let promiseResolved = false;
       let decoder = new TextDecoder();
       let buffer = '';
@@ -232,18 +469,25 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           }
 
           for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            if (line.startsWith('data: ')) {
-              const data = line.slice(5);
-              
-              if (data === '[DONE]') {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              const data = trimmedLine.slice(6); // 'data: ' = 6 chars
+
+              // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
+              if (data.trim() === '[DONE]' || data === '[DONE]') {
+                console.log('[SSE] Received [DONE] marker - completing stream');
+
+                // Invalidate the session query
+                queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+
                 if (sessionData?.id) {
                   // Final flush of any remaining content
                   flushMessageBuffer(sessionData.id);
                   setCurrentResponses(prev => {
                     const newMap = new Map(prev);
-                    newMap.delete(sessionData!.id);
+                    newMap.delete(sessionData?.id || '');
                     return newMap;
                   });
                 }
@@ -256,8 +500,17 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                 if (!sessionData) {
                   sessionData = parsedData;
                   if (sessionData?.id) {
-                    setCurrentSessionId(sessionData.id);
+                    // Set the current session ID first
+                    clearSessionData(sessionData.id);
+
+                    // Explicitly clear any existing data for this session
                     messageBufferRef.current.set(sessionData.id, []);
+                    messageHistoryRef.current.set(sessionId, '');
+
+                    // Initialize with empty response until we get content
+                    setCurrentResponses(prev => {
+                      return new Map(prev).set(sessionData?.id || '', { prompt_message: '' });
+                    });
                     
                     if (parsedData.choices?.[0]?.delta?.content) {
                       addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
@@ -271,7 +524,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                     rejectStream(new Error('Invalid session data'));
                   }
                 } else if (parsedData.choices?.[0]?.delta?.content) {
-                  addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
+                  addMessageChunk(sessionData?.id || '', parsedData.choices[0].delta.content);
                 }
               } catch (error) {
                 console.error('Error parsing SSE data:', error);
@@ -335,6 +588,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         throw new Error('Failed to receive session data');
       }
 
+      console.log("streaming done")
+
       return sessionData;
 
     } catch (error) {
@@ -343,7 +598,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     }
   };
 
-  const updateCurrentResponse = (sessionId: string, interaction: Partial<IInteraction>) => {
+  const updateCurrentResponse = (sessionId: string, interaction: Partial<TypesInteraction>) => {
     setCurrentResponses(prev => {
       const current = prev.get(sessionId) || {};
       return new Map(prev).set(sessionId, { ...current, ...interaction });
@@ -352,7 +607,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
   const value = {
     NewInference,
-    setCurrentSessionId,
+    setCurrentSessionId: clearSessionData,
     currentResponses,
     updateCurrentResponse,
     stepInfos,

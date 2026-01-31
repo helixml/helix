@@ -30,7 +30,7 @@ export default function () {
     stream: false,
   };
 
-  let res = http.post("https://app.tryhelix.ai/v1/chat/completions", JSON.stringify(data), {
+  let res = http.post("https://app.helix.ml/v1/chat/completions", JSON.stringify(data), {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + __ENV.HELIX_API_KEY,

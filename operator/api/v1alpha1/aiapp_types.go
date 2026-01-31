@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Create a local version of AssistantConfig
+// AssistantConfig is a local version of the Helix assistant configuration.
 type AssistantConfig struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name,omitempty"`
@@ -29,7 +29,7 @@ type AssistantConfig struct {
 	Image       string `json:"image,omitempty"`
 	Provider    string `json:"provider,omitempty"` // openai, togetherai, helix, etc.
 	Model       string `json:"model"`
-	Type        string `json:"type,omitempty"` // defaults to text
+	Type        string `json:"type,omitempty"` // TODO: remove
 
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
@@ -162,11 +162,11 @@ type AssistantKnowledge struct {
 	RefreshSchedule string          `json:"refresh_schedule,omitempty"`
 }
 
-// ToolApiConfig represents API tool configuration
-type ToolApiConfig struct {
+// ToolAPIConfig represents API tool configuration.
+type ToolAPIConfig struct {
 	URL     string            `json:"url"`
 	Schema  string            `json:"schema"`
-	Actions []ToolApiAction   `json:"actions"`
+	Actions []ToolAPIAction   `json:"actions"`
 	Headers map[string]string `json:"headers"`
 	Query   map[string]string `json:"query"`
 
@@ -177,8 +177,8 @@ type ToolApiConfig struct {
 	Model string `json:"model"`
 }
 
-// ToolApiAction represents an API action configuration
-type ToolApiAction struct {
+// ToolAPIAction represents an API action configuration.
+type ToolAPIAction struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Method      string `json:"method"`
@@ -200,7 +200,7 @@ type ToolZapierConfig struct {
 
 // ToolConfig represents tool configuration
 type ToolConfig struct {
-	API       *ToolApiConfig       `json:"api,omitempty"`
+	API       *ToolAPIConfig       `json:"api,omitempty"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript,omitempty"`
 	Zapier    *ToolZapierConfig    `json:"zapier,omitempty"`
 }

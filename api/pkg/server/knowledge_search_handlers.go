@@ -17,6 +17,16 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// knowledgeSearch godoc
+// @Summary Search knowledges
+// @Description Search knowledges for a given app and prompt
+// @Tags knowledge
+// @Param app_id query string true "App ID"
+// @Param knowledge_id query string false "Knowledge ID"
+// @Param prompt query string true "Search prompt"
+// @Success 200 {array} types.KnowledgeSearchResult
+// @Router /api/v1/search [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request) ([]*types.KnowledgeSearchResult, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -46,6 +56,12 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 		return []*types.KnowledgeSearchResult{}, nil
 	}
 
+	log.Info().
+		Str("app_id", appID).
+		Str("knowledge_id", knowledgeID).
+		Str("prompt", prompt).
+		Msg("searching knowledges")
+
 	pool := pool.New().
 		WithMaxGoroutines(20).
 		WithErrors()
@@ -61,15 +77,24 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 
 		pool.Go(func() error {
 			start := time.Now()
-			documentIDs := rag.ParseDocumentIDs(prompt)
-			log.Trace().Interface("documentIDs", documentIDs).Msg("document IDs")
+			filterActions := rag.ParseFilterActions(prompt)
+			filterDocumentIDs := make([]string, 0)
+			for _, filterAction := range filterActions {
+				filterDocumentIDs = append(filterDocumentIDs, rag.ParseDocID(filterAction))
+			}
+			log.Trace().Interface("filterDocumentIDs", filterDocumentIDs).Msg("filterDocumentIDs")
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
-				DocumentIDList:    documentIDs,
+				DocumentIDList:    filterDocumentIDs,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				log.Error().Err(err).Msgf("error querying RAG for knowledge %s", knowledge.ID)

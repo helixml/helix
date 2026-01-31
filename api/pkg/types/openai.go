@@ -29,6 +29,8 @@ type ChatCompletionRequest struct {
 	FrequencyPenalty float32                       `json:"frequency_penalty,omitempty"`
 	User             string                        `json:"user,omitempty"`
 	Tools            []openai.Tool                 `json:"tools,omitempty"`
+	// Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high".
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// This can be either a string or an ToolChoice object.
 	ToolChoice any `json:"tool_choice,omitempty"`
 }

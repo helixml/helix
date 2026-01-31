@@ -39,6 +39,12 @@ func (m *LockingRunnerMap[T]) GetOrCreateCache(ctx context.Context, key string, 
 	return cache
 }
 
+func (m *LockingRunnerMap[T]) Set(key string, cache *Cache[T]) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.m[key] = cache
+}
+
 func (m *LockingRunnerMap[T]) Keys() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

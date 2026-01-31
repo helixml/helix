@@ -1,0 +1,145 @@
+{
+  "subscriptionId": "c746ffb2-0341-4ea9-87aa-b262955c8041",
+  "notificationId": 1,
+  "id": "2d599ad1-a9a4-45cc-be0f-f834f4d20d06",
+  "eventType": "ms.vss-code.git-pullrequest-comment-event",
+  "publisherId": "tfs",
+  "message": {
+    "text": "nessie has commented on a pull request",
+    "html": "nessie has <a href=\"https://dev.azure.com/helixml/helix-agents/_git/helix-agents/pullrequest/1?discussionId=2\">commented</a> on a pull request",
+    "markdown": "nessie has [commented](https://dev.azure.com/helixml/helix-agents/_git/helix-agents/pullrequest/1?discussionId=2) on a pull request"
+  },
+  "detailedMessage": {
+    "text": "nessie has commented on a pull request\r\nwho wrote this code?\r\n",
+    "html": "nessie has <a href=\"https://dev.azure.com/helixml/helix-agents/_git/helix-agents/pullrequest/1?discussionId=2\">commented</a> on a pull request<p>who wrote this code?</p>",
+    "markdown": "nessie has [commented](https://dev.azure.com/helixml/helix-agents/_git/helix-agents/pullrequest/1?discussionId=2) on a pull request\r\nwho wrote this code?\r\n"
+  },
+  "resource": {
+    "comment": {
+      "id": 1,
+      "parentCommentId": 0,
+      "author": {
+        "displayName": "nessie",
+        "url": "https://spsproduks1.vssps.visualstudio.com/Ad900e93a-0b4e-4d07-a479-4ad123c4c09d/_apis/Identities/81e84308-ea3e-6951-97d7-5a8ede9a01a7",
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/helixml/_apis/GraphProfile/MemberAvatars/aad.ODFlODQzMDgtZWEzZS03OTUxLTk3ZDctNWE4ZWRlOWEwMWE3"
+          }
+        },
+        "id": "81e84308-ea3e-6951-97d7-5a8ede9a01a7",
+        "uniqueName": "nessie@lukemlops.onmicrosoft.com",
+        "imageUrl": "https://dev.azure.com/helixml/_apis/GraphProfile/MemberAvatars/aad.ODFlODQzMDgtZWEzZS03OTUxLTk3ZDctNWE4ZWRlOWEwMWE3",
+        "descriptor": "aad.ODFlODQzMDgtZWEzZS03OTUxLTk3ZDctNWE4ZWRlOWEwMWE3"
+      },
+      "content": "who wrote this code?",
+      "publishedDate": "2025-07-06T15:17:49.227Z",
+      "lastUpdatedDate": "2025-07-06T15:17:49.227Z",
+      "lastContentUpdatedDate": "2025-07-06T15:17:49.227Z",
+      "commentType": "text",
+      "usersLiked": [],
+      "_links": {
+        "self": {
+          "href": "https://dev.azure.com/helixml/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/pullRequests/1/threads/2/comments/1"
+        },
+        "repository": {
+          "href": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c"
+        },
+        "threads": {
+          "href": "https://dev.azure.com/helixml/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/pullRequests/1/threads/2"
+        },
+        "pullRequests": {
+          "href": "https://dev.azure.com/helixml/_apis/git/pullRequests/1"
+        }
+      }
+    },
+    "pullRequest": {
+      "repository": {
+        "id": "73c763d4-bf41-49da-8481-896a4980b07c",
+        "name": "helix-agents",
+        "url": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c",
+        "project": {
+          "id": "4162255b-50ba-42af-a418-c088b814410a",
+          "name": "helix-agents",
+          "url": "https://dev.azure.com/helixml/_apis/projects/4162255b-50ba-42af-a418-c088b814410a",
+          "state": "wellFormed",
+          "revision": 11,
+          "visibility": "private",
+          "lastUpdateTime": "2025-07-04T08:01:48.887Z"
+        },
+        "size": 204,
+        "remoteUrl": "https://helixml@dev.azure.com/helixml/helix-agents/_git/helix-agents",
+        "sshUrl": "git@ssh.dev.azure.com:v3/helixml/helix-agents/helix-agents",
+        "webUrl": "https://dev.azure.com/helixml/helix-agents/_git/helix-agents",
+        "isDisabled": false,
+        "isInMaintenance": false
+      },
+      "pullRequestId": 1,
+      "codeReviewId": 1,
+      "status": "active",
+      "createdBy": {
+        "displayName": "nessie",
+        "url": "https://spsproduks1.vssps.visualstudio.com/Ad900e93a-0b4e-4d07-a479-4ad123c4c09d/_apis/Identities/81e84308-ea3e-6951-97d7-5a8ede9a01a7",
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/helixml/_apis/GraphProfile/MemberAvatars/aad.ODFlODQzMDgtZWEzZS03OTUxLTk3ZDctNWE4ZWRlOWEwMWE3"
+          }
+        },
+        "id": "81e84308-ea3e-6951-97d7-5a8ede9a01a7",
+        "uniqueName": "nessie@lukemlops.onmicrosoft.com",
+        "imageUrl": "https://dev.azure.com/helixml/_api/_common/identityImage?id=81e84308-ea3e-6951-97d7-5a8ede9a01a7",
+        "descriptor": "aad.ODFlODQzMDgtZWEzZS03OTUxLTk3ZDctNWE4ZWRlOWEwMWE3"
+      },
+      "creationDate": "2025-07-05T06:22:11.7064979Z",
+      "title": "content",
+      "description": "content",
+      "sourceRefName": "refs/heads/feature/pr_1",
+      "targetRefName": "refs/heads/master",
+      "mergeStatus": "succeeded",
+      "isDraft": false,
+      "mergeId": "fbc7a25b-351f-4692-b341-ededeca18f3f",
+      "lastMergeSourceCommit": {
+        "commitId": "173df3dd1e5e44b5cb4a694572b623c1d43bfc71",
+        "url": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/commits/173df3dd1e5e44b5cb4a694572b623c1d43bfc71"
+      },
+      "lastMergeTargetCommit": {
+        "commitId": "b0f6a1d75557bf3deb83b305c5ee6d79312545a0",
+        "url": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/commits/b0f6a1d75557bf3deb83b305c5ee6d79312545a0"
+      },
+      "lastMergeCommit": {
+        "commitId": "01e32c1734d38f79f4d7d44849f9c9b4eb57bf98",
+        "author": {
+          "name": "nessie",
+          "email": "nessie@lukemlops.onmicrosoft.com",
+          "date": "2025-07-06T15:02:48Z"
+        },
+        "committer": {
+          "name": "nessie",
+          "email": "nessie@lukemlops.onmicrosoft.com",
+          "date": "2025-07-06T15:02:48Z"
+        },
+        "comment": "Merge pull request 1 from feature/pr_1 into master",
+        "url": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/commits/01e32c1734d38f79f4d7d44849f9c9b4eb57bf98"
+      },
+      "reviewers": [],
+      "url": "https://dev.azure.com/helixml/4162255b-50ba-42af-a418-c088b814410a/_apis/git/repositories/73c763d4-bf41-49da-8481-896a4980b07c/pullRequests/1",
+      "supportsIterations": true,
+      "artifactId": "vstfs:///Git/PullRequestId/4162255b-50ba-42af-a418-c088b814410a%2f73c763d4-bf41-49da-8481-896a4980b07c%2f1"
+    }
+  },
+  "resourceVersion": "2.0",
+  "resourceContainers": {
+    "collection": {
+      "id": "78f9fc1c-11d4-492b-a76b-501de501b1a0",
+      "baseUrl": "https://dev.azure.com/helixml/"
+    },
+    "account": {
+      "id": "d900e93a-0b4e-4d07-a479-4ad123c4c09d",
+      "baseUrl": "https://dev.azure.com/helixml/"
+    },
+    "project": {
+      "id": "4162255b-50ba-42af-a418-c088b814410a",
+      "baseUrl": "https://dev.azure.com/helixml/"
+    }
+  },
+  "createdDate": "2025-07-06T15:17:55.9404696Z"
+}

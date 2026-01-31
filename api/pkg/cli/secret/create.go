@@ -16,6 +16,7 @@ func init() {
 	createCmd.Flags().StringP("name", "n", "", "Name of the secret")
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
 	createCmd.Flags().StringP("app-id", "a", "", "App ID to associate the secret with")
+	createCmd.Flags().StringP("project", "p", "", "Project ID to associate the secret with (injected as env var in project sessions)")
 	_ = createCmd.MarkFlagRequired("name")
 }
 
@@ -27,6 +28,7 @@ var createCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		value, _ := cmd.Flags().GetString("value")
 		appID, _ := cmd.Flags().GetString("app-id")
+		projectID, _ := cmd.Flags().GetString("project")
 
 		if value == "" {
 			fmt.Print("Enter secret value (input will be hidden): ")
@@ -44,9 +46,10 @@ var createCmd = &cobra.Command{
 		}
 
 		secret := &types.CreateSecretRequest{
-			Name:  name,
-			Value: value,
-			AppID: appID,
+			Name:      name,
+			Value:     value,
+			AppID:     appID,
+			ProjectID: projectID,
 		}
 
 		_, err = apiClient.CreateSecret(cmd.Context(), secret)
@@ -54,7 +57,11 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to create secret: %w", err)
 		}
 
-		fmt.Printf("Secret created successfully\n")
+		if projectID != "" {
+			fmt.Printf("Secret '%s' created for project %s (will be injected as env var)\n", name, projectID)
+		} else {
+			fmt.Printf("Secret created successfully\n")
+		}
 
 		return nil
 	},

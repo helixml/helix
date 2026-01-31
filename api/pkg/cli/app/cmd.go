@@ -19,9 +19,9 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "app",
-	Short:   "Helix app management",
-	Aliases: []string{"apps", "a"},
+	Use:     "agent",
+	Short:   "Helix agent management",
+	Aliases: []string{"app", "apps", "agents", "a"},
 	Long:    `TODO`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return listCmd.RunE(cmd, args)
@@ -54,5 +54,5 @@ func lookupApp(ctx context.Context, apiClient *client.HelixClient, organization,
 		}
 	}
 
-	return nil, fmt.Errorf("app not found: %s", ref)
+	return nil, fmt.Errorf("agent not found: %s", ref)
 }

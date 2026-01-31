@@ -1,0 +1,28 @@
+{{- if and .Values.kodit.enabled .Values.kodit.persistence.enabled (not .Values.kodit.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit-pvc
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kodit
+  {{- with .Values.kodit.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+  {{- range .Values.kodit.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.kodit.persistence.size | quote }}
+  {{- if .Values.kodit.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.kodit.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.kodit.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.kodit.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.kodit.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}

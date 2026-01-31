@@ -1,0 +1,48 @@
+[project]
+name = "haystack-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.11",
+    "haystack-ai==2.11.2",
+    "httpx>=0.28.1",
+    "nltk>=3.9.1",
+    "pgvector-haystack==3.1.0",
+    "psycopg2-binary>=2.9.10",
+    "pydantic>=2.10.6",
+    "pymupdf>=1.25.4",
+    "python-multipart>=0.0.20",
+    "requests-unixsocket>=0.4.1",
+    # CPU-only PyTorch - must be listed before unstructured to override its GPU torch dep
+    # Pin to specific versions that have CPU wheels for Linux x86_64
+    "torch==2.9.1+cpu",
+    "torchvision==0.24.1+cpu",
+    "unstructured-fileconverter-haystack==0.4.2",
+    "unstructured[all-docs]>=0.17.2",
+    "uvicorn>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=0.25.3",
+    "pytest>=8.3.5",
+    "ruff>=0.11.1",
+    "docker>=7.1.0",
+]
+
+# Use CPU-only PyTorch - haystack doesn't need GPU support
+# This saves ~3GB of NVIDIA CUDA libraries
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+# Ensure we resolve for Linux x86_64 (the Docker build environment)
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

@@ -33,7 +33,6 @@ export const SchedulingDecisionSummary: FC<{
       >
         <SessionBadge
           modelName={ decision.model_name }
-          mode={ decision.mode }
           reverse
         />
       </Cell>

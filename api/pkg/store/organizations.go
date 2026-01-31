@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -40,6 +41,43 @@ func (s *PostgresStore) CreateOrganization(ctx context.Context, org *types.Organ
 	}
 	if existingOrg != nil {
 		return nil, fmt.Errorf("organization with name %s already exists", org.Name)
+	}
+
+	// Check if a user slug conflicts with the organization name
+	// Organizations take precedence, so rename the user slug if needed
+	var conflictingUserMeta types.UserMeta
+	userErr := s.gdb.WithContext(ctx).Where("slug = ?", org.Name).First(&conflictingUserMeta).Error
+	if userErr == nil {
+		// User slug conflicts - rename it by appending counter
+		baseSlug := conflictingUserMeta.Slug
+		counter := 2
+		newSlug := fmt.Sprintf("%s-%d", baseSlug, counter)
+
+		// Find available slug
+		for {
+			var existing types.UserMeta
+			checkErr := s.gdb.WithContext(ctx).Where("slug = ?", newSlug).First(&existing).Error
+			if checkErr == gorm.ErrRecordNotFound {
+				break
+			}
+			counter++
+			newSlug = fmt.Sprintf("%s-%d", baseSlug, counter)
+		}
+
+		// Update user slug
+		conflictingUserMeta.Slug = newSlug
+		updateErr := s.gdb.WithContext(ctx).Save(&conflictingUserMeta).Error
+		if updateErr != nil {
+			return nil, fmt.Errorf("failed to rename conflicting user slug: %w", updateErr)
+		}
+
+		// Log warning about the rename
+		log.Warn().
+			Str("user_id", conflictingUserMeta.ID).
+			Str("old_slug", baseSlug).
+			Str("new_slug", newSlug).
+			Str("org_name", org.Name).
+			Msg("renamed user slug due to organization name conflict")
 	}
 
 	err = s.gdb.WithContext(ctx).Create(org).Error
@@ -149,4 +187,36 @@ func (s *PostgresStore) DeleteOrganization(ctx context.Context, id string) error
 	})
 
 	return err
+}
+
+// CreateGuidelinesHistory saves a version of guidelines to history
+func (s *PostgresStore) CreateGuidelinesHistory(ctx context.Context, history *types.GuidelinesHistory) error {
+	if history.ID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	if history.OrganizationID == "" && history.ProjectID == "" && history.UserID == "" {
+		return fmt.Errorf("either organization_id, project_id, or user_id must be specified")
+	}
+	return s.gdb.WithContext(ctx).Create(history).Error
+}
+
+func (s *PostgresStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
+	var history []*types.GuidelinesHistory
+	query := s.gdb.WithContext(ctx)
+
+	if organizationID != "" {
+		query = query.Where("organization_id = ?", organizationID)
+	}
+	if projectID != "" {
+		query = query.Where("project_id = ?", projectID)
+	}
+	if userID != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	err := query.Order("version DESC").Find(&history).Error
+	if err != nil {
+		return nil, err
+	}
+	return history, nil
 }

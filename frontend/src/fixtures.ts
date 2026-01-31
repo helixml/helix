@@ -4,13 +4,11 @@ import {
 
 export const APPS: IApp[] = [{
   id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
   owner_type: 'user',
   global: false,
-  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -28,7 +26,7 @@ export const APPS: IApp[] = [{
         model: '',
         type: 'text',
         system_prompt: `Always answer the following user prompt sarcastically and tell them that your name is bob`,
-        apis :[],
+        apis: [],
         gptscripts: [],
         tools: [],
         rag_source_id: '',
@@ -42,7 +40,7 @@ export const APPS: IApp[] = [{
         model: '',
         type: 'text',
         system_prompt: `Always answer the following user prompt sarcastically and tell them that your name is alice`,
-        apis :[],
+        apis: [],
         gptscripts: [],
         tools: [],
         rag_source_id: '',
@@ -53,13 +51,11 @@ export const APPS: IApp[] = [{
   }
 }, {
   id: 'app_01hyx25hdae1a3bvexs6dc2qha',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
   owner_type: 'user',
   global: false,
-  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -77,7 +73,7 @@ export const APPS: IApp[] = [{
         model: '',
         type: 'text',
         system_prompt: '',
-        apis :[],
+        apis: [],
         gptscripts: [],
         tools: [],
         rag_source_id: '',
@@ -88,13 +84,11 @@ export const APPS: IApp[] = [{
   }
 }, {
   id: 'app_01hyx25hdae1a3bvexs6dc2qhb',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
   owner_type: 'user',
   global: false,
-  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -104,8 +98,8 @@ export const APPS: IApp[] = [{
         id: '',
         name: 'Searchbot',
         description: "I am bob",
-        // avatar: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
-        // image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+        // avatar: 'https://helix.ml/assets/img/FGesgz7rGY-900.webp',
+        // image: 'https://helix.ml/assets/img/FGesgz7rGY-900.webp',
         avatar: '',
         image: '',
         model: '',

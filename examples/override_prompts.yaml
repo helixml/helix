@@ -101,7 +101,7 @@ assistants:
   apis:
     - name: Demo Hiring Pipeline API
       description: List all job vacancies, optionally filter by job title and/or candidate name
-      url: https://demos.tryhelix.ai
+      url: https://demos.helix.ml
       schema: ./openapi/jobvacancies.yaml
 
       response_success_template: |

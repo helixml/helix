@@ -19,6 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -46,6 +47,14 @@ func (suite *ControllerSuite) SetupSuite() {
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
+	// Add slot operation expectations for scheduler
+	suite.store.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	suite.store.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
 			Provider: string(pubsub.ProviderMemory),
@@ -75,12 +84,14 @@ func (suite *ControllerSuite) SetupSuite() {
 	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
-		PubSub: suite.pubsub,
-		FS:     filestoreMock,
+		PubSub:        suite.pubsub,
+		FS:            filestoreMock,
+		HealthChecker: &scheduler.MockHealthChecker{},
 	})
 	suite.NoError(err)
 	schedulerParams := &scheduler.Params{
 		RunnerController: runnerController,
+		Store:            suite.store,
 	}
 	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
 	suite.NoError(err)
@@ -111,6 +122,8 @@ func (suite *ControllerSuite) Test_BasicInference() {
 		},
 	}
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{
@@ -132,6 +145,101 @@ func (suite *ControllerSuite) Test_BasicInference() {
 			},
 		},
 	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Success() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, nil)
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.02,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Org_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByOrg(suite.ctx, "org_123").Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		OrganizationID: "org_123",
+	})
+	suite.Error(err)
+	suite.Nil(resp)
 }
 
 func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
@@ -175,7 +283,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		ID:    "knowledge_id",
 		AppID: "app_id",
 		Source: types.KnowledgeSource{
-			Content: &plainTextKnowledge,
+			Text: &plainTextKnowledge,
 		},
 	}
 
@@ -183,6 +291,8 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		Name:  "knowledge_name",
 		AppID: "app_id",
 	}).Return(knowledge, nil)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
@@ -204,6 +314,112 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 			{
 				Message: openai.ChatCompletionMessage{
 					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge_MultiContent() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role: openai.ChatMessageRoleUser,
+				MultiContent: []openai.ChatMessagePart{
+					{
+						Type: openai.ChatMessagePartTypeImageURL,
+						ImageURL: &openai.ChatMessageImageURL{
+							URL: "http://example.com/image.jpg",
+						},
+					},
+					{
+						Type: openai.ChatMessagePartTypeText,
+						Text: "Initial user message",
+					},
+				},
+			},
+		},
+	}
+
+	app := &types.App{
+		ID:     "app_id",
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						ID: "0",
+						Knowledge: []*types.AssistantKnowledge{
+							{
+								Name: "knowledge_name",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app_id").Return(app, nil)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{}, nil)
+
+	plainTextKnowledge := "plain text knowledge here"
+
+	knowledge := &types.Knowledge{
+		ID:    "knowledge_id",
+		AppID: "app_id",
+		Source: types.KnowledgeSource{
+			Text: &plainTextKnowledge,
+		},
+	}
+
+	suite.store.EXPECT().LookupKnowledge(suite.ctx, &store.LookupKnowledgeQuery{
+		Name:  "knowledge_name",
+		AppID: "app_id",
+	}).Return(knowledge, nil)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			suite.Require().Equal(string(req.Messages[0].MultiContent[1].Type), "text")
+			assert.Contains(suite.T(), req.Messages[0].MultiContent[1].Text, "plain text knowledge here")
+
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							MultiContent: []openai.ChatMessagePart{
+								{
+									Type: openai.ChatMessagePartTypeText,
+									Text: "Hello",
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		AppID:       "app_id",
+		AssistantID: "0",
+	})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					MultiContent: []openai.ChatMessagePart{
+						{
+							Type: openai.ChatMessagePartTypeText,
+							Text: "Hello",
+						},
+					},
 				},
 			},
 		},
@@ -250,7 +466,8 @@ func (suite *ControllerSuite) Test_EvaluateSecrets() {
 	app, err := suite.controller.evaluateSecrets(suite.ctx, suite.user, app)
 	suite.NoError(err)
 
-	suite.Equal(app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"], "secret_value")
+	// After evaluateSecrets, ${API_KEY} should be replaced with secret_value
+	suite.Equal("secret_value", app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"])
 }
 
 func Test_setSystemPrompt(t *testing.T) {
@@ -335,4 +552,15 @@ func Test_setSystemPrompt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_renderPrompt(t *testing.T) {
+	prompt := "Hello, {{.LocalDate}} at {{.LocalTime}}"
+	values := systemPromptValues{
+		LocalDate: "2024-01-01",
+		LocalTime: "12:00:00",
+	}
+	rendered, err := renderPrompt(prompt, values)
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello, 2024-01-01 at 12:00:00", rendered)
 }

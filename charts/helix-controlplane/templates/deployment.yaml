@@ -7,10 +7,11 @@ metadata:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
   # Helix can't run multi-node yet, do not set
-  # to more than 1 replicas for controlplane
+  # to more than 1 replicas for controlplane. With ReadWriteOnce persistent volumes,
+  # only one pod can mount the volume at a time.
   replicas: 1
   strategy:
-    type: RollingUpdate
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: controlplane
@@ -33,6 +34,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -45,14 +47,94 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          envFrom:
-            - configMapRef:
-                name: {{ include "helix-controlplane.fullname" . }}-config
           env:
             - name: SERVER_PORT
               value: "8080"
             - name: SERVER_URL
               value: {{ .Values.global.serverUrl }}
+            - name: APP_URL
+              value: {{ .Values.global.serverUrl }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controlplane.logLevel | quote }}
+            {{- if .Values.controlplane.runnerTokenExistingSecret }}
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.runnerTokenExistingSecret }}
+                  key: {{ .Values.controlplane.runnerTokenExistingSecretKey | default "token" }}
+            {{- else }}
+            - name: RUNNER_TOKEN
+              value: {{ .Values.controlplane.runnerToken | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.encryptionKeyExistingSecret }}
+            - name: HELIX_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.encryptionKeyExistingSecret }}
+                  key: {{ .Values.controlplane.encryptionKeyExistingSecretKey | default "encryption-key" }}
+            {{- else if .Values.controlplane.encryptionKey }}
+            - name: HELIX_ENCRYPTION_KEY
+              value: {{ .Values.controlplane.encryptionKey | quote }}
+            {{- end }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.controlplane.authProvider | quote }}
+            {{- if .Values.controlplane.licenseKeyExistingSecret }}
+            - name: LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.licenseKeyExistingSecret }}
+                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license" }}
+            {{- else if .Values.controlplane.licenseKey }}
+            - name: LICENSE_KEY
+              value: {{ .Values.controlplane.licenseKey | quote }}
+            {{- end }}
+            ### Keycloak specific configuration
+            {{- if .Values.controlplane.keycloak.enabled }}
+            - name: KEYCLOAK_URL
+              value: {{ .Values.controlplane.keycloak.url | quote }}
+            - name: KEYCLOAK_FRONTEND_URL
+              value: {{ .Values.controlplane.keycloak.frontendUrl | default (printf "%s/auth" .Values.global.serverUrl) | quote }}
+            {{- if .Values.controlplane.keycloak.existingSecret }}
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.keycloak.existingSecret }}
+                  key: {{ .Values.controlplane.keycloak.existingSecretUserKey | default "user" }}
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.keycloak.existingSecret }}
+                  key: {{ .Values.controlplane.keycloak.existingSecretPasswordKey | default "password" }}
+            {{- else }}
+            - name: KEYCLOAK_USER
+              value: {{ .Values.controlplane.keycloak.user | quote }}
+            - name: KEYCLOAK_PASSWORD
+              value: {{ .Values.controlplane.keycloak.password | quote }}
+            {{- end }}
+            {{- end }}
+            ### End keycloak config
+            ### SMTP configuration
+            {{- if .Values.controlplane.smtp.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.controlplane.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.controlplane.smtp.port | quote }}
+            - name: SMTP_USERNAME
+              value: {{ .Values.controlplane.smtp.username | quote }}
+            - name: SMTP_PASSWORD
+              value: {{ .Values.controlplane.smtp.password | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.controlplane.smtp.from | quote }}
+            - name: SMTP_TO
+              value: {{ .Values.controlplane.smtp.to | quote }}
+            {{- end }}
+            ### End SMTP configuration
+            - name: ADMIN_USER_SOURCE
+              value: {{ .Values.controlplane.admin.userSource | quote }}
+            - name: ADMIN_USER_IDS
+              value: {{ .Values.controlplane.admin.userIds | quote }}
+            - name: PROVIDERS_MANAGEMENT_ENABLED
+              value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
             - name: TEXT_EXTRACTION_URL
@@ -69,6 +151,65 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+            # Postgres configuration
+            {{- if .Values.postgresql.enabled }}
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-postgresql
+            {{- if .Values.postgresql.auth.existingSecret }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret }}
+                  key: {{ .Values.postgresql.auth.usernameKey | default "username" }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret }}
+                  key: {{ .Values.postgresql.auth.passwordKey | default "password" }}
+            - name: POSTGRES_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret }}
+                  key: {{ .Values.postgresql.auth.databaseKey | default "database" }}
+            {{- else }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.auth.username }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgresql.auth.password }}
+            - name: POSTGRES_DATABASE
+              value: {{ .Values.postgresql.auth.database }}
+            {{- end }}
+            {{- else if .Values.postgresql.external.existingSecret }}
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.external.existingSecret }}
+                  key: {{ .Values.postgresql.external.existingSecretHostKey | default "host" }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.external.existingSecret }}
+                  key: {{ .Values.postgresql.external.existingSecretUserKey | default "user" }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.external.existingSecret }}
+                  key: {{ .Values.postgresql.external.existingSecretPasswordKey | default "password" }}
+            - name: POSTGRES_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.external.existingSecret }}
+                  key: {{ .Values.postgresql.external.existingSecretDatabaseKey | default "database" }}
+            {{- else }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgresql.external.host }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.external.user }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgresql.external.password }}
+            - name: POSTGRES_DATABASE
+              value: {{ .Values.postgresql.external.database }}
+            {{- end }}
             {{- if .Values.controlplane.rag }}
             {{- with (default "" .Values.controlplane.rag.defaultProvider) }}
             - name: RAG_DEFAULT_PROVIDER
@@ -79,24 +220,40 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.controlplane.inference }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: INFERENCE_PROVIDER
               value: {{ . | quote }}
             {{- end }}
-            {{- with (default "" .Values.controlplane.inference.defaultProvider) }}
+
+            {{- if .Values.controlplane.fineTuning }}
+            {{- with (.Values.controlplane.fineTuning).defaultProvider }}
+            - name: FINETUNING_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else }}
+            {{- with (.Values.controlplane.inference).defaultProvider }}
             - name: FINETUNING_PROVIDER
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+
             {{- if .Values.controlplane.providers.vllm }}
             {{- with (default "" .Values.controlplane.providers.vllm.baseUrl) }}
             - name: VLLM_BASE_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.controlplane.providers.vllm.existingSecret }}
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.providers.vllm.existingSecret }}
+                  key: {{ .Values.controlplane.providers.vllm.existingSecretApiKeyKey | default "api-key" }}
+            {{- else }}
             {{- with (default "" .Values.controlplane.providers.vllm.apiKey) }}
             - name: VLLM_API_KEY
               value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- if .Values.controlplane.providers.openai }}
@@ -104,9 +261,35 @@ spec:
             - name: OPENAI_BASE_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.controlplane.providers.openai.existingSecret }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.providers.openai.existingSecret }}
+                  key: {{ .Values.controlplane.providers.openai.existingSecretApiKeyKey | default "api-key" }}
+            {{- else }}
             {{- with (default "" .Values.controlplane.providers.openai.apiKey) }}
             - name: OPENAI_API_KEY
               value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.controlplane.providers.anthropic }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.baseUrl) }}
+            - name: ANTHROPIC_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.providers.anthropic.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.providers.anthropic.existingSecret }}
+                  key: {{ .Values.controlplane.providers.anthropic.existingSecretApiKeyKey | default "api-key" }}
+            {{- else }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.apiKey) }}
+            - name: ANTHROPIC_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- if .Values.controlplane.providers.togetherai }}
@@ -114,14 +297,45 @@ spec:
             - name: TOGETHER_BASE_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.controlplane.providers.togetherai.existingSecret }}
+            - name: TOGETHER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.providers.togetherai.existingSecret }}
+                  key: {{ .Values.controlplane.providers.togetherai.existingSecretApiKeyKey | default "api-key" }}
+            {{- else }}
             {{- with (default "" .Values.controlplane.providers.togetherai.apiKey) }}
             - name: TOGETHER_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.controlplane.huggingface.existingSecret }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.huggingface.existingSecret }}
+                  key: {{ .Values.controlplane.huggingface.existingSecretTokenKey | default "token" }}
+            {{- else }}
+            {{- with (default "" .Values.controlplane.huggingface.token) }}
+            - name: HF_TOKEN
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
             {{- if .Values.controlplane.haystack.enabled }}
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
+            {{- end }}
+            {{- if .Values.kodit.enabled }}
+            - name: KODIT_ENABLED
+              value: "true"
+            - name: KODIT_BASE_URL
+              value: {{ .Values.controlplane.kodit.baseURL | default (printf "http://%s-kodit:8080" (include "helix-controlplane.fullname" .)) | quote }}
+            - name: KODIT_GIT_URL
+              value: {{ .Values.controlplane.kodit.gitURL | default (printf "http://%s:80" (include "helix-controlplane.fullname" .)) | quote }}
+            {{- else }}
+            - name: KODIT_ENABLED
+              value: "false"
             {{- end }}
             {{- with .Values.controlplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -191,7 +405,7 @@ spec:
         {{- end }}
         {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helix.ml/helix/haystack" }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helixml.tech/helix/haystack" }}:{{ .Values.image.tag }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -205,6 +419,8 @@ spec:
           {{- end }}
           env:
             - name: HELIX_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
+            - name: RAG_VISION_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
             {{- with (default "" .Values.controlplane.haystack.embeddingsModel) }}
             - name: RAG_HAYSTACK_EMBEDDINGS_MODEL
@@ -236,6 +452,35 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.controlplane.haystack.existingSecret }}
                   key: {{ .Values.controlplane.haystack.existingSecretDsnKey | default "dsn" }}
+            {{- else if .Values.pgvector.external.existingSecret }}
+            - name: PGVECTOR_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.external.existingSecret }}
+                  key: {{ .Values.pgvector.external.existingSecretHostKey | default "host" }}
+            - name: PGVECTOR_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.external.existingSecret }}
+                  key: {{ .Values.pgvector.external.existingSecretPortKey | default "port" }}
+            - name: PGVECTOR_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.external.existingSecret }}
+                  key: {{ .Values.pgvector.external.existingSecretUserKey | default "user" }}
+            - name: PGVECTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.external.existingSecret }}
+                  key: {{ .Values.pgvector.external.existingSecretPasswordKey | default "password" }}
+            - name: PGVECTOR_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgvector.external.existingSecret }}
+                  key: {{ .Values.pgvector.external.existingSecretDatabaseKey | default "database" }}
+            {{- else }}
+            - name: PGVECTOR_DSN
+              value: "postgresql://{{ .Values.pgvector.auth.username | default "postgres" }}:{{ .Values.pgvector.auth.password | default "pgvector" }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.auth.database | default "postgres" }}"
             {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}

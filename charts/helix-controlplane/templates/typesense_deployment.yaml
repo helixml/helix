@@ -38,7 +38,7 @@ spec:
         - name: typesense
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.typesense.image.repository | default "registry.helix.ml/helix/typesense" }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.typesense.image.repository | default "registry.helixml.tech/helix/typesense" }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

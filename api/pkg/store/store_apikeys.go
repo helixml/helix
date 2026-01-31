@@ -26,12 +26,18 @@ func (s *PostgresStore) CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) 
 	if err != nil {
 		return nil, err
 	}
-	return s.GetAPIKey(ctx, apiKey.Key)
+	return s.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey.Key,
+	})
 }
 
-func (s *PostgresStore) GetAPIKey(ctx context.Context, key string) (*types.ApiKey, error) {
+func (s *PostgresStore) GetAPIKey(ctx context.Context, query *types.ApiKey) (*types.ApiKey, error) {
+	if query.Key == "" && query.Owner == "" {
+		return nil, fmt.Errorf("key or owner not specified")
+	}
+
 	var apiKey types.ApiKey
-	err := s.gdb.WithContext(ctx).Where("key = ?", key).First(&apiKey).Error
+	err := s.gdb.WithContext(ctx).Where(query).First(&apiKey).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

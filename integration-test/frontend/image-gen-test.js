@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer'
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
 
-  await page.goto('http://app.tryhelix.ai');
+  await page.goto('http://app.helix.ml');
  
 
   await page.waitForSelector('#login-button', { visible: true });

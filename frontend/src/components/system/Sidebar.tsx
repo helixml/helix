@@ -1,351 +1,581 @@
-import React, { useState, useContext, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, ReactNode } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
 import List from '@mui/material/List'
-import ListItemIcon from '@mui/material/ListItemIcon'
 import Divider from '@mui/material/Divider'
+import ListItem from '@mui/material/ListItem'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
-import IconButton from '@mui/material/IconButton'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import TextField from '@mui/material/TextField'
+import { styled, keyframes } from '@mui/material/styles'
 
-import WebhookIcon from '@mui/icons-material/Webhook'
-import AddIcon from '@mui/icons-material/Add'
-import HomeIcon from '@mui/icons-material/Home'
-import DashboardIcon from '@mui/icons-material/Dashboard'
-import LoginIcon from '@mui/icons-material/Login'
-import LogoutIcon from '@mui/icons-material/Logout'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
-import AccountBoxIcon from '@mui/icons-material/AccountBox'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
-import SchoolIcon from '@mui/icons-material/School'
-import AppsIcon from '@mui/icons-material/Apps'
-import CodeIcon from '@mui/icons-material/Code'
-
-import SidebarMainLink from './SidebarMainLink'
+import { Plus, FolderPlus, Upload, FileText } from 'lucide-react'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
-import { AccountContext } from '../../contexts/account'
+import useApp from '../../hooks/useApp'
+import useApi from '../../hooks/useApi'
 
-import {
-  ICreateSessionConfig,
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
-  ISessionType,
-} from '../../types'
+import { useCreateFilestoreFolder, useUploadFilestoreFiles, useFilestoreConfig } from '../../services/filestoreService'
+import DarkDialog from '../dialog/DarkDialog'
+import useSnackbar from '../../hooks/useSnackbar'
 
-const Sidebar: React.FC = ({
+import SlideMenuContainer from './SlideMenuContainer'
+import SidebarContextHeader from './SidebarContextHeader'
+import UnifiedSearchBar from '../common/UnifiedSearchBar'
+import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
+
+
+const shimmer = keyframes`
+  0% {
+    background-position: -200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+  }
+  100% {
+    background-position: 200% center;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+`
+
+const pulse = keyframes`
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+`
+
+const ShimmerButton = styled(Button)(({ theme }) => ({
+  background: `linear-gradient(
+    90deg, 
+    ${theme.palette.secondary.dark} 0%,
+    ${theme.palette.secondary.main} 20%,
+    ${theme.palette.secondary.light} 50%,
+    ${theme.palette.secondary.main} 80%,
+    ${theme.palette.secondary.dark} 100%
+  )`,
+  backgroundSize: '200% auto',
+  animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
+  transition: 'all 0.3s ease-in-out',
+  boxShadow: '0 0 15px rgba(0, 229, 255, 0.3)',
+  fontWeight: 'bold',
+  letterSpacing: '0.5px',
+  padding: '6px 16px',
+  fontSize: '0.875rem',
+  '&:hover': {
+    transform: 'scale(1.05)',
+    boxShadow: '0 0 25px rgba(0, 229, 255, 0.6)',
+    backgroundSize: '200% auto',
+    animation: `${shimmer} 1s linear infinite`,
+  },
+}))
+
+// Inner component that uses the sidebar context
+const SidebarContentInner: React.FC<{
+  showTopLinks?: boolean,
+  menuType: string,
+  children: ReactNode,
+}> = ({
   children,
+  showTopLinks = true,
+  menuType,
 }) => {
-
+  const { userMenuHeight } = useSidebarContext()
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
-  const router = useRouter()
-  const account = useAccount()
-  const { models } = useContext(AccountContext)
 
-  const filteredModels = useMemo(() => {
-    return models.filter(m => m.type === "text" || m.type === "chat")
-  }, [models])
-
-  const defaultModel = useMemo(() => {
-    if(filteredModels.length <= 0) return ''
-    return filteredModels[0].id
-  }, [filteredModels])
+  const {
+    params
+  } = useRouter()
   
-  const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
 
-  const onOpenHelp = () => {
-  // Ensure the chat icon is shown when the chat is opened
-    (window as any)['$crisp'].push(["do", "chat:show"])
-    (window as any)['$crisp'].push(['do', 'chat:open'])
+  const router = useRouter()
+  const api = useApi()
+  const account = useAccount()
+  const appTools = useApp(params.app_id)
+  const snackbar = useSnackbar()
+
+  const apiClient = api.getApiClient()
+
+  // New file menu state
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [fileInputRef, setFileInputRef] = useState<HTMLInputElement | null>(null)
+  const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
+  const [fileName, setFileName] = useState('')
+
+  // Mutation hooks for file operations
+  const createFolderMutation = useCreateFilestoreFolder()
+  const uploadFilesMutation = useUploadFilestoreFiles()
+  const { data: filestoreConfig } = useFilestoreConfig()
+
+
+
+  // Ensure apps are loaded when apps tab is selected
+  useEffect(() => {
+    const checkAuthAndLoad = async () => {
+      try {
+        const authResponse = await apiClient.v1AuthAuthenticatedList()
+        if (!authResponse.data.authenticated) {
+          return
+        }        
+        
+      } catch (error) {
+        console.error('[SIDEBAR] Error checking authentication:', error)
+      }
+    }
+
+    checkAuthAndLoad()
+  }, [router.params])    
+
+  // Handle create a new chat
+  const handleCreateNew = () => {
+    if (!appTools.app) {
+      account.orgNavigate('chat')
+      return
+    }
+    // If we are in the app details view, we need to create a new chat
+    account.orgNavigate('new', { app_id: appTools.id })
   }
 
-  const openDocumentation = () => {
-    window.open("https://docs.helix.ml/docs/overview", "_blank")
+  // Handler for opening the new file menu
+  const handleNewFileClick = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchorEl(event.currentTarget)
   }
 
-  const navigateTo = (path: string, params: Record<string, any> = {}) => {
-    router.navigate(path, params)
-    account.setMobileMenuOpen(false)
-    setAccountMenuAnchorEl(null)
+  // Handler for closing the new file menu
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null)
+  }
+
+  // Handler for creating a new folder
+  const handleCreateFolder = () => {
+    setCreateFolderDialogOpen(true)
+    handleMenuClose()
+  }
+
+  // Handler for creating a new file
+  const handleCreateFile = () => {
+    setCreateFileDialogOpen(true)
+    handleMenuClose()
+  }
+
+  // Handler for uploading files
+  const handleUploadFiles = () => {
+    if (fileInputRef) {
+      fileInputRef.click()
+    }
+    handleMenuClose()
+  }
+
+  // Handler for file input change
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    if (files.length === 0) return
+
+    try {
+      await uploadFilesMutation.mutateAsync({
+        path: '', // Upload to root directory
+        files: files,
+        config: filestoreConfig
+      })
+      snackbar.success(`Successfully uploaded ${files.length} file(s)`)
+    } catch (error) {
+      console.error('Upload error:', error)
+      snackbar.error('Failed to upload files')
+    }
+
+    // Reset the input
+    if (event.target) {
+      event.target.value = ''
+    }
+  }
+
+  // Handler for creating folder dialog
+  const handleCreateFolderSubmit = async () => {
+    if (!folderName.trim()) return
+
+    try {
+      await createFolderMutation.mutateAsync(folderName.trim())
+      snackbar.success('Folder created successfully')
+      setCreateFolderDialogOpen(false)
+      setFolderName('')
+    } catch (error) {
+      console.error('Create folder error:', error)
+      snackbar.error('Failed to create folder')
+    }
+  }
+
+  // Handler for canceling folder creation
+  const handleCreateFolderCancel = () => {
+    setCreateFolderDialogOpen(false)
+    setFolderName('')
+  }
+
+  // Handler for creating file dialog
+  const handleCreateFileSubmit = async () => {
+    if (!fileName.trim()) return
+
+    try {
+      // Create an empty file by uploading an empty string
+      const emptyFile = new File([''], fileName.trim(), { type: 'text/plain' })
+      await uploadFilesMutation.mutateAsync({
+        path: '', // Upload to root directory
+        files: [emptyFile],
+        config: filestoreConfig
+      })
+      snackbar.success('File created successfully')
+      setCreateFileDialogOpen(false)
+      setFileName('')
+    } catch (error) {
+      console.error('Create file error:', error)
+      snackbar.error('Failed to create file')
+    }
+  }
+
+  // Handler for canceling file creation
+  const handleCreateFileCancel = () => {
+    setCreateFileDialogOpen(false)
+    setFileName('')
   }
 
   return (
-    <Box
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        borderRight: lightTheme.border,
-        backgroundColor: lightTheme.backgroundColor,
-      }}
-      >
+    <SlideMenuContainer menuType={menuType}>
       <Box
         sx={{
-          flexGrow: 0,
-          width: '100%',
-        }}
-        >
-        <List disablePadding>
-          <SidebarMainLink
-            id="home-link"
-            routeName="home"
-            title="Home"
-            icon={ <HomeIcon/> }
-          />
-          {/* <Divider />
-          <SidebarMainLink
-            routeName="new"
-            id="new-session-link"
-            title="New Session"
-            icon={ <AddIcon/> }
-          /> */}
-          <Divider />
-        </List>
-      </Box>
-      <Box
-        sx={{
-          flexGrow: 1,
-          width: '100%',
-          overflowY: 'auto',
-          boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-          borderRight: 'none', // Remove the border if present
-          mr: 3,
-          mt: 1,
-          ...lightTheme.scrollbar,
-        }}
-        >
-        { children }
-      </Box>
-      <Box
-        sx={{
-          flexGrow: 0,
-          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          borderRight: lightTheme.border,
           backgroundColor: lightTheme.backgroundColor,
-          mt: 0,
-          p: 2,
+          width: '100%',
         }}
       >
+        <SidebarContextHeader />
+        <Divider sx={{ width: '100%' }} />
+        {/* Global search - available on all pages */}
+        <UnifiedSearchBar compact placeholder="Search..." />
+        <Divider sx={{ width: '100%' }} />
         <Box
           sx={{
-            borderTop: lightTheme.border,
+            flexGrow: 0,
             width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'left',
-            pt: 1.5,
           }}
-          >
-          <Typography
-            variant="body2"
-            sx={{
-              color: lightTheme.textColorFaded,
-              flexGrow: 1,
-              display: 'flex',
-              justifyContent: 'flex-start',
-              textAlign: 'left',
-              cursor: 'pointer',
-              pl: 2,
-              pb: 0.25,
-            }}
-            onClick={ openDocumentation }
-          >
-            Documentation
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{
-              color: lightTheme.textColorFaded,
-              flexGrow: 1,
-              display: 'flex',
-              justifyContent: 'flex-start',
-              textAlign: 'left',
-              cursor: 'pointer',
-              pl: 2,
-            }}
-            onClick={ onOpenHelp }
-          >
-            Help & Support
-          </Typography>
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: 'row',
-              width: '100%',
-              justifyContent: 'flex-start',
-              mt: 2,
-            }}
-            >
-            { themeConfig.logo() }
-            {
-              account.user ? (
-                <>
-                  <Box>
-                    <Typography variant="body2" sx={{fontWeight: 'bold'}}>
-                      {account.user.name}
-                    </Typography>
-                    <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
-                      {account.user.email}
-                    </Typography>
-                  </Box>
-                  <IconButton
-                    size="large"
-                    aria-label="account of current user"
-                    aria-controls="menu-appbar"
-                    aria-haspopup="true"
-                    onClick={(event: React.MouseEvent<HTMLElement>) => {
-                      setAccountMenuAnchorEl(event.currentTarget)
+        >
+          {
+            showTopLinks && (router.name === 'chat' || router.name === 'session' || router.name === 'qa-results' || router.name === 'app' || router.name === 'new' ||
+                           router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_app' || router.name === 'org_new') && (
+              <List disablePadding>    
+                
+                {/* New resource creation button */}
+                <ListItem
+                  disablePadding
+                  dense
+                >
+                  <ListItemButton
+                    id="create-link"
+                    onClick={handleCreateNew}
+                    sx={{
+                      height: '64px',
+                      display: 'flex',
+                      '&:hover': {
+                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                      },
                     }}
-                    
-                    sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
                   >
-                    <MoreVertIcon />
-                  </IconButton>
-                  <Menu
-                    id="menu-appbar"
-                    anchorEl={accountMenuAnchorEl}
-                    anchorOrigin={{
-                      vertical: 'top',
-                      horizontal: 'right',
-                    }}
-                    keepMounted
-                    transformOrigin={{
-                      vertical: 'top',
-                      horizontal: 'right',
-                    }}
-                    open={Boolean(accountMenuAnchorEl)}
-                    onClose={() => setAccountMenuAnchorEl(null)}
+                    <ListItemText
+                      sx={{
+                        ml: 1,
+                        pl: 0,
+                      }}
+                      primary={`New Chat`}
+                      primaryTypographyProps={{
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
+                      }}
+                    />
+                    <Box 
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'transparent',
+                        border: '2px solid #00E5FF',
+                        borderRadius: '50%',
+                        width: 32,
+                        height: 32,
+                        mr: 2,
+                      }}
                     >
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('new')
-                    }}>
-                      <ListItemIcon>
-                        <HomeIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Home
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('appstore')
-                    }}>
-                      <ListItemIcon>
-                        <AppsIcon fontSize="small" />
-                      </ListItemIcon> 
-                      App Store
-                    </MenuItem>
-
-                    {
-                      account.admin && (
-                        <MenuItem onClick={ () => {
-                          navigateTo('dashboard')
-                        }}>
-                          <ListItemIcon>
-                            <DashboardIcon fontSize="small" />
-                          </ListItemIcon> 
-                          Dashboard
-                        </MenuItem>
-                      )
-                    }
-
-                    {
-                      account.serverConfig.apps_enabled && (
-                        <MenuItem onClick={ () => {
-                          navigateTo('apps')
-                        }}>
-                          <ListItemIcon>
-                            <WebhookIcon fontSize="small" />
-                          </ListItemIcon> 
-                          Your Apps
-                        </MenuItem>
-                      )
-                    }
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('new', {
-                        model: defaultModel,
-                        mode: SESSION_MODE_FINETUNE,
-                        rag: true,
-                      })
-                    }}>
-                      <ListItemIcon>
-                        <SchoolIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Learn
-                    </MenuItem>
-                    
-                    <MenuItem onClick={ () => {
-                      navigateTo('account')
-                    }}>
-                      <ListItemIcon>
-                        <AccountBoxIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Account &amp; API
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('api-reference')
-                    }}>
-                      <ListItemIcon>
-                        <CodeIcon fontSize="small" />
-                      </ListItemIcon> 
-                      API Reference
-                    </MenuItem>
-
-                    <MenuItem onClick={ () => {
-                      navigateTo('files')
-                    }}>
-                      <ListItemIcon>
-                        <CloudUploadIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Files
-                    </MenuItem>
-
-                    {/* <MenuItem onClick={ () => {
-                      toggleMode()
-                    }}>
-                      <ListItemIcon>
-                        {lightTheme.isDark ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
-                      </ListItemIcon>
-                      {lightTheme.isDark ? 'Light Mode' : 'Dark Mode'}
-                    </MenuItem> */}
-
-                    <MenuItem onClick={ () => {
-                      setAccountMenuAnchorEl(null)
-                      account.onLogout()
-                      }}>
-                      <ListItemIcon>
-                        <LogoutIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Logout
-                    </MenuItem>
-                  </Menu>
-                </>
-              ) : (
-                <>
-                  <Button 
-                    id='login-button'
-                    variant="outlined"
-                    endIcon={<LoginIcon />}
-                    onClick={ () => {
-                      account.onLogin()
+                      <Plus size={20} color="#00E5FF" />
+                    </Box>
+                  </ListItemButton>
+                </ListItem>
+                
+                <Divider />
+              </List>
+            )
+          }
+          {
+            showTopLinks && router.name === 'files' && (
+              <List disablePadding>    
+                
+                {/* New file creation button */}
+                <ListItem
+                  disablePadding
+                  dense
+                >
+                  <ListItemButton
+                    id="create-file-link"
+                    onClick={handleNewFileClick}
+                    sx={{
+                      height: '64px',
+                      display: 'flex',
+                      '&:hover': {
+                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                      },
                     }}
+                  >
+                    <ListItemText
+                      sx={{
+                        ml: 1,
+                        pl: 0,
+                      }}
+                      primary={`New`}
+                      primaryTypographyProps={{
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
+                      }}
+                    />
+                    <Box 
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'transparent',
+                        border: '2px solid #00E5FF',
+                        borderRadius: '50%',
+                        width: 32,
+                        height: 32,
+                        mr: 2,
+                      }}
                     >
-                    Login / Register
-                  </Button>
-                </>
-              )
-            }
-          </Box>
+                      <Plus size={20} color="#00E5FF" />
+                    </Box>
+                  </ListItemButton>
+                </ListItem>
+                
+                <Divider />
+              </List>
+            )
+          }
         </Box>
+        <Box
+          sx={{
+            flexGrow: 1,
+            width: '100%',
+            height: '100%', // Fixed height to fill available space
+            overflow: 'auto', // Enable scrollbar when content exceeds height
+            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
+            borderRight: 'none', // Remove the border if present
+            mr: 3,
+            mt: 1,
+            ...lightTheme.scrollbar,
+          }}
+        >
+          { children }
+        </Box>
+        {/* User section moved to UserOrgSelector component */}
       </Box>
-    </Box>
+
+      {/* New File Dropdown Menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'left',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'left',
+        }}
+        sx={{
+          '& .MuiPaper-root': {
+            minWidth: 200,
+            mt: 1,
+          },
+        }}
+      >
+        <MenuItem onClick={handleCreateFile}>
+          <FileText size={16} style={{ marginRight: 8 }} />
+          New
+        </MenuItem>
+        <MenuItem onClick={handleCreateFolder}>
+          <FolderPlus size={16} style={{ marginRight: 8 }} />
+          Create Directory
+        </MenuItem>
+        <MenuItem onClick={handleUploadFiles}>
+          <Upload size={16} style={{ marginRight: 8 }} />
+          Upload File
+        </MenuItem>
+      </Menu>
+
+      {/* Hidden file input for uploads */}
+      <input
+        type="file"
+        ref={setFileInputRef}
+        onChange={handleFileInputChange}
+        multiple
+        style={{ display: 'none' }}
+      />
+
+      {/* Create Folder Dialog */}
+      <Dialog
+        open={createFolderDialogOpen}
+        onClose={handleCreateFolderCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Directory</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Directory Name"
+            fullWidth
+            variant="outlined"
+            value={folderName}
+            onChange={(e) => setFolderName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleCreateFolderSubmit()
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreateFolderCancel}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateFolderSubmit}
+            variant="contained"
+            disabled={!folderName.trim() || createFolderMutation.isPending}
+          >
+            {createFolderMutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create File Dialog */}
+      <DarkDialog
+        open={createFileDialogOpen}
+        onClose={handleCreateFileCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New File</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="File Name"
+            fullWidth
+            variant="outlined"
+            value={fileName}
+            onChange={(e) => setFileName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleCreateFileSubmit()
+              }
+            }}
+            placeholder="Enter filename (e.g., myfile.txt)"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreateFileCancel}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateFileSubmit}
+            variant="contained"
+            disabled={!fileName.trim() || uploadFilesMutation.isPending}
+          >
+            {uploadFilesMutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </DarkDialog>
+    </SlideMenuContainer>
+  )
+}
+
+// Wrapper component that provides the sidebar context
+const SidebarContent: React.FC<{
+  showTopLinks?: boolean,
+  menuType: string,
+  children: ReactNode,
+  userMenuHeight?: number,
+}> = ({
+  children,
+  showTopLinks = true,
+  menuType,
+  userMenuHeight = 0,
+}) => {
+  return (
+    <SidebarProvider userMenuHeight={userMenuHeight}>
+      <SidebarContentInner
+        showTopLinks={showTopLinks}
+        menuType={menuType}
+      >
+        {children}
+      </SidebarContentInner>
+    </SidebarProvider>
+  )
+}
+
+// Main Sidebar component that determines which menuType to use
+const Sidebar: React.FC<{
+  showTopLinks?: boolean,
+  children: ReactNode,
+  userMenuHeight?: number,
+}> = ({
+  children,
+  showTopLinks = true,
+  userMenuHeight = 0,
+}) => {
+  const router = useRouter()
+  
+  // Determine the menu type based on the current route
+  const menuType = router.meta.menu || router.params.resource_type || 'chat'
+  
+  return (
+    <SidebarContent 
+      showTopLinks={showTopLinks}
+      menuType={menuType}
+      userMenuHeight={userMenuHeight}
+    >
+      {children}
+    </SidebarContent>
   )
 }
 

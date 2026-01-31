@@ -16,12 +16,12 @@ jobs:
     strategy:
       matrix:
         image:
-        - 'registry.helix.ml/helix/controlplane:latest'
+        - 'registry.helixml.tech/helix/controlplane:latest'
         - 'postgres:12.13-alpine'
         - 'quay.io/keycloak/keycloak:23.0'
-        - 'registry.helix.ml/helix/gptscript-runner:latest' 
+        - 'registry.helixml.tech/helix/gptscript-runner:latest' 
         - 'apache/tika:2.9.2.1'
-        - 'registry.helix.ml/helix/typesense:latest'
+        - 'registry.helixml.tech/helix/typesense:latest'
         - 'ghcr.io/go-rod/rod:v0.115.0'
     permissions:
       contents: read # for actions/checkout to fetch code
@@ -32,6 +32,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Pull container image
+        run: docker pull ${{ matrix.image }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.29.0

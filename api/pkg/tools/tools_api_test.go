@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -181,7 +184,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	suite.Equal(resp["petId"], "55443")
 }
 
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
 		suite.Equal("GET", r.Method)
@@ -233,7 +236,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"petId": "99944",
 	}
 
@@ -243,6 +246,96 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 	suite.Equal("https://example.com/pets/99944", req.URL.String())
 	suite.Equal("GET", req.Method)
 	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+type Pet struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Tag         string `json:"tag"`
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Body() {
+	tool := &types.Tool{
+		Name:        "managePetsApi",
+		Description: "pet store API that is used to manage pets",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://example.com",
+				Schema: petStoreAPISpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]interface{}{
+		"name":        "doggie",
+		"description": "a brown dog",
+		"tag":         "dog",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "createPets", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets", req.URL.String())
+	suite.Equal("POST", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+
+	body, err := io.ReadAll(req.Body)
+	suite.NoError(err)
+
+	var pet Pet
+	err = json.Unmarshal(body, &pet)
+	suite.NoError(err)
+
+	suite.Equal("doggie", pet.Name)
+	suite.Equal("dog", pet.Tag)
+
+	suite.Equal("", pet.Description, "while we do set this, we don't have it in the API schema hence it should not be visible")
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Body_Nested() {
+	tool := &types.Tool{
+		Name:        "managePetsApi",
+		Description: "pet store API that is used to manage pets",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://example.com",
+				Schema: petStoreAPISpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]interface{}{
+		"name":        "doggie",
+		"description": "a brown dog",
+		"tag":         "dog",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "createPets", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets", req.URL.String())
+	suite.Equal("POST", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+
+	body, err := io.ReadAll(req.Body)
+	suite.NoError(err)
+
+	var pet Pet
+	err = json.Unmarshal(body, &pet)
+	suite.NoError(err)
+
+	suite.Equal("doggie", pet.Name)
+	suite.Equal("dog", pet.Tag)
+
+	suite.Equal("", pet.Description, "while we do set this, we don't have it in the API schema hence it should not be visible")
 }
 
 func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
@@ -264,7 +357,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"petId": "99944",
 	}
 
@@ -295,7 +388,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Query() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"q": "London",
 	}
 
@@ -378,7 +471,7 @@ func Test_filterOpenAPISchema_GetBody(t *testing.T) {
 				Schema: petStoreAPISpec,
 			},
 		},
-	}, "showPetById")
+	}, "showPetById", make(map[string]interface{}))
 	require.NoError(t, err)
 
 	golden.Assert(t, filtered, "filtered-one-pet.golden.json")
@@ -575,7 +668,7 @@ func Test_unmarshalParams(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    map[string]string
+		want    map[string]interface{}
 		wantErr bool
 	}{
 		{
@@ -583,8 +676,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1000}`,
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -592,7 +685,7 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": "1000"}`,
 			},
-			want: map[string]string{
+			want: map[string]interface{}{
 				"id": "1000",
 			},
 		},
@@ -601,8 +694,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1005.0}`,
 			},
-			want: map[string]string{
-				"id": "1005",
+			want: map[string]interface{}{
+				"id": float64(1005),
 			},
 		},
 		{
@@ -610,8 +703,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1005.5}`,
 			},
-			want: map[string]string{
-				"id": "1005.5",
+			want: map[string]interface{}{
+				"id": 1005.5,
 			},
 		},
 		{
@@ -619,8 +712,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"yes": true}`,
 			},
-			want: map[string]string{
-				"yes": "true",
+			want: map[string]interface{}{
+				"yes": true,
 			},
 		},
 		{
@@ -628,8 +721,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```json{\"id\": 1000}```",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -637,8 +730,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```json{\"id\": 1000}```blah blah blah I am very smart LLM",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -646,8 +739,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```\n{\"id\": 1000}```blah blah blah I am very stupid LLM that cannot follow instructions about backticks",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 	}
@@ -660,6 +753,8 @@ func Test_unmarshalParams(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("unmarshalParams() = %v, want %v", got, tt.want)
+				spew.Dump(got)
+				spew.Dump(tt.want)
 			}
 		})
 	}
@@ -683,4 +778,88 @@ func Test_GetParametersFromSchema(t *testing.T) {
 		require.Equal(t, "How many items to return at one time (max 100)", params[0].Description)
 		require.Equal(t, ParameterTypeInteger, params[0].Type)
 	})
+
+	t.Run("createPets", func(t *testing.T) {
+		params, err := GetParametersFromSchema(petStoreAPISpec, "createPets")
+		require.NoError(t, err)
+		require.Len(t, params, 1)
+		require.Equal(t, "body", params[0].Name)
+		require.Equal(t, ParameterTypeObject, params[0].Type)
+		require.True(t, params[0].Required)
+		require.NotNil(t, params[0].Schema)
+
+		// Verify schema properties
+		schema := params[0].Schema.Value
+		require.NotNil(t, schema)
+		require.Contains(t, schema.Required, "id")
+		require.Contains(t, schema.Required, "name")
+
+		// Verify schema properties
+		require.Contains(t, schema.Properties, "id")
+		require.Contains(t, schema.Properties, "name")
+		require.Contains(t, schema.Properties, "tag")
+
+		// Verify property types
+		require.Equal(t, "integer", schema.Properties["id"].Value.Type.Slice()[0])
+		require.Equal(t, "string", schema.Properties["name"].Value.Type.Slice()[0])
+		require.Equal(t, "string", schema.Properties["tag"].Value.Type.Slice()[0])
+	})
+}
+
+// Test_filterOpenAPISchema_CloudId tests that cloudId parameter is properly filtered
+func Test_filterOpenAPISchema_CloudId(t *testing.T) {
+	// Simple OpenAPI schema with cloudId parameter
+	schema := `{
+		"openapi": "3.0.0",
+		"info": {"title": "Test API", "version": "1.0"},
+		"paths": {
+			"/test/{cloudId}/endpoint": {
+				"get": {
+					"operationId": "testOperation",
+					"parameters": [
+						{
+							"name": "cloudId",
+							"in": "path",
+							"required": true,
+							"schema": {"type": "string"}
+						},
+						{
+							"name": "otherParam",
+							"in": "query",
+							"schema": {"type": "string"}
+						}
+					]
+				}
+			}
+		}
+	}`
+
+	// Create tool with the schema
+	tool := &types.Tool{
+		Name: "test-tool",
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				Schema: schema,
+			},
+		},
+	}
+
+	// Test with cloudId pre-configured
+	preConfiguredParams := map[string]interface{}{
+		"cloudId": "test-cloud-id-123",
+	}
+
+	filtered, err := filterOpenAPISchema(tool, "testOperation", preConfiguredParams)
+	require.NoError(t, err)
+
+	t.Logf("Filtered schema: %s", filtered)
+
+	// Check that cloudId parameter is NOT present in filtered schema
+	require.False(t, strings.Contains(filtered, `"name": "cloudId"`), "cloudId parameter should be filtered out")
+
+	// Check that otherParam is still present
+	require.True(t, strings.Contains(filtered, `"name": "otherParam"`), "otherParam should still be present")
+
+	// Check that path has been substituted
+	require.True(t, strings.Contains(filtered, "/test/test-cloud-id-123/endpoint"), "path should have cloudId substituted")
 }

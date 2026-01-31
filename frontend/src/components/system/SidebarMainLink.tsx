@@ -11,7 +11,6 @@ import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   COLORS,
-  TOOLBAR_HEIGHT,
 } from '../../config'
 
 const SidebarMainLink: FC<{
@@ -19,11 +18,13 @@ const SidebarMainLink: FC<{
   routeName: string,
   title: string,
   icon: React.ReactNode,
+  handler?: () => void,
 }> = ({
   id,
   routeName,
   title,
   icon,
+  handler,
 }) => {
   const account = useAccount()
   const router = useRouter()
@@ -38,8 +39,7 @@ const SidebarMainLink: FC<{
         id={id}
         selected={ isActive }
         sx={{
-          // so it lines up with the toolbar
-          height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
+          height: '64px',
           '&:hover': {
             '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
             '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },
@@ -53,8 +53,12 @@ const SidebarMainLink: FC<{
           },
         }}
         onClick={ () => {
-          router.navigate(routeName)
           account.setMobileMenuOpen(false)
+          if(handler) {
+            handler()
+          } else {
+            account.orgNavigate(routeName)
+          }
         }}
       >
         <ListItemText

@@ -1,0 +1,15 @@
+{
+    "external_sync": {
+        "enabled": true,
+        "websocket_sync": {
+            "enabled": true,
+            "external_url": "localhost:8080/api/v1/external-agents/sync"
+        }
+    },
+    "agent": {
+        "always_allow_tool_actions": true,
+        "show_onboarding": false,
+        "auto_open_panel": true
+    },
+    "theme": "One Dark"
+}

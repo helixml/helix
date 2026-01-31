@@ -1,4 +1,4 @@
-import React, { FC, createContext, useMemo, useCallback } from 'react'
+import React, { createContext, useMemo, useCallback, ReactNode } from 'react'
 import { useRoute } from 'react-router5'
 import router, { useApplicationRoute } from '../router'
 
@@ -13,8 +13,15 @@ export interface IRouterContext {
   getTitle?: () => JSX.Element,
   meta: Record<string, any>,
   navigate: IRouterNavigateFunction,
+  navigateReplace: IRouterNavigateFunction,
   setParams: {
     (params: Record<string, string>, replace?: boolean): void,
+  },
+  mergeParams: {
+    (params: Record<string, string>): void,
+  },
+  replaceParams: {
+    (params: Record<string, string>): void,
   },
   removeParams: {
     (params: string[]): void,
@@ -27,7 +34,10 @@ export const RouterContext = createContext<IRouterContext>({
   render: () => <div>Page Not Found</div>,
   meta: {},
   navigate: () => {},
+  navigateReplace: () => {},
   setParams: () => {},
+  mergeParams: () => {},
+  replaceParams: () => {},
   removeParams: () => {},
 })
 
@@ -45,10 +55,31 @@ export const useRouterContext = (): IRouterContext => {
       router.navigate(name)
   }, [])
 
+  const navigateReplace = useCallback((name: string, params?: Record<string, any>) => {
+    params ?
+      router.navigate(name, params, { replace: true }) :
+      router.navigate(name, {}, { replace: true })
+  }, [])
+
   const setParams = useCallback((params: Record<string, string>, replace = false) => {
     router.navigate(route.name, replace ? params : Object.assign({}, route.params, params))
   }, [
-    route,
+    route.name,
+    route.params,
+  ])
+
+  const mergeParams = useCallback((params: Record<string, string>) => {
+    router.navigate(route.name, Object.assign({}, route.params, params), { replace: true })
+  }, [
+    route.name,
+    route.params,
+  ])
+
+  const replaceParams = useCallback((params: Record<string, string>) => {
+    router.navigate(route.name, params, { replace: true })
+  }, [
+    route.name,
+    route.params,
   ])
 
   const removeParams = useCallback((params: string[]) => {
@@ -60,7 +91,8 @@ export const useRouterContext = (): IRouterContext => {
     }, {})
     router.navigate(route.name, newParams)
   }, [
-    route,
+    route.name,
+    route.params,
   ])
 
   const render = useCallback(() => {
@@ -74,7 +106,10 @@ export const useRouterContext = (): IRouterContext => {
     params: route.params,
     meta,
     navigate,
+    navigateReplace,
     setParams,
+    mergeParams,
+    replaceParams,
     removeParams,
     render,
   }), [
@@ -82,6 +117,7 @@ export const useRouterContext = (): IRouterContext => {
     route.params,
     meta,
     navigate,
+    navigateReplace,
     setParams,
     removeParams,
     render,
@@ -89,7 +125,7 @@ export const useRouterContext = (): IRouterContext => {
   return contextValue
 }
 
-export const RouterContextProvider: FC = ({ children }) => {
+export const RouterContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useRouterContext()
   return (
     <RouterContext.Provider value={ value }>

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"testing"
+
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -86,14 +88,16 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointList() {
 	require.NoError(suite.T(), err)
 	assert.Len(suite.T(), listedEndpoints, 3, "should list all user endpoints and a global one")
 
-	// Test listing endpoints for user only
-	userEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
-		Owner:      owner,
-		OwnerType:  types.OwnerTypeUser,
-		WithGlobal: false,
+	suite.T().Run("UserEndpoints", func(t *testing.T) {
+		// Test listing endpoints for user only
+		userEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+			Owner:      owner,
+			OwnerType:  types.OwnerTypeUser,
+			WithGlobal: false,
+		})
+		require.NoError(t, err)
+		assert.Len(t, userEndpoints, 2, "should list user endpoints only (endpoint1 and endpoint3)")
 	})
-	require.NoError(suite.T(), err)
-	assert.Len(suite.T(), userEndpoints, 2)
 
 	// Test listing for another owner
 	anotherOwnerEndpoints, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{

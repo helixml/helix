@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -23,20 +21,11 @@ type OrganizationsTestSuite struct {
 
 func (suite *OrganizationsTestSuite) SetupTest() {
 	suite.ctx = context.Background()
+	suite.db = GetTestDB()
+}
 
-	var storeCfg config.Store
-
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-
-	suite.T().Cleanup(func() {
-		_ = store.Close()
-	})
-
-	suite.db = store
+func (suite *OrganizationsTestSuite) TearDownTestSuite() {
+	// No need to close the database connection here as it's managed by TestMain
 }
 
 func (suite *OrganizationsTestSuite) TestCreateOrganization() {

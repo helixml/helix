@@ -28,15 +28,13 @@ type Models struct {
 type Runtimes struct {
 	V2Engine bool `envconfig:"RUNTIME_V2_ENGINE" default:"true"`
 	Axolotl  struct {
-		Enabled      bool          `envconfig:"RUNTIME_AXOLOTL_ENABLED" default:"true"`
-		WarmupModels []string      `envconfig:"RUNTIME_AXOLOTL_WARMUP_MODELS" default:""`
-		InstanceTTL  time.Duration `envconfig:"RUNTIME_AXOLOTL_INSTANCE_TTL" default:"10s"`
+		Enabled     bool          `envconfig:"RUNTIME_AXOLOTL_ENABLED" default:"true"`
+		InstanceTTL time.Duration `envconfig:"RUNTIME_AXOLOTL_INSTANCE_TTL" default:"10s"`
 	}
 	Ollama OllamaRuntimeConfig
 }
 
 type OllamaRuntimeConfig struct {
-	Enabled      bool          `envconfig:"RUNTIME_OLLAMA_ENABLED" default:"true"`
-	WarmupModels []string      `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"llama3.1:8b-instruct-q8_0"`
-	InstanceTTL  time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"10s"`
+	Enabled     bool          `envconfig:"RUNTIME_OLLAMA_ENABLED" default:"true"`
+	InstanceTTL time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"10s"`
 }

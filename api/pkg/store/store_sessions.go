@@ -10,62 +10,75 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// parent session and parent tool are part of this query because then we can say
-// "all top level sessions" or
-// "all sessions belonging to this top level session"
-func getSessionsQuery(query GetSessionsQuery) (*types.Session, []interface{}) {
-	fields := []interface{}{
-		"Owner", "OwnerType", "ParentSession",
+func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error) {
+	// Start with the basic query builder
+	q := s.gdb.WithContext(ctx).Model(&types.Session{})
+
+	// Add owner and owner type conditions
+	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
+
+	// Add parent session condition if specified
+	if query.ParentSession != "" {
+		q = q.Where("parent_session = ?", query.ParentSession)
 	}
-	session := &types.Session{
-		Owner:         query.Owner,
-		OwnerType:     query.OwnerType,
-		ParentSession: query.ParentSession,
+
+	if query.QuestionSetID != "" {
+		q = q.Where("question_set_id", query.QuestionSetID)
 	}
-	return session, fields
-}
 
-func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
+	if query.QuestionSetExecutionID != "" {
+		q = q.Where("question_set_execution_id = ?", query.QuestionSetExecutionID)
+	}
 
-	whereQuery, fields := getSessionsQuery(query)
+	if query.OrganizationID != "" {
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	} else {
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
 
-	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
+	if query.AppID != "" {
+		q = q.Where("parent_app = ?", query.AppID)
+	}
 
+	if query.ProjectID != "" {
+		q = q.Where("project_id = ?", query.ProjectID)
+	}
+
+	// Add ordering
 	q = q.Order("created DESC")
 
-	if query.Limit > 0 {
-		q = q.Limit(query.Limit)
+	if query.PerPage == 0 {
+		query.PerPage = -1
 	}
 
-	if query.Offset > 0 {
-		q = q.Offset(query.Offset)
+	var offset int
+
+	if query.Page > 0 {
+		offset = (query.Page - 1) * query.PerPage
 	}
 
+	if query.Search != "" {
+		q = q.Where("name LIKE ?", "%"+query.Search+"%")
+	}
+
+	totalCount := int64(0)
+
+	err := q.Count(&totalCount).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Execute query and return results
 	var sessions []*types.Session
-	err := q.Find(&sessions).Error
+	err = q.Offset(offset).Limit(query.PerPage).Find(&sessions).Error
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return sessions, nil
-}
-
-func (s *PostgresStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
-	whereQuery, fields := getSessionsQuery(query)
-
-	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
-
-	var counter int64
-	err := q.Count(&counter).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.Counter{
-		Count: counter,
-	}, nil
+	return sessions, totalCount, nil
 }
 
 func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session) (*types.Session, error) {
@@ -77,7 +90,7 @@ func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session
 		session.Created = time.Now()
 	}
 
-	err := s.gdb.WithContext(ctx).Create(&session).Error
+	err := s.gdb.WithContext(ctx).Omit(clause.Associations).Create(&session).Error
 	if err != nil {
 		return nil, err
 	}
@@ -102,37 +115,67 @@ func (s *PostgresStore) GetSession(ctx context.Context, sessionID string) (*type
 	return &session, nil
 }
 
+// GetSessionsByIDs retrieves multiple sessions by their IDs in a single query
+// Used for batch operations like populating SessionUpdatedAt for task lists
+func (s *PostgresStore) GetSessionsByIDs(ctx context.Context, sessionIDs []string) ([]*types.Session, error) {
+	if len(sessionIDs) == 0 {
+		return []*types.Session{}, nil
+	}
+
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).Where("id IN ?", sessionIDs).Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+// GetSessionIncludingDeleted retrieves a session including soft-deleted ones
+// Used by cleanup code to get lobby credentials even after session deletion
+func (s *PostgresStore) GetSessionIncludingDeleted(ctx context.Context, sessionID string) (*types.Session, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID cannot be empty")
+	}
+
+	var session types.Session
+	err := s.gdb.WithContext(ctx).Unscoped().Where("id = ?", sessionID).First(&session).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}
+
 func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session) (*types.Session, error) {
 	if session.ID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
 
 	// Log session metadata before update
+	ragResultsCount := 0
+	if session.Metadata.SessionRAGResults != nil {
+		ragResultsCount = len(session.Metadata.SessionRAGResults)
+	}
+
 	log.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).
 		Str("parent_app", session.ParentApp).
+		Int("rag_results_count", ragResultsCount).
+		Bool("has_rag_results", session.Metadata.SessionRAGResults != nil).
 		Msg("🔍 Before UpdateSession - session metadata")
 
 	// Create a debug SQL logger to see the actual SQL query
 	debugDB := s.gdb.WithContext(ctx).Debug()
 
-	err := debugDB.Save(&session).Error
+	err := debugDB.Omit(clause.Associations).Save(&session).Error
 	if err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("❌ Failed to update session")
 		return nil, err
-	}
-
-	// Verify what was saved by retrieving it again
-	updatedSession, getErr := s.GetSession(ctx, session.ID)
-	if getErr != nil {
-		log.Error().Err(getErr).Str("session_id", session.ID).Msg("❌ Failed to retrieve updated session")
-	} else {
-		log.Debug().
-			Str("session_id", session.ID).
-			Interface("document_ids_after", updatedSession.Metadata.DocumentIDs).
-			Str("parent_app", updatedSession.ParentApp).
-			Msg("✅ After UpdateSession - session metadata verified")
 	}
 
 	return s.GetSession(ctx, session.ID)
@@ -173,6 +216,20 @@ func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name s
 	return nil
 }
 
+// UpdateSessionMetadata updates only the session metadata (config column)
+func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+
+	// Use the column name "config" which is how Metadata is stored in the database
+	err := s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", metadata).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*types.Session, error) {
 	existing, err := s.GetSession(ctx, sessionID)
 	if err != nil {
@@ -187,4 +244,45 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 	}
 
 	return existing, nil
+}
+
+// GetProjectExploratorySession gets the active exploratory session for a project
+// Returns the session if found and active, nil if not found or inactive
+func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
+	var session types.Session
+
+	// Query for sessions with matching project_id in config (metadata) and role=exploratory
+	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
+	err := s.gdb.WithContext(ctx).
+		Where("config->>'project_id' = ?", projectID).
+		Where("config->>'session_role' = ?", "exploratory").
+		Order("created DESC").
+		First(&session).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // No exploratory session found (not an error)
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}
+
+// ListSessionsWithDesiredState returns sessions where metadata.desired_state matches
+// Used by the reconciler to find sessions that should be running
+func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) {
+	var sessions []*types.Session
+
+	// PostgreSQL JSONB query for metadata.desired_state
+	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
+	err := s.gdb.WithContext(ctx).
+		Where("config->>'desired_state' = ?", desiredState).
+		Find(&sessions).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
 }

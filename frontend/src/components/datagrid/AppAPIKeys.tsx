@@ -6,7 +6,6 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
-import CodeIcon from '@mui/icons-material/Code'
 
 import {
   IApiKey,
@@ -36,14 +35,6 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
   const columns = useMemo<IDataGrid2_Column<IApiKey>[]>(() => {
     return [
       {
-        name: 'name',
-        header: 'Name',
-        defaultFlex: 0,
-        render: ({ data }) => {
-          return data.name
-        }
-      },
-      {
         name: 'key',
         header: 'Key',
         defaultFlex: 1,
@@ -62,29 +53,12 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
         sx: {
           textAlign: 'right',
         },
-        render: ({ data }) => {
-          const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
-<script>
-  ChatWidget({
-    url: '${window.location.origin}/v1/chat/completions',
-    model: 'llama3:instruct',
-    bearerToken: '${data.key}',
-  })
-</script>`
-
+        render: ({ data }) => {          
           return (
             <Box sx={{
               width: '100%',
               textAlign: 'right',
-            }}>
-              <Tooltip title="Copy Embed Code">
-                <IconButton 
-                  size="small"
-                  onClick={() => handleCopy(embedCode, 'embed code copied to clipboard')}
-                >
-                  <CodeIcon sx={{width: '16px', height: '16px'}} />
-                </IconButton>
-              </Tooltip>
+            }}>              
               <Tooltip title="Copy API Key">
                 <IconButton 
                   size="small" 

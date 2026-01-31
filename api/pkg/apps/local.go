@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
-	"gopkg.in/yaml.v2"
 )
 
 // LocalApp parses a local file and returns the configured
@@ -32,9 +32,9 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 		return nil, fmt.Errorf("error reading file %s: %w", filename, err)
 	}
 
-	// Parse the yaml
+	// Parse the yaml using shared config processor
 	// this will handle both AppHelixConfig & AppHelixConfigCRD
-	app, err := processConfig(yamlFile)
+	app, err := config.ProcessYAMLConfig(yamlFile)
 	if err != nil {
 		return nil, fmt.Errorf("error processing config file %s: %w", filename, err)
 	}
@@ -58,41 +58,4 @@ func (a *LocalApp) GetAppConfig() *types.AppHelixConfig {
 // Add this method to implement FilePathResolver
 func (a *LocalApp) ResolvePath(path string) string {
 	return filepath.Join(filepath.Dir(a.filename), path)
-}
-
-func processConfig(yamlFile []byte) (*types.AppHelixConfig, error) {
-	// First, unmarshal as generic map to check structure
-	var rawMap map[string]interface{}
-	if err := yaml.Unmarshal(yamlFile, &rawMap); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	// Check if it has the CRD structure
-	_, hasAPIVersion := rawMap["apiVersion"]
-	_, hasKind := rawMap["kind"]
-	_, hasSpec := rawMap["spec"]
-
-	isCRD := hasAPIVersion && hasKind && hasSpec
-
-	if isCRD {
-		// If it looks like a CRD, we must treat it as one
-		var crd types.AppHelixConfigCRD
-		if err := yaml.Unmarshal(yamlFile, &crd); err != nil {
-			return nil, fmt.Errorf("file appears to be a CRD but failed to parse: %w", err)
-		}
-		spec := crd.Spec
-		// If metadata.name is set, use it to overwrite spec.Name
-		if crd.Metadata.Name != "" {
-			spec.Name = crd.Metadata.Name
-		}
-		return &spec, nil
-	}
-
-	// Not a CRD, try to unmarshal as AppHelixConfig
-	var config types.AppHelixConfig
-	if err := yaml.Unmarshal(yamlFile, &config); err != nil {
-		return nil, fmt.Errorf("error parsing yaml file as AppHelixConfig: %w", err)
-	}
-
-	return &config, nil
 }

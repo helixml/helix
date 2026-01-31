@@ -88,3 +88,5 @@ components:
           type: string
         customer_email:
           type: string
+        receipt_id:
+          type: string

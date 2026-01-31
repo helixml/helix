@@ -1,0 +1,247 @@
+# ====================================================================
+# Helix Sandbox - Container Host
+# Architecture: Docker-in-Docker + Hydra (multi-container isolation)
+# Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
+# Init system based on GOW (games-on-whales) cont-init.d pattern
+# ====================================================================
+
+# ====================================================================
+# Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
+# Note: revdial-client is built into Hydra daemon
+# ====================================================================
+FROM golang:1.25 AS go-builder
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+COPY api/ ./api/
+# Build hydra (multi-Docker isolation daemon with built-in RevDial)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
+# Build sandbox-heartbeat (disk monitoring)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+
+# Build dns-proxy (forwards DNS from nested containers to outer Docker DNS)
+COPY sandbox/dns-proxy/ ./dns-proxy/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd dns-proxy && CGO_ENABLED=0 go build -ldflags "-s -w" -o /dns-proxy .
+
+# ====================================================================
+# Stage 2: Final sandbox image (based on GOW base pattern)
+# ====================================================================
+FROM ubuntu:25.04 AS sandbox
+
+# Configure default user and set env (from GOW base)
+ENV \
+    PUID=0 \
+    PGID=0 \
+    UMASK=000 \
+    UNAME="root" \
+    HOME="/root" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
+
+ARG TARGETARCH TARGETVARIANT
+
+# ====================================================================
+# Install base packages (from GOW base)
+# ====================================================================
+ARG GOSU_VERSION=1.14
+
+RUN <<_INSTALL_BASE_PACKAGES
+set -e
+echo "**** Update apt database ****"
+apt-get update
+
+echo "**** Install certificates ****"
+apt-get install -y --reinstall --no-install-recommends \
+    ca-certificates
+
+echo "**** Install base packages ****"
+apt-get install -y --no-install-recommends \
+    fuse \
+    libnss3 \
+    wget \
+    curl \
+    jq
+
+echo "**** Install gosu ****"
+TARGETARCH=${TARGETARCH:-amd64}
+wget --progress=dot:giga \
+    -O /usr/bin/gosu \
+    "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${TARGETARCH}${TARGETVARIANT}"
+chmod +x /usr/bin/gosu
+
+echo "**** Verify gosu works ****"
+gosu nobody true && echo "Working!"
+
+echo "**** Section cleanup ****"
+rm -rf /var/lib/apt/lists/*
+_INSTALL_BASE_PACKAGES
+
+# ====================================================================
+# Install debug tools and networking utilities
+# ====================================================================
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    gdb \
+    strace \
+    ltrace \
+    lsof \
+    procps \
+    htop \
+    binutils \
+    socat \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Install ROCm SMI for AMD GPU monitoring (optional)
+# ====================================================================
+# Note: ROCm may not be available for all Ubuntu versions. This is optional
+# and the build will continue even if ROCm installation fails.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    (wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg || true) && \
+    UBUNTU_CODENAME=$(lsb_release -cs) && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 ${UBUNTU_CODENAME} main" > /etc/apt/sources.list.d/rocm.list && \
+    (apt-get update -y && apt-get install -y --no-install-recommends rocm-smi amd-smi 2>/dev/null && \
+     ln -sf /opt/rocm/bin/rocm-smi /usr/local/bin/rocm-smi && \
+     ln -sf /opt/rocm/bin/amd-smi /usr/local/bin/amd-smi 2>/dev/null || \
+     echo "ROCm not available for ${UBUNTU_CODENAME}, skipping AMD GPU monitoring") && \
+    rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/rocm.list 2>/dev/null || true
+
+# ====================================================================
+# Install Docker + NVIDIA Container Toolkit
+# ====================================================================
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+    docker-ce-cli \
+    docker-ce \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-compose-plugin \
+    iproute2 \
+    iptables \
+    && rm -rf /var/lib/apt/lists/*
+
+# NVIDIA Container Toolkit
+RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+    && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+    && apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+    nvidia-container-toolkit \
+    nvidia-container-runtime \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Copy desktop image references (registry-based distribution)
+# Instead of embedding 3GB tarballs, we store registry refs (~100 bytes)
+# The sandbox pulls images from registry on startup (with layer caching)
+# See design/2026-01-12-sandbox-registry-based-images.md
+# ====================================================================
+# Copy sandbox-images directory containing:
+# - .ref: registry path for production (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3")
+# - .version: image hash tag for dev (e.g., "abc123")
+# At runtime, startup script pulls from registry (production) or expects
+# images transferred via local dev registry (development)
+COPY sandbox-images/ /opt/images/
+
+# ====================================================================
+# Copy GOW-style overlay (init system)
+# ====================================================================
+COPY sandbox/overlay/ /
+
+# Make scripts executable
+RUN chmod +x /entrypoint.sh \
+    && chmod +x /opt/gow/ensure-groups \
+    && chmod +x /opt/gow/bash-lib/utils.sh \
+    && chmod +x /etc/cont-init.d/*.sh
+
+# ====================================================================
+# Copy Go binaries
+# ====================================================================
+COPY --from=go-builder /hydra /usr/local/bin/hydra
+COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
+COPY --from=go-builder /dns-proxy /usr/local/bin/dns-proxy
+RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat /usr/local/bin/dns-proxy
+
+# ====================================================================
+# Copy Helix sandbox init scripts (run after GOW base scripts)
+# ====================================================================
+
+# Start DNS proxy (before dockerd, enables enterprise DNS for nested containers)
+COPY sandbox/03-start-dns-proxy.sh /etc/cont-init.d/35-start-dns-proxy.sh
+RUN chmod +x /etc/cont-init.d/35-start-dns-proxy.sh
+
+# Start dockerd script
+COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
+RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
+
+# Start sandbox heartbeat daemon
+# Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)
+COPY sandbox/08-start-sandbox-heartbeat.sh /etc/cont-init.d/55-start-sandbox-heartbeat.sh
+RUN chmod +x /etc/cont-init.d/55-start-sandbox-heartbeat.sh
+
+# Setup telemetry firewall for nested agent containers
+COPY desktop/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/60-setup-telemetry-firewall.sh
+RUN chmod +x /etc/cont-init.d/60-setup-telemetry-firewall.sh
+
+# Start Hydra multi-Docker isolation daemon
+COPY sandbox/10-start-hydra.sh /etc/cont-init.d/70-start-hydra.sh
+RUN chmod +x /etc/cont-init.d/70-start-hydra.sh
+
+# ====================================================================
+# Main startup script
+# ====================================================================
+COPY sandbox/startup-app.sh /opt/gow/startup-app.sh
+RUN chmod +x /opt/gow/startup-app.sh
+
+# ====================================================================
+# Environment variables
+# ====================================================================
+
+ENV HELIX_API_URL="" \
+    SANDBOX_INSTANCE_ID="" \
+    RUNNER_TOKEN="" \
+    GPU_TYPE="nvidia" \
+    MAX_SANDBOXES="10" \
+    HELIX_DEV_MODE="false" \
+    ZED_IMAGE="helix-sway:latest" \
+    HYDRA_ENABLED="true" \
+    HYDRA_PRIVILEGED_MODE_ENABLED="false" \
+    HELIX_KEEP_DEAD_CONTAINERS="false" \
+    HELIX_SANDBOX_REGISTRY=""
+
+# XDG_RUNTIME_DIR (creates volume when starting container)
+VOLUME /run/user/sandbox/
+ENV XDG_RUNTIME_DIR=/run/user/sandbox
+
+# ====================================================================
+# Labels
+# ====================================================================
+
+LABEL org.opencontainers.image.source="https://github.com/helixml/helix"
+LABEL org.opencontainers.image.description="Helix Sandbox: Docker-in-Docker container host for desktop agents"
+
+# ====================================================================
+# Entrypoint (GOW-style, runs cont-init.d scripts then startup-app.sh)
+# ====================================================================
+
+ENTRYPOINT ["/entrypoint.sh"]

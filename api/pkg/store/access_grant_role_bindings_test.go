@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,18 +23,7 @@ type AccessGrantRoleBindingTestSuite struct {
 
 func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.ctx = context.Background()
-
-	var storeCfg config.Store
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
@@ -61,7 +48,7 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.role = createdRole
 }
 
-func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
+func (suite *AccessGrantRoleBindingTestSuite) TearDownTestSuite() {
 	// Clean up in reverse order of creation
 	if suite.role != nil {
 		err := suite.db.DeleteRole(suite.ctx, suite.role.ID)
@@ -71,13 +58,14 @@ func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	// No need to close the database connection here as it's managed by TestMain
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding() {
 	// Create a test access grant
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		UserID:         "test-user",
 	}
@@ -110,7 +98,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding()
 
 	teamAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		TeamID:         "test-TestCreateAccessGrantRoleBinding",
 	}
@@ -176,10 +163,19 @@ func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrant_Validation()
 	}
 }
 
+func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings_EmptyID() {
+
+	_, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
+		AccessGrantID:  "",
+		OrganizationID: suite.org.ID,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "access_grant_id must be specified")
+}
+
 func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		UserID:         "test-user",
 	}
@@ -201,7 +197,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 
 	teamAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-dataset",
 		TeamID:         "test-TestCreateAccessGrantRoleBinding",
 	}
@@ -224,7 +219,8 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 
 	// Test getting by access grant ID
 	bindings, err := suite.db.GetAccessGrantRoleBindings(suite.ctx, &GetAccessGrantRoleBindingsQuery{
-		AccessGrantID: createdUserGrant.ID,
+		AccessGrantID:  createdUserGrant.ID,
+		OrganizationID: suite.org.ID,
 	})
 	suite.NoError(err)
 	suite.Len(bindings, 1, "should have 1 binding, team should have another one")
@@ -241,7 +237,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestGetAccessGrantRoleBindings() {
 func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding() {
 	userAccessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     "test-app-id",
 		UserID:         "test-TestDeleteAccessGrantRoleBinding",
 	}
@@ -267,7 +262,6 @@ func (suite *AccessGrantRoleBindingTestSuite) TestDeleteAccessGrantRoleBinding()
 	// Get the access grant and check whether the binding is present
 	accessGrants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
 		OrganizationID: suite.org.ID,
-		ResourceType:   types.ResourceTypeDataset,
 		ResourceID:     userAccessGrant.ResourceID,
 		UserID:         userAccessGrant.UserID,
 	})

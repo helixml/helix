@@ -76,7 +76,7 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_NoOrg() {
 
 	suite.Equal(http.StatusBadRequest, rec.Code)
 	// check the response body
-	suite.Contains(rec.Body.String(), `app is not associated with an organization`)
+	suite.Contains(rec.Body.String(), `agent is not associated with an organization`)
 }
 
 func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgOwner() {
@@ -189,8 +189,6 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_NoAccess() {
 		OrganizationID: app.OrganizationID,
 		UserID:         suite.userID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceAccessGrants,
-		// TeamIDs:        []string{},
 	}).Return([]*types.AccessGrant{}, nil) // No direct access grants
 
 	rec := httptest.NewRecorder()
@@ -233,11 +231,8 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_HasDirectAcc
 		OrganizationID: app.OrganizationID,
 		UserID:         suite.userID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceAccessGrants,
-		// TeamIDs:        []string{},
 	}).Return([]*types.AccessGrant{
 		{
-			ResourceType: types.ResourceAccessGrants,
 			Roles: []types.Role{
 				{
 					Config: types.Config{
@@ -307,11 +302,9 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_HasTeamAcces
 		OrganizationID: app.OrganizationID,
 		UserID:         suite.userID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceAccessGrants,
 		TeamIDs:        []string{"team_id_test"},
 	}).Return([]*types.AccessGrant{
 		{
-			ResourceType: types.ResourceAccessGrants,
 			Roles: []types.Role{
 				{
 					Config: types.Config{
@@ -390,7 +383,6 @@ func (suite *AppAccessGrantSuite) TestGrantAccess_OrgOwner_ToUser() {
 	suite.store.EXPECT().CreateAccessGrant(gomock.Any(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
 		UserID:         "user_id_test",
 	}, []*types.Role{
 		{
@@ -456,8 +448,8 @@ func (suite *AppAccessGrantSuite) TestGrantAccess_OrgOwner_ToTeam() {
 	suite.store.EXPECT().CreateAccessGrant(gomock.Any(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
-		TeamID:         "team_id_test",
+		// ResourceType:   types.ResourceApplication,
+		TeamID: "team_id_test",
 	}, []*types.Role{
 		{
 			Name: "admin",
@@ -521,7 +513,6 @@ func (suite *AppAccessGrantSuite) TestGrantAccess_AppOwner_ToUser() {
 	suite.store.EXPECT().CreateAccessGrant(gomock.Any(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
 		UserID:         "user_id_test",
 	}, []*types.Role{
 		{
@@ -589,7 +580,6 @@ func (suite *AppAccessGrantSuite) TestGrantAccess_HasAccess_ToUser() {
 	suite.store.EXPECT().CreateAccessGrant(gomock.Any(), &types.AccessGrant{
 		OrganizationID: app.OrganizationID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceApplication,
 		UserID:         "user_id_test",
 	}, []*types.Role{
 		{
@@ -663,11 +653,9 @@ func setupAuthorizationMocks(mockStore *store.MockStore, app *types.App, callerU
 		OrganizationID: app.OrganizationID,
 		UserID:         callerUserID,
 		ResourceID:     app.ID,
-		ResourceType:   types.ResourceAccessGrants,
 		TeamIDs:        []string{"team_id_test"},
 	}).Return([]*types.AccessGrant{
 		{
-			ResourceType: types.ResourceAccessGrants,
 			Roles: []types.Role{
 				{
 					Config: types.Config{

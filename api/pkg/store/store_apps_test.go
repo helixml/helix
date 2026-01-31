@@ -6,7 +6,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func (suite *PostgresStoreTestSuite) TestCreateApp() {
@@ -19,7 +18,7 @@ func (suite *PostgresStoreTestSuite) TestCreateApp() {
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)
-	suite.NoError(err)
+	suite.Require().NoError(err)
 	suite.NotNil(createdApp)
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
@@ -192,116 +191,175 @@ func (suite *PostgresStoreTestSuite) TestDeleteApp() {
 	suite.Equal(0, len(tools))
 }
 
-func (suite *PostgresStoreTestSuite) TestRectifyApp() {
-	testCases := []struct {
-		name          string
-		app           *types.App
-		validateAfter func(*testing.T, *types.App)
+func TestFilterOutEmptyTriggers(t *testing.T) {
+	tests := []struct {
+		name     string
+		triggers []types.Trigger
+		expected int
 	}{
 		{
-			name: "convert tools to apis",
-			app: &types.App{
-				Owner:     "test-owner",
-				OwnerType: types.OwnerTypeUser,
-				Config: types.AppConfig{
-					Helix: types.AppHelixConfig{
-						Assistants: []types.AssistantConfig{
-							{
-								ID:    "test-assistant",
-								Name:  "Test Assistant",
-								Model: "gpt-4",
-								Tools: []*types.Tool{
-									{
-										Name:        "test-api",
-										Description: "Test API",
-										ToolType:    types.ToolTypeAPI,
-										Config: types.ToolConfig{
-											API: &types.ToolAPIConfig{
-												URL:    "http://example.com/api",
-												Schema: "openapi: 3.0.0\ninfo:\n  title: Test API\n  version: 1.0.0",
-												Headers: map[string]string{
-													"Authorization": "Bearer test",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			validateAfter: func(t *testing.T, app *types.App) {
-				require.Len(t, app.Config.Helix.Assistants, 1)
-				assistant := app.Config.Helix.Assistants[0]
-
-				// Tools should be empty after rectification
-				assert.Empty(t, assistant.Tools, "Tools should be empty after rectification")
-
-				// APIs should contain the converted tool
-				require.Len(t, assistant.APIs, 1)
-				api := assistant.APIs[0]
-				assert.Equal(t, "test-api", api.Name)
-				assert.Equal(t, "http://example.com/api", api.URL)
-				assert.Equal(t, "Test API", api.Description)
-			},
+			name:     "empty slice",
+			triggers: []types.Trigger{},
+			expected: 0,
 		},
 		{
-			name: "preserve existing apis",
-			app: &types.App{
-				Owner:     "test-owner",
-				OwnerType: types.OwnerTypeUser,
-				Config: types.AppConfig{
-					Helix: types.AppHelixConfig{
-						Assistants: []types.AssistantConfig{
-							{
-								ID:    "test-assistant",
-								Name:  "Test Assistant",
-								Model: "gpt-4",
-								APIs: []types.AssistantAPI{
-									{
-										Name:        "existing-api",
-										Description: "Existing API",
-										URL:         "http://example.com/existing",
-										Schema:      "openapi: 3.0.0",
-									},
-								},
-							},
-						},
+			name:     "nil slice",
+			triggers: nil,
+			expected: 0,
+		},
+		{
+			name: "empty trigger is filtered out",
+			triggers: []types.Trigger{
+				{}, // Empty trigger
+			},
+			expected: 0,
+		},
+		{
+			name: "cron trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Cron: &types.CronTrigger{
+						Schedule: "0 * * * *",
 					},
 				},
 			},
-			validateAfter: func(t *testing.T, app *types.App) {
-				require.Len(t, app.Config.Helix.Assistants, 1)
-				assistant := app.Config.Helix.Assistants[0]
+			expected: 1,
+		},
+		{
+			name: "slack trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "discord trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Discord: &types.DiscordTrigger{
+						ServerName: "test-server",
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "teams trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "teams trigger preserved even when disabled",
+			triggers: []types.Trigger{
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled:     false,
+						AppID:       "test-app-id",
+						AppPassword: "test-password",
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "azure devops trigger preserved",
+			triggers: []types.Trigger{
+				{
+					AzureDevOps: &types.AzureDevOpsTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "crisp trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Crisp: &types.CrispTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "multiple triggers preserved",
+			triggers: []types.Trigger{
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+				{
+					Discord: &types.DiscordTrigger{
+						ServerName: "test-server",
+					},
+				},
+			},
+			expected: 3,
+		},
+		{
+			name: "empty triggers filtered, valid preserved",
+			triggers: []types.Trigger{
+				{}, // Empty
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+				{}, // Empty
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 2,
+		},
+	}
 
-				// Tools should be empty
-				assert.Empty(t, assistant.Tools)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterOutEmptyTriggers(tt.triggers)
+			assert.Equal(t, tt.expected, len(result))
+		})
+	}
+}
 
-				// Existing API should be preserved
-				require.Len(t, assistant.APIs, 1)
-				api := assistant.APIs[0]
-				assert.Equal(t, "existing-api", api.Name)
-				assert.Equal(t, "http://example.com/existing", api.URL)
+func TestFilterOutEmptyTriggersPreservesTeamsConfig(t *testing.T) {
+	// Specific test to verify Teams trigger configuration is preserved
+	triggers := []types.Trigger{
+		{
+			Teams: &types.TeamsTrigger{
+				Enabled:     true,
+				AppID:       "my-app-id",
+				AppPassword: "my-secret",
+				TenantID:    "my-tenant",
 			},
 		},
 	}
 
-	for _, tc := range testCases {
-		suite.Run(tc.name, func() {
-			// Create the app
-			createdApp, err := suite.db.CreateApp(suite.ctx, tc.app)
-			suite.NoError(err)
-			suite.NotNil(createdApp)
-
-			// Validate the rectified app
-			tc.validateAfter(suite.T(), createdApp)
-
-			// Clean up
-			suite.T().Cleanup(func() {
-				err := suite.db.DeleteApp(suite.ctx, createdApp.ID)
-				suite.NoError(err)
-			})
-		})
-	}
+	result := filterOutEmptyTriggers(triggers)
+	assert.Equal(t, 1, len(result))
+	assert.NotNil(t, result[0].Teams)
+	assert.Equal(t, "my-app-id", result[0].Teams.AppID)
+	assert.Equal(t, "my-secret", result[0].Teams.AppPassword)
+	assert.Equal(t, "my-tenant", result[0].Teams.TenantID)
+	assert.True(t, result[0].Teams.Enabled)
 }

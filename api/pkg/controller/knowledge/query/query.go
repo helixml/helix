@@ -15,7 +15,7 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
-var model = "meta-llama/Llama-3-8b-chat-hf"
+var model = "openai/gpt-oss-20b"
 
 type Query struct {
 	store        store.Store
@@ -95,9 +95,9 @@ func (q *Query) getDocuments(ctx context.Context, prompt string, knowledges []*t
 		switch {
 		// If the knowledge is a content, add it to the background knowledge
 		// without anything else (no database to search in)
-		case knowledge.Source.Content != nil:
+		case knowledge.Source.Text != nil:
 			documents = append(documents, schema.Document{
-				PageContent: *knowledge.Source.Content,
+				PageContent: *knowledge.Source.Text,
 			})
 
 		default:
@@ -106,12 +106,17 @@ func (q *Query) getDocuments(ctx context.Context, prompt string, knowledges []*t
 				return nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
+			pipeline := types.TextPipeline
+			if knowledge.RAGSettings.EnableVision {
+				pipeline = types.VisionPipeline
+			}
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
+				Pipeline:          pipeline,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("error querying RAG: %w", err)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/cli"
@@ -19,7 +18,7 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List helix apps",
+	Short:   "List helix agents",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
@@ -45,26 +44,10 @@ var listCmd = &cobra.Command{
 
 		apps, err := apiClient.ListApps(cmd.Context(), filter)
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
+			return fmt.Errorf("failed to list agents: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"ID", "Name", "Created", "Owner"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Name", "Created", "Owner"})
 
 		for _, app := range apps {
 			row := []string{
@@ -74,10 +57,10 @@ var listCmd = &cobra.Command{
 				app.User.Email,
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

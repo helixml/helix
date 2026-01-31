@@ -1,0 +1,28 @@
+---
+description: Generated API client usage
+globs: frontend/*
+alwaysApply: false
+---
+**MANDATORY: Use generated TypeScript client + React Query**
+
+```typescript
+// ❌ WRONG: Manual API calls
+const url = `/api/v1/skills${queryString}`;
+const response = await api.get<BackendSkillsListResponse>(url);
+
+// ✅ CORRECT: Generated client
+const api = useApi();
+const apiClient = api.getApiClient();
+
+return useQuery({
+  queryKey: skillListQuery(category, provider),
+  queryFn: () => apiClient.v1SkillsList({ category, provider }),
+  refetchInterval: options?.refetchInterval
+})
+```
+
+**Missing function?** Add Swagger annotations in Go backend, then: `./stack update_openapi`
+
+**React Query hooks location:** `frontend/src/service/<resource>Service.ts`
+- OAuth providers → `oauthProvidersService.ts`
+- Apps → `appService.ts`

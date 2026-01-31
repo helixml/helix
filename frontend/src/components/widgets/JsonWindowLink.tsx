@@ -5,12 +5,16 @@ import ClickLink from './ClickLink'
 
 interface JsonWindowLinkProps {
   data: any,
+  withFancyRendering?: boolean,
+  withFancyRenderingControls?: boolean,
   sx?: SxProps,
   className?: string,
 }
 
 const JsonWindowLink: FC<React.PropsWithChildren<JsonWindowLinkProps>> = forwardRef(({
   data,
+  withFancyRendering = true,
+  withFancyRenderingControls = true,
   sx = {},
   className,
   children,
@@ -30,7 +34,16 @@ const JsonWindowLink: FC<React.PropsWithChildren<JsonWindowLinkProps>> = forward
       >
         {children}
       </ClickLink>
-      {open && <JsonWindow data={data} onClose={handleClose} />}
+      {
+        open && (
+          <JsonWindow
+            data={data}
+            onClose={handleClose}
+            withFancyRendering={withFancyRendering}
+            withFancyRenderingControls={withFancyRenderingControls}
+          />
+        )
+      }
     </>
   )
 })

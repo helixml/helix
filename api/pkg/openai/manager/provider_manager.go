@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
@@ -20,6 +21,7 @@ import (
 type GetClientRequest struct {
 	Provider string
 	Owner    string
+	AppID    string
 }
 
 // RunnerControllerStatus defines the minimum interface needed to check runner status
@@ -44,28 +46,52 @@ type providerClient struct {
 }
 
 type MultiClientManager struct {
-	cfg              *config.ServerConfig
-	store            store.Store
-	logStores        []logger.LogStore
-	globalClients    map[types.Provider]*providerClient
-	globalClientsMu  *sync.RWMutex
-	wg               sync.WaitGroup
-	runnerController RunnerControllerStatus
+	cfg               *config.ServerConfig
+	store             store.Store
+	modelInfoProvider model.ModelInfoProvider
+	billingLogger     logger.LogStore
+	logStores         []logger.LogStore
+	globalClients     map[types.Provider]*providerClient
+	globalClientsMu   *sync.RWMutex
+	wg                sync.WaitGroup
+	runnerController  RunnerControllerStatus
+	mu                sync.RWMutex
 }
 
-func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
+func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *MultiClientManager {
 	clients := make(map[types.Provider]*providerClient)
+
+	billingLogger, err := logger.NewBillingLogger(store, cfg.Stripe.BillingEnabled)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to initialize billing logger")
+	}
+
+	// TLS options for all OpenAI-compatible clients
+	tlsOpts := openai.ClientOptions{
+		TLSSkipVerify: cfg.Tools.TLSSkipVerify,
+	}
+
+	// Log TLS configuration prominently for debugging enterprise deployments
+	log.Info().
+		Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
+		Str("env_var", "TOOLS_TLS_SKIP_VERIFY").
+		Str("how_to_set", "set in .env for Docker Compose, or extraEnv in Helm chart").
+		Msg("Provider manager TLS configuration loaded")
 
 	if cfg.Providers.OpenAI.APIKey != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).
+			Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
 			Msg("initializing OpenAI client")
 
-		openaiClient := openai.New(
+		openaiClient := openai.NewWithOptions(
 			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL)
+			cfg.Providers.OpenAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
+			tlsOpts,
+			cfg.Providers.OpenAI.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, modelInfoProvider, billingLogger, logStores...)
 
 		clients[types.ProviderOpenAI] = &providerClient{client: loggedClient}
 	}
@@ -75,13 +101,33 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
 			Msg("using TogetherAI provider for controller inference")
 
-		togetherAiClient := openai.New(
+		togetherAiClient := openai.NewWithOptions(
 			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
+			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
+			tlsOpts,
+			cfg.Providers.TogetherAI.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, modelInfoProvider, billingLogger, logStores...)
 
 		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
+	}
+
+	if cfg.Providers.Anthropic.APIKey != "" {
+		log.Info().
+			Str("base_url", cfg.Providers.Anthropic.BaseURL).
+			Msg("using Anthropic provider for controller inference")
+
+		anthropicClient := openai.NewWithOptions(
+			cfg.Providers.Anthropic.APIKey,
+			cfg.Providers.Anthropic.BaseURL,
+			cfg.Stripe.BillingEnabled,
+			tlsOpts,
+			cfg.Providers.Anthropic.Models...)
+
+		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
+
+		clients[types.ProviderAnthropic] = &providerClient{client: loggedClient}
 	}
 
 	// For VLLM, as long as the base URL is set, we can use it
@@ -90,27 +136,31 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.VLLM.BaseURL).
 			Msg("using VLLM provider for controller inference")
 
-		vllmClient := openai.New(
+		vllmClient := openai.NewWithOptions(
 			cfg.Providers.VLLM.APIKey,
-			cfg.Providers.VLLM.BaseURL)
+			cfg.Providers.VLLM.BaseURL,
+			cfg.Stripe.BillingEnabled,
+			tlsOpts,
+			cfg.Providers.VLLM.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, modelInfoProvider, billingLogger, logStores...)
 
 		clients[types.ProviderVLLM] = &providerClient{client: loggedClient}
 	}
 
 	// Always configure Helix provider too
-
-	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, logStores...)
+	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, modelInfoProvider, billingLogger, logStores...)
 
 	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
 	mcm := &MultiClientManager{
-		cfg:             cfg,
-		store:           store,
-		logStores:       logStores,
-		globalClients:   clients,
-		globalClientsMu: &sync.RWMutex{},
+		cfg:               cfg,
+		store:             store,
+		modelInfoProvider: modelInfoProvider,
+		logStores:         logStores,
+		billingLogger:     billingLogger,
+		globalClients:     clients,
+		globalClientsMu:   &sync.RWMutex{},
 	}
 
 	return mcm
@@ -128,6 +178,13 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 		err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
 		if err != nil {
 			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+		}
+	}
+
+	if m.cfg.Providers.Anthropic.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderAnthropic, m.cfg.Providers.Anthropic.APIKeyRefreshInterval, m.cfg.Providers.Anthropic.BaseURL, m.cfg.Providers.Anthropic.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating Anthropic client")
 		}
 	}
 
@@ -207,9 +264,11 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	}
 
 	// Recreate the client with the new key
-	openaiClient := openai.New(newKey, baseURL)
+	openaiClient := openai.NewWithOptions(newKey, baseURL, m.cfg.Stripe.BillingEnabled, openai.ClientOptions{
+		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
+	})
 
-	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
+	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.modelInfoProvider, m.billingLogger, m.logStores...)
 
 	m.globalClientsMu.Lock()
 	m.globalClients[provider] = &providerClient{client: loggedClient}
@@ -263,6 +322,21 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 }
 
 func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if req == nil {
+		req = &GetClientRequest{}
+	}
+
+	if req.AppID != "" {
+		log.Info().
+			Str("app_id", req.AppID).
+			Str("provider", req.Provider).
+			Str("owner", req.Owner).
+			Msg("TRACE: Provider manager GetClient called with app ID")
+	}
+
 	m.globalClientsMu.RLock()
 	defer m.globalClientsMu.RUnlock()
 
@@ -285,13 +359,15 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		}
 	}
 
-	// Check if the provider is a global one
-	availableProviders := make([]string, 0, len(m.globalClients))
+	// Build list of all available providers for error message
+	availableProviders := make([]string, 0, len(m.globalClients)+len(userProviders))
 	for provider := range m.globalClients {
 		availableProviders = append(availableProviders, string(provider))
 	}
+	for _, provider := range userProviders {
+		availableProviders = append(availableProviders, provider.Name)
+	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
-
 }
 
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {
@@ -304,9 +380,27 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		apiKey = strings.TrimSpace(string(bts))
 	}
 
-	openaiClient := openai.New(apiKey, endpoint.BaseURL)
+	// Log TLS configuration for database-configured providers (user/org endpoints)
+	// This helps debug enterprise TLS issues with providers configured via web UI
+	log.Info().
+		Str("provider_id", endpoint.ID).
+		Str("provider_name", endpoint.Name).
+		Str("base_url", endpoint.BaseURL).
+		Str("endpoint_type", string(endpoint.EndpointType)).
+		Bool("tls_skip_verify", m.cfg.Tools.TLSSkipVerify).
+		Msg("Initializing client for database-configured provider with TLS config")
 
-	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.Name), openaiClient, m.logStores...)
+	openaiClient := openai.NewWithOptions(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, openai.ClientOptions{
+		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
+	}, endpoint.Models...)
+
+	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger
+	billingLogger := m.billingLogger
+	if !endpoint.BillingEnabled && (endpoint.EndpointType == types.ProviderEndpointTypeUser || endpoint.EndpointType == types.ProviderEndpointTypeOrg) {
+		billingLogger = &logger.NoopBillingLogger{}
+	}
+
+	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.ID), openaiClient, m.modelInfoProvider, billingLogger, m.logStores...)
 
 	return loggedClient, nil
 }

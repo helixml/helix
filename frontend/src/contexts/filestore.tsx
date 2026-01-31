@@ -1,7 +1,8 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, createContext, useMemo, useState, useCallback, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
+import { getRelativePath } from '../utils/filestore'
 
 import {
   IFileStoreItem,
@@ -25,6 +26,9 @@ export interface IFilestoreContext {
   breadcrumbs: IFileStoreBreadcrumb[],
   setPath: (path: string) => void,
   loadFiles: (path: string) => Promise<void>,
+  // same as loadFiles but just returns the files
+  // rather than setting the files in the state
+  getFiles: (path: string) => Promise<IFileStoreItem[]>,
   upload: (path: string, files: File[]) => Promise<boolean>,
   createFolder: (path: string) => Promise<boolean>,
   rename: (path: string, newName: string) => Promise<boolean>,
@@ -43,6 +47,7 @@ export const FilestoreContext = createContext<IFilestoreContext>({
   breadcrumbs: [],
   setPath: () => {},
   loadFiles: async () => {},
+  getFiles: async () => [],
   upload: async () => true,
   createFolder: async () => true,
   rename: async () => true,
@@ -124,20 +129,28 @@ export const useFilestoreContext = (): IFilestoreContext => {
     setConfig(configResult)
   }, [])
 
-  const loadFiles = useCallback(async (path: string, withLoading = false) => {
-    if(withLoading) setLoading(true)
+  const getFiles = useCallback(async (path: string): Promise<IFileStoreItem[]> => {
     try {
-      const filesResult = await api.get('/api/v1/filestore/list', {
+      const filesResult = await api.get<IFileStoreItem[]>('/api/v1/filestore/list', {
         params: {
           path,
         }
       })
-      if(filesResult) {
-        setFiles(filesResult || [])
-      }
-    } catch(e) {}
-    if(withLoading) setLoading(false)
+      return filesResult || []
+    } catch(e) {
+      console.error(e)
+      return []
+    }
   }, [])
+
+  const loadFiles = useCallback(async (path: string, withLoading = false) => {
+    if(withLoading) setLoading(true)
+    const files = await getFiles(path)
+    setFiles(files)
+    if(withLoading) setLoading(false)
+  }, [
+    getFiles,
+  ])
 
   const upload = useCallback(async (path: string, files: File[]) => {
     let result = false
@@ -155,10 +168,14 @@ export const useFilestoreContext = (): IFilestoreContext => {
       files.forEach((file) => {
         formData.append("files", file)
       })
+      
+      // Remove user prefix from path if config is available and has user_prefix
+      const uploadPath = config && config.user_prefix ? getRelativePath(config, { path } as IFileStoreItem) : path
+      
       try {
         await api.post('/api/v1/filestore/upload', formData, {
           params: {
-            path,
+            path: uploadPath,
           },
           onUploadProgress: (progressEvent) => {
             const percent = progressEvent.total && progressEvent.total > 0 ?
@@ -182,6 +199,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     return result
   }, [
     loadFiles,
+    config,
   ])
 
   const rename = useCallback(async (oldName: string, newName: string) => {
@@ -249,6 +267,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     breadcrumbs,
     setPath,
     loadFiles,
+    getFiles,
     upload,
     createFolder,
     rename,
@@ -256,7 +275,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
   }
 }
 
-export const FilestoreContextProvider: FC = ({ children }) => {
+export const FilestoreContextProvider = ({ children }: { children: ReactNode }) => {
   const value = useFilestoreContext()
   return (
     <FilestoreContext.Provider value={ value }>

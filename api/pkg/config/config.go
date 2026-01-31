@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -12,8 +11,7 @@ type ServerConfig struct {
 	Inference          Inference
 	Providers          Providers
 	Tools              Tools
-	Keycloak           Keycloak
-	OIDC               OIDC
+	Auth               Auth
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
@@ -30,17 +28,27 @@ type ServerConfig struct {
 	GitHub             GitHub
 	FineTuning         FineTuning
 	Apps               Apps
-	GPTScript          GPTScript
 	Triggers           Triggers
+	Search             Search
+	Kodit              Kodit
 	SSL                SSL
+	Organizations      Organizations
+	ExternalAgents     ExternalAgents
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// AI Providers management - controls if users can add their own AI provider API keys
+	// Disabled by default for enterprise customers who don't want users adding external API keys
+	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
 	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+
+	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -54,15 +62,33 @@ func LoadServerConfig() (ServerConfig, error) {
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+
+	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
+}
+
+type Search struct {
+	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
+}
+
+type Kodit struct {
+	BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
+	APIKey  string `envconfig:"KODIT_API_KEY" default:"default-kodit-api-key"`
+	Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
+	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
+	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
+	GitURL string `envconfig:"KODIT_GIT_URL" default:"http://api:8080"`
 }
 
 // Providers is used to configure the various AI providers that we use
 type Providers struct {
 	OpenAI                    OpenAI
 	TogetherAI                TogetherAI
+	Anthropic                 Anthropic
 	Helix                     Helix
 	VLLM                      VLLM
-	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
+	BillingEnabled            bool   `envconfig:"PROVIDERS_BILLING_ENABLED" default:"false"`    // Enable usage tracking/billing for built-in providers (from env vars)
 }
 
 type OpenAI struct {
@@ -70,6 +96,7 @@ type OpenAI struct {
 	APIKey                string        `envconfig:"OPENAI_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"OPENAI_API_KEY_FILE"` // i.e. /run/secrets/openai-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"OPENAI_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"OPENAI_MODELS"` // If set, only these models will be used
 }
 
 type VLLM struct {
@@ -77,6 +104,7 @@ type VLLM struct {
 	APIKey                string        `envconfig:"VLLM_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"VLLM_API_KEY_FILE"` // i.e. /run/secrets/vllm-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"VLLM_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"VLLM_MODELS"` // If set, only these models will be used
 }
 
 type TogetherAI struct {
@@ -84,13 +112,27 @@ type TogetherAI struct {
 	APIKey                string        `envconfig:"TOGETHER_API_KEY"`
 	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"TOGETHER_MODELS"` // If set, only these models will be used
+}
+
+type Anthropic struct {
+	BaseURL               string        `envconfig:"ANTHROPIC_BASE_URL" default:"https://api.anthropic.com/v1"`
+	APIKey                string        `envconfig:"ANTHROPIC_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"ANTHROPIC_API_KEY_FILE"` // i.e. /run/secrets/anthropic-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
+
+	// OAuth configuration for Claude subscription login flow
+	// Users can connect their Claude Pro/Max subscription via OAuth
+	OAuthClientID     string `envconfig:"ANTHROPIC_OAUTH_CLIENT_ID"`
+	OAuthClientSecret string `envconfig:"ANTHROPIC_OAUTH_CLIENT_SECRET"`
 }
 
 type Helix struct {
 	OwnerID            string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
 	OwnerType          string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 	ModelTTL           time.Duration `envconfig:"HELIX_MODEL_TTL" default:"10s"`                          // How long to keep models warm before allowing other work to be scheduled
-	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"300s"`                          // How long to wait for work to complete before slots are considered dead
+	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"600s"`                          // How long to wait for work to complete before slots are considered dead
 	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
 	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
 	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
@@ -99,53 +141,87 @@ type Helix struct {
 type Tools struct {
 	Enabled bool `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 
+	TLSSkipVerify bool `envconfig:"TOOLS_TLS_SKIP_VERIFY" default:"false"`
+
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
-	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Together AI: openai/gpt-oss-20b
 	// - Helix: llama3:instruct
 	Model string `envconfig:"TOOLS_MODEL" default:"llama3:instruct"`
 
 	// IsActionableTemplate is used to determine whether Helix should
 	// use a tool or not. Leave empty for default
-	IsActionableTemplate string `envconfig:"TOOLS_IS_ACTIONABLE_TEMPLATE"` // Either plain text, base64 or path to a file
+	IsActionableTemplate      string `envconfig:"TOOLS_IS_ACTIONABLE_TEMPLATE"`                   // Either plain text, base64 or path to a file
+	IsActionableHistoryLength int    `envconfig:"TOOLS_IS_ACTIONABLE_HISTORY_LENGTH" default:"4"` // 2 assistant messages, 2 user messages
 }
 
-// Keycloak is used for authentication. You can find keycloak documentation
-// at https://www.keycloak.org/guides
-type Keycloak struct {
-	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"true"`
-	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
-	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
-	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	ClientSecret        string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API
-	FrontEndClientID    string `envconfig:"KEYCLOAK_FRONTEND_CLIENT_ID" default:"frontend"`
-	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
-	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
-	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
+type Auth struct {
+	Provider            types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
+	RegistrationEnabled bool               `envconfig:"AUTH_REGISTRATION_ENABLED" default:"true"`
+	OIDC                OIDC
+	Regular             Regular
+}
+
+type Regular struct {
+	Enabled       bool          `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
+	TokenValidity time.Duration `envconfig:"REGULAR_AUTH_TOKEN_VALIDITY" default:"168h"` // 7 days
+	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
 }
 
 type OIDC struct {
-	Enabled       bool   `envconfig:"OIDC_ENABLED" default:"false"`
-	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
+	// SecureCookies forces the Secure flag on auth cookies when set to true.
+	// When false (default), secure cookies are auto-detected from SERVER_URL protocol.
+	// Set to true to force secure cookies even when SERVER_URL is HTTP (e.g., behind HTTPS proxy).
+	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"false"`
 	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
 	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
 	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
 	Audience      string `envconfig:"OIDC_AUDIENCE"`
 	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
+	// ExpectedIssuer allows using a different issuer than the OIDC_URL.
+	// Useful when the OIDC provider returns a browser-accessible issuer (e.g., localhost:8180)
+	// that differs from the discovery URL.
+	ExpectedIssuer string `envconfig:"OIDC_EXPECTED_ISSUER"`
+	// TokenURL overrides the token endpoint from OIDC discovery.
+	// Useful when the API needs to reach the token endpoint via an internal URL
+	// (e.g., http://keycloak:8080/auth/realms/helix/protocol/openid-connect/token)
+	// while the discovery response contains a browser-accessible URL (localhost:8180).
+	TokenURL string `envconfig:"OIDC_TOKEN_URL"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
 // such as finetuning starting or completing.
 type Notifications struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.tryhelix.ai"`
+	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
 	Email  EmailConfig
-	// TODO: Slack, Discord, etc.
+	// Agent progress notifications (Slack/Teams threads with screenshots)
+	AgentNotifications AgentNotificationsConfig
+}
+
+// AgentNotificationsConfig configures agent status notifications to Slack/Teams
+type AgentNotificationsConfig struct {
+	// Slack configuration for agent progress updates
+	Slack SlackNotificationsConfig
+	// Teams configuration for agent progress updates
+	Teams TeamsNotificationsConfig
+}
+
+type SlackNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_SLACK_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_SLACK_WEBHOOK_URL" description:"Slack incoming webhook URL for agent notifications"`
+	BotToken   string `envconfig:"AGENT_NOTIFICATIONS_SLACK_BOT_TOKEN" description:"Slack bot token for interactive messages (optional)"`
+	Channel    string `envconfig:"AGENT_NOTIFICATIONS_SLACK_CHANNEL" description:"Default Slack channel for agent notifications"`
+}
+
+type TeamsNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_TEAMS_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_TEAMS_WEBHOOK_URL" description:"Teams incoming webhook URL for agent notifications"`
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helix.ml"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"no-reply@helix.ml"`
+
+	AgentSkillSenderAddress string `envconfig:"EMAIL_AGENT_SKILL_SENDER_ADDRESS" default:"no-reply@helix.ml"`
 
 	SMTP struct {
 		Host     string `envconfig:"EMAIL_SMTP_HOST"`
@@ -174,10 +250,15 @@ type Janitor struct {
 }
 
 type Stripe struct {
+	BillingEnabled          bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"false" description:"Whether to enable billing."`
+	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
-	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" description:"The lookup key for the stripe price."`
+	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
+	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
 }
 
 type DataPrepText struct {
@@ -203,7 +284,6 @@ type RAGProvider string
 
 const (
 	RAGProviderTypesense  RAGProvider = "typesense"
-	RAGProviderPGVector   RAGProvider = "pgvector"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
 	RAGProviderHaystack   RAGProvider = "haystack"
 )
@@ -279,6 +359,7 @@ type Controller struct {
 type FileStore struct {
 	Type         types.FileStoreType `envconfig:"FILESTORE_TYPE" default:"fs" description:"What type of filestore should we use (fs | gcs)."`
 	LocalFSPath  string              `envconfig:"FILESTORE_LOCALFS_PATH" default:"/tmp/helix/filestore" description:"The local path that is the root for the local fs filestore."`
+	AvatarsPath  string              `envconfig:"FILESTORE_AVATARS_PATH" default:"/filestore/avatars" description:"The local path that is the root for the avatars filestore."`
 	GCSKeyBase64 string              `envconfig:"FILESTORE_GCS_KEY_BASE64" description:"The base64 encoded service account json file for GCS."`
 	GCSKeyFile   string              `envconfig:"FILESTORE_GCS_KEY_FILE" description:"The local path to the service account json file for GCS."`
 	GCSBucket    string              `envconfig:"FILESTORE_GCS_BUCKET" description:"The bucket we are storing things in GCS."`
@@ -312,6 +393,8 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+
+	SeedModels bool `envconfig:"DATABASE_SEED_MODELS" default:"true" description:"Should we seed the models?"`
 }
 
 type PGVectorStore struct {
@@ -334,16 +417,14 @@ type WebServer struct {
 	URL  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
-	// Can either be a URL to frontend or a path to static files
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:""`
+	// ServeProdFrontendInDev enables serving the production frontend build instead of the dev server
+	ServeProdFrontendInDev bool `envconfig:"SERVE_PROD_FRONTEND_IN_DEV" default:"false" description:"Serve production frontend build instead of dev server"`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
-	// a list of keycloak ids that are considered admins
-	// if the string 'all' is included it means ALL users
-	AdminIDs []string `envconfig:"ADMIN_USER_IDS" description:"Keycloak admin IDs."`
-	// Specifies the source of the Admin user IDs.
-	// By default AdminSrc is set to env.
-	AdminSrc AdminSrcType `envconfig:"ADMIN_USER_SOURCE" default:"env" description:"Source of admin IDs (env or jwt)"`
+	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.
+	// If empty, admin status is determined by the user's admin field in the database.
+	// Examples: "all", "user-123,user-456", ""
+	AdminUserIDs []string `envconfig:"ADMIN_USER_IDS" description:"Comma-separated list of admin user IDs, or 'all' for dev mode. Empty uses database admin field."`
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string `envconfig:"EVAL_USER_ID" description:""`
@@ -353,46 +434,30 @@ type WebServer struct {
 	// so we just deep link to the object path and don't apply auth
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
-	LocalFilestorePath string
+	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
 	// Path to UNIX socket for serving embeddings without auth
-	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	// TODO: naming
+	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
+
+	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
+
+	// DevSubdomain enables subdomain-based virtual hosting for dev container ports.
+	// Format: "dev.helix.example.com" (full domain) or "dev" (uses SERVER_URL domain).
+	// When enabled, requests to p{port}-{session_id}.dev.domain.com are proxied to the session's port.
+	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
+	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
+
+	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
+	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
+	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
+	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
+	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
 }
 
-// AdminSrcType is an enum specifyin the type of Admin ID source.
-// It currently supports only two sources:
-// * env: ADMIN_USER_IDS env var
-// * jwt: admin JWT token claim
-type AdminSrcType string
-
-const (
-	AdminSrcTypeEnv AdminSrcType = "env"
-	AdminSrcTypeJWT AdminSrcType = "jwt"
-)
-
-// String implements fmt.Stringer
-func (a AdminSrcType) String() string {
-	return string(a)
-}
-
-// Decode implements envconfig.Decoder for value validation.
-func (a *AdminSrcType) Decode(value string) error {
-	if value == "" {
-		*a = AdminSrcTypeEnv
-		return nil
-	}
-	switch value {
-	case string(AdminSrcTypeEnv), string(AdminSrcTypeJWT):
-		*a = AdminSrcType(value)
-		return nil
-	default:
-		return fmt.Errorf("invalid source of admin IDs: %q", value)
-	}
-}
-
-func (a *AdminSrcType) UnmarshalText(text []byte) error {
-	return a.Decode(string(text))
-}
+// AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
+const AdminAllUsers = "all"
 
 type SubscriptionQuotas struct {
 	Enabled    bool `envconfig:"SUBSCRIPTION_QUOTAS_ENABLED" default:"true"`
@@ -406,6 +471,17 @@ type SubscriptionQuotas struct {
 			Strict        bool `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_STRICT" default:"false"` // If set, will now allow any finetuning if the user is over quota
 			MaxConcurrent int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CONCURRENT" default:"3"`
 			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
+		}
+	}
+	Inference struct {
+		Enabled bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_ENABLED" default:"false"` // Must be explicitly enabled
+		Free    struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_MAX_MONTHLY_TOKENS" default:"50000"` // 50K tokens/month for free users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_STRICT" default:"true"`
+		}
+		Pro struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_MAX_MONTHLY_TOKENS" default:"2500000"` // 2.5M tokens/month for pro users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_STRICT" default:"true"`
 		}
 	}
 }
@@ -422,7 +498,7 @@ type FineTuning struct {
 	Enabled  bool           `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
 	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
 	// Suggestions based on provider:
-	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Together AI: openai/gpt-oss-20b
 	// - Helix: llama3:instruct
 	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for QA pairs."`
 }
@@ -433,27 +509,31 @@ type Apps struct {
 	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
 
-type GPTScript struct {
-	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
-
-	Runner struct {
-		RequestTimeout time.Duration `envconfig:"GPTSCRIPT_RUNNER_REQUEST_TIMEOUT" default:"10s" description:"How long to wait for the script response."`
-		Retries        uint          `envconfig:"GPTSCRIPT_RUNNER_RETRIES" default:"3" description:"How many retries."`
-	}
-
-	TestFaster struct {
-		URL string `envconfig:"HELIX_TESTFASTER_URL" description:"(Deprecated) The URL to the testfaster cluster."`
-	}
-}
-
 type Triggers struct {
 	Discord Discord
 	Cron    Cron
+	Slack   Slack
+	Teams   Teams
+	Crisp   Crisp
 }
 
 type Discord struct {
 	Enabled  bool   `envconfig:"DISCORD_ENABLED" default:"false"`
 	BotToken string `envconfig:"DISCORD_BOT_TOKEN"`
+}
+
+type Slack struct {
+	// Optional way to disable slack triggers across all apps/agents
+	Enabled bool `envconfig:"SLACK_ENABLED" default:"true"`
+}
+
+type Teams struct {
+	// Optional way to disable teams triggers across all apps/agents
+	Enabled bool `envconfig:"TEAMS_ENABLED" default:"true"`
+}
+
+type Crisp struct {
+	Enabled bool `envconfig:"CRISP_ENABLED" default:"true"`
 }
 
 type Cron struct {
@@ -470,4 +550,14 @@ type SSL struct {
 	// It is a colon separated list of directories.
 	// See https://www.openssl.org/docs/man1.0.2/man1/c_rehash.html.
 	SSLCertDir string `envconfig:"SSL_CERT_DIR"`
+}
+
+type Organizations struct {
+	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
+}
+
+type ExternalAgents struct {
+	// MaxConcurrentSessions is the maximum number of desktop sessions that can be created concurrently.
+	// Each session uses GPU resources (VRAM for video encoding).
+	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent desktop sessions (GPU streaming sessions)."`
 }

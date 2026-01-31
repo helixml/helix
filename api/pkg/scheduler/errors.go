@@ -20,8 +20,8 @@ var (
 func ErrorHandlingStrategy(schedulerError error, work *Workload) (bool, error) {
 	l := log.With().
 		Str("request_id", work.ID()).
-		Str("model_id", work.ModelName().String()).
-		Uint64("model_size", work.Model().GetMemoryRequirements(work.Mode())).
+		Str("model_id", work.model.ID).
+		Uint64("model_size", work.model.Memory).
 		Logger()
 
 	// If the runners are just full with work, keep the work in the queue and retry later.

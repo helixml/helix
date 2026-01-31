@@ -4,8 +4,13 @@
 
 replicaCount: 1
 
+# Deployment strategy configuration
+# Options: "auto", "RollingUpdate", "Recreate"
+# "auto" will use Recreate for single GPU setups, RollingUpdate otherwise
+deploymentStrategy: "auto"
+
 image:
-  repository: registry.helix.ml/helix/runner
+  repository: registry.helixml.tech/helix/runner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -16,18 +21,25 @@ fullnameOverride: ""
 
 runner:
   # Your helix control-plane's URL
-  host: https://app.tryhelix.ai
-  token: oh-hallo
-  # Models to pull on start
-  models: "llama3:instruct,llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0,llama3.2:3b-instruct-q8_0,phi3.5:3.8b-mini-instruct-q8_0"
-  # Available memory for the runner
-  memory: 24GB
-  # IPC mode
-  shareProcessNamespace: true
-  # huggingface token (for gated models, e.g. fine tuning mistral-7B, accept
-  # terms on https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1)
+  host: ""
+  # Runner token - can be specified directly or read from a Kubernetes secret
+  token: ""
+  # Alternative: read token from a Kubernetes secret (leave token empty when using this)
+  # This allows sharing the same secret with the controlplane or storing tokens securely
+  tokenExistingSecret: ""
+  tokenExistingSecretKey: ""  # defaults to "token" if not specified
+  # Hugging Face token (OPTIONAL - automatically distributed from control plane)
+  # Only specify if you need a fallback token when control plane token is not configured
   huggingfaceToken: ""
-  axolotl: "true"
+  # Alternative: read Hugging Face token from a Kubernetes secret (leave huggingfaceToken empty when using this)
+  huggingfaceTokenExistingSecret: ""
+  huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified 
+
+# GPU configuration
+# Number of GPUs this runner should manage
+# Each runner pod will be allocated this many GPUs from Kubernetes
+# The runner will automatically detect and use all allocated GPUs
+gpuCount: 1
 
 # Both node selectors and resources need to target
 resources:

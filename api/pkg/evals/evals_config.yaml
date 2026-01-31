@@ -77,7 +77,7 @@ checkers:
 
 finetune_targets:
  - name: production
-   api_url: https://api.tryhelix.ai/v1
+   api_url: https://api.helix.ml/v1
    token_from_env: HELIX_API_KEY
 
 

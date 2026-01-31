@@ -3,16 +3,18 @@ package openai
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/avast/retry-go/v4"
-	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -31,34 +33,95 @@ type Client interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 
-	ListModels(ctx context.Context) ([]model.OpenAIModel, error)
+	ListModels(ctx context.Context) ([]types.OpenAIModel, error)
 
 	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error)
+	CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error)
 
 	APIKey() string
+	BaseURL() string
+
+	BillingEnabled() bool
 }
 
-func New(apiKey string, baseURL string) *RetryableClient {
+// ClientOptions holds optional configuration for the OpenAI client
+type ClientOptions struct {
+	TLSSkipVerify bool
+}
+
+// New creates a new OpenAI client with the given API key and base URL.
+// If models are provided, models will be filtered to only include the provided models.
+func New(apiKey string, baseURL string, billingEnabled bool, models ...string) *RetryableClient {
+	return NewWithOptions(apiKey, baseURL, billingEnabled, ClientOptions{}, models...)
+}
+
+// NewWithOptions creates a new OpenAI client with the given API key, base URL, and options.
+// If models are provided, models will be filtered to only include the provided models.
+func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts ClientOptions, models ...string) *RetryableClient {
+	// Strip trailing slash from baseURL to prevent double slashes when concatenating paths
+	// e.g., "https://api.example.com/v1/" + "/models" would become ".../v1//models"
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
-	config.HTTPClient = &openAIClientInterceptor{}
+
+	// Clone the default transport to preserve all default settings (timeouts, connection pooling,
+	// keep-alives, proxy settings from HTTP_PROXY/HTTPS_PROXY env vars, etc.)
+	// This is critical - creating a minimal &http.Transport{} loses proxy settings and other defaults
+	// that enterprise environments may depend on.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	// Configure TLS skip verify if enabled
+	if opts.TLSSkipVerify {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		log.Info().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", true).
+			Msg("OpenAI client configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
+	} else {
+		log.Debug().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", false).
+			Msg("OpenAI client using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
+	}
+
+	// Create HTTP client with the configured transport and increased timeout
+	httpClient := &http.Client{
+		Timeout:   5 * time.Minute, // 5 minute timeout for embedding requests
+		Transport: transport,
+	}
+
+	// Use our interceptor with the custom timeout and universal rate limiter
+	rateLimiter := NewUniversalRateLimiter(baseURL)
+
+	config.HTTPClient = &openAIClientInterceptor{
+		Client:      *httpClient,
+		rateLimiter: rateLimiter,
+		baseURL:     baseURL,
+	}
 
 	client := openai.NewClientWithConfig(config)
 
 	return &RetryableClient{
-		apiClient:  client,
-		httpClient: http.DefaultClient,
-		baseURL:    baseURL,
-		apiKey:     apiKey,
+		apiClient:      client,
+		httpClient:     httpClient,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
+		models:         models,
+		billingEnabled: billingEnabled,
 	}
 }
 
 type RetryableClient struct {
 	apiClient *openai.Client
 
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
+	httpClient     *http.Client
+	baseURL        string
+	apiKey         string
+	models         []string
+	billingEnabled bool
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -66,13 +129,93 @@ func (c *RetryableClient) APIKey() string {
 	return c.apiKey
 }
 
+// BaseURL - returns the base URL used by the client
+func (c *RetryableClient) BaseURL() string {
+	return c.baseURL
+}
+
+// BillingEnabled - returns whether billing is enabled for the client
+func (c *RetryableClient) BillingEnabled() bool {
+	return c.billingEnabled
+}
+
+// trimMessageContent trims trailing whitespace from message content to prevent API errors
+func trimMessageContent(request openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	// Create a copy of the request to avoid mutating the original
+	trimmedRequest := request
+	trimmedRequest.Messages = make([]openai.ChatCompletionMessage, len(request.Messages))
+
+	for i, message := range request.Messages {
+		trimmedMessage := message
+
+		// Trim content field
+		if trimmedMessage.Content != "" {
+			trimmedMessage.Content = strings.TrimSpace(trimmedMessage.Content)
+		}
+
+		// Trim MultiContent parts
+		if len(trimmedMessage.MultiContent) > 0 {
+			trimmedMultiContent := make([]openai.ChatMessagePart, len(trimmedMessage.MultiContent))
+			for j, part := range trimmedMessage.MultiContent {
+				trimmedPart := part
+				if trimmedPart.Type == openai.ChatMessagePartTypeText && trimmedPart.Text != "" {
+					trimmedPart.Text = strings.TrimSpace(trimmedPart.Text)
+				}
+				trimmedMultiContent[j] = trimmedPart
+			}
+			trimmedMessage.MultiContent = trimmedMultiContent
+		}
+
+		trimmedRequest.Messages[i] = trimmedMessage
+	}
+
+	return trimmedRequest
+}
+
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return openai.ChatCompletionResponse{}, err
+	}
+
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") {
+			errStr := err.Error()
+
+			// Check for TLS certificate errors - these are common in enterprise environments
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(err).
+					Str("base_url", c.baseURL).
+					Str("model", request.Model).
+					Msg("TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
 				return retry.Unrecoverable(err)
+			}
+
+			if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
+				return retry.Unrecoverable(err)
+			}
+
+			// Handle 429 and 529 errors with retries for all providers
+			if strings.Contains(errStr, "429") {
+				log.Warn().
+					Str("error", errStr).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error, will retry with backoff")
+				return err // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if strings.Contains(errStr, "529") {
+				log.Warn().
+					Str("error", errStr).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error, will retry with backoff")
+				return err // Allow retry
 			}
 
 			return err
@@ -82,6 +225,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	},
 		retry.Attempts(retries),
 		retry.Delay(delayBetweenRetries),
+		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
 
@@ -89,53 +233,63 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 }
 
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	if err := c.validateModel(request.Model); err != nil {
+		return nil, err
+	}
+
+	// Always include usage
+	if request.StreamOptions == nil {
+		request.StreamOptions = &openai.StreamOptions{}
+	}
+
+	request.StreamOptions.IncludeUsage = true
+
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }
 
-// TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
-func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
-	url := c.baseURL + "/models"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get models from provider: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)
-	}
-
-	// Log the response body for debugging purposes
-	log.Trace().Str("base_url", c.baseURL).Msg("Response from provider's models endpoint")
-	log.Trace().RawJSON("response_body", body).Msg("Models response")
-
-	var models []model.OpenAIModel
-	var rawResponse struct {
-		Data []model.OpenAIModel `json:"data"`
-	}
-	err = json.Unmarshal(body, &rawResponse)
-	if err == nil && len(rawResponse.Data) > 0 {
-		models = rawResponse.Data
-	} else {
-		// If unmarshaling into the struct with "data" field fails, try unmarshaling directly into the slice
-		// This is how together.ai returns their models
-		err = json.Unmarshal(body, &models)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
+func (c *RetryableClient) validateModel(model string) error {
+	if len(c.models) > 0 {
+		if !slices.Contains(c.models, model) {
+			return fmt.Errorf("model %s is not in the list of allowed models", model)
 		}
 	}
+
+	return nil
+}
+
+// TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
+func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
+	var (
+		models []types.OpenAIModel
+		err    error
+	)
+
+	switch {
+	case isGoogleProvider(c.baseURL):
+		models, err = c.listGoogleModels(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to list models from Google")
+			return nil, err
+		}
+	case isAnthropicProvider(c.baseURL):
+		models, err = c.listAnthropicModels(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to list models from Anthropic")
+			return nil, err
+		}
+	default:
+		models, err = c.listOpenAIModels(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to list models from OpenAI compatible API")
+			return nil, err
+		}
+	}
+
+	// Remove audio, tts models
+	models = filterUnsupportedModels(models)
 
 	// Sort models: llama-33-70b-instruct models first, then other llama models, then meta-llama/* models, then the rest
 	sort.Slice(models, func(i, j int) bool {
@@ -150,11 +304,11 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 			return false
 		}
 
-		// Second priority: Meta-Llama-3.1-8B-Instruct-Turbo
-		if models[i].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		// Second priority: meta-llama/Llama-3.3-70B-Instruct-Turbo
+		if models[i].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return true
 		}
-		if models[j].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
+		if models[j].ID == "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
 			return false
 		}
 
@@ -210,13 +364,103 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 
 	// If there's a GPT model, filter out non-GPT models
 	if hasGPTModel {
-		filteredModels := make([]model.OpenAIModel, 0)
+		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
-			if strings.HasPrefix(m.ID, "gpt-") {
+			// gpt, o3, o1, etc
+			if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
+				// Add the type chat. This is needed
+				// for UI to correctly allow filtering
+				m.Type = "chat"
+
+				// Set the context length
+				m.ContextLength = getOpenAIModelContextLength(m.ID)
+
 				filteredModels = append(filteredModels, m)
 			}
 		}
 		models = filteredModels
+	}
+
+	// Set the enabled field to true if the model is in the list of allowed models
+	for i := range models {
+		models[i].Enabled = modelEnabled(models[i], c.models)
+	}
+
+	return models, nil
+}
+
+func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIModel, error) {
+	url := c.baseURL + "/models"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Log Transport state for debugging TLS issues with database-configured providers
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.httpClient.Transport != nil {
+		if t, ok := c.httpClient.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.httpClient.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", url).
+		Str("base_url", c.baseURL).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("listOpenAIModels: Transport config for direct httpClient.Do request")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", url).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("LISTMODELS TLS CERTIFICATE ERROR - If tls_skip_verify_configured=false, TOOLS_TLS_SKIP_VERIFY env var was not set or not applied to this client")
+		}
+		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get models from '%s' provider: %s", url, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)
+	}
+
+	// Log the response body for debugging purposes
+	log.Trace().Str("base_url", c.baseURL).Msg("Response from provider's models endpoint")
+	log.Trace().RawJSON("response_body", body).Msg("Models response")
+
+	var models []types.OpenAIModel
+	var rawResponse struct {
+		Data []types.OpenAIModel `json:"data"`
+	}
+	err = json.Unmarshal(body, &rawResponse)
+	if err == nil && len(rawResponse.Data) > 0 {
+		models = rawResponse.Data
+	} else {
+		// If unmarshaling into the struct with "data" field fails, try unmarshaling directly into the slice
+		// This is how together.ai returns their models
+		err = json.Unmarshal(body, &models)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
+		}
 	}
 
 	return models, nil
@@ -230,6 +474,25 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 			if strings.Contains(err.Error(), "401 Unauthorized") {
 				return retry.Unrecoverable(err)
 			}
+
+			// Handle 429 and 529 errors with retries for all providers
+			if strings.Contains(err.Error(), "429") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error in embeddings, will retry with backoff")
+				return err // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if strings.Contains(err.Error(), "529") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error in embeddings, will retry with backoff")
+				return err // Allow retry
+			}
+
 			return err
 		}
 		return nil
@@ -242,13 +505,128 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 	return
 }
 
+func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+	url := c.baseURL + "/v1/embeddings"
+
+	var responseBody types.FlexibleEmbeddingResponse
+	var err error
+
+	// Marshal the request to JSON
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		return responseBody, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Perform request with retries
+	err = retry.Do(func() error {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBody))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// For 401 errors, don't retry
+			if resp.StatusCode == 401 {
+				return retry.Unrecoverable(fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)))
+			}
+
+			// Handle 429 and 529 errors with retries for all providers
+			if resp.StatusCode == 429 {
+				log.Warn().
+					Int("status_code", resp.StatusCode).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error in flexible embeddings, will retry with backoff")
+				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)) // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if resp.StatusCode == 529 {
+				log.Warn().
+					Int("status_code", resp.StatusCode).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error in flexible embeddings, will retry with backoff")
+				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)) // Allow retry
+			}
+
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes))
+		}
+
+		// Parse the response
+		if err := json.Unmarshal(respBytes, &responseBody); err != nil {
+			return fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		return nil
+	},
+		retry.Attempts(embeddingRetries),
+		retry.Delay(embeddingDelay),
+		retry.Context(ctx),
+	)
+
+	return responseBody, err
+}
+
 type openAIClientInterceptor struct {
 	http.Client
+	rateLimiter *UniversalRateLimiter
+	baseURL     string
 }
 
 // Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
-// or others
+// or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	// Log TLS configuration state for debugging enterprise deployments
+	// This helps diagnose when TOOLS_TLS_SKIP_VERIFY isn't being applied correctly
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.Client.Transport != nil {
+		if t, ok := c.Client.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.Client.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", req.URL.String()).
+		Str("host", req.URL.Host).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("OpenAI interceptor making request with Transport config")
+
+	// Handle rate limiting for all providers
+	if c.rateLimiter != nil {
+		// Estimate tokens needed for the request
+		tokensNeeded := c.estimateRequestTokens(req)
+
+		// Wait for tokens if needed
+		if err := c.rateLimiter.WaitForTokens(req.Context(), tokensNeeded); err != nil {
+			return nil, fmt.Errorf("rate limiter error: %w", err)
+		}
+
+		log.Debug().
+			Int64("tokens_estimated", tokensNeeded).
+			Str("url", req.URL.String()).
+			Msg("Rate limiter approved request")
+	}
+
+	// Handle TogetherAI embedding request modifications
 	if req.URL.Host == "api.together.xyz" && req.URL.Path == "/v1/embeddings" && req.Body != nil {
 		// Parse the original embedding request body
 		embeddingRequest := openai.EmbeddingRequest{}
@@ -278,8 +656,112 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		}
 		newReq.Header = req.Header
 
-		return c.Client.Do(newReq)
+		togetherResp, togetherErr := c.Client.Do(newReq)
+		if togetherErr != nil {
+			errStr := togetherErr.Error()
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(togetherErr).
+					Str("url", newReq.URL.String()).
+					Str("transport_type", transportType).
+					Bool("tls_skip_verify_configured", tlsSkipVerify).
+					Msg("TOGETHERAI INTERCEPTOR TLS CERTIFICATE ERROR")
+			}
+		}
+		return togetherResp, togetherErr
 	}
 
-	return c.Client.Do(req)
+	// Make the request
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors - these are common in enterprise environments
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", req.URL.String()).
+				Str("host", req.URL.Host).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("OPENAI INTERCEPTOR TLS CERTIFICATE ERROR - Transport state shows whether TOOLS_TLS_SKIP_VERIFY was applied. If tls_skip_verify_configured=false, the env var was not set correctly.")
+		}
+		return resp, err
+	}
+
+	// Handle rate limiting for all provider responses
+	if c.rateLimiter != nil {
+		// Update rate limiter from response headers
+		c.rateLimiter.UpdateFromHeaders(resp.Header)
+
+		// Handle 429 and 529 errors
+		if resp.StatusCode == 429 {
+			log.Warn().
+				Str("url", req.URL.String()).
+				Int("status_code", resp.StatusCode).
+				Msg("Received 429 Too Many Requests")
+
+			c.rateLimiter.Handle429Error(resp.Header)
+			// Return the 429 error so retry logic can handle it
+		}
+
+		// Handle 529 (Overloaded) errors
+		if resp.StatusCode == 529 {
+			log.Warn().
+				Str("url", req.URL.String()).
+				Int("status_code", resp.StatusCode).
+				Msg("Received 529 Overloaded")
+
+			// For 529 errors, we can also use the same backoff logic as 429
+			c.rateLimiter.Handle429Error(resp.Header)
+			// Return the 529 error so retry logic can handle it
+		}
+	}
+
+	return resp, err
+}
+
+// estimateRequestTokens estimates the number of tokens needed for a request
+func (c *openAIClientInterceptor) estimateRequestTokens(req *http.Request) int64 {
+	if req.Body == nil {
+		return 100 // Default estimate for requests without body
+	}
+
+	// Read the body to estimate tokens
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		return 1000 // Conservative estimate if we can't read the body
+	}
+
+	// Restore the body for the actual request
+	req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// Parse the request to get the actual content
+	var chatRequest openai.ChatCompletionRequest
+	if err := json.Unmarshal(bodyBytes, &chatRequest); err != nil {
+		// If we can't parse as chat completion, use the raw body size
+		return EstimateTokens(string(bodyBytes))
+	}
+
+	// Estimate tokens from messages
+	var totalTokens int64
+	for _, message := range chatRequest.Messages {
+		totalTokens += EstimateTokens(message.Content)
+
+		// Handle multi-content messages
+		for _, part := range message.MultiContent {
+			if part.Type == openai.ChatMessagePartTypeText {
+				totalTokens += EstimateTokens(part.Text)
+			}
+		}
+	}
+
+	// Add some buffer for the request overhead
+	totalTokens += 50
+
+	// Ensure minimum token estimate
+	if totalTokens < 10 {
+		totalTokens = 10
+	}
+
+	return totalTokens
 }

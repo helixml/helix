@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultBrowserPoolSize = 5
+	defaultBrowserPoolSize = 3
 	defaultPagePoolSize    = 50
 )
 
@@ -27,8 +27,8 @@ type Browser struct {
 	cfg *config.ServerConfig
 
 	// Used when launcher is setup
-	pool     rod.Pool[rod.Browser]
-	launcher *launcher.Launcher
+	browserPool rod.Pool[rod.Browser]
+	launcher    *launcher.Launcher
 
 	// Used when launcher is not setup
 	browser *rod.Browser
@@ -47,14 +47,14 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 		pagePoolSize = defaultPagePoolSize
 	}
 
-	pool := rod.NewBrowserPool(browserPoolSize)
+	browserPool := rod.NewBrowserPool(browserPoolSize)
 	pagePool := rod.NewPagePool(pagePoolSize)
 
 	b := &Browser{
-		ctx:      context.Background(),
-		cfg:      cfg,
-		pool:     pool,
-		pagePool: pagePool,
+		ctx:         context.Background(),
+		cfg:         cfg,
+		browserPool: browserPool,
+		pagePool:    pagePool,
 	}
 
 	// If launcher is not enabled (using chrome directly, connect to existing browser)
@@ -77,6 +77,18 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 	return b, nil
 }
 
+// Close closes the browser and all associated pages
+func (b *Browser) Close() {
+	// Clean up page pool first
+	b.pagePool.Cleanup(func(page *rod.Page) { page.MustClose() })
+	// Then clean up browser pool
+	b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
+	// If we have a standalone browser (not from pool), close it
+	if b.browser != nil {
+		b.browser.MustClose()
+	}
+}
+
 func (b *Browser) GetBrowser() (*rod.Browser, error) {
 	if b.cfg.RAG.Crawler.LauncherEnabled {
 		return b.getFromPool()
@@ -86,28 +98,36 @@ func (b *Browser) GetBrowser() (*rod.Browser, error) {
 }
 
 func (b *Browser) getFromPool() (*rod.Browser, error) {
-	browser, err := b.pool.Get(b.getBrowser)
+	log.Info().Msg("Getting browser from pool")
+	browser, err := b.browserPool.Get(b.getBrowser)
 	if err != nil {
 		return nil, err
 	}
+
+	log.Info().Msg("Browser from pool")
 
 	return browser, nil
 }
 func (b *Browser) getBrowser() (*rod.Browser, error) {
 	if b.launcher != nil {
+		log.Info().Msg("Getting client from launcher")
 		client, err := b.launcher.Client()
 		if err != nil {
 			return nil, fmt.Errorf("error getting launcher client: %w", err)
 		}
 
-		// Setup browser with the client
-		browser := rod.New().Client(client)
+		log.Info().Msg("Creating new browser")
 
+		// Setup browser with the client
+		browser := rod.New().Trace(true).Client(client)
+
+		log.Info().Msg("Connecting to browser")
 		// Connect to the browser
 		err = browser.Connect()
 		if err != nil {
 			return nil, fmt.Errorf("error connecting to browser: %w", err)
 		}
+		log.Info().Msg("Browser connected")
 		return browser, nil
 	}
 
@@ -164,8 +184,8 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 		return nil
 	}
 
-	b.pool.Put(browser)
-	b.pool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
+	b.browserPool.Put(browser)
+	// b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
 	return nil
 }
 

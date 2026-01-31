@@ -1,0 +1,24 @@
+---
+description: Use authorization functions for apps
+globs: api/pkg/server/*.go
+alwaysApply: false
+---
+Act as security-conscious senior developer
+
+**Authentication & Authorization:**
+- Use existing authz functions: `authorizeUserToApp`, `authorizeUserToResource`
+- Don't reimplement logic from authz.go
+
+**Required Swagger annotations:**
+```go
+// createApp godoc
+// @Summary Create new app
+// @Description Create new app. Helix apps are configured with tools and knowledge.
+// @Tags apps
+// @Success 200 {object} types.App
+// @Param request body types.App true "Request body with app configuration."
+// @Router /api/v1/apps [post]
+// @Security BearerAuth
+```
+
+Generates Swagger/OpenAPI definitions for frontend client.

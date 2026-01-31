@@ -86,7 +86,24 @@ func (s *PostgresStore) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Te
 func (s *PostgresStore) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*types.Team, error) {
 	query := s.gdb.WithContext(ctx)
 
-	if q != nil && q.OrganizationID != "" {
+	// If user ID provided, get the team memberships for the user
+	if q.UserID != "" {
+		teamMemberships, err := s.ListTeamMemberships(ctx, &ListTeamMembershipsQuery{
+			UserID:         q.UserID,
+			OrganizationID: q.OrganizationID,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		var teams []*types.Team
+		for _, membership := range teamMemberships {
+			teams = append(teams, &membership.Team)
+		}
+		return teams, nil
+	}
+
+	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
 	}
 

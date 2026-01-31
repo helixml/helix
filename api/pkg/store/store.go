@@ -3,10 +3,17 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/license"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+type ListProjectsQuery struct {
+	UserID         string
+	OrganizationID string
+}
 
 type GetJobsQuery struct {
 	Owner     string          `json:"owner"`
@@ -18,12 +25,18 @@ type OwnerQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
-type GetSessionsQuery struct {
-	Owner         string          `json:"owner"`
-	OwnerType     types.OwnerType `json:"owner_type"`
-	ParentSession string          `json:"parent_session"`
-	Offset        int             `json:"offset"`
-	Limit         int             `json:"limit"`
+type ListSessionsQuery struct {
+	Owner                  string          `json:"owner"`
+	OwnerType              types.OwnerType `json:"owner_type"`
+	ParentSession          string          `json:"parent_session"`
+	OrganizationID         string          `json:"organization_id"` // The organization this session belongs to, if any
+	Page                   int             `json:"page"`
+	PerPage                int             `json:"per_page"`
+	Search                 string          `json:"search"`
+	QuestionSetID          string          `json:"question_set_id"`
+	QuestionSetExecutionID string          `json:"question_set_execution_id"`
+	AppID                  string          `json:"app_id"`
+	ProjectID              string          `json:"project_id"`
 }
 
 type ListAPIKeysQuery struct {
@@ -42,6 +55,7 @@ type ListToolsQuery struct {
 type ListSecretsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
+	ProjectID string          `json:"project_id"` // optional, filter by project
 }
 
 type ListAppsQuery struct {
@@ -57,9 +71,9 @@ type ListDataEntitiesQuery struct {
 }
 
 type ListProviderEndpointsQuery struct {
-	Owner     string
-	OwnerType types.OwnerType
-
+	Owner      string
+	OwnerType  types.OwnerType
+	All        bool
 	WithGlobal bool
 }
 
@@ -70,17 +84,81 @@ type GetProviderEndpointsQuery struct {
 	Name      string
 }
 
+type GetTriggerConfigurationQuery struct {
+	ID             string
+	Owner          string
+	OwnerType      types.OwnerType
+	OrganizationID string
+}
+
+type ListTriggerConfigurationsQuery struct {
+	AppID          string
+	Owner          string
+	OwnerType      types.OwnerType
+	OrganizationID string
+	TriggerType    types.TriggerType
+	Enabled        bool
+}
+
+type ListTriggerExecutionsQuery struct {
+	TriggerID string
+	Offset    int
+	Limit     int
+}
+
+type ListQuestionSetExecutionsQuery struct {
+	QuestionSetID string
+	AppID         string
+	Offset        int
+	Limit         int
+}
+
 type ListUsersQuery struct {
 	TokenType types.TokenType `json:"token_type"`
 	Admin     bool            `json:"admin"`
 	Type      types.OwnerType `json:"type"`
 	Email     string          `json:"email"`
 	Username  string          `json:"username"`
+	Page      int
+	PerPage   int
+	Order     string // Defaults to Created Desc
+}
+
+// SearchUsersQuery defines parameters for searching users with partial matching
+type SearchUsersQuery struct {
+	Query          string `json:"query"`           // Query to match against email, name, or username (LIKE query)
+	OrganizationID string `json:"organization_id"` // Organization ID to filter users that are members of the org
+	Limit          int    `json:"limit"`           // Maximum number of results to return
+	Offset         int    `json:"offset"`          // Offset for pagination
+}
+
+type AggregationLevel string
+
+const (
+	AggregationLevelDaily  AggregationLevel = "daily"
+	AggregationLevelHourly AggregationLevel = "hourly"
+	AggregationLevel5Min   AggregationLevel = "5min"
+)
+
+type GetAggregatedUsageMetricsQuery struct {
+	AggregationLevel AggregationLevel
+	UserID           string
+	OrganizationID   string
+	ProjectID        string
+	SpecTaskID       string
+	From             time.Time
+	To               time.Time
 }
 
 var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
+
+var (
+	ErrNotFound = errors.New("not found")
+	ErrMultiple = errors.New("multiple found")
+	ErrConflict = errors.New("conflict")
+)
 
 type Store interface {
 	//  Auth + Authz
@@ -89,6 +167,10 @@ type Store interface {
 	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	DeleteOrganization(ctx context.Context, id string) error
 	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
+
+	// Guidelines history
+	CreateGuidelinesHistory(ctx context.Context, history *types.GuidelinesHistory) error
+	ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error)
 
 	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
 	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
@@ -112,7 +194,6 @@ type Store interface {
 	UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error)
 	DeleteRole(ctx context.Context, id string) error
 	ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error)
-
 	CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error)
 	ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error)
 	DeleteAccessGrant(ctx context.Context, id string) error
@@ -123,20 +204,46 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
-	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
-	GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error)
+	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error)      // Batch fetch for efficiency
+	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
+	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
+	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
+
+	// interactions
+	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
+	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
+	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
+	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
+	DeleteInteraction(ctx context.Context, id string) error
+
+	// slots
+	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
+	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	DeleteSlot(ctx context.Context, id string) error
+	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
+	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
+
+	// step infos
+	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
+	ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error)
+	DeleteStepInfo(ctx context.Context, sessionID string) error
 
 	// users
 	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error
-	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
+	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 
 	// usermeta
@@ -147,16 +254,9 @@ type Store interface {
 
 	// api keys
 	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
-
-	// tools
-	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
-	GetTool(ctx context.Context, id string) (*types.Tool, error)
-	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
-	DeleteTool(ctx context.Context, id string) error
 
 	// provider endpoints
 	CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
@@ -169,6 +269,7 @@ type Store interface {
 	UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error)
 	GetSecret(ctx context.Context, id string) (*types.Secret, error)
 	ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error)
+	ListProjectSecrets(ctx context.Context, projectID string) ([]*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
 
 	// apps
@@ -200,11 +301,6 @@ type Store interface {
 	ListKnowledgeVersions(ctx context.Context, q *ListKnowledgeVersionQuery) ([]*types.KnowledgeVersion, error)
 	DeleteKnowledgeVersion(ctx context.Context, id string) error
 
-	// GPTScript runs history table
-	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
-	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
-	DeleteScriptRun(ctx context.Context, id string) error
-
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
 
@@ -212,6 +308,331 @@ type Store interface {
 	SetLicenseKey(ctx context.Context, licenseKey string) error
 
 	GetDecodedLicense(ctx context.Context) (*license.License, error)
+
+	CreateModel(ctx context.Context, model *types.Model) (*types.Model, error)
+	UpdateModel(ctx context.Context, model *types.Model) (*types.Model, error)
+	GetModel(ctx context.Context, id string) (*types.Model, error)
+	ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error)
+	DeleteModel(ctx context.Context, id string) error
+
+	// Model info for dynamic pricing
+	CreateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	GetDynamicModelInfo(ctx context.Context, id string) (*types.DynamicModelInfo, error)
+	UpdateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	DeleteDynamicModelInfo(ctx context.Context, id string) error
+	ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error)
+
+	// OAuth Provider methods
+	// ListOAuthProvidersQuery contains filters for listing OAuth providers
+	// ListOAuthConnectionsQuery contains filters for listing OAuth connections
+	CreateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)
+	GetOAuthProvider(ctx context.Context, id string) (*types.OAuthProvider, error)
+	UpdateOAuthProvider(ctx context.Context, provider *types.OAuthProvider) (*types.OAuthProvider, error)
+	DeleteOAuthProvider(ctx context.Context, id string) error
+	ListOAuthProviders(ctx context.Context, query *ListOAuthProvidersQuery) ([]*types.OAuthProvider, error)
+
+	// OAuth Connection methods
+	CreateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error)
+	GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error)
+	GetOAuthConnectionByUserAndProvider(ctx context.Context, userID, providerID string) (*types.OAuthConnection, error)
+	UpdateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error)
+	DeleteOAuthConnection(ctx context.Context, id string) error
+	ListOAuthConnections(ctx context.Context, query *ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error)
+	GetOAuthConnectionsNearExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.OAuthConnection, error)
+
+	// OAuth Request Token methods
+	CreateOAuthRequestToken(ctx context.Context, token *types.OAuthRequestToken) (*types.OAuthRequestToken, error)
+	GetOAuthRequestToken(ctx context.Context, userID, providerID string) ([]*types.OAuthRequestToken, error)
+	GetOAuthRequestTokenByState(ctx context.Context, state string) ([]*types.OAuthRequestToken, error)
+	DeleteOAuthRequestToken(ctx context.Context, id string) error
+	GenerateRandomState(ctx context.Context) (string, error)
+
+	// Git Provider Connection methods (PAT-based connections)
+	CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error
+	GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error)
+	ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error)
+	DeleteGitProviderConnection(ctx context.Context, id string) error
+
+	// Service Connection methods (GitHub Apps, ADO Service Principals, etc.)
+	CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error)
+	ListServiceConnections(ctx context.Context, organizationID string) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error)
+	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	DeleteServiceConnection(ctx context.Context, id string) error
+
+	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
+	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
+	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
+	DeleteUsageMetrics(ctx context.Context, appID string) error
+	GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error)
+
+	GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
+
+	GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
+	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
+
+	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+
+	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
+	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
+	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
+
+	CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error)
+	GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error)
+	DeleteCrispThread(ctx context.Context, olderThan time.Time) error
+
+	CreateTeamsThread(ctx context.Context, thread *types.TeamsThread) (*types.TeamsThread, error)
+	GetTeamsThread(ctx context.Context, appID, conversationID string) (*types.TeamsThread, error)
+	DeleteTeamsThread(ctx context.Context, olderThan time.Time) error
+
+	// wallet methods
+	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	GetWallet(ctx context.Context, id string) (*types.Wallet, error)
+	GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error)
+	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
+	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
+	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	DeleteWallet(ctx context.Context, id string) error
+	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
+
+	// transaction methods
+	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
+
+	// topup methods
+	ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error)
+
+	// trigger configurations
+	CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
+	GetTriggerConfiguration(ctx context.Context, q *GetTriggerConfigurationQuery) (*types.TriggerConfiguration, error)
+	UpdateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
+	DeleteTriggerConfiguration(ctx context.Context, id string) error
+	ListTriggerConfigurations(ctx context.Context, q *ListTriggerConfigurationsQuery) ([]*types.TriggerConfiguration, error)
+
+	ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error)
+	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
+	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
+	ResetRunningExecutions(ctx context.Context) error
+
+	// system settings
+	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+
+	// model seeding
+	SeedModelsFromEnvironment(ctx context.Context) error
+
+	// spec-driven tasks
+	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
+	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
+	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	DeleteSpecTask(ctx context.Context, id string) error
+	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
+
+	// spec-driven task work sessions
+	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error)
+	UpdateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	DeleteSpecTaskWorkSession(ctx context.Context, id string) error
+	ListSpecTaskWorkSessions(ctx context.Context, specTaskID string) ([]*types.SpecTaskWorkSession, error)
+	ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error)
+	GetSpecTaskWorkSessionByHelixSession(ctx context.Context, helixSessionID string) (*types.SpecTaskWorkSession, error)
+
+	// spec-driven task zed threads
+	CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	GetSpecTaskZedThread(ctx context.Context, id string) (*types.SpecTaskZedThread, error)
+	GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error)
+	UpdateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	DeleteSpecTaskZedThread(ctx context.Context, id string) error
+	ListSpecTaskZedThreads(ctx context.Context, specTaskID string) ([]*types.SpecTaskZedThread, error)
+
+	// spec-driven task implementation tasks
+	CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	GetSpecTaskImplementationTask(ctx context.Context, id string) (*types.SpecTaskImplementationTask, error)
+	UpdateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	DeleteSpecTaskImplementationTask(ctx context.Context, id string) error
+	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
+	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
+
+	// spec-driven task design reviews
+	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
+	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
+	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
+	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)
+
+	// design review comments
+	CreateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	GetSpecTaskDesignReviewComment(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error)
+	UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	UpdateCommentAgentResponse(ctx context.Context, commentID string, agentResponse string, agentResponseAt *time.Time) error
+	UpdateCommentResolved(ctx context.Context, commentID string, resolved bool, resolvedAt *time.Time, resolvedBy string, resolutionReason string) error
+	DeleteSpecTaskDesignReviewComment(ctx context.Context, id string) error
+	ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
+	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
+	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error)
+	GetSessionsWithPendingComments(ctx context.Context) ([]string, error)
+	ResetStuckComments(ctx context.Context) (int64, error)
+
+	// design review comment replies
+	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
+	GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error)
+	ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error)
+
+	// git push events
+	CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	GetSpecTaskGitPushEvent(ctx context.Context, id string) (*types.SpecTaskGitPushEvent, error)
+	GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error)
+	UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]types.SpecTaskGitPushEvent, error)
+	ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error)
+
+	// git repositories
+	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
+	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
+	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
+	DeleteGitRepository(ctx context.Context, id string) error
+	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
+
+	// spec-driven task multi-session management
+	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
+	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)
+	GetSpecTaskMultiSessionOverview(ctx context.Context, specTaskID string) (*types.SpecTaskMultiSessionOverviewResponse, error)
+	GetSpecTaskProgress(ctx context.Context, specTaskID string) (*types.SpecTaskProgressResponse, error)
+	UpdateSpecTaskZedInstance(ctx context.Context, specTaskID string, zedInstanceID string) error
+
+	// SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
+	CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	GetSpecTaskExternalAgent(ctx context.Context, specTaskID string) (*types.SpecTaskExternalAgent, error)
+	GetSpecTaskExternalAgentByID(ctx context.Context, agentID string) (*types.SpecTaskExternalAgent, error)
+	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
+	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
+
+	// Clone Group methods
+	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
+	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
+	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
+	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+
+	// Agent runner methods
+	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	GetAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	UpdateAgentRunner(ctx context.Context, runner *types.AgentRunner) error
+	UpdateAgentRunnerStatus(ctx context.Context, runnerID, status string) error
+	UpdateAgentRunnerHeartbeat(ctx context.Context, runnerID string) error
+	ListAgentRunners(ctx context.Context, query types.ListAgentRunnersQuery) ([]*types.AgentRunner, int64, error)
+	DeleteAgentRunner(ctx context.Context, runnerID string) error
+	CleanupStaleAgentRunners(ctx context.Context, staleThreshold time.Duration) (int64, error)
+	GetOrCreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+
+	// Project methods
+	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
+	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	UpdateProject(ctx context.Context, project *types.Project) error
+	DeleteProject(ctx context.Context, projectID string) error
+	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
+	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
+	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID
+	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
+
+	// Project-Repository junction table methods (many-to-many relationship)
+	CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error
+	UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error
+	DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error
+	DeleteProjectRepositoriesByProject(ctx context.Context, projectID string) error
+	DeleteProjectRepositoriesByRepository(ctx context.Context, repositoryID string) error
+	ListProjectRepositories(ctx context.Context, q *types.ListProjectRepositoriesQuery) ([]*types.ProjectRepository, error)
+	GetProjectsForRepository(ctx context.Context, repositoryID string) ([]string, error)
+	GetRepositoriesForProject(ctx context.Context, projectID string) ([]string, error)
+	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+	// Used to assign unique task numbers for human-readable design doc paths
+	// DEPRECATED: Use IncrementGlobalTaskNumber for new tasks
+	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
+
+	// IncrementGlobalTaskNumber atomically increments the global task counter and returns the new value
+	// Task numbers are unique across the entire deployment (not per-project)
+	IncrementGlobalTaskNumber(ctx context.Context) (int, error)
+
+	// Project Audit Log methods - append-only audit trail for project activity
+	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
+	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
+
+	// Sample Project methods
+	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
+	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)
+	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
+	DeleteSampleProject(ctx context.Context, id string) error
+
+	// Zed Settings Override methods
+	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
+	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)
+	DeleteZedSettingsOverride(ctx context.Context, sessionID string) error
+
+	// Memory methods
+	CreateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	DeleteMemory(ctx context.Context, memory *types.Memory) error
+	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
+
+	// Question set methods
+	CreateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	GetQuestionSet(ctx context.Context, id string) (*types.QuestionSet, error)
+	UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error)
+	DeleteQuestionSet(ctx context.Context, id string) error
+
+	CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error)
+	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
+
+	// Sandbox instance methods
+	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
+	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
+	GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error)
+	ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error)
+	DeregisterSandbox(ctx context.Context, id string) error
+	UpdateSandboxStatus(ctx context.Context, id string, status string) error
+	IncrementSandboxContainerCount(ctx context.Context, id string) error
+	DecrementSandboxContainerCount(ctx context.Context, id string) error
+	ResetSandboxOnReconnect(ctx context.Context, id string) error
+	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
+	FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error)
+	HasPrivilegedSandbox(ctx context.Context) (bool, error)
+
+	// Disk usage history methods
+	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
+	GetDiskUsageHistory(ctx context.Context, sandboxID string, since time.Time) ([]*types.DiskUsageHistory, error)
+	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Prompt history methods (for cross-device sync)
+	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
+	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
+	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	MarkPromptAsPending(ctx context.Context, promptID string) error
+	MarkPromptAsSent(ctx context.Context, promptID string) error
+	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
+	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
+	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	IncrementPromptUsage(ctx context.Context, promptID string) error
+	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
+	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 }
 
 type EmbeddingsStore interface {
@@ -219,5 +640,3 @@ type EmbeddingsStore interface {
 	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
 	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
 }
-
-var ErrNotFound = errors.New("not found")

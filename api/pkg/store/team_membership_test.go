@@ -32,13 +32,7 @@ func (suite *TeamMembershipTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
@@ -78,7 +72,7 @@ func (suite *TeamMembershipTestSuite) SetupTest() {
 	suite.user = createdUser
 }
 
-func (suite *TeamMembershipTestSuite) TearDownTest() {
+func (suite *TeamMembershipTestSuite) TearDownTestSuite() {
 	// Cleanup the test team
 	if suite.team != nil {
 		err := suite.db.DeleteTeam(suite.ctx, suite.team.ID)
@@ -90,6 +84,8 @@ func (suite *TeamMembershipTestSuite) TearDownTest() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	_ = suite.db.Close()
 }
 
 func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {
@@ -111,6 +107,39 @@ func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {
 	invalidMembership := &types.TeamMembership{}
 	_, err = suite.db.CreateTeamMembership(suite.ctx, invalidMembership)
 	suite.Error(err)
+}
+
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_UserID_NotSpecified() {
+	membership := &types.TeamMembership{
+		OrganizationID: suite.org.ID,
+		TeamID:         suite.team.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "user_id not specified")
+}
+
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_TeamID_NotSpecified() {
+	membership := &types.TeamMembership{
+		OrganizationID: suite.org.ID,
+		UserID:         suite.user.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "team_id not specified")
+}
+
+func (suite *TeamMembershipTestSuite) TestCreateTeamMembership_OrganizationID_NotSpecified() {
+	membership := &types.TeamMembership{
+		UserID: suite.user.ID,
+		TeamID: suite.team.ID,
+	}
+
+	_, err := suite.db.CreateTeamMembership(suite.ctx, membership)
+	suite.Error(err)
+	suite.Contains(err.Error(), "organization_id not specified")
 }
 
 func (suite *TeamMembershipTestSuite) TestGetTeamMembership() {

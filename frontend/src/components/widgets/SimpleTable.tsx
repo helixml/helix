@@ -8,6 +8,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import TableContainer from '@mui/material/TableContainer'
 import Paper from '@mui/material/Paper'
+import CircularProgress from '@mui/material/CircularProgress'
 
 export interface ITableField {
   name: string,
@@ -18,6 +19,7 @@ export interface ITableField {
 }
 
 const SimpleTable: FC<{
+  authenticated: boolean,
   fields: ITableField[],
   data: Record<string, any>[],
   compact?: boolean,
@@ -26,6 +28,7 @@ const SimpleTable: FC<{
   hideHeaderIfEmpty?: boolean,
   actionsTitle?: string,
   actionsFieldClassname?: string,
+  loading?: boolean,
   onRowClick?: {
     (row: Record<string, any>): void,
   },
@@ -33,6 +36,7 @@ const SimpleTable: FC<{
     (row: Record<string, any>): JSX.Element,
   },
 }> = ({
+  authenticated = true,
   fields,
   data,
   compact = false,
@@ -41,6 +45,7 @@ const SimpleTable: FC<{
   hideHeaderIfEmpty = false,
   actionsTitle = 'Actions',
   actionsFieldClassname,
+  loading = false,
   onRowClick,
   getActions, 
 }) => {
@@ -72,7 +77,25 @@ const SimpleTable: FC<{
         )
       }
       <TableBody>
-        {data.map((dataRow, i) => {
+        {loading ? (
+          <TableRow>
+            <TableCell colSpan={fields.length + (getActions ? 1 : 0)} align="center" sx={{ py: 3 }}>
+              <CircularProgress size={24} />
+            </TableCell>
+          </TableRow>
+        ) : !authenticated ? (
+          <TableRow>            
+            <TableCell colSpan={fields.length + (getActions ? 1 : 0)} align="center" sx={{ py: 3 }}>
+              Login to view your agents
+            </TableCell>
+          </TableRow>          
+        ) : data.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={fields.length + (getActions ? 1 : 0)} align="center" sx={{ py: 3 }}>
+              No data to display
+            </TableCell>
+          </TableRow>
+        ) : data.map((dataRow, i) => {
           return (
             <TableRow
               hover

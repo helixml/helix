@@ -1,75 +1,48 @@
-import React, { FC } from 'react'
+import { FC } from 'react'
 import Typography from '@mui/material/Typography'
-import Box from '@mui/material/Box'
+import Grid from '@mui/material/Grid'
 import SessionBadge from './SessionBadge'
-
-import {
-  SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
-} from '../../types'
 
 export const SessionBadgeKey: FC = () => {
   return (
-    <Box
+    <Grid
+      container
+      spacing={1}
       sx={{
         display: 'flex',
-        flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
       }}
     >
-      <SessionBadge
-        modelName="image"
-        mode={ SESSION_MODE_INFERENCE }
-      />
-      <Typography
-        sx={{
-          ml: 1,
-          mr: 2,
-        }}
-      >
-        Image Inference
-      </Typography>
+      <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
+        <SessionBadge modelName="ollama" />
+        <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
+          Ollama
+        </Typography>
+      </Grid>
 
-      <SessionBadge
-        modelName="image"
-        mode={ SESSION_MODE_FINETUNE }
-      />
-      <Typography
-        sx={{
-          ml: 1,
-          mr: 2,
-        }}
-      >
-        Image Finetune
-      </Typography>
+      <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
+        <SessionBadge modelName="vllm" />
+        <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
+          VLLM
+        </Typography>
+      </Grid>
 
-      <SessionBadge
-        modelName="text"
-        mode={ SESSION_MODE_INFERENCE }
-      />
-      <Typography
-        sx={{
-          ml: 1,
-          mr: 2,
-        }}
-      >
-        Text Inference
-      </Typography>
+      <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
+        <SessionBadge modelName="axolotl" />
+        <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
+          Axolotl
+        </Typography>
+      </Grid>
 
-      <SessionBadge
-        modelName="text"
-        mode={ SESSION_MODE_FINETUNE }
-      />
-      <Typography
-        sx={{
-          ml: 1,
-          mr: 2,
-        }}
-      >
-        Text Finetune
-      </Typography>
-
-    </Box>
+      <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
+        <SessionBadge modelName="diffusers" />
+        <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
+          Diffusers
+        </Typography>
+      </Grid>
+    </Grid>
   )
 }
 

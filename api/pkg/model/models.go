@@ -1,31 +1,14 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
-
-func GetModel(modelName string) (Model, error) {
-	models, err := GetModels()
-	if err != nil {
-		return nil, err
-	}
-	modelName, err = TransformModelName(modelName)
-	if err != nil {
-		return nil, err
-	}
-	model, ok := models[modelName]
-	if !ok {
-		modelNames := []string{}
-		for modelName := range models {
-			modelNames = append(modelNames, modelName)
-		}
-		return nil, fmt.Errorf("no model for model name %s (available models: %v)", modelName, modelNames)
-	}
-	return model, nil
-}
 
 // what to do next: there's tremendous value in supporting all ollama models out of the box, so switch model names to being dynamic rather than hardcoded, so it's super easy to add new ones to the UI
 // then have a generic ollama model that can be instantiated anyhow
@@ -45,14 +28,26 @@ func (m Name) String() string {
 }
 
 func (m Name) InferenceRuntime() types.InferenceRuntime {
-	// only ollama model names contain a colon.
+	// Check for VLLM models first
+	vllmModels, err := GetDefaultVLLMModels()
+	if err == nil {
+		for _, model := range vllmModels {
+			if m.String() == model.ID {
+				return types.InferenceRuntimeVLLM
+			}
+		}
+	}
+
+	// Only ollama model names contain a colon.
 	// TODO: add explicit API field for backend
 	if strings.Contains(m.String(), ":") {
 		return types.InferenceRuntimeOllama
 	}
-	if m.String() == ModelCogSdxl {
-		return types.InferenceRuntimeCog
-	}
+
+	// if m.String() == ModelCogSdxl {
+	// 	return types.InferenceRuntimeCog
+	// }
+
 	diffusersModels, err := GetDefaultDiffusersModels()
 	if err != nil {
 		return types.InferenceRuntimeAxolotl
@@ -67,27 +62,24 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 	return types.InferenceRuntimeAxolotl
 }
 
-func TransformModelName(modelName string) (string, error) {
-	// All other model names are valid for now.
-	return modelName, nil
+// ParseProviderFromModel extracts a provider prefix from a model name.
+// Format: "provider/model" returns (provider, model)
+// If no prefix, returns ("", modelName)
+func ParseProviderFromModel(modelName string) (provider, model string) {
+	if idx := strings.Index(modelName, "/"); idx > 0 {
+		return modelName[:idx], modelName[idx+1:]
+	}
+	return "", modelName
 }
 
 // this will handle aliases and defaults
 func ProcessModelName(
 	provider string,
 	modelName string,
-	sessionMode types.SessionMode,
 	sessionType types.SessionType,
-	hasFinetune bool,
-	ragEnabled bool,
 ) (string, error) {
 	switch sessionType {
 	case types.SessionTypeText:
-		if sessionType == types.SessionTypeText && !ragEnabled && (sessionMode == types.SessionModeFinetune || hasFinetune) {
-			// fine tuning doesn't work with ollama yet
-			return ModelAxolotlMistral7b, nil
-		}
-
 		switch provider {
 		case "helix":
 			// Check and validate
@@ -110,6 +102,10 @@ func ProcessModelName(
 			return ModelOllamaNoushermes2thetallama3, nil
 		case "helix-small":
 			return ModelOllamaPhi3, nil
+		case "external_agent":
+			// External agent requests should use this identifier
+			// The actual model is configured within the external agent (Zed, etc.)
+			return "external_agent", nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference
@@ -130,7 +126,7 @@ func ProcessModelName(
 	}
 
 	// shouldn't get here
-	return "", fmt.Errorf("don't know what model to provide for args %v %v %v", sessionMode, sessionType, hasFinetune)
+	return "", fmt.Errorf("don't know what model to provide for args %v %v", modelName, sessionType)
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
@@ -138,8 +134,8 @@ func ProcessModelName(
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[string]Model, error) {
 	models := map[string]Model{}
-	models[ModelAxolotlMistral7b] = &Mistral7bInstruct01{}
-	models[ModelCogSdxl] = &CogSDXL{}
+	// models[ModelAxolotlMistral7b] = &Mistral7bInstruct01{}
+	// models[ModelCogSdxl] = &CogSDXL{}
 	ollamaModels, err := GetDefaultOllamaModels()
 	if err != nil {
 		return nil, err
@@ -154,13 +150,17 @@ func GetModels() (map[string]Model, error) {
 	for _, model := range diffusersModels {
 		models[model.ID] = model
 	}
+	vllmModels, err := GetDefaultVLLMModels()
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range vllmModels {
+		models[model.ID] = model
+	}
 	return models, nil
 }
 
 const (
-	ModelAxolotlMistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
-	ModelCogSdxl          string = "stabilityai/stable-diffusion-xl-base-1.0"
-	ModelDiffusersSd35    string = "stabilityai/stable-diffusion-3.5-medium"
 	ModelDiffusersSdturbo string = "stabilityai/sd-turbo"
 	ModelDiffusersFluxdev string = "black-forest-labs/FLUX.1-dev"
 
@@ -183,98 +183,74 @@ func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 		// 	Description: "High quality image model, from Stability AI",
 		// 	Hide:        false,
 		// },
-		{
-			ID:          ModelDiffusersFluxdev,
-			Name:        "FLUX.1-dev",
-			Memory:      GB * 39,
-			Description: "High quality image model, from Black Forest Labs",
-			Hide:        false,
-		},
+
+		// Stopped downloading for some reason
+		// {
+		// 	ID:          ModelDiffusersFluxdev,
+		// 	Name:        "FLUX.1-dev",
+		// 	Memory:      GB * 39,
+		// 	Description: "High quality image model, from Black Forest Labs",
+		// 	Hide:        false,
+		// },
 	}, nil
 }
 
 // See also types/models.go for model name constants
 func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
-		// Latest models, Dec 2024 updates
+		// Latest models, July 2025 updates
 		{
-			ID:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
-			Name:          "Llama 3.1 8B",
-			Memory:        GB * 15,
-			ContextLength: 32768, // goes up to 128k, but then uses 35GB
-			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
+			ID:            "gpt-oss:20b", // https://ollama.com/library/gpt-oss:20b
+			Name:          "GPT-OSS 20B",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // Assuming 128K context window (standard for recent models)
+			Description:   "Open-weight reasoning model with agentic capabilities, from OpenAI - optimized for consumer hardware, ~20B parameters",
+			Hide:          false,
+			Prewarm:       true,
+			Concurrency:   1, // too big for concurrency 2
+		},
+		{
+			ID:            "gpt-oss:120b", // https://ollama.com/library/gpt-oss:120b
+			Name:          "GPT-OSS 120B",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // Assuming 128K context window (standard for recent models)
+			Description:   "Large open-weight reasoning model with advanced capabilities, from OpenAI - production-grade, ~120B parameters",
+			Hide:          false,
+			Prewarm:       false, // Don't prewarm due to high memory requirements
+			Concurrency:   1,     // too big for concurrency 2
+		},
+		{
+			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
+			Name:          "Qwen3 8B",
+			Memory:        0,     // Ollama models use GGUF estimation, not database values
+			ContextLength: 40960, // 40K context window
+			Concurrency:   0,     // Use runtime default (DefaultOllamaParallelSequences)
+			Description:   "Latest generation Qwen model with enhanced reasoning, from Alibaba - 4bit quantized, 40K context",
+			Hide:          false,
+			Prewarm:       true,
+		},
+		{
+			ID:            "qwen2.5vl:32b", // https://ollama.com/library/qwen2.5vl:32b
+			Name:          "Qwen2.5-VL 32B",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // 125K context window
+			Description:   "Flagship vision-language model with document parsing and visual agent capabilities, from Alibaba - 4bit quantized, 125K context",
 			Hide:          false,
 		},
 		{
-			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
-			Name:          "Llama 3.3 70B",
-			Memory:        GB * 44,
-			ContextLength: 8192,
-			Description:   "Smarter but slower, from Meta - 4bit quantized, 8K context",
+			ID:            "qwen3:32b", // https://ollama.com/library/qwen3:32b
+			Name:          "Qwen3 32B",
+			Memory:        0,     // Ollama models use GGUF estimation, not database values
+			ContextLength: 40960, // 40K context window
+			Description:   "Large Qwen3 model with superior reasoning and agent capabilities, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 		},
 		{
-			ID:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
-			Name:          "Llama 3.2 1B",
-			Memory:        GB * 15,
-			ContextLength: 131072,
-			Description:   "Tiny model, from Meta - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
-			Name:          "Llama 3.2 3B",
-			Memory:        GB * 26,
-			ContextLength: 131072,
-			Description:   "Small model, from Meta - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "deepseek-r1:8b-llama-distill-q8_0",
-			Name:          "Deepseek-R1 8B",
-			Memory:        GB * 26,
-			ContextLength: 131072,
-			Description:   "Small reasoning model (Llama based) - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "deepseek-r1:32b-qwen-distill-q8_0",
-			Name:          "Deepseek-R1 32B",
-			Memory:        GB * 66,
-			ContextLength: 131072,
-			Description:   "Medium reasoning model (Qwen based) - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
-			Name:          "Phi 3.5 3.8B",
-			Memory:        GB * 35,
-			ContextLength: 65536,
-			Description:   "Fast and good for everyday tasks, from Microsoft - 8bit quantized, 64K context",
-			Hide:          false,
-		},
-		{
-			ID:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
-			Name:          "Qwen 2.5 7B",
-			Memory:        GB * 12,
-			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 32K context",
-			Hide:          false,
-		},
-		{
-			ID:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
-			Name:          "Aya 8B",
-			Memory:        GB * 11,
-			ContextLength: 8192,
-			Description:   "Small multi-lingual model from Cohere - 8bit quantized, 8K context",
-			Hide:          false,
-		},
-		{
-			ID:            "aya:35b-23-q4_0", // https://ollama.com/library/aya:35b-23-q4_0
-			Name:          "Aya 35B",
-			Memory:        GB * 32,
-			ContextLength: 8192,
-			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
+			ID:            "qwen3:30b", // https://ollama.com/library/qwen3:30b
+			Name:          "Qwen3 30B MoE",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 262144, // 256K context window
+			Description:   "Mixture-of-experts model with enhanced reasoning capabilities, from Alibaba - 4bit quantized, 256K context",
 			Hide:          false,
 		},
 		// Old llama3:instruct and ph3:instruct, leaving in here because the id
@@ -282,7 +258,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
 			Name:          "Llama 3 8B",
-			Memory:        MB * 6390,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Older model, from Meta - 4bit quantized, 8K context",
 			Hide:          true,
@@ -290,7 +266,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "phi3:instruct", // https://ollama.com/library/phi3:instruct
 			Name:          "Phi-3",
-			Memory:        MB * 2300,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 131072,
 			Description:   "Fast and good for everyday tasks",
 			Hide:          true,
@@ -298,7 +274,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3:70b", // https://ollama.com/library/llama3:70b
 			Name:          "Llama 3 70B",
-			Memory:        GB * 40,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Large model with enhanced capabilities",
 			Hide:          true,
@@ -306,7 +282,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
 			Name:          "Gemma 2 2B",
-			Memory:        MB * 4916,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          true,
@@ -333,4 +309,153 @@ func GetLowestMemoryRequirement() (uint64, error) {
 		}
 	}
 	return lowestMemoryRequirement, err
+}
+
+// First, add VLLMGenericText struct with all required interface methods
+type VLLMGenericText struct {
+	ID            string
+	Name          string
+	Memory        uint64
+	ContextLength int64
+	Description   string
+	Args          []string
+	Hide          bool
+	Prewarm       bool
+}
+
+func (o *VLLMGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
+	// For now, we don't differentiate between inference and fine-tuning
+	// since VLLM is only used for inference
+	return o.Memory
+}
+
+func (o *VLLMGenericText) GetContextLength() int64 {
+	return o.ContextLength
+}
+
+func (o *VLLMGenericText) GetConcurrency() int {
+	return 0 // Default to 0 (use runtime default)
+}
+
+func (o *VLLMGenericText) GetType() types.SessionType {
+	return types.SessionTypeText
+}
+
+func (o *VLLMGenericText) GetID() string {
+	return o.ID
+}
+
+func (o *VLLMGenericText) ModelName() Name {
+	return NewModel(o.ID)
+}
+
+// Implementation of GetCommand - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) GetCommand(_ context.Context, _ types.SessionFilter, _ types.RunnerProcessConfig) (*exec.Cmd, error) {
+	return nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// Implementation of GetTextStreams - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) GetTextStreams(_ types.SessionMode, _ WorkerEventHandler) (*TextStream, *TextStream, error) {
+	return nil, nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// Implementation of PrepareFiles - not used directly as VLLM is run via Runtime
+func (o *VLLMGenericText) PrepareFiles(_ *types.Session, _ bool, _ SessionFileManager) (*types.Session, error) {
+	return nil, fmt.Errorf("not implemented: VLLM models run through vLLM runtime")
+}
+
+// TODO: probably noop
+func (o *VLLMGenericText) GetTask(session *types.Session, _ SessionFileManager) (*types.RunnerTask, error) {
+	task, err := getGenericTask(session)
+	if err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (o *VLLMGenericText) GetDescription() string {
+	return o.Description
+}
+
+func (o *VLLMGenericText) GetHumanReadableName() string {
+	return o.Name
+}
+
+func (o *VLLMGenericText) GetHidden() bool {
+	return o.Hide
+}
+
+// Add GetDefaultVLLMModels function
+func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
+	return []*VLLMGenericText{
+		{
+			ID:            "Qwen/Qwen2.5-VL-3B-Instruct",
+			Name:          "Qwen 2.5 VL 3B",
+			Memory:        GB * 23,
+			ContextLength: 32768,
+			Description:   "Smaller multi-modal vision-language model, from Alibaba",
+			Args: []string{
+				"--trust-remote-code",
+				"--max-model-len", "32768",
+
+				"--limit-mm-per-prompt", "{\"image\":10}",
+			},
+			Hide:    false,
+			Prewarm: false,
+		},
+		{
+			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
+			Name:          "Qwen 2.5 VL 7B",
+			Memory:        GB * 39,
+			ContextLength: 32768,
+			Description:   "Multi-modal vision-language model, from Alibaba",
+			Args: []string{
+				"--trust-remote-code",
+				"--max-model-len", "32768",
+
+				"--limit-mm-per-prompt", "{\"image\":10}",
+			},
+			Hide:    false,
+			Prewarm: true,
+		},
+		{
+			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
+			Name:          "DSE Qwen2 2B",
+			Memory:        GB * 10,
+			ContextLength: 8192,
+			Description:   "Small embedding model for RAG, from MrLight",
+			Args: []string{
+				"--task", "embed",
+				"--max-model-len", "8192",
+				"--trust-remote-code",
+				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
+			},
+			Hide:    false,
+			Prewarm: true,
+		},
+	}, nil
+}
+
+// GetVLLMArgsForModel returns the VLLM-specific arguments for a given model
+func GetVLLMArgsForModel(modelName string) ([]string, error) {
+	vllmModels, err := GetDefaultVLLMModels()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, model := range vllmModels {
+		if model.ID == modelName {
+			log.Debug().
+				Str("model", modelName).
+				Strs("args", model.Args).
+				Msg("Found VLLM args for model")
+			return model.Args, nil
+		}
+	}
+
+	// If model not found, return an empty args list
+	log.Debug().
+		Str("model", modelName).
+		Msg("No VLLM args found for model")
+	return []string{}, nil
 }

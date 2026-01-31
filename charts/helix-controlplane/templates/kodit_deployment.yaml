@@ -1,0 +1,159 @@
+{{- if .Values.kodit.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kodit
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: kodit
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit
+  labels:
+    app.kubernetes.io/component: kodit
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kodit
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: kodit
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: kodit
+          {{- if .Values.global.imageRegistry }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.kodit.image.repository | trimPrefix "registry.helixml.tech/" }}:{{ .Values.kodit.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.kodit.image.repository }}:{{ .Values.kodit.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.kodit.image.pullPolicy | default .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --host=0.0.0.0
+            - --port=8080
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: DEFAULT_SEARCH_PROVIDER
+              value: vectorchord
+            # Database credentials
+            - name: POSTGRES_USER
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.usernameKey | default "username" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: username
+              {{- end }}
+            - name: POSTGRES_PASSWORD
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.passwordKey | default "password" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: password
+              {{- end }}
+            - name: POSTGRES_DB
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.databaseKey | default "database" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: database
+              {{- end }}
+            # Database URL constructed from credentials
+            - name: DB_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "helix-controlplane.fullname" . }}-kodit-vectorchord:5432/$(POSTGRES_DB)"
+            # Enrichment endpoint configuration
+            - name: ENRICHMENT_ENDPOINT_BASE_URL
+              value: {{ .Values.kodit.enrichment.baseUrl | default (printf "http://%s:80/v1" (include "helix-controlplane.fullname" .)) | quote }}
+            - name: ENRICHMENT_ENDPOINT_MODEL
+              value: {{ .Values.kodit.enrichment.model | quote }}
+            - name: ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS
+              value: {{ .Values.kodit.enrichment.parallelTasks | quote }}
+            - name: ENRICHMENT_ENDPOINT_TIMEOUT
+              value: {{ .Values.kodit.enrichment.timeout | quote }}
+            - name: ENRICHMENT_ENDPOINT_API_KEY
+              {{- if .Values.kodit.enrichment.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.enrichment.existingSecret }}
+                  key: {{ .Values.kodit.enrichment.existingSecretKey | default "api-token" }}
+              {{- else if .Values.kodit.enrichment.apiKey }}
+              value: {{ .Values.kodit.enrichment.apiKey | quote }}
+              {{- else }}
+              value: ""
+              {{- end }}
+          {{- if .Values.kodit.persistence.enabled }}
+          volumeMounts:
+            - name: kodit-data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.kodit.persistence.enabled }}
+      volumes:
+        - name: kodit-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.kodit.persistence.existingClaim | default (printf "%s-kodit-pvc" (include "helix-controlplane.fullname" .)) }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

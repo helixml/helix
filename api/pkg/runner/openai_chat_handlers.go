@@ -23,13 +23,16 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		http.Error(rw, fmt.Sprintf("invalid slot id: %s", slotID), http.StatusBadRequest)
 		return
 	}
-	log.Trace().Str("slot_id", slotUUID.String()).Msg("create chat completion")
-
 	slot, ok := s.slots.Load(slotUUID)
 	if !ok {
 		http.Error(rw, fmt.Sprintf("slot %s not found", slotUUID.String()), http.StatusNotFound)
 		return
 	}
+
+	log.Info().
+		Str("slot_id", slotUUID.String()).
+		Str("model", slot.Model).
+		Msg("chat completion request started")
 
 	// When everything has finished, mark the slot as complete
 	defer s.markSlotAsComplete(slotUUID)
@@ -45,6 +48,13 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if chatCompletionRequest.Temperature == 0.0 {
+		// XXX Note, setting this (below) to 0.0 results in the default being
+		// used, because 0.0 is the nil value in Go. Also, if it's unset,
+		// default to 0.1 because (e.g.) API tools usage is best when it's less
+		// creative!
+		chatCompletionRequest.Temperature = 0.1
 	}
 
 	addCorsHeaders(rw)
@@ -142,7 +152,7 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			break
+			return
 		}
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -157,7 +167,10 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 		}
 
 		if err := writeChunk(rw, bts); err != nil {
-			log.Error().Msgf("failed to write completion chunk: %v", err)
+			// Client disconnected or write failed - stop streaming immediately
+			// The defer will clean up the slot when we return
+			log.Warn().Err(err).Str("slot_id", slotUUID.String()).Msg("client disconnected or write failed, stopping stream")
+			return
 		}
 	}
 }

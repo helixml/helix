@@ -9,7 +9,6 @@ import {
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import useEndpointProviders from '../../hooks/useEndpointProviders';
-import useAccount from '../../hooks/useAccount';
 
 interface DeleteProviderEndpointDialogProps {
   open: boolean;
@@ -24,7 +23,6 @@ const DeleteProviderEndpointDialog: FC<DeleteProviderEndpointDialogProps> = ({
   onClose,
   onDeleted,
 }) => {
-  const account = useAccount();
   const { deleteEndpoint } = useEndpointProviders();
 
   if (!endpoint) return null;
@@ -32,7 +30,6 @@ const DeleteProviderEndpointDialog: FC<DeleteProviderEndpointDialogProps> = ({
   const handleConfirm = async () => {
     if (endpoint) {
       await deleteEndpoint(endpoint.id);
-      await account.fetchProviderEndpoints();
       onClose();
       onDeleted();
     }

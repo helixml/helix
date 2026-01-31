@@ -1,0 +1,2688 @@
+/**
+ * WebSocket streaming implementation
+ *
+ * Works with L7 (HTTP/HTTPS) ingress - no special networking required.
+ * Uses WebCodecs API for hardware-accelerated video/audio decoding.
+ */
+
+import { Api } from "../api"
+import { StreamSettings } from "../component/settings_menu"
+import { defaultStreamInputConfig, StreamInput } from "./input"
+import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
+import { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+import {
+  WsMessageType,
+  CursorImageData,
+  RemoteUserInfo,
+  RemoteCursorPosition,
+  AgentCursorInfo,
+  RemoteTouchInfo,
+  WsStreamInfoEvent,
+  WsStreamInfoEventListener,
+} from "./websocket-stream.types"
+
+// Re-export types and codecs for external consumers
+export { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+export type { WsVideoCodecType } from "./codecs"
+export { WsMessageType } from "./websocket-stream.types"
+export type {
+  CursorImageData,
+  RemoteUserInfo,
+  RemoteCursorPosition,
+  AgentCursorInfo,
+  RemoteTouchInfo,
+  WsStreamInfoEvent,
+  WsStreamInfoEventListener,
+} from "./websocket-stream.types"
+
+// ============================================================================
+// WebSocket Stream Class
+// ============================================================================
+
+export class WebSocketStream {
+  private api: Api
+  private hostId: number
+  private appId: number
+  private settings: StreamSettings
+  private sessionId?: string
+  private supportedVideoFormats: VideoCodecSupport
+
+  private ws: WebSocket | null = null
+  private eventTarget = new EventTarget()
+
+  // Canvas for rendering
+  private canvas: HTMLCanvasElement | null = null
+  private canvasCtx: CanvasRenderingContext2D | null = null
+
+  // WebCodecs decoders
+  private videoDecoder: VideoDecoder | null = null
+
+  // Input handling
+  private input: StreamInput
+
+  // Stream state
+  private streamerSize: [number, number]
+  private connected = false
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 10  // Increased from 5 for better reliability
+  private reconnectDelay = 1000
+  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private closed = false  // True when explicitly closed (prevents reconnection)
+
+  // Connection timeout - if onOpen doesn't fire within this time, force reconnect
+  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private readonly CONNECTION_TIMEOUT_MS = 15000  // 15 seconds
+
+  // Heartbeat for stale connection detection
+  private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
+  private lastMessageTime = 0
+  private heartbeatTimeout = 10000  // 10 seconds without data = stale
+
+  // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
+  private pageVisible = true
+  private visibilityHandler: (() => void) | null = null
+
+  // Cursor cache - maps cursor ID to blob URL (for revoking old blob URLs)
+  private cursorCache = new Map<number, CursorImageData>()
+  private cursorX = 0  // Current cursor X position from server
+  private cursorY = 0  // Current cursor Y position from server
+
+  // Frame timing and stats
+  private lastFrameTime = 0
+  private lastFpsUpdateTimestamp = 0  // Wall clock time (Date.now()) when FPS was last calculated
+  private frameCount = 0
+  private currentFps = 0
+  // Received FPS (frames arriving from WebSocket, before decode)
+  private lastReceiveTime = 0
+  private lastReceiveFpsUpdateTimestamp = 0  // Wall clock time when receive FPS was last calculated
+  private receiveCount = 0
+  private currentReceiveFps = 0
+  // Video payload bytes (H.264 data only, excluding protocol headers)
+  private videoPayloadBytes = 0
+  private lastVideoPayloadBytes = 0
+  private currentVideoPayloadBitrateMbps = 0
+  // Total WebSocket bytes received (video + audio + control + all headers)
+  private totalBytesReceived = 0
+  private lastTotalBytesReceived = 0
+  private lastBytesTime = 0
+  private currentTotalBitrateMbps = 0
+  private framesDecoded = 0
+  private framesDropped = 0
+
+  // RTT (Round-Trip Time) measurement for latency tracking
+  private pingSeq = 0
+  private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
+  private rttSamples: number[] = []
+  private currentRttMs = 0
+  private encoderLatencyMs = 0  // Encoder pipeline latency from server (PTS to WebSocket send)
+  private pingIntervalId: ReturnType<typeof setInterval> | null = null
+  private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
+  private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
+  private readonly HIGH_LATENCY_THRESHOLD_MS = 150  // Show warning above this
+
+  // Frame latency tracking (arrival time vs expected based on PTS)
+  // This measures actual frame delivery latency, not just Ping/Pong RTT
+  private firstFramePtsUs: number | null = null       // PTS of first frame (microseconds)
+  private firstFrameArrivalTime: number | null = null // performance.now() when first frame arrived
+  private currentFrameLatencyMs = 0                   // How late current frame arrived (ms)
+  private frameLatencySamples: number[] = []          // Recent samples for smoothing
+  private frameLatencySamplesSum = 0                  // Running sum for O(1) average calculation
+  private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
+  private streamConnectedTime: number | null = null   // When stream connected (for warmup)
+  private readonly FRAME_DRIFT_WARMUP_MS = 10000      // Wait 10s before establishing baseline
+  private baselineSamples: Array<{ pts: number; arrival: number }> = [] // Frames for baseline averaging
+  private readonly BASELINE_SAMPLE_COUNT = 5          // Average 5 frames for baseline (works at low FPS)
+
+  // Decoder queue monitoring - tracks if decoder is backing up (for stats display)
+  // When queue is high AND we receive a keyframe, we flush and skip to the keyframe
+  private lastDecodeQueueSize = 0
+  private maxDecodeQueueSize = 0                      // Peak queue size seen
+  private readonly QUEUE_FLUSH_THRESHOLD = 10         // Flush queue when > 10 frames backed up
+  private framesSkippedToKeyframe = 0                 // Count of frames flushed for stats
+  private queueBackupLogged = false                   // Prevent log spam during queue backup
+
+  // Frame jitter tracking - measures variance in inter-frame timing
+  // High jitter (large max-min) indicates frames are batching/bunching up
+  private lastFrameReceiveTime = 0                    // When last frame arrived (for receive jitter)
+  private lastFrameRenderTime = 0                     // When last frame was rendered (for render jitter)
+  private receiveIntervalSamples: number[] = []       // Recent intervals between frame arrivals (ms)
+  private renderIntervalSamples: number[] = []        // Recent intervals between frame renders (ms)
+  private readonly MAX_JITTER_SAMPLES = 60            // Track ~1 second of frames at 60fps
+  private minReceiveIntervalMs = 0                    // Min interval seen in current window
+  private maxReceiveIntervalMs = 0                    // Max interval seen in current window
+  private minRenderIntervalMs = 0                     // Min render interval seen
+  private maxRenderIntervalMs = 0                     // Max render interval seen
+
+  // Adaptive input throttling based on RTT
+  // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
+  private adaptiveThrottleRatio = 1.0                 // 1.0 = full rate, 0.25 = 25% rate
+  private manualThrottleRatio: number | null = null   // For debug override (null = use adaptive)
+
+  // Mouse input throttling - prevents flooding WebSocket with high-polling-rate mice (500-1000 Hz)
+  // Throttle rate is adaptive based on RTT - see getAdaptiveThrottleMs()
+  private lastMouseSendTime = 0
+  private pendingMousePosition: { x: number; y: number; refW: number; refH: number } | null = null
+  private pendingMouseMove: { dx: number; dy: number } | null = null
+  private mouseThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  // Scroll input throttling - same principle as mouse, no point sending faster than frame rate
+  // Scroll deltas accumulate during throttle period (like relative mouse movement)
+  private lastScrollSendTime = 0
+  private pendingScroll: { dx: number; dy: number; highRes: boolean } | null = null
+  private scrollThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  // Input send buffer congestion detection
+  // Skip mouse moves immediately if buffer hasn't drained - prevents "ghost moves"
+  // that arrive late and make it look like something else is controlling the cursor
+  private lastBufferDrainTime = 0         // When we last saw bufferedAmount == 0
+  private lastBufferedAmount = 0          // Current send buffer size
+  private maxBufferedAmount = 0           // Peak buffer size seen
+  private inputsDroppedDueToCongestion = 0 // Count of mouse moves skipped
+  private inputsSent = 0                  // Total inputs sent
+  private inputBufferSamples: number[] = [] // Recent buffer samples for averaging
+  private readonly MAX_INPUT_BUFFER_SAMPLES = 30
+  private bufferStaleMs = 0               // How long buffer has been non-empty
+
+  // Input send latency tracking
+  // Measures time from ws.send() call to completion (should be ~0 if non-blocking)
+  // and tracks bufferedAmount changes to detect TCP-level queueing
+  private lastSendDurationMs = 0          // How long ws.send() took (should be ~0)
+  private maxSendDurationMs = 0           // Peak send duration seen
+  private sendDurationSamples: number[] = []
+  private readonly MAX_SEND_DURATION_SAMPLES = 30
+  private bufferedAmountBeforeSend = 0    // Buffer size before send
+  private bufferedAmountAfterSend = 0     // Buffer size after send (shows what we added)
+
+  // Event loop latency tracking
+  // Uses periodic setTimeout(0) heartbeat to measure actual event loop responsiveness
+  // If event loop is blocked (video decoding, DOM operations, etc.), setTimeout(0) is delayed
+  private eventLoopCheckScheduledAt = 0    // When we scheduled setTimeout(0)
+  private eventLoopLatencyMs = 0           // Current event loop latency (excess delay)
+  private maxEventLoopLatencyMs = 0        // Peak latency seen
+  private eventLoopLatencySamples: number[] = []
+  private readonly MAX_EVENT_LOOP_SAMPLES = 30
+  private readonly EVENT_LOOP_CHECK_INTERVAL_MS = 100  // Check every 100ms
+  private eventLoopCheckTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  // Unique client identifier for session matching
+  private clientUniqueId?: string
+
+  // User info for multi-player presence
+  private userName?: string
+  private avatarUrl?: string
+
+  // Hardware decoding is the default - better performance and GPU offload
+  // Use ?softdecode=1 to force software decoding if needed
+  private forceSoftwareDecoding = false
+
+  constructor(
+    api: Api,
+    hostId: number,
+    appId: number,
+    settings: StreamSettings,
+    supportedVideoFormats: VideoCodecSupport,
+    viewerScreenSize: [number, number],
+    sessionId?: string,
+    clientUniqueId?: string,
+    userName?: string,
+    avatarUrl?: string
+  ) {
+    this.api = api
+    this.hostId = hostId
+    this.appId = appId
+    this.settings = settings
+    this.supportedVideoFormats = supportedVideoFormats
+    this.sessionId = sessionId
+    this.clientUniqueId = clientUniqueId
+    this.userName = userName
+    this.avatarUrl = avatarUrl
+    this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
+
+    // Query parameter overrides for decoder testing:
+    // ?softdecode=1 - force software decoding (for latency testing)
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get("softdecode") === "1") {
+        this.forceSoftwareDecoding = true
+        console.log("[WebSocketStream] ?softdecode=1 detected - using software decoding")
+      }
+    }
+
+    // Initialize input handler
+    // Use evdev keycodes for direct WebSocket mode - bypasses VK→evdev conversion on backend
+    const streamInputConfig = defaultStreamInputConfig()
+    Object.assign(streamInputConfig, {
+      mouseScrollMode: this.settings.mouseScrollMode,
+      controllerConfig: this.settings.controllerConfig,
+      useEvdevCodes: true,  // Direct Linux evdev codes for WebSocket mode
+    })
+    this.input = new StreamInput(streamInputConfig)
+
+    // Patch StreamInput's send methods to use WebSocket transport instead of DataChannels
+    this.patchInputMethods()
+
+    // Connect
+    this.connect()
+  }
+
+  private patchInputMethods() {
+    const wsStream = this
+    // @ts-ignore - accessing private methods for patching
+    this.input.sendKey = (isDown: boolean, key: number, modifiers: number) => {
+      wsStream.sendKey(isDown, key, modifiers)
+    }
+    // @ts-ignore
+    this.input.sendMouseMove = (movementX: number, movementY: number) => {
+      wsStream.sendMouseMove(movementX, movementY)
+    }
+    // @ts-ignore
+    this.input.sendMousePosition = (x: number, y: number, refW: number, refH: number) => {
+      wsStream.sendMousePosition(x, y, refW, refH)
+    }
+    // @ts-ignore
+    this.input.sendMouseButton = (isDown: boolean, button: number) => {
+      wsStream.sendMouseButton(isDown, button)
+    }
+    // @ts-ignore
+    this.input.sendMouseWheelHighRes = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheelHighRes(deltaX, deltaY)
+    }
+    // @ts-ignore
+    this.input.sendMouseWheel = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheel(deltaX, deltaY)
+    }
+    // @ts-ignore - patch sendTouch to use WebSocket transport
+    const origCalcNormalizedPosition = this.input['calcNormalizedPosition'].bind(this.input)
+    // @ts-ignore
+    this.input['sendTouch'] = (type: number, touch: Touch, rect: DOMRect) => {
+      const position = origCalcNormalizedPosition(touch.clientX, touch.clientY, rect)
+      if (position) {
+        wsStream.sendTouch(type, touch.identifier, position[0], position[1])
+      }
+    }
+  }
+
+  private calculateStreamerSize(viewerScreenSize: [number, number]): [number, number] {
+    let width: number, height: number
+    if (this.settings.videoSize === "720p") {
+      width = 1280
+      height = 720
+    } else if (this.settings.videoSize === "1080p") {
+      width = 1920
+      height = 1080
+    } else if (this.settings.videoSize === "1440p") {
+      width = 2560
+      height = 1440
+    } else if (this.settings.videoSize === "4k") {
+      width = 3840
+      height = 2160
+    } else if (this.settings.videoSize === "5k") {
+      width = 5120
+      height = 2880
+    } else if (this.settings.videoSize === "iphone15pro") {
+      // iPhone 15 Pro: 1179 x 2556 (portrait)
+      width = 1179
+      height = 2556
+    } else if (this.settings.videoSize === "ipadair11") {
+      // iPad Air 11" M3: 2360 x 1640
+      width = 2360
+      height = 1640
+    } else if (this.settings.videoSize === "macbook13") {
+      // MacBook Pro 13": 2560 x 1600
+      width = 2560
+      height = 1600
+    } else if (this.settings.videoSize === "custom") {
+      width = this.settings.videoSizeCustom.width
+      height = this.settings.videoSizeCustom.height
+    } else {
+      // native
+      width = viewerScreenSize[0]
+      height = viewerScreenSize[1]
+    }
+    return [width, height]
+  }
+
+  private connect() {
+    // Don't connect if explicitly closed
+    if (this.closed) {
+      console.log("[WebSocketStream] Not connecting - stream was explicitly closed")
+      return
+    }
+
+    this.dispatchInfoEvent({ type: "connecting" })
+
+    // Clean up old WebSocket if it exists
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
+      this.ws = null
+    }
+
+    // Clean up decoders for fresh start
+    this.cleanupDecoders()
+
+    // Reset stream state for fresh connection
+    this.resetStreamState()
+
+    // Build WebSocket URL for direct streaming
+    // Uses /api/v1/external-agents/{sessionId}/ws/stream
+    // Auth is handled via cookies (same-origin WebSocket includes cookies automatically)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream`
+
+    console.log("[WebSocketStream] Connecting to:", wsUrl)
+    this.ws = new WebSocket(wsUrl)
+    this.ws.binaryType = "arraybuffer"
+
+    this.ws.addEventListener("open", this.onOpen.bind(this))
+    this.ws.addEventListener("close", this.onClose.bind(this))
+    this.ws.addEventListener("error", this.onError.bind(this))
+    this.ws.addEventListener("message", this.onMessage.bind(this))
+
+    // Start connection timeout - if onOpen doesn't fire, force reconnect
+    this.clearConnectionTimeout()
+    this.connectionTimeoutId = setTimeout(() => {
+      console.warn(`[WebSocketStream] Connection timeout (${this.CONNECTION_TIMEOUT_MS}ms), forcing reconnect`)
+      this.dispatchInfoEvent({ type: "error", message: "Connection timeout" })
+      // Close the stuck WebSocket and trigger reconnection
+      if (this.ws) {
+        try {
+          this.ws.close()
+        } catch (e) {
+          // Ignore
+        }
+      }
+      // onClose will handle reconnection
+    }, this.CONNECTION_TIMEOUT_MS)
+  }
+
+  private clearConnectionTimeout() {
+    if (this.connectionTimeoutId) {
+      clearTimeout(this.connectionTimeoutId)
+      this.connectionTimeoutId = null
+    }
+  }
+
+  private onOpen() {
+    console.log("[WebSocketStream] Connected")
+    this.connected = true
+    this.reconnectAttempts = 0
+    this.lastMessageTime = Date.now()
+    this.streamConnectedTime = performance.now() // Track when stream connected for frame drift warmup
+
+    // Clear connection timeout - we connected successfully
+    this.clearConnectionTimeout()
+
+    this.dispatchInfoEvent({ type: "connected" })
+
+    // Start heartbeat monitoring for stale connections
+    this.startHeartbeat()
+
+    // Send initialization message FIRST - server expects this before any binary messages
+    // The server reads the first message and parses it as JSON init config
+    this.sendInit()
+
+    // Start RTT measurement pings AFTER init is sent
+    this.startPingInterval()
+
+    // Start event loop latency tracking
+    this.startEventLoopTracking()
+  }
+
+  private onClose(event: CloseEvent) {
+    console.log("[WebSocketStream] Disconnected:", event.code, event.reason)
+    this.connected = false
+
+    // Clear connection timeout if it's still running
+    this.clearConnectionTimeout()
+
+    // Stop heartbeat
+    this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
+
+    // Stop event loop tracking
+    this.stopEventLoopTracking()
+
+    this.dispatchInfoEvent({ type: "disconnected" })
+
+    // Don't reconnect if explicitly closed
+    if (this.closed) {
+      console.log("[WebSocketStream] Not reconnecting - stream was explicitly closed")
+      // Dispatch event so DesktopStreamViewer knows reconnection was skipped
+      // This prevents the UI from getting stuck on "Reconnecting..." forever
+      this.dispatchInfoEvent({ type: "reconnectAborted", reason: "explicitly closed" })
+      return
+    }
+
+    // Attempt reconnection with exponential backoff (capped at 10 seconds)
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++
+      const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 10000)
+      this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
+
+      console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+
+      // Cancel any pending reconnection
+      if (this.reconnectTimeoutId) {
+        clearTimeout(this.reconnectTimeoutId)
+      }
+
+      this.reconnectTimeoutId = setTimeout(() => {
+        this.reconnectTimeoutId = null
+        console.log(`[WebSocketStream] Reconnecting (attempt ${this.reconnectAttempts})...`)
+        this.connect()
+      }, delay)
+    } else {
+      console.error(`[WebSocketStream] Max reconnection attempts (${this.maxReconnectAttempts}) reached, giving up`)
+      this.dispatchInfoEvent({ type: "error", message: "Connection lost - max reconnection attempts reached" })
+    }
+  }
+
+  private onError(event: Event) {
+    // Don't dispatch error events when explicitly closing - this is expected
+    if (this.closed) {
+      console.log("[WebSocketStream] Error event during explicit close (ignored):", event)
+      return
+    }
+    console.error("[WebSocketStream] Error:", event)
+    this.dispatchInfoEvent({ type: "error", message: "WebSocket error" })
+  }
+
+  private messageCount = 0
+  private lastRawMsgTime = 0
+  private rawMsgIntervals: number[] = []
+  private onMessage(event: MessageEvent) {
+    // RAW TIMESTAMP LOG - before ANY processing to detect browser-level jitter
+    const rawNow = performance.now()
+    if (this.lastRawMsgTime > 0) {
+      const interval = rawNow - this.lastRawMsgTime
+      this.rawMsgIntervals.push(interval)
+      // Keep last 60 samples
+      if (this.rawMsgIntervals.length > 60) {
+        this.rawMsgIntervals.shift()
+      }
+      // Reset interval tracking every 60 frames
+      if (this.rawMsgIntervals.length === 60) {
+        this.rawMsgIntervals = []
+      }
+    }
+    this.lastRawMsgTime = rawNow
+
+    // Update heartbeat timestamp on any message
+    this.lastMessageTime = Date.now()
+    this.messageCount++
+
+    // Log first 20 messages to debug startup sequence
+    if (this.messageCount <= 20) {
+      if (event.data instanceof ArrayBuffer) {
+        const preview = new Uint8Array(event.data)
+        console.log(`[WebSocketStream] Startup msg #${this.messageCount}: binary, type=0x${preview[0]?.toString(16)}, len=${preview.length}`)
+      } else {
+        console.log(`[WebSocketStream] Startup msg #${this.messageCount}: text, len=${(event.data as string).length}`)
+      }
+    }
+
+    if (!(event.data instanceof ArrayBuffer)) {
+      // JSON control message (text frame) - track string length as bytes
+      const textData = event.data as string
+      this.totalBytesReceived += textData.length
+      try {
+        const json = JSON.parse(textData)
+        this.handleControlMessage(json)
+      } catch (e) {
+        console.error("[WebSocketStream] Failed to parse JSON message:", e)
+      }
+      return
+    }
+
+    const data = new Uint8Array(event.data)
+    if (data.length === 0) return
+
+    // Track total bytes received (all binary messages)
+    this.totalBytesReceived += data.length
+
+    const msgType = data[0]
+
+    // Note: Removed per-message debug logging (was causing performance issues)
+    // Cursor, touch, and other non-video messages are high frequency
+
+    switch (msgType) {
+      case WsMessageType.VideoFrame:
+        // Don't await - handleVideoFrame's hot path is synchronous (videoDecoder.decode)
+        // Awaiting creates microtasks that queue up and cause frame batching
+        this.handleVideoFrame(data)
+        break
+      case WsMessageType.StreamInit:
+        this.handleStreamInit(data)
+        break
+      case WsMessageType.StreamError:
+        this.handleStreamError(data)
+        break
+      case WsMessageType.ControlMessage:
+        // JSON embedded in binary
+        const json = new TextDecoder().decode(data.slice(1))
+        this.handleControlMessage(JSON.parse(json))
+        break
+      case WsMessageType.TouchEvent:
+      case WsMessageType.ControllerEvent:
+        // Server → client events (rumble, etc.)
+        this.input.handleServerMessage(msgType, data.slice(1))
+        break
+      case WsMessageType.Pong:
+        this.handlePong(data)
+        break
+      // Cursor messages
+      case WsMessageType.CursorImage:
+        this.handleCursorImage(data)
+        break
+      case WsMessageType.CursorName:
+        this.handleCursorName(data)
+        break
+      // Multi-player cursor messages
+      case WsMessageType.RemoteCursor:
+        this.handleRemoteCursor(data)
+        break
+      case WsMessageType.RemoteUser:
+        this.handleRemoteUser(data)
+        break
+      case WsMessageType.AgentCursor:
+        this.handleAgentCursor(data)
+        break
+      case WsMessageType.RemoteTouch:
+        this.handleRemoteTouch(data)
+        break
+      case WsMessageType.SelfId:
+        this.handleSelfId(data)
+        break
+      default:
+        // Only warn on unknown types (rare, not a hot path)
+        console.warn("[WebSocketStream] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
+    }
+  }
+
+  private sendInit() {
+    // Use actual browser codec support detection (from constructor)
+    // This tells the server which codecs the browser can decode
+    const supportBits = createSupportedVideoFormatsBits(this.supportedVideoFormats)
+
+    console.log('[WebSocketStream] Sending init:', {
+      session_id: this.sessionId,
+      user_name: this.userName,
+      bits: supportBits,
+      formats: this.supportedVideoFormats,
+    })
+
+    // Send initialization as JSON for simplicity
+    // client_unique_id is passed to Wolf for immediate lobby attachment
+    // The frontend generates this and calls Helix API to pre-configure Wolf BEFORE connecting
+    const initMessage: Record<string, unknown> = {
+      type: "init",
+      host_id: this.hostId,
+      app_id: this.appId,
+      session_id: this.sessionId,
+      width: this.streamerSize[0],
+      height: this.streamerSize[1],
+      fps: this.settings.fps,
+      bitrate: this.settings.bitrate,
+      packet_size: this.settings.packetSize,
+      play_audio_local: this.settings.playAudioLocal,
+      video_supported_formats: supportBits,
+    }
+
+    // Include client_unique_id if provided (enables immediate lobby attachment)
+    if (this.clientUniqueId) {
+      initMessage.client_unique_id = this.clientUniqueId
+    }
+
+    // Include video_mode if specified (controls backend capture pipeline)
+    if (this.settings.videoMode) {
+      initMessage.video_mode = this.settings.videoMode
+    }
+
+    // Include user info for multi-player presence
+    if (this.userName) {
+      initMessage.user_name = this.userName
+    }
+    if (this.avatarUrl) {
+      initMessage.avatar_url = this.avatarUrl
+    }
+
+    this.ws?.send(JSON.stringify(initMessage))
+  }
+
+  private handleControlMessage(msg: any) {
+    console.log("[WebSocketStream] Control message:", msg)
+
+    if (msg.ConnectionComplete) {
+      const { capabilities, width, height } = msg.ConnectionComplete
+      this.dispatchInfoEvent({
+        type: "connectionComplete",
+        capabilities: capabilities || { touch: false },
+      })
+      this.input.onStreamStart(capabilities || { touch: false }, [width, height])
+    } else if (msg.error) {
+      this.dispatchInfoEvent({ type: "error", message: msg.error })
+    }
+  }
+
+  private handleStreamInit(data: Uint8Array) {
+    // Parse StreamInit message
+    // Format: type(1) + codec(1) + width(2) + height(2) + fps(1) + audio_channels(1) + sample_rate(4) + touch(1)
+    if (data.length < 13) {
+      console.error("[WebSocketStream] StreamInit too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const codec = data[1] as WsVideoCodecType
+    const width = view.getUint16(2, false) // big-endian
+    const height = view.getUint16(4, false)
+    const fps = data[6]
+    const audioChannels = data[7]
+    const sampleRate = view.getUint32(8, false)
+    const touchSupported = data[12] !== 0
+
+    console.log(`[WebSocketStream] StreamInit: ${width}x${height}@${fps}fps, codec=${codec}, audio=${audioChannels}ch@${sampleRate}Hz, touch=${touchSupported}`)
+
+    this.streamerSize = [width, height]
+    this.dispatchInfoEvent({ type: "streamInit", width, height, fps })
+
+    // Reset frame latency tracking - new stream has new PTS epoch
+    // Without this, frame drift calculation goes haywire after reconnect/resolution change
+    this.firstFramePtsUs = null
+    this.firstFrameArrivalTime = null
+    this.frameLatencySamples = []
+    this.frameLatencySamplesSum = 0
+    this.currentFrameLatencyMs = 0
+    this.baselineSamples = [] // Clear baseline samples for new stream
+    // Restart warmup period for frame drift baseline
+    this.streamConnectedTime = performance.now()
+
+    // Initialize video decoder
+    this.initVideoDecoder(codec, width, height)
+  }
+
+  /**
+   * Handle StreamError message from server.
+   * This is sent when the GStreamer pipeline fails (e.g., GPU out of memory).
+   * Wire format: type(1) + errorLength(2) + errorMessage(...)
+   */
+  private handleStreamError(data: Uint8Array) {
+    if (data.length < 3) {
+      console.error("[WebSocketStream] StreamError too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const errorLength = view.getUint16(1, false) // big-endian
+
+    if (data.length < 3 + errorLength) {
+      console.error("[WebSocketStream] StreamError message truncated")
+      return
+    }
+
+    const errorMessage = new TextDecoder().decode(data.slice(3, 3 + errorLength))
+    console.error("[WebSocketStream] Server stream error:", errorMessage)
+
+    // Dispatch error to UI - this will show a user-friendly error message
+    this.dispatchInfoEvent({ type: "error", message: errorMessage })
+  }
+
+  // Decoder generation counter - incremented each time we create a new decoder
+  // Used to ignore stale error callbacks from old decoders
+  private decoderGeneration = 0
+
+  private async initVideoDecoder(codec: WsVideoCodecType, width: number, height: number) {
+    if (!("VideoDecoder" in window)) {
+      console.error("[WebSocketStream] WebCodecs VideoDecoder not supported")
+      this.dispatchInfoEvent({ type: "error", message: "WebCodecs not supported in this browser" })
+      return
+    }
+
+    // Increment decoder generation to invalidate stale callbacks
+    const thisGeneration = ++this.decoderGeneration
+    console.log(`[WebSocketStream] Creating decoder generation ${thisGeneration}`)
+
+    // Store config for potential recovery
+    this.lastVideoCodec = codec
+    this.lastVideoWidth = width
+    this.lastVideoHeight = height
+
+    const codecString = codecToWebCodecsString(codec)
+    console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
+
+    // Check if codec is supported - try hardware first, then software fallback
+    // Debug: forceSoftwareDecoding bypasses hardware to test latency hypothesis
+    // See: https://github.com/w3c/webcodecs/issues/732
+    let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" =
+      this.forceSoftwareDecoding ? "prefer-software" : "prefer-hardware"
+
+    if (this.forceSoftwareDecoding) {
+      console.log("[WebSocketStream] DEBUG: Forcing software decoding (testing hardware latency hypothesis)")
+    }
+
+    try {
+      const hwSupport = await VideoDecoder.isConfigSupported({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: useHardwareAcceleration,
+      })
+
+      if (!hwSupport.supported) {
+        // Requested mode not supported, try fallback
+        console.log(`[WebSocketStream] ${this.forceSoftwareDecoding ? 'Software' : 'Hardware'} decoding not supported, trying fallback`)
+        const fallbackSupport = await VideoDecoder.isConfigSupported({
+          codec: codecString,
+          codedWidth: width,
+          codedHeight: height,
+          // No hardwareAcceleration = allow any
+        })
+
+        if (!fallbackSupport.supported) {
+          console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
+          this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          return
+        }
+        useHardwareAcceleration = "no-preference"
+        console.log("[WebSocketStream] Using fallback video decoding (no-preference)")
+      } else {
+        console.log(`[WebSocketStream] Using ${this.forceSoftwareDecoding ? 'software' : 'hardware'} video decoding`)
+      }
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to check codec support:", e)
+      // Continue anyway and let configure() fail if truly unsupported
+    }
+
+    // Store the working acceleration mode for recovery after reset
+    this.lastVideoHwAccel = useHardwareAcceleration
+
+    // Close existing decoder
+    if (this.videoDecoder) {
+      try {
+        this.videoDecoder.close()
+      } catch (e) {
+        // Ignore
+      }
+    }
+
+    this.videoDecoder = new VideoDecoder({
+      output: (frame: VideoFrame) => {
+        this.renderVideoFrame(frame)
+      },
+      error: (e: Error) => {
+        // Check if this callback is from a stale decoder (already replaced)
+        if (thisGeneration !== this.decoderGeneration) {
+          console.log(`[WebSocketStream] Ignoring stale decoder error from generation ${thisGeneration} (current: ${this.decoderGeneration})`)
+          return
+        }
+
+        console.error("[WebSocketStream] Video decoder error, will wait for next keyframe:", e)
+        console.error("[WebSocketStream] Decoder state:", {
+          generation: thisGeneration,
+          framesDecoded: this.framesDecoded,
+          queueSize: this.videoDecoder?.decodeQueueSize,
+          state: this.videoDecoder?.state,
+          codec: this.lastVideoCodec,
+          resolution: `${this.lastVideoWidth}x${this.lastVideoHeight}`,
+          hwAccel: this.lastVideoHwAccel,
+        })
+        // Reset keyframe flag so we wait for a fresh keyframe before decoding again
+        this.receivedFirstKeyframe = false
+        // Attempt decoder recovery if we have the codec info
+        if (this.lastVideoCodec !== null && this.lastVideoWidth > 0 && this.lastVideoHeight > 0) {
+          console.log("[WebSocketStream] Attempting decoder recovery...")
+          this.initVideoDecoder(this.lastVideoCodec, this.lastVideoWidth, this.lastVideoHeight)
+            .catch(err => console.error("[WebSocketStream] Failed to recover video decoder:", err))
+        }
+      },
+    })
+
+    // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS)
+    // This tells WebCodecs to expect NAL start codes and in-band parameter sets
+    //
+    // optimizeForLatency: true is CRITICAL for low frame rate scenarios.
+    // Without it, the decoder's internal output queue holds frames waiting for the
+    // next input, causing latency = queueDepth * frameInterval.
+    // At 2 FPS (500ms keepalive), even queueDepth=2 means 1 second latency!
+    // See: https://github.com/w3c/webcodecs/issues/698
+    const config: VideoDecoderConfig = {
+      codec: codecString,
+      codedWidth: width,
+      codedHeight: height,
+      hardwareAcceleration: useHardwareAcceleration,
+      optimizeForLatency: true,
+    }
+
+    // For H264, specify Annex B format to handle in-band SPS/PPS
+    if (codecString.startsWith("avc1")) {
+      // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+      config.avc = { format: "annexb" }
+    }
+    // For HEVC, similar configuration
+    if (codecString.startsWith("hvc1") || codecString.startsWith("hev1")) {
+      // @ts-ignore - hevc property for Annex B format
+      config.hevc = { format: "annexb" }
+    }
+
+    try {
+      this.videoDecoder.configure(config)
+      console.log("[WebSocketStream] Video decoder configured:", config)
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to configure video decoder:", e)
+      // Try without the format hint as fallback (but keep optimizeForLatency!)
+      this.videoDecoder.configure({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: useHardwareAcceleration,
+        optimizeForLatency: true,
+      })
+      console.log("[WebSocketStream] Video decoder configured (fallback mode)")
+    }
+  }
+
+  private renderVideoFrame(frame: VideoFrame) {
+    // CRITICAL: Prevent rendering after stream is closed
+    // This prevents duplicate streams from writing to the same canvas
+    if (this.closed) {
+      frame.close()
+      return
+    }
+
+    if (!this.canvas || !this.canvasCtx) {
+      frame.close()
+      this.framesDropped++
+      return
+    }
+
+    // Resize canvas if needed
+    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
+      this.canvas.width = frame.displayWidth
+      this.canvas.height = frame.displayHeight
+    }
+
+    // Draw frame to canvas
+    this.canvasCtx.drawImage(frame, 0, 0)
+    frame.close()
+    this.framesDecoded++
+
+    // === Frame Render Jitter Tracking ===
+    // Measures variance in time between frames being rendered
+    // High jitter indicates decoder backlog or rendering issues
+    const renderTime = performance.now()
+    if (this.lastFrameRenderTime > 0) {
+      const intervalMs = renderTime - this.lastFrameRenderTime
+      this.renderIntervalSamples.push(intervalMs)
+      if (this.renderIntervalSamples.length > this.MAX_JITTER_SAMPLES) {
+        this.renderIntervalSamples.shift()
+      }
+      // Update min/max incrementally (O(1) instead of O(n) spread)
+      if (intervalMs < this.minRenderIntervalMs || this.minRenderIntervalMs === 0) {
+        this.minRenderIntervalMs = intervalMs
+      }
+      if (intervalMs > this.maxRenderIntervalMs) {
+        this.maxRenderIntervalMs = intervalMs
+      }
+    }
+    this.lastFrameRenderTime = renderTime
+
+    // Track frame rate (update every second)
+    this.frameCount++
+    const now = performance.now()
+    if (now - this.lastFrameTime >= 1000) {
+      this.currentFps = this.frameCount
+      this.frameCount = 0
+      this.lastFrameTime = now
+      this.lastFpsUpdateTimestamp = Date.now() // Wall clock time for display
+
+      // Log jitter stats for debugging
+      // Stats are available via getStreamStats() for the Stats for Nerds panel
+
+      // Calculate bitrates
+      if (this.lastBytesTime > 0) {
+        const deltaTime = (now - this.lastBytesTime) / 1000 // seconds
+        if (deltaTime > 0) {
+          // Video payload bitrate (H.264 data only, excluding protocol headers)
+          const deltaVideoPayload = this.videoPayloadBytes - this.lastVideoPayloadBytes
+          this.currentVideoPayloadBitrateMbps = (deltaVideoPayload * 8) / 1000000 / deltaTime
+          // Total WebSocket bitrate (everything received: video + audio + control + headers)
+          const deltaTotalBytes = this.totalBytesReceived - this.lastTotalBytesReceived
+          this.currentTotalBitrateMbps = (deltaTotalBytes * 8) / 1000000 / deltaTime
+        }
+      }
+      this.lastVideoPayloadBytes = this.videoPayloadBytes
+      this.lastTotalBytesReceived = this.totalBytesReceived
+      this.lastBytesTime = now
+    }
+  }
+
+  // Track if we've received the first keyframe (needed for decoder to work)
+  private receivedFirstKeyframe = false
+
+  // Track video enabled state to make setVideoEnabled idempotent
+  private _videoEnabled = true
+
+  // Track last video config for decoder recovery
+  private lastVideoCodec: WsVideoCodecType | null = null
+  private lastVideoWidth = 0
+  private lastVideoHeight = 0
+  private lastVideoHwAccel: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
+
+  private handleVideoFrame(data: Uint8Array) {
+    if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
+      // Queue frames or drop them if decoder isn't ready
+      return
+    }
+
+    const arrivalTime = performance.now()
+
+    // === Frame Receive Jitter Tracking ===
+    // Measures variance in time between frames arriving from WebSocket
+    // High jitter (large max-min) indicates network buffering (e.g. SSH tunnel)
+    if (this.lastFrameReceiveTime > 0) {
+      const intervalMs = arrivalTime - this.lastFrameReceiveTime
+      this.receiveIntervalSamples.push(intervalMs)
+      if (this.receiveIntervalSamples.length > this.MAX_JITTER_SAMPLES) {
+        this.receiveIntervalSamples.shift()
+      }
+      // Track min/max incrementally (avoid O(n) Math.min/max spread on every frame)
+      if (intervalMs < this.minReceiveIntervalMs || this.minReceiveIntervalMs === 0) {
+        this.minReceiveIntervalMs = intervalMs
+      }
+      if (intervalMs > this.maxReceiveIntervalMs) {
+        this.maxReceiveIntervalMs = intervalMs
+      }
+    }
+    this.lastFrameReceiveTime = arrivalTime
+
+    // Parse video frame header
+    // Format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
+    if (data.length < 15) {
+      console.error("[WebSocketStream] Video frame too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const msgType = data[0]
+    const codec = data[1]
+    const flags = data[2]
+    const isKeyframe = (flags & 0x01) !== 0
+    const ptsUs = view.getBigUint64(3, false) // big-endian
+
+    // Track received FPS (before decode)
+    this.framesReceived = (this.framesReceived || 0) + 1
+    this.receiveCount++
+    const now = performance.now()
+    if (now - this.lastReceiveTime >= 1000) {
+      this.currentReceiveFps = this.receiveCount
+      this.receiveCount = 0
+      this.lastReceiveTime = now
+      this.lastReceiveFpsUpdateTimestamp = Date.now()
+    }
+
+    // DEBUG: Log first 10 frames received (before decode)
+    if (this.framesReceived <= 10) {
+      // Log header bytes to debug PTS issues
+      const ptsBytes = Array.from(data.slice(3, 11)).map(b => b.toString(16).padStart(2, "0")).join(" ")
+      console.log(`[WebSocketStream] Frame ${this.framesReceived}: type=${msgType} codec=${codec} flags=0x${flags.toString(16)} isKeyframe=${isKeyframe} size=${data.length} pts=${ptsUs} (bytes: ${ptsBytes})`)
+    }
+    // width at offset 11, height at offset 13 (already have from StreamInit)
+
+    const frameData = data.slice(15)
+
+    // Track video PAYLOAD bytes only (H.264 data, excluding 15-byte protocol header)
+    this.videoPayloadBytes += frameData.length
+
+    // === Frame Latency Tracking ===
+    // Measure how late frames arrive compared to when they should based on PTS
+    // Skip frames with invalid PTS (0 or negative) to avoid bogus drift calculations
+    const ptsUsNum = Number(ptsUs)
+
+    // Check if warmup period has elapsed - don't establish baseline during stream initialization
+    // because early frames can have erratic timing due to buffering/pipeline setup
+    const warmupElapsed = this.streamConnectedTime !== null &&
+      (arrivalTime - this.streamConnectedTime) > this.FRAME_DRIFT_WARMUP_MS
+
+    if (ptsUsNum <= 0) {
+      // Invalid PTS, skip drift tracking for this frame
+    } else if (!warmupElapsed) {
+      // Still in warmup period - skip baseline establishment
+      // This prevents bogus drift calculations from stream initialization delays
+    } else if (this.baselineSamples.length < this.BASELINE_SAMPLE_COUNT) {
+      // Collecting samples for baseline averaging
+      this.baselineSamples.push({ pts: ptsUsNum, arrival: arrivalTime })
+
+      if (this.baselineSamples.length >= this.BASELINE_SAMPLE_COUNT) {
+        // We have enough samples - use the last one as baseline
+        // By the Nth frame after warmup, the stream should be fully stable
+        // Using last sample avoids any remaining transients from warmup edge
+        const last = this.baselineSamples[this.baselineSamples.length - 1]
+        this.firstFramePtsUs = last.pts
+        this.firstFrameArrivalTime = last.arrival
+        this.currentFrameLatencyMs = 0
+      }
+    } else if (this.firstFramePtsUs === null || this.firstFramePtsUs <= 0) {
+      // Fallback: shouldn't reach here, but establish baseline if needed
+      this.firstFramePtsUs = ptsUsNum
+      this.firstFrameArrivalTime = arrivalTime
+      this.currentFrameLatencyMs = 0
+    } else {
+      // Calculate expected arrival time based on PTS delta from first frame
+      const ptsDeltaMs = (ptsUsNum - this.firstFramePtsUs) / 1000
+      const expectedArrivalTime = this.firstFrameArrivalTime! + ptsDeltaMs
+
+      // Latency = how much later than expected the frame arrived
+      // Positive = frames arriving late, negative = frames arriving early
+      const latencyMs = arrivalTime - expectedArrivalTime
+
+      // Detect PTS discontinuity (pipeline restart without StreamInit)
+      // If latency is absurdly large (> 60 seconds), reset baseline
+      if (Math.abs(latencyMs) > 60000) {
+        // Log detailed info to debug oscillating PTS issue
+        console.warn(`[WebSocketStream] PTS discontinuity: drift=${latencyMs.toFixed(0)}ms, pts=${ptsUsNum}, firstPts=${this.firstFramePtsUs}, ptsDelta=${ptsDeltaMs.toFixed(0)}ms`)
+        this.firstFramePtsUs = ptsUsNum
+        this.firstFrameArrivalTime = arrivalTime
+        this.frameLatencySamples = []
+        this.frameLatencySamplesSum = 0
+        this.currentFrameLatencyMs = 0
+      } else {
+        // Keep a moving average for stability (O(1) using running sum)
+        this.frameLatencySamples.push(latencyMs)
+        this.frameLatencySamplesSum += latencyMs
+        if (this.frameLatencySamples.length > this.MAX_FRAME_LATENCY_SAMPLES) {
+          const removed = this.frameLatencySamples.shift()!
+          this.frameLatencySamplesSum -= removed
+        }
+        this.currentFrameLatencyMs = this.frameLatencySamplesSum / this.frameLatencySamples.length
+      }
+    }
+
+    // === Decoder Queue Monitoring ===
+    // Track decoder queue size for stats/debugging
+    const queueSize = this.videoDecoder.decodeQueueSize
+    this.lastDecodeQueueSize = queueSize
+    if (queueSize > this.maxDecodeQueueSize) {
+      this.maxDecodeQueueSize = queueSize
+    }
+
+    // Skip delta frames until we receive the first keyframe
+    // (keyframe should contain SPS/PPS needed for decoding)
+    if (!this.receivedFirstKeyframe) {
+      if (!isKeyframe) {
+        console.log("[WebSocketStream] Waiting for first keyframe, skipping delta frame")
+        return
+      }
+      // Debug: hexdump first 32 bytes to see NAL structure
+      if (frameData.length >= 32) {
+        const hexBytes = Array.from(frameData.slice(0, 32))
+          .map(b => b.toString(16).padStart(2, "0"))
+          .join(" ")
+        console.log(`[WebSocketStream] Keyframe first 32 bytes: ${hexBytes}`)
+        // Check NAL type after start code
+        const hasStartCode4 = frameData[0] === 0 && frameData[1] === 0 && frameData[2] === 0 && frameData[3] === 1
+        if (hasStartCode4) {
+          const nalTypeByte = frameData[4]
+          const isH264 = (nalTypeByte & 0x80) === 0 && (nalTypeByte & 0x60) !== 0
+          if (isH264) {
+            const h264NalType = nalTypeByte & 0x1F
+            console.log(`[WebSocketStream] H.264 NAL type: ${h264NalType}`)
+          } else {
+            const hevcNalType = (nalTypeByte >> 1) & 0x3F
+            console.log(`[WebSocketStream] HEVC NAL type: ${hevcNalType} (VPS=32, SPS=33, PPS=34, IDR=19/20)`)
+          }
+        }
+      }
+      console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
+      this.receivedFirstKeyframe = true
+      // Notify that video is starting (first frame is being decoded)
+      this.dispatchInfoEvent({ type: "videoStarted" })
+    }
+
+    // === Queue Monitoring (flush disabled) ===
+    // Queue flush on keyframe is disabled because it causes decoder errors on software H.264
+    // (CPU contention between decode and fetch processing leads to decode failures after reset)
+    // Instead, just log when queue backs up and let it naturally catch up
+    if (queueSize > this.QUEUE_FLUSH_THRESHOLD) {
+      // Only log once per backup event (not every frame)
+      if (!this.queueBackupLogged) {
+        console.warn(`[WebSocketStream] Queue backed up (${queueSize} frames), waiting for catchup`)
+        this.queueBackupLogged = true
+      }
+    } else if (this.queueBackupLogged && queueSize <= 3) {
+      console.log(`[WebSocketStream] Queue recovered (${queueSize} frames)`)
+      this.queueBackupLogged = false
+    }
+
+    try {
+      const chunk = new EncodedVideoChunk({
+        type: isKeyframe ? "key" : "delta",
+        timestamp: Number(ptsUs), // microseconds
+        data: frameData,
+      })
+
+      this.videoDecoder.decode(chunk)
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to decode video chunk:", e, "isKeyframe:", isKeyframe)
+
+      // If decoding fails, reset state and wait for next keyframe
+      this.receivedFirstKeyframe = false
+
+      if (isKeyframe) {
+        console.warn("[WebSocketStream] Keyframe decode failed, attempting decoder recovery")
+
+        // Try to reconfigure decoder for recovery
+        if (this.lastVideoCodec !== null && this.lastVideoWidth > 0 && this.lastVideoHeight > 0) {
+          this.initVideoDecoder(this.lastVideoCodec, this.lastVideoWidth, this.lastVideoHeight)
+            .catch(err => console.error("[WebSocketStream] Failed to recover video decoder:", err))
+        }
+      }
+    }
+  }
+
+  /**
+   * Get adaptive throttle interval based on RTT
+   * Returns the effective throttle interval in ms, accounting for RTT-based reduction
+   */
+  private getAdaptiveThrottleMs(): number {
+    const ratio = this.manualThrottleRatio ?? this.adaptiveThrottleRatio
+    const baseThrottleMs = 1000 / this.settings.fps
+    // When ratio < 1, we send LESS frequently, so interval INCREASES
+    return baseThrottleMs / ratio
+  }
+
+  /**
+   * Update adaptive throttle ratio based on current RTT
+   * Called from handlePong() whenever RTT measurement is updated
+   */
+  private updateAdaptiveThrottle() {
+    // Don't update if manually overridden
+    if (this.manualThrottleRatio !== null) {
+      return
+    }
+
+    const rtt = this.currentRttMs
+
+    // Calculate ratio based on RTT thresholds
+    let ratio: number
+    if (rtt < 50) {
+      ratio = 1.0     // 100% - full configured rate
+    } else if (rtt < 100) {
+      ratio = 0.75    // 75%
+    } else if (rtt < 150) {
+      ratio = 0.5     // 50%
+    } else if (rtt < 250) {
+      ratio = 0.33    // 33%
+    } else {
+      ratio = 0.25    // 25% - minimum
+    }
+
+    // Smooth transitions with exponential moving average
+    this.adaptiveThrottleRatio = this.adaptiveThrottleRatio * 0.7 + ratio * 0.3
+  }
+
+  /**
+   * Set manual throttle ratio override for debugging
+   * Pass null to return to automatic adaptive throttling
+   */
+  setThrottleRatio(ratio: number | null) {
+    this.manualThrottleRatio = ratio
+    if (ratio !== null) {
+      console.log(`[WebSocketStream] Manual throttle ratio set to ${ratio * 100}%`)
+    } else {
+      console.log(`[WebSocketStream] Returned to adaptive throttle (current: ${(this.adaptiveThrottleRatio * 100).toFixed(0)}%)`)
+    }
+  }
+
+  // ============================================================================
+  // RTT (Latency) Measurement
+  // ============================================================================
+
+  private sendPing() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const seq = this.pingSeq++
+    const sendTime = performance.now()
+    this.pendingPings.set(seq, sendTime)
+
+    // Ping format: type(1) + seq(4) + clientTime(8) = 13 bytes
+    const buffer = new ArrayBuffer(13)
+    const view = new DataView(buffer)
+    view.setUint8(0, WsMessageType.Ping)
+    view.setUint32(1, seq, false)  // big-endian
+    // We use performance.now() * 1000 for microseconds, but we only need
+    // the send time locally - the server echoes it back for calculation
+    view.setBigUint64(5, BigInt(Math.floor(sendTime * 1000)), false)
+
+    this.ws.send(buffer)
+  }
+
+  private handlePong(data: Uint8Array) {
+    // Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
+    // Backward compatible: old servers send 21 bytes without encoder latency
+    if (data.length < 21) {
+      console.warn("[WebSocketStream] Pong too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const seq = view.getUint32(1, false)  // big-endian
+
+    const sendTime = this.pendingPings.get(seq)
+    if (sendTime === undefined) {
+      console.warn("[WebSocketStream] Received pong for unknown seq:", seq)
+      return
+    }
+
+    this.pendingPings.delete(seq)
+
+    // Calculate RTT
+    const receiveTime = performance.now()
+    const rtt = receiveTime - sendTime
+
+    // Add to samples, keep only the most recent
+    this.rttSamples.push(rtt)
+    if (this.rttSamples.length > this.MAX_RTT_SAMPLES) {
+      this.rttSamples.shift()
+    }
+
+    // Calculate moving average
+    const sum = this.rttSamples.reduce((a, b) => a + b, 0)
+    this.currentRttMs = sum / this.rttSamples.length
+
+    // Extract encoder latency if present (extended Pong format: 23 bytes)
+    if (data.length >= 23) {
+      this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
+    }
+    // Note: Removed console.debug here - was causing frame jitter (console ops block main thread)
+
+    // Update adaptive input throttling based on new RTT
+    this.updateAdaptiveThrottle()
+
+    // Dispatch event if latency is high
+    if (this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS) {
+      this.dispatchInfoEvent({
+        type: "addDebugLine",
+        line: `High latency detected: ${this.currentRttMs.toFixed(0)}ms RTT`
+      })
+    }
+  }
+
+  private startPingInterval() {
+    this.stopPingInterval()
+
+    // Send first ping immediately
+    this.sendPing()
+
+    // Then send periodically
+    this.pingIntervalId = setInterval(() => {
+      this.sendPing()
+
+      // Clean up old pending pings (older than 5 seconds = lost)
+      const now = performance.now()
+      for (const [seq, sendTime] of this.pendingPings.entries()) {
+        if (now - sendTime > 5000) {
+          this.pendingPings.delete(seq)
+        }
+      }
+    }, this.PING_INTERVAL_MS)
+  }
+
+  private stopPingInterval() {
+    if (this.pingIntervalId) {
+      clearInterval(this.pingIntervalId)
+      this.pingIntervalId = null
+    }
+    this.pendingPings.clear()
+  }
+
+  // ============================================================================
+  // Input Handling - WebSocket transport
+  // ============================================================================
+
+  /**
+   * Check if the input send buffer is congested
+   * Returns true if we should skip non-critical inputs (mouse moves)
+   *
+   * Strategy: Skip mouse moves if buffer hasn't drained since last send.
+   * This prevents "ghost moves" - stale positions that arrive late and make
+   * it look like something else is controlling the cursor.
+   *
+   * We allow ONE mouse move to queue (to detect congestion), then skip
+   * all subsequent moves until the buffer drains completely.
+   */
+  private isInputBufferCongested(): boolean {
+    if (!this.ws) return false
+
+    const now = performance.now()
+    const buffered = this.ws.bufferedAmount
+
+    if (buffered === 0) {
+      // Buffer is empty - network is keeping up, safe to send
+      this.lastBufferDrainTime = now
+      this.bufferStaleMs = 0
+      return false
+    }
+
+    // Buffer has data - track how long
+    if (this.lastBufferDrainTime === 0) {
+      this.lastBufferDrainTime = now
+    }
+    this.bufferStaleMs = now - this.lastBufferDrainTime
+
+    // Skip immediately if buffer hasn't drained - don't pile up stale moves
+    // The one move already in the buffer will transmit; we'll send fresh
+    // position when buffer drains
+    return true
+  }
+
+  /**
+   * Track WebSocket send buffer stats for input latency monitoring
+   */
+  private trackInputBuffer() {
+    if (!this.ws) return
+
+    const buffered = this.ws.bufferedAmount
+    this.lastBufferedAmount = buffered
+
+    // Track peak
+    if (buffered > this.maxBufferedAmount) {
+      this.maxBufferedAmount = buffered
+    }
+
+    // Keep recent samples for averaging
+    this.inputBufferSamples.push(buffered)
+    if (this.inputBufferSamples.length > this.MAX_INPUT_BUFFER_SAMPLES) {
+      this.inputBufferSamples.shift()
+    }
+  }
+
+  private sendInputMessage(type: number, payload: Uint8Array) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[WebSocketStream] sendInputMessage: WS not ready (ws=${!!this.ws}, state=${this.ws?.readyState}), dropping input type=0x${type.toString(16)}`)
+      return
+    }
+
+    // Track buffer stats before sending
+    this.trackInputBuffer()
+    this.bufferedAmountBeforeSend = this.ws.bufferedAmount
+
+    const message = new Uint8Array(1 + payload.length)
+    message[0] = type
+    message.set(payload, 1)
+
+    // Measure how long ws.send() takes (should be ~0 if truly non-blocking)
+    const sendStart = performance.now()
+    this.ws.send(message.buffer)
+    const sendDuration = performance.now() - sendStart
+
+    // Track send duration
+    this.lastSendDurationMs = sendDuration
+    if (sendDuration > this.maxSendDurationMs) {
+      this.maxSendDurationMs = sendDuration
+    }
+    this.sendDurationSamples.push(sendDuration)
+    if (this.sendDurationSamples.length > this.MAX_SEND_DURATION_SAMPLES) {
+      this.sendDurationSamples.shift()
+    }
+
+    // Track buffer after send
+    this.bufferedAmountAfterSend = this.ws.bufferedAmount
+
+    this.inputsSent++
+  }
+
+  // WebSocket-specific input methods that mirror StreamInput API
+  // These construct the same binary format as the RTCDataChannel version
+
+  private inputBuffer = new Uint8Array(64)
+  private inputView = new DataView(this.inputBuffer.buffer)
+
+  sendKey(isDown: boolean, key: number, modifiers: number) {
+    // Format: subType(1) + isDown(1) + modifiers(1) + keyCode(2)
+    this.inputBuffer[0] = 0 // sub-type for key
+    this.inputBuffer[1] = isDown ? 1 : 0
+    this.inputBuffer[2] = modifiers
+    this.inputView.setUint16(3, key, false) // big-endian
+    this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 5))
+  }
+
+  sendMouseMove(movementX: number, movementY: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastMouseSendTime
+
+    // Check for input buffer congestion - if buffer is backing up, accumulate instead of sending
+    // This prevents input queueing that causes mouse lag even when video latency is low
+    if (this.isInputBufferCongested()) {
+      // Accumulate movement for when buffer clears
+      if (this.pendingMouseMove) {
+        this.pendingMouseMove.dx += movementX
+        this.pendingMouseMove.dy += movementY
+      } else {
+        this.pendingMouseMove = { dx: movementX, dy: movementY }
+      }
+      this.inputsDroppedDueToCongestion++
+      // Schedule flush when buffer might be clearer
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
+      return
+    }
+
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
+      // Enough time has passed - send immediately
+      this.sendMouseMoveImmediate(movementX, movementY)
+      this.lastMouseSendTime = now
+      this.pendingMouseMove = null
+    } else {
+      // Throttled - accumulate movement (relative moves add up)
+      if (this.pendingMouseMove) {
+        this.pendingMouseMove.dx += movementX
+        this.pendingMouseMove.dy += movementY
+      } else {
+        this.pendingMouseMove = { dx: movementX, dy: movementY }
+      }
+      // Schedule flush after throttle period
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs() - elapsed)
+    }
+  }
+
+  // ============================================================================
+  // Event Loop Latency Tracking
+  // ============================================================================
+
+  /**
+   * Start periodic event loop latency measurement using setTimeout(0)
+   * The idea: schedule a callback for "immediate" execution and measure actual delay
+   * If event loop is blocked, the callback is delayed proportionally
+   */
+  private startEventLoopTracking() {
+    this.stopEventLoopTracking()
+    this.scheduleEventLoopCheck()
+  }
+
+  private stopEventLoopTracking() {
+    if (this.eventLoopCheckTimeoutId) {
+      clearTimeout(this.eventLoopCheckTimeoutId)
+      this.eventLoopCheckTimeoutId = null
+    }
+  }
+
+  private scheduleEventLoopCheck() {
+    if (this.closed) return
+
+    this.eventLoopCheckScheduledAt = performance.now()
+
+    // Use setTimeout(0) which should fire "immediately" - any excess delay is event loop latency
+    this.eventLoopCheckTimeoutId = setTimeout(() => {
+      const actualTime = performance.now()
+      const elapsed = actualTime - this.eventLoopCheckScheduledAt
+
+      // setTimeout(0) has ~4ms minimum delay in browsers, so only count excess beyond that
+      // Also account for timer coalescing which can add a few more ms
+      const baselineDelay = 8  // Expected delay for setTimeout(0) with coalescing
+      const excessLatency = Math.max(0, elapsed - baselineDelay)
+
+      this.eventLoopLatencyMs = excessLatency
+
+      if (excessLatency > this.maxEventLoopLatencyMs) {
+        this.maxEventLoopLatencyMs = excessLatency
+      }
+
+      this.eventLoopLatencySamples.push(excessLatency)
+      if (this.eventLoopLatencySamples.length > this.MAX_EVENT_LOOP_SAMPLES) {
+        this.eventLoopLatencySamples.shift()
+      }
+
+      // Schedule next check after interval
+      if (!this.closed) {
+        this.eventLoopCheckTimeoutId = setTimeout(
+          () => this.scheduleEventLoopCheck(),
+          this.EVENT_LOOP_CHECK_INTERVAL_MS
+        )
+      }
+    }, 0)
+  }
+
+  private sendMouseMoveImmediate(movementX: number, movementY: number) {
+    // Format: subType(1) + dx(2) + dy(2)
+    this.inputBuffer[0] = 0 // sub-type for relative
+    this.inputView.setInt16(1, Math.round(movementX), false)
+    this.inputView.setInt16(3, Math.round(movementY), false)
+    this.sendInputMessage(WsMessageType.MouseRelative, this.inputBuffer.subarray(0, 5))
+  }
+
+  sendMousePosition(x: number, y: number, refWidth: number, refHeight: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastMouseSendTime
+
+    // Check for input buffer congestion - if buffer is backing up, just store latest position
+    // Absolute positions replace each other so we just keep the newest one
+    if (this.isInputBufferCongested()) {
+      this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
+      this.inputsDroppedDueToCongestion++
+      // Schedule flush when buffer might be clearer
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
+      return
+    }
+
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
+      // Enough time has passed - send immediately
+      this.sendMousePositionImmediate(x, y, refWidth, refHeight)
+      this.lastMouseSendTime = now
+      this.pendingMousePosition = null
+    } else {
+      // Throttled - store latest position (absolute positions replace, not accumulate)
+      this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
+      // Schedule flush after throttle period
+      this.scheduleMouseFlush(this.getAdaptiveThrottleMs() - elapsed)
+    }
+  }
+
+  private sendMousePositionImmediate(x: number, y: number, refWidth: number, refHeight: number) {
+    // Format: subType(1) + x(2) + y(2) + refWidth(2) + refHeight(2)
+    this.inputBuffer[0] = 1 // sub-type for absolute
+    this.inputView.setInt16(1, Math.round(x), false)
+    this.inputView.setInt16(3, Math.round(y), false)
+    this.inputView.setInt16(5, Math.round(refWidth), false)
+    this.inputView.setInt16(7, Math.round(refHeight), false)
+    this.sendInputMessage(WsMessageType.MouseAbsolute, this.inputBuffer.subarray(0, 9))
+  }
+
+  private scheduleMouseFlush(delayMs: number) {
+    // Only schedule if not already scheduled
+    if (this.mouseThrottleTimeoutId) return
+
+    this.mouseThrottleTimeoutId = setTimeout(() => {
+      this.mouseThrottleTimeoutId = null
+
+      // If still congested, reschedule for later
+      if (this.isInputBufferCongested()) {
+        this.scheduleMouseFlush(this.getAdaptiveThrottleMs())
+        return
+      }
+
+      this.lastMouseSendTime = performance.now()
+
+      // Send any pending mouse data
+      if (this.pendingMouseMove) {
+        const { dx, dy } = this.pendingMouseMove
+        this.pendingMouseMove = null
+        this.sendMouseMoveImmediate(dx, dy)
+      }
+      if (this.pendingMousePosition) {
+        const { x, y, refW, refH } = this.pendingMousePosition
+        this.pendingMousePosition = null
+        this.sendMousePositionImmediate(x, y, refW, refH)
+      }
+    }, delayMs)
+  }
+
+  sendMouseButton(isDown: boolean, button: number) {
+    // Format: subType(1) + isDown(1) + button(1)
+    this.inputBuffer[0] = 2 // sub-type for button
+    this.inputBuffer[1] = isDown ? 1 : 0
+    this.inputBuffer[2] = button
+    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
+  }
+
+  sendMouseWheelHighRes(deltaX: number, deltaY: number) {
+    this.sendScrollThrottled(deltaX, deltaY, true)
+  }
+
+  sendMouseWheel(deltaX: number, deltaY: number) {
+    this.sendScrollThrottled(deltaX, deltaY, false)
+  }
+
+  private sendScrollThrottled(deltaX: number, deltaY: number, highRes: boolean) {
+    const now = performance.now()
+    const elapsed = now - this.lastScrollSendTime
+
+    // Accumulate scroll deltas (like relative mouse movement)
+    if (this.pendingScroll) {
+      this.pendingScroll.dx += deltaX
+      this.pendingScroll.dy += deltaY
+      // Keep highRes if any event in batch was highRes
+      this.pendingScroll.highRes = this.pendingScroll.highRes || highRes
+    } else {
+      this.pendingScroll = { dx: deltaX, dy: deltaY, highRes }
+    }
+
+    // If enough time has passed, send immediately
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
+      this.flushPendingScroll()
+      this.lastScrollSendTime = now
+    } else {
+      // Schedule flush after throttle period
+      this.scheduleScrollFlush(this.getAdaptiveThrottleMs() - elapsed)
+    }
+  }
+
+  private scheduleScrollFlush(delayMs: number) {
+    if (this.scrollThrottleTimeoutId) return // Already scheduled
+
+    this.scrollThrottleTimeoutId = setTimeout(() => {
+      this.scrollThrottleTimeoutId = null
+      if (this.pendingScroll) {
+        this.flushPendingScroll()
+        this.lastScrollSendTime = performance.now()
+      }
+    }, delayMs)
+  }
+
+  private flushPendingScroll() {
+    if (!this.pendingScroll) return
+
+    const { dx, dy, highRes } = this.pendingScroll
+    this.pendingScroll = null
+
+    if (dx === 0 && dy === 0) return
+
+    if (highRes) {
+      // Format: subType(1) + deltaX(4 float32) + deltaY(4 float32)
+      this.inputBuffer[0] = 3 // sub-type for high-res wheel
+      this.inputView.setFloat32(1, dx, true) // little-endian
+      this.inputView.setFloat32(5, dy, true) // little-endian
+      this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 9))
+    } else {
+      // Format: subType(1) + deltaX(1) + deltaY(1)
+      this.inputBuffer[0] = 4 // sub-type for normal wheel
+      this.inputBuffer[1] = Math.round(dx) & 0xFF
+      this.inputBuffer[2] = Math.round(dy) & 0xFF
+      this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
+    }
+  }
+
+  // ============================================================================
+  // Touch Input (WebSocket transport)
+  // ============================================================================
+
+  // Touch throttling - motion events are throttled like mouse/scroll, down/up are immediate
+  private lastTouchSendTime = 0
+  private pendingTouchMotion: Map<number, { normX: number; normY: number }> = new Map()
+  private touchThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+  // Map browser touch identifiers to slot numbers (0-9)
+  private touchSlotMap: Map<number, number> = new Map()
+  private nextTouchSlot = 0
+
+  /**
+   * Send touch event via WebSocket.
+   * Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
+   * x/y are normalized 0.0-1.0 coordinates.
+   */
+  sendTouch(eventType: number, identifier: number, normX: number, normY: number) {
+    // Map browser identifier to slot (0-9)
+    let slot: number
+    if (eventType === 0) {
+      // Touch down - assign new slot
+      slot = this.nextTouchSlot++ % 10
+      this.touchSlotMap.set(identifier, slot)
+    } else {
+      // Touch motion or up - use existing slot
+      const existingSlot = this.touchSlotMap.get(identifier)
+      if (existingSlot === undefined) {
+        console.warn("[WebSocketStream] Touch event for unknown identifier:", identifier)
+        return
+      }
+      slot = existingSlot
+    }
+
+    if (eventType === 0 || eventType === 2) {
+      // Touch down/up - send immediately (discrete events)
+      this.sendTouchImmediate(eventType, slot, normX, normY)
+
+      // Clean up slot on touch up
+      if (eventType === 2) {
+        this.touchSlotMap.delete(identifier)
+      }
+    } else {
+      // Touch motion - throttle like mouse movement
+      this.sendTouchMotionThrottled(slot, normX, normY)
+    }
+  }
+
+  private sendTouchImmediate(eventType: number, slot: number, normX: number, normY: number) {
+    // Format: [eventType:1][slot:1][x:4 LE float32][y:4 LE float32]
+    this.inputBuffer[0] = eventType
+    this.inputBuffer[1] = slot
+    this.inputView.setFloat32(2, normX, true) // little-endian
+    this.inputView.setFloat32(6, normY, true) // little-endian
+    this.sendInputMessage(WsMessageType.TouchEvent, this.inputBuffer.subarray(0, 10))
+  }
+
+  private sendTouchMotionThrottled(slot: number, normX: number, normY: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastTouchSendTime
+
+    // Store latest position for this slot (overwrites previous - we only care about latest position)
+    this.pendingTouchMotion.set(slot, { normX, normY })
+
+    // If enough time has passed, send immediately
+    if (elapsed >= this.getAdaptiveThrottleMs()) {
+      this.flushPendingTouchMotion()
+      this.lastTouchSendTime = now
+    } else {
+      // Schedule flush after throttle period
+      this.scheduleTouchFlush(this.getAdaptiveThrottleMs() - elapsed)
+    }
+  }
+
+  private scheduleTouchFlush(delayMs: number) {
+    if (this.touchThrottleTimeoutId) return // Already scheduled
+
+    this.touchThrottleTimeoutId = setTimeout(() => {
+      this.touchThrottleTimeoutId = null
+      if (this.pendingTouchMotion.size > 0) {
+        this.flushPendingTouchMotion()
+        this.lastTouchSendTime = performance.now()
+      }
+    }, delayMs)
+  }
+
+  private flushPendingTouchMotion() {
+    for (const [slot, pos] of this.pendingTouchMotion) {
+      this.sendTouchImmediate(1, slot, pos.normX, pos.normY) // 1 = motion
+    }
+    this.pendingTouchMotion.clear()
+  }
+
+  // ============================================================================
+  // Public API
+  // ============================================================================
+
+  setCanvas(canvas: HTMLCanvasElement) {
+    this.canvas = canvas
+    this.canvasCtx = canvas.getContext("2d", {
+      alpha: false,
+      desynchronized: true, // Lower latency
+    })
+  }
+
+  /**
+   * Debug: Toggle software decoding to test hardware decoder buffering hypothesis.
+   * Hardware decoders (VideoToolbox on macOS, NVDEC on Linux/Windows) may buffer
+   * 1-2 frames internally for B-frame reordering, even when optimizeForLatency=true.
+   * Software decoding (libvpx, FFmpeg) typically has lower latency.
+   * See: https://github.com/w3c/webcodecs/issues/732
+   */
+  setForceSoftwareDecoding(force: boolean) {
+    if (this.forceSoftwareDecoding === force) return
+    this.forceSoftwareDecoding = force
+    console.log(`[WebSocketStream] Force software decoding: ${force}`)
+    // Will take effect on next video init (e.g., after disconnect/reconnect)
+    // For immediate effect, we'd need to reinit the decoder, but that requires a keyframe
+  }
+
+  getForceSoftwareDecoding(): boolean {
+    return this.forceSoftwareDecoding
+  }
+
+  getStreamerSize(): [number, number] {
+    return this.streamerSize
+  }
+
+  getStats(): {
+    fps: number
+    receiveFps: number               // Frames received per second (before decode)
+    videoPayloadBitrateMbps: number  // H.264 data only
+    totalBitrateMbps: number         // Everything over WebSocket
+    framesDecoded: number
+    framesReceived: number
+    framesDropped: number
+    width: number
+    height: number
+    rttMs: number                    // Round-trip time in milliseconds
+    encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
+    isHighLatency: boolean           // True if RTT exceeds threshold
+    // Frame latency (measures actual delivery delay, not just RTT)
+    frameLatencyMs: number           // How late frames are arriving based on PTS
+    // Adaptive input throttling stats
+    adaptiveThrottleRatio: number    // Current throttle ratio (1.0 = full, 0.25 = 25%)
+    effectiveInputFps: number        // Actual input rate after throttling
+    isThrottled: boolean             // True if throttle ratio < 1.0
+    // Decoder queue stats (detects if decoder can't keep up)
+    decodeQueueSize: number          // Current decoder queue depth
+    maxDecodeQueueSize: number       // Peak queue size seen
+    framesSkippedToKeyframe: number  // Frames flushed when skipping to keyframe
+    // Codec info
+    codecString: string              // Human-readable codec name (H.264, HEVC, AV1, etc.)
+    // Input buffer stats (detects if input is queueing up)
+    inputBufferBytes: number         // Current WebSocket send buffer size
+    maxInputBufferBytes: number      // Peak send buffer size seen
+    avgInputBufferBytes: number      // Average send buffer size
+    inputsSent: number               // Total inputs sent
+    inputsDroppedDueToCongestion: number  // Mouse moves skipped due to buffer congestion
+    inputCongested: boolean          // True if input buffer is currently congested
+    bufferStaleMs: number            // How long buffer has been non-empty (0 = draining fine)
+    // Send latency stats (should be ~0 if ws.send is truly non-blocking)
+    lastSendDurationMs: number       // How long last ws.send() took
+    maxSendDurationMs: number        // Peak send duration seen
+    avgSendDurationMs: number        // Average send duration
+    bufferedAmountBeforeSend: number // Buffer size before last send
+    bufferedAmountAfterSend: number  // Buffer size after last send
+    // Event loop latency (detects if main thread is blocked)
+    eventLoopLatencyMs: number       // Current excess delay for setTimeout(0)
+    maxEventLoopLatencyMs: number    // Peak event loop latency seen
+    avgEventLoopLatencyMs: number    // Average event loop latency
+    // Frame jitter stats (detects batching/bunching)
+    receiveJitterMs: string          // "min-max" interval between frames arriving
+    renderJitterMs: string           // "min-max" interval between frames rendering
+    avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
+    avgRenderIntervalMs: number      // Average render interval
+    // Debug flags
+    usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
+    // Frame health monitoring (for iOS Safari stall detection)
+    lastFrameRenderTime: number      // performance.now() timestamp of last frame render (0 = no frames yet)
+    // WebSocket data flow monitoring
+    lastWsMessageTime: number        // Timestamp of last WebSocket message received
+    // Decoder state
+    decoderState: string             // "configured" = healthy, "closed" = crashed
+  } {
+    // If FPS hasn't been updated in over 2 seconds, it's stale - report 0
+    const now = Date.now()
+    const fpsIsStale = this.lastFpsUpdateTimestamp > 0 && (now - this.lastFpsUpdateTimestamp) > 2000
+    const receiveFpsIsStale = this.lastReceiveFpsUpdateTimestamp > 0 && (now - this.lastReceiveFpsUpdateTimestamp) > 2000
+
+    return {
+      fps: fpsIsStale ? 0 : this.currentFps,
+      fpsUpdatedAt: this.lastFpsUpdateTimestamp,  // Wall clock timestamp for staleness check
+      receiveFps: receiveFpsIsStale ? 0 : this.currentReceiveFps,
+      videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
+      totalBitrateMbps: this.currentTotalBitrateMbps,
+      framesDecoded: this.framesDecoded,
+      framesReceived: this.framesReceived || 0,
+      framesDropped: this.framesDropped,
+      width: this.streamerSize[0],
+      height: this.streamerSize[1],
+      rttMs: this.currentRttMs,
+      encoderLatencyMs: this.encoderLatencyMs,
+      isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
+      // Frame latency (the real measure of how delayed frames are)
+      frameLatencyMs: this.currentFrameLatencyMs,
+      // Adaptive input throttling
+      adaptiveThrottleRatio: this.manualThrottleRatio ?? this.adaptiveThrottleRatio,
+      effectiveInputFps: this.settings.fps * (this.manualThrottleRatio ?? this.adaptiveThrottleRatio),
+      isThrottled: (this.manualThrottleRatio ?? this.adaptiveThrottleRatio) < 0.99,
+      // Decoder queue
+      decodeQueueSize: this.lastDecodeQueueSize,
+      maxDecodeQueueSize: this.maxDecodeQueueSize,
+      framesSkippedToKeyframe: this.framesSkippedToKeyframe,
+      // Codec info
+      codecString: codecToDisplayName(this.lastVideoCodec),
+      // Input buffer stats
+      inputBufferBytes: this.lastBufferedAmount,
+      maxInputBufferBytes: this.maxBufferedAmount,
+      avgInputBufferBytes: this.inputBufferSamples.length > 0
+        ? Math.round(this.inputBufferSamples.reduce((a, b) => a + b, 0) / this.inputBufferSamples.length)
+        : 0,
+      inputsSent: this.inputsSent,
+      inputsDroppedDueToCongestion: this.inputsDroppedDueToCongestion,
+      inputCongested: this.isInputBufferCongested(),
+      bufferStaleMs: this.bufferStaleMs,
+      // Send latency stats (should be ~0 if ws.send is truly non-blocking)
+      lastSendDurationMs: this.lastSendDurationMs,
+      maxSendDurationMs: this.maxSendDurationMs,
+      avgSendDurationMs: this.sendDurationSamples.length > 0
+        ? this.sendDurationSamples.reduce((a, b) => a + b, 0) / this.sendDurationSamples.length
+        : 0,
+      bufferedAmountBeforeSend: this.bufferedAmountBeforeSend,
+      bufferedAmountAfterSend: this.bufferedAmountAfterSend,
+      // Event loop latency
+      eventLoopLatencyMs: this.eventLoopLatencyMs,
+      maxEventLoopLatencyMs: this.maxEventLoopLatencyMs,
+      avgEventLoopLatencyMs: this.eventLoopLatencySamples.length > 0
+        ? this.eventLoopLatencySamples.reduce((a, b) => a + b, 0) / this.eventLoopLatencySamples.length
+        : 0,
+      // Frame jitter stats
+      receiveJitterMs: `${Math.round(this.minReceiveIntervalMs)}-${Math.round(this.maxReceiveIntervalMs)}`,
+      renderJitterMs: `${Math.round(this.minRenderIntervalMs)}-${Math.round(this.maxRenderIntervalMs)}`,
+      avgReceiveIntervalMs: this.receiveIntervalSamples.length > 0
+        ? Math.round(this.receiveIntervalSamples.reduce((a, b) => a + b, 0) / this.receiveIntervalSamples.length)
+        : 0,
+      avgRenderIntervalMs: this.renderIntervalSamples.length > 0
+        ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
+        : 0,
+      // Debug flags
+      usingSoftwareDecoder: this.forceSoftwareDecoding,
+      // Frame health monitoring (for iOS Safari stall detection)
+      lastFrameRenderTime: this.lastFrameRenderTime,
+      // WebSocket data flow monitoring (for connection stall detection)
+      // Use this instead of lastFrameRenderTime - static screens have no frame output but connection is fine
+      lastWsMessageTime: this.lastMessageTime,
+      // Decoder state - "configured" = healthy, "closed" = crashed/died
+      decoderState: this.videoDecoder?.state || "unconfigured",
+    }
+  }
+
+  getInput(): StreamInput {
+    // Return the underlying StreamInput that's been configured
+    // The caller will use onKeyDown, onMouseMove, etc. which internally
+    // call sendKey, sendMouseMove, etc.
+    // We need to patch the send methods to use our WebSocket transport
+    const wsStream = this
+    const patchedInput = this.input
+
+    // Override the send methods on the StreamInput instance
+    // @ts-ignore - accessing private methods for patching
+    patchedInput.sendKey = (isDown: boolean, key: number, modifiers: number) => {
+      wsStream.sendKey(isDown, key, modifiers)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseMove = (movementX: number, movementY: number) => {
+      wsStream.sendMouseMove(movementX, movementY)
+    }
+    // @ts-ignore
+    patchedInput.sendMousePosition = (x: number, y: number, refW: number, refH: number) => {
+      wsStream.sendMousePosition(x, y, refW, refH)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseButton = (isDown: boolean, button: number) => {
+      wsStream.sendMouseButton(isDown, button)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseWheelHighRes = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheelHighRes(deltaX, deltaY)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseWheel = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheel(deltaX, deltaY)
+    }
+
+    return patchedInput
+  }
+
+  addInfoListener(listener: WsStreamInfoEventListener) {
+    this.eventTarget.addEventListener("stream-info", listener as EventListenerOrEventListenerObject)
+  }
+
+  removeInfoListener(listener: WsStreamInfoEventListener) {
+    this.eventTarget.removeEventListener("stream-info", listener as EventListenerOrEventListenerObject)
+  }
+
+  private dispatchInfoEvent(detail: WsStreamInfoEvent["detail"]) {
+    const event: WsStreamInfoEvent = new CustomEvent("stream-info", { detail })
+    this.eventTarget.dispatchEvent(event)
+  }
+
+  private resetStreamState() {
+    // Reset video state
+    this.receivedFirstKeyframe = false
+  }
+
+  private cleanupDecoders() {
+    if (this.videoDecoder) {
+      try {
+        this.videoDecoder.close()
+      } catch (e) {
+        // Ignore - decoder may already be closed
+      }
+      this.videoDecoder = null
+    }
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat()
+
+    // Set up page visibility listener to handle iOS background suspension
+    // When page goes hidden, iOS suspends JS - we don't want to detect this as stale
+    this.visibilityHandler = () => {
+      const wasHidden = !this.pageVisible
+      this.pageVisible = !document.hidden
+
+      if (this.pageVisible && wasHidden) {
+        // Page just became visible again - reset lastMessageTime to avoid false stale detection
+        // iOS suspends JS when page is hidden, so elapsed time includes suspension
+        console.log("[WebSocketStream] Page became visible, resetting heartbeat timer")
+        this.lastMessageTime = Date.now()
+      }
+    }
+    document.addEventListener("visibilitychange", this.visibilityHandler)
+
+    this.heartbeatIntervalId = setInterval(() => {
+      if (!this.connected) return
+
+      // Skip stale detection when page is hidden (iOS suspends JS, time passes but no messages)
+      if (!this.pageVisible) {
+        return
+      }
+
+      const now = Date.now()
+      const elapsed = now - this.lastMessageTime
+
+      if (elapsed > this.heartbeatTimeout) {
+        console.warn(`[WebSocketStream] Stale connection detected (${elapsed}ms since last message), forcing reconnect`)
+        this.dispatchInfoEvent({ type: "error", message: "Connection stale - no data received" })
+
+        // Force close and trigger reconnection
+        if (this.ws) {
+          try {
+            this.ws.close()
+          } catch (e) {
+            // Ignore
+          }
+        }
+      }
+    }, 5000) // Check every 5 seconds
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatIntervalId) {
+      clearInterval(this.heartbeatIntervalId)
+      this.heartbeatIntervalId = null
+    }
+
+    // Clean up visibility listener
+    if (this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler)
+      this.visibilityHandler = null
+    }
+  }
+
+  /**
+   * Enable or disable video frame transmission from the server
+   * When disabled, server stops sending video frames (saves bandwidth in screenshot mode)
+   *
+   * @param enabled - true to enable video, false to disable (screenshot mode)
+   */
+  setVideoEnabled(enabled: boolean) {
+    // Idempotent check - don't send duplicate messages
+    if (this._videoEnabled === enabled) {
+      console.log(`[WebSocketStream] Video already ${enabled ? 'enabled' : 'disabled'}, skipping`)
+      return
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn("[WebSocketStream] Cannot set video enabled - WebSocket not connected")
+      // Still update local state so we don't spam when connection is restored
+      this._videoEnabled = enabled
+      return
+    }
+
+    console.log(`[WebSocketStream] Setting video enabled: ${enabled}`)
+    this._videoEnabled = enabled
+
+    // When re-enabling video, reset keyframe flag so we wait for a fresh keyframe
+    // The decoder needs VPS/SPS/PPS parameter sets from a keyframe after being paused
+    if (enabled) {
+      this.receivedFirstKeyframe = false
+      console.log("[WebSocketStream] Reset keyframe flag - will wait for fresh keyframe")
+    }
+
+    // Send control message to server
+    // Format: type(1) + JSON payload
+    const json = JSON.stringify({ set_video_enabled: enabled })
+    const encoder = new TextEncoder()
+    const jsonBytes = encoder.encode(json)
+
+    const message = new Uint8Array(1 + jsonBytes.length)
+    message[0] = WsMessageType.ControlMessage
+    message.set(jsonBytes, 1)
+
+    this.ws.send(message.buffer)
+  }
+
+  /**
+   * Public method to force reconnection
+   * Resets the attempt counter and initiates a fresh connection
+   */
+  reconnect() {
+    console.log("[WebSocketStream] Manual reconnect requested")
+
+    // Reset state for fresh connection
+    this.closed = false
+    this.reconnectAttempts = 0
+
+    // Cancel any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
+    // Close current connection and reconnect
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
+    }
+
+    // Connect immediately
+    this.connect()
+  }
+
+  close() {
+    // Log with stack trace to help debug unexpected close() calls
+    console.log("[WebSocketStream] Closing", new Error("close() called from:").stack)
+
+    // Mark as explicitly closed to prevent reconnection and rendering
+    this.closed = true
+
+    // CRITICAL: Clear canvas references FIRST to prevent any further rendering
+    // This must happen before decoder cleanup to ensure no frames are drawn
+    // after close() is called (even if decoder has frames in queue)
+    this.canvas = null
+    this.canvasCtx = null
+
+    // Cancel any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
+    // Clear connection timeout
+    this.clearConnectionTimeout()
+
+    // Stop heartbeat
+    this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
+
+    // Stop event loop tracking
+    this.stopEventLoopTracking()
+
+    // Cancel pending mouse throttle flush
+    if (this.mouseThrottleTimeoutId) {
+      clearTimeout(this.mouseThrottleTimeoutId)
+      this.mouseThrottleTimeoutId = null
+    }
+
+    // Cancel pending scroll throttle flush
+    if (this.scrollThrottleTimeoutId) {
+      clearTimeout(this.scrollThrottleTimeoutId)
+      this.scrollThrottleTimeoutId = null
+    }
+    this.pendingScroll = null
+
+    // Cancel pending touch throttle flush
+    if (this.touchThrottleTimeoutId) {
+      clearTimeout(this.touchThrottleTimeoutId)
+      this.touchThrottleTimeoutId = null
+    }
+    this.pendingTouchMotion.clear()
+    this.touchSlotMap.clear()
+
+    // Reset stream state
+    this.resetStreamState()
+
+    // Clean up decoders
+    this.cleanupDecoders()
+
+    // Clean up cursor cache
+    this.cursorCache.forEach((cursor) => {
+      if (cursor.imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(cursor.imageUrl)
+      }
+    })
+    this.cursorCache.clear()
+
+    // Close WebSocket
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
+      this.ws = null
+    }
+
+    this.connected = false
+  }
+
+  // ============================================================================
+  // Cursor Message Handlers
+  // ============================================================================
+
+  /**
+   * Handle cursor image message (0x50)
+   * Format: [type:1][cursor_id:4][hotspot_x:2][hotspot_y:2][width:2][height:2][format:1][data_len:4][data:N]
+   */
+  private handleCursorImage(data: Uint8Array) {
+    // Binary format from Go (little-endian):
+    // type(1) + lastMoverID(4) + posX(4) + posY(4) + hotspotX(4) + hotspotY(4) + bitmapSize(4)
+    // If bitmapSize > 0: format(4) + width(4) + height(4) + stride(4) + pixels...
+
+    if (data.length < 25) {
+      console.warn("[WebSocketStream] CursorImage message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1  // Skip message type
+
+    // All values are little-endian from Go
+    // lastMoverID indicates which client caused this cursor shape change
+    const lastMoverID = view.getUint32(offset, true)
+    offset += 4
+    const posX = view.getInt32(offset, true)  // Little-endian, signed
+    offset += 4
+    const posY = view.getInt32(offset, true)
+    offset += 4
+    const hotspotX = view.getInt32(offset, true)
+    offset += 4
+    const hotspotY = view.getInt32(offset, true)
+    offset += 4
+    const bitmapSize = view.getUint32(offset, true)
+    offset += 4
+
+    // Update cursor position
+    this.cursorX = posX
+    this.cursorY = posY
+
+    // If bitmap data is present, update cursor image
+    if (bitmapSize > 0 && data.length >= offset + bitmapSize) {
+      // Bitmap header: format(4) + width(4) + height(4) + stride(4)
+      if (bitmapSize < 16) {
+        console.warn("[WebSocketStream] CursorImage bitmap header too short")
+        return
+      }
+
+      const format = view.getUint32(offset, true)  // DRM fourcc
+      offset += 4
+      const width = view.getUint32(offset, true)
+      offset += 4
+      const height = view.getUint32(offset, true)
+      offset += 4
+      const stride = view.getInt32(offset, true)
+      offset += 4
+
+      const pixelDataSize = bitmapSize - 16
+      if (data.length < offset + pixelDataSize) {
+        console.warn("[WebSocketStream] CursorImage pixel data truncated")
+        return
+      }
+
+      const pixelData = data.slice(offset, offset + pixelDataSize)
+
+      // Convert ARGB8888 raw pixels to PNG via canvas
+      const imageUrl = this.convertCursorBitmapToDataUrl(
+        pixelData, width, height, stride, format
+      )
+
+      if (imageUrl) {
+        // Use a simple cursor ID based on dimensions for caching
+        const cursorId = (width << 16) | height
+
+        // Revoke old blob URL if this cursor ID already exists
+        const existing = this.cursorCache.get(cursorId)
+        if (existing?.imageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(existing.imageUrl)
+        }
+
+        const cursorData: CursorImageData = {
+          cursorId,
+          hotspotX,
+          hotspotY,
+          width,
+          height,
+          imageUrl,
+        }
+
+        this.cursorCache.set(cursorId, cursorData)
+
+        // Emit cursor image event with lastMoverID for multi-player filtering
+        // Only the client that moved the cursor should update its cursor shape
+        this.dispatchInfoEvent({ type: "cursorImage", cursor: cursorData, lastMoverID })
+
+        console.debug("[WebSocketStream] Cursor image received:", {
+          cursorId,
+          hotspotX,
+          hotspotY,
+          width,
+          height,
+          format: format.toString(16),
+          lastMoverID,
+        })
+      }
+    }
+
+    // Always emit cursor position update (even without bitmap)
+    this.dispatchInfoEvent({
+      type: "cursorPosition",
+      x: posX,
+      y: posY,
+      hotspotX,
+      hotspotY,
+    })
+  }
+
+  /**
+   * Handle cursor name message (CSS cursor name for fallback rendering).
+   * This is sent when pixel capture fails in GNOME headless mode.
+   * Wire format: type(1) + lastMoverID(4) + hotspotX(4) + hotspotY(4) + nameLen(1) + name(...)
+   */
+  private handleCursorName(data: Uint8Array) {
+    if (data.length < 14) {
+      console.warn("[WebSocketStream] CursorName message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1  // Skip message type
+
+    const lastMoverID = view.getUint32(offset, true)
+    offset += 4
+    const hotspotX = view.getInt32(offset, true)
+    offset += 4
+    const hotspotY = view.getInt32(offset, true)
+    offset += 4
+    const nameLen = data[offset]
+    offset += 1
+
+    if (data.length < offset + nameLen) {
+      console.warn("[WebSocketStream] CursorName message truncated")
+      return
+    }
+
+    const cursorName = new TextDecoder().decode(data.slice(offset, offset + nameLen))
+
+    // Emit cursor name event for CSS fallback rendering
+    this.dispatchInfoEvent({
+      type: "cursorName",
+      cursorName,
+      hotspotX,
+      hotspotY,
+      lastMoverID,
+    })
+  }
+
+  /**
+   * Convert raw ARGB8888 cursor bitmap to a data URL.
+   * Uses canvas to convert pixel data to PNG.
+   */
+  private convertCursorBitmapToDataUrl(
+    pixelData: Uint8Array,
+    width: number,
+    height: number,
+    stride: number,
+    format: number
+  ): string | null {
+    if (width === 0 || height === 0) return null
+
+    try {
+      // Create an offscreen canvas
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+
+      // Create ImageData
+      const imageData = ctx.createImageData(width, height)
+      const dst = imageData.data
+
+      // Common DRM fourcc codes for cursor formats
+      const DRM_FORMAT_ARGB8888 = 0x34325241  // 'AR24'
+      const DRM_FORMAT_BGRA8888 = 0x34324142  // 'BA24'
+      const DRM_FORMAT_RGBA8888 = 0x34324152  // 'RA24'
+      const DRM_FORMAT_ABGR8888 = 0x34324241  // 'AB24'
+
+      // Convert based on format
+      for (let y = 0; y < height; y++) {
+        const srcRowStart = y * Math.abs(stride)
+        const dstRowStart = y * width * 4
+
+        for (let x = 0; x < width; x++) {
+          const srcIdx = srcRowStart + x * 4
+          const dstIdx = dstRowStart + x * 4
+
+          if (srcIdx + 3 >= pixelData.length) continue
+
+          // Canvas expects RGBA order
+          switch (format) {
+            case DRM_FORMAT_ARGB8888:
+              // ARGB -> RGBA
+              dst[dstIdx + 0] = pixelData[srcIdx + 1]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 2]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 3]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 0]  // A
+              break
+            case DRM_FORMAT_BGRA8888:
+              // BGRA -> RGBA
+              dst[dstIdx + 0] = pixelData[srcIdx + 2]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 0]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]  // A
+              break
+            case DRM_FORMAT_RGBA8888:
+              // RGBA -> RGBA (already correct)
+              dst[dstIdx + 0] = pixelData[srcIdx + 0]
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]
+              dst[dstIdx + 2] = pixelData[srcIdx + 2]
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]
+              break
+            case DRM_FORMAT_ABGR8888:
+              // ABGR8888 on little-endian: bytes are R, G, B, A (same as Canvas)
+              // DRM format name describes bit layout in 32-bit word, not byte order
+              // Bits [31:24]=A, [23:16]=B, [15:8]=G, [7:0]=R -> bytes: R, G, B, A
+              dst[dstIdx + 0] = pixelData[srcIdx + 0]  // R
+              dst[dstIdx + 1] = pixelData[srcIdx + 1]  // G
+              dst[dstIdx + 2] = pixelData[srcIdx + 2]  // B
+              dst[dstIdx + 3] = pixelData[srcIdx + 3]  // A
+              break
+            default:
+              // Assume ARGB as default
+              dst[dstIdx + 0] = pixelData[srcIdx + 1]
+              dst[dstIdx + 1] = pixelData[srcIdx + 2]
+              dst[dstIdx + 2] = pixelData[srcIdx + 3]
+              dst[dstIdx + 3] = pixelData[srcIdx + 0]
+          }
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0)
+      return canvas.toDataURL('image/png')
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to convert cursor bitmap:", e)
+      return null
+    }
+  }
+
+  /**
+   * Handle remote cursor position message (0x53)
+   * Format: [type:1][user_id:4][x:2][y:2]
+   */
+  private handleRemoteCursor(data: Uint8Array) {
+    // Format from Go (little-endian):
+    // type(1) + userId(4) + x(4) + y(4) + colorLen(1) + color(N)
+    if (data.length < 14) {
+      console.warn("[WebSocketStream] RemoteCursor message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1
+
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
+    const x = view.getInt32(offset, true)
+    offset += 4
+    const y = view.getInt32(offset, true)
+    offset += 4
+    const colorLen = data[offset]
+    offset += 1
+
+    let color = "#0D99FF"  // Default blue
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+    }
+
+    // Note: Removed console.log here - RemoteCursor fires on every mouse move (high frequency)
+    this.dispatchInfoEvent({ type: "remoteCursor", cursor: { userId, x, y, color, lastSeen: Date.now() } })
+  }
+
+  /**
+   * Handle remote user joined/left message (0x54)
+   * Format from Go (little-endian):
+   * type(1) + action(1) + userId(4) + nameLen(1) + name(N) + colorLen(1) + color(N) + avatarLen(2) + avatar(N)
+   */
+  private handleRemoteUser(data: Uint8Array) {
+    // Minimum 6 bytes: type(1) + action(1) + userId(4)
+    // "left" messages are exactly 6 bytes, "joined" messages are longer
+    if (data.length < 6) {
+      console.warn("[WebSocketStream] RemoteUser message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1
+
+    const action = data[offset]  // 0x00 = left, 0x01 = joined
+    offset += 1
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
+
+    if (action === 0x00) {
+      // User left
+      console.log("[WebSocketStream] Remote user left:", { userId })
+      this.dispatchInfoEvent({ type: "remoteUserLeft", userId })
+      return
+    }
+
+    // User joined - parse additional data
+    if (data.length < offset + 1) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (no nameLen)")
+      return
+    }
+
+    const nameLen = data[offset]
+    offset += 1
+
+    if (data.length < offset + nameLen) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (name)")
+      return
+    }
+
+    const name = new TextDecoder().decode(data.slice(offset, offset + nameLen))
+    offset += nameLen
+
+    // Parse color (string format now, not uint32)
+    if (data.length < offset + 1) {
+      console.warn("[WebSocketStream] RemoteUser joined message truncated (no colorLen)")
+      return
+    }
+    const colorLen = data[offset]
+    offset += 1
+
+    let color = "#0D99FF"  // Default blue
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+      offset += colorLen
+    }
+
+    // Parse avatar URL
+    let avatarUrl: string | undefined
+    if (data.length >= offset + 2) {
+      const avatarUrlLen = view.getUint16(offset, true)  // Little-endian
+      offset += 2
+      if (avatarUrlLen > 0 && data.length >= offset + avatarUrlLen) {
+        avatarUrl = new TextDecoder().decode(data.slice(offset, offset + avatarUrlLen))
+      }
+    }
+
+    this.dispatchInfoEvent({
+      type: "remoteUserJoined",
+      user: { userId, userName: name, color, avatarUrl },
+    })
+
+    // Log user joins (infrequent, useful for debugging multiplayer)
+  }
+
+  /**
+   * Handle self ID message (0x58)
+   * Server tells client their assigned clientId
+   * Format: type(1) + clientId(4)
+   */
+  private handleSelfId(data: Uint8Array) {
+    if (data.length < 5) {
+      console.warn("[WebSocketStream] SelfId message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const clientId = view.getUint32(1, true)  // Little-endian
+
+    // SelfId received once on connect - no logging needed
+    this.dispatchInfoEvent({ type: "selfId", clientId })
+  }
+
+  /**
+   * Handle AI agent cursor message (0x55)
+   * Format from Go (little-endian): type(1) + agentId(4) + x(2) + y(2) + action(1) + visible(1)
+   */
+  private handleAgentCursor(data: Uint8Array) {
+    if (data.length < 11) {
+      console.warn("[WebSocketStream] AgentCursor message too short")
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const agentId = view.getUint32(1, true)   // Little-endian
+    const x = view.getUint16(5, true)          // Little-endian
+    const y = view.getUint16(7, true)          // Little-endian
+    const actionByte = data[9]
+    const visible = data[10] !== 0
+
+    const actions: AgentCursorInfo['action'][] = ['idle', 'moving', 'clicking', 'typing', 'scrolling', 'dragging']
+    const action = actions[actionByte] || 'idle'
+
+    this.dispatchInfoEvent({
+      type: "agentCursor",
+      agent: { agentId, x, y, action, visible, lastSeen: Date.now() },
+    })
+  }
+
+  /**
+   * Handle remote touch event message (0x56)
+   * Format from Go (little-endian):
+   * type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) + color(N)
+   */
+  private handleRemoteTouch(data: Uint8Array) {
+    // Minimum: type(1) + userId(4) + touchId(4) + eventType(1) + x(4) + y(4) + pressure(4) + colorLen(1) = 23 bytes
+    if (data.length < 23) {
+      console.warn("[WebSocketStream] RemoteTouch message too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    let offset = 1  // Skip message type
+
+    const userId = view.getUint32(offset, true)  // Little-endian
+    offset += 4
+    const touchId = view.getUint32(offset, true)
+    offset += 4
+    const eventTypeByte = data[offset]
+    offset += 1
+    const x = view.getInt32(offset, true)
+    offset += 4
+    const y = view.getInt32(offset, true)
+    offset += 4
+    // Pressure is stored as fixed-point (value * 65535)
+    const pressureRaw = view.getUint32(offset, true)
+    const pressure = pressureRaw / 65535
+    offset += 4
+
+    // Parse color if present
+    const colorLen = data[offset]
+    offset += 1
+    let color: string | undefined
+    if (colorLen > 0 && data.length >= offset + colorLen) {
+      color = new TextDecoder().decode(data.slice(offset, offset + colorLen))
+    }
+
+    const eventTypes: RemoteTouchInfo['eventType'][] = ['start', 'move', 'end', 'cancel']
+    const eventType = eventTypes[eventTypeByte] || 'start'
+
+    this.dispatchInfoEvent({
+      type: "remoteTouch",
+      touch: { userId, touchId, eventType, x, y, pressure, color },
+    })
+  }
+
+}

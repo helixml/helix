@@ -1,10 +1,29 @@
+import {
+  TypesUserAppAccessResponse,
+  TypesStepInfo,
+  TypesMessage,
+  TypesInteraction,
+  TypesAssistantCalculator,
+  TypesToolCalculatorConfig,
+  TypesAssistantBrowser,
+  TypesToolBrowserConfig,
+  TypesAssistantEmail,
+  TypesToolEmailConfig,
+  TypesAssistantWebSearch,
+  TypesToolWebSearchConfig,
+  TypesAssistantAzureDevOps,
+  TypesAssistantProjectManager,
+  TypesTrigger,
+  TypesSession,
+  TypesAssistantMCP,
+  TypesToolMCPClientConfig,
+} from './api/api'
+
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
 // did). At time of writing, it's unused in the frontend because the frontend
 // doesn't have system prompt support.
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
-export const SESSION_CREATOR_USER: ISessionCreator = 'user'
-export const SESSION_CREATOR_ASSISTANT: ISessionCreator = 'assistant'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
@@ -24,10 +43,11 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'worker_task_response'
+export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
+export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
-
+export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
 export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
@@ -50,10 +70,6 @@ export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_que
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
-export type IAppSource = 'helix' | 'github'
-export const APP_SOURCE_HELIX: IAppSource = 'helix'
-export const APP_SOURCE_GITHUB: IAppSource = 'github'
-
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
@@ -74,6 +90,58 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
+// Agent Types
+export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
+export const AGENT_TYPE_HELIX_BASIC: IAgentType = 'helix_basic'
+export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
+export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
+
+export interface IExternalAgentConfig {
+  workspace_dir?: string
+  project_path?: string
+  env_vars?: string[]
+  auto_connect_rdp?: boolean
+  // Video settings (Phase 3.5) - matches PDE display settings
+  display_width?: number        // Streaming resolution width (default: 1920)
+  display_height?: number       // Streaming resolution height (default: 1080)
+  display_refresh_rate?: number // Streaming refresh rate (default: 60)
+  // Resolution and desktop configuration
+  resolution?: string   // Resolution preset: "1080p" (default) or "4k"
+  desktop_type?: string // Desktop environment: "ubuntu" (default) or "sway"
+  zoom_level?: number   // GNOME zoom percentage (100 default, 200 for 4k)
+}
+
+export interface IAgentTypeOption {
+  value: IAgentType
+  label: string
+  description: string
+  icon?: string
+  disabled?: boolean
+}
+
+export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
+  {
+    value: AGENT_TYPE_HELIX_BASIC,
+    label: 'Basic Helix Agent',
+    description: 'Simple conversational AI (no multi-turn, useful for RAG)',
+    icon: 'chat',
+  },
+  {
+    value: AGENT_TYPE_HELIX_AGENT,
+    label: 'Multi-Turn Helix Agent',
+    description: 'Advanced conversational AI with multi-turn tool use and reasoning',
+    icon: 'auto_awesome',
+  },
+  {
+    value: AGENT_TYPE_ZED_EXTERNAL,
+    label: 'External Agent',
+    description: 'Full development environment with code editing via streaming desktop',
+    icon: 'code',
+  }
+]
+
+
+
 export interface IKeycloakUser {
   id: string,
   email: string,
@@ -82,9 +150,7 @@ export interface IKeycloakUser {
 }
 
 export interface IUserConfig {
-  stripe_subscription_active?: boolean,
-  stripe_customer_id?: string,
-  stripe_subscription_id?: string,
+  // Removed stripe subscription fields - now come from wallet
 }
 
 export interface IHelixModel {
@@ -98,7 +164,7 @@ export interface IHelixModel {
 
 export type IOwnerType = 'user' | 'system' | 'org'
 
-export type IApiKeyType = 'api' | 'github' | 'app'
+export type IApiKeyType = 'api' | 'app'
 
 export interface IApiKey {
   owner: string,
@@ -167,100 +233,104 @@ export interface IInteractionMessage {
   content: string,
 }
 
-export interface IInteraction {
-  id: string,
-  created: string,
-  updated: string,
-  scheduled: string,
-  completed: string,
-  creator: ISessionCreator,
-  mode: ISessionMode,
-  runner: string,
-  message: string,
-  display_message: string,
-  progress: number,
-  files: string[],
-  finished: boolean,
-  metadata: Record<string, string>,
-  state: IInteractionState,
-  status: string,
-  error: string,
-  lora_dir: string,
-  data_prep_chunks: Record<string, IDataPrepChunk[]>,
-  data_prep_stage: ITextDataPrepStage,
-  data_prep_limited: boolean,
-  data_prep_limit: number,
-}
+// export interface IInteraction {
+//   id: string,
+//   created: string,
+//   updated: string,
+//   scheduled: string,
+//   completed: string,
+//   creator: ISessionCreator,
+//   mode: ISessionMode,
+//   runner: string,
+//   message: string,
+//   content: TypesMessageContent,
+//   display_message: string,
+//   progress: number,
+//   files: string[],
+//   finished: boolean,
+//   metadata: Record<string, string>,
+//   state: IInteractionState,
+//   status: string,
+//   error: string,
+//   lora_dir: string,
+//   data_prep_chunks: Record<string, IDataPrepChunk[]>,
+//   data_prep_stage: ITextDataPrepStage,
+//   data_prep_limited: boolean,
+//   data_prep_limit: number,
+// }
 
-export interface ISessionOrigin {
-  type: ISessionOriginType,
-  cloned_session_id?: string,
-  cloned_interaction_id?: string,
-}
+// export interface ISessionOrigin {
+//   type: ISessionOriginType,
+//   cloned_session_id?: string,
+//   cloned_interaction_id?: string,
+// }
 
-export interface ISessionConfig {
-  original_mode: ISessionMode,
-  origin: ISessionOrigin,
-  shared?: boolean,
-  avatar: string,
-  priority: boolean,
-  document_ids: Record<string, string>,
-  document_group_id: string,
-  manually_review_questions: boolean,
-  system_prompt: string,
-  helix_version: string,
-  eval_run_id: string,
-  eval_user_score: string,
-  eval_user_reason: string,
-  eval_manual_score: string,
-  eval_manual_reason: string,
-  eval_automatic_score: string,
-  eval_automatic_reason: string,
-  eval_original_user_prompts: string[],
-  rag_source_data_entity_id: string,
-}
+// export interface ISessionConfig {
+//   original_mode: ISessionMode,
+//   origin: ISessionOrigin,
+//   avatar: string,
+//   priority: boolean,
+//   document_ids: Record<string, string>,
+//   document_group_id: string,
+//   session_rag_results: ISessionRAGResult[],
+//   manually_review_questions: boolean,
+//   system_prompt: string,
+//   helix_version: string,
+//   eval_run_id: string,
+//   eval_user_score: string,
+//   eval_user_reason: string,
+//   eval_manual_score: string,
+//   eval_manual_reason: string,
+//   eval_automatic_score: string,
+//   eval_automatic_reason: string,
+//   eval_original_user_prompts: string[],
+//   rag_source_data_entity_id: string,
+// }
 
-export interface ISession {
-  id: string,
-  name: string,
-  created: string,
-  updated: string,
-  parent_session: string,
-  parent_app: string,
-  config: ISessionConfig,
-  mode: ISessionMode,
-  type: ISessionType,
-  model_name: string,
-  lora_dir: string,
-  interactions: IInteraction[],
-  owner: string,
-  owner_type: IOwnerType,
-}
+// export interface ISession {
+//   id: string,
+//   name: string,
+//   created: string,
+//   updated: string,
+//   parent_session: string,
+//   parent_app: string,
+//   config: ISessionConfig,
+//   mode: ISessionMode,
+//   type: ISessionType,
+//   model_name: string,
+//   provider: string,
+//   lora_dir: string,
+//   interactions: IInteraction[],
+//   owner: string,
+//   owner_type: IOwnerType,
+// }
 
-export interface IBotForm {
-  name: string,
-}
+// export interface IBotForm {
+//   name: string,
+// }
 
-export interface IBotConfig {
-}
+// export interface IBotConfig {
+// }
 
-export interface IBot {
-  id: string,
-  name: string,
-  created: string,
-  updated: string,
-  owner: string,
-  owner_type: IOwnerType,
-  config: IBotConfig,
-}
+// export interface IBot {
+//   id: string,
+//   name: string,
+//   created: string,
+//   updated: string,
+//   owner: string,
+//   owner_type: IOwnerType,
+//   config: IBotConfig,
+// }
 
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
+  interaction_id?: string,
   owner: string,
-  session?: ISession,
+  session?: TypesSession,
+  interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
-  step_info?: any,
+  step_info?: TypesStepInfo,
 }
 
 export interface IServerConfig {
@@ -318,17 +388,6 @@ export interface IModelInstanceState {
   status?: string,
 }
 
-export interface IRunnerStatus {
-  id: string,
-  created: string,
-  updated: string,
-  version?: string,
-  total_memory: number,
-  free_memory: number,
-  labels: Record<string, string>,
-  slots: ISlot[],
-}
-
 export interface ISessionFilterModel {
   mode: ISessionMode,
   model_name?: string,
@@ -344,7 +403,7 @@ export interface ISessionFilter {
   older?: string,
 }
 
-export interface  IGlobalSchedulingDecision {
+export interface IGlobalSchedulingDecision {
   created: string,
   runner_id: string,
   session_id: string,
@@ -352,22 +411,6 @@ export interface  IGlobalSchedulingDecision {
   filter: ISessionFilter,
   mode: ISessionMode,
   model_name: string,
-}
-
-export interface IQueueItem {
-  id: string,
-  created: string,
-  updated: string,
-  model_name: string,
-  mode: string,
-  runtime: string,
-  lora_dir: string,
-  summary: string,
-}
-
-export interface IDashboardData {
-  queue: IQueueItem[],
-  runners: IRunnerStatus[],
 }
 
 export interface ISlot {
@@ -395,7 +438,7 @@ export interface LLMInferenceRequest {
 }
 
 export interface ISlotAttributesWorkload {
-  Session: ISession,
+  Session: TypesSession,
   LLMInferenceRequest: LLMInferenceRequest,
 }
 
@@ -408,8 +451,8 @@ export interface ISessionSummary {
   name: string,
   interaction_id: string,
   model_name: string,
-  mode: ISessionMode,
-  type: ISessionType,
+  mode: string,
+  type: string,
   owner: string,
   lora_dir?: string,
   summary: string,
@@ -486,7 +529,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser' | 'mcp'
 
 export interface IToolApiAction {
   name: string,
@@ -496,14 +539,17 @@ export interface IToolApiAction {
 }
 
 export interface IToolApiConfig {
-  url: string,
-  schema: string,
-  actions: IToolApiAction[],
-  headers: Record<string, string>,
-  query: Record<string, string>,
-  request_prep_template?: string,
-  response_success_template?: string,
-  response_error_template?: string,
+  url: string;
+  schema?: string;
+  actions?: IToolApiAction[];
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+  request_prep_template?: string;
+  response_success_template?: string;
+  response_error_template?: string;
+  model?: string;
+  oauth_provider?: string;
+  oauth_scopes?: string[];
 }
 
 export interface IToolGptScriptConfig {
@@ -513,15 +559,20 @@ export interface IToolGptScriptConfig {
 
 export interface IToolZapierConfig {
   api_key?: string,
-  model?: string, 
+  model?: string,
   max_iterations?: number,
 }
-
 
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
   zapier?: IToolZapierConfig,
+  helix?: IAppHelixConfig,
+  browser?: TypesToolBrowserConfig,
+  calculator?: TypesToolCalculatorConfig,
+  email?: TypesToolEmailConfig,
+  web_search?: TypesToolWebSearchConfig,
+  mcp?: TypesToolMCPClientConfig,
 }
 
 export interface ITool {
@@ -538,7 +589,7 @@ export interface ITool {
 }
 
 export interface IKeyPair {
-	type: string,
+  type: string,
   private_key: string,
   public_key: string,
 }
@@ -567,6 +618,11 @@ export interface IAssistantApi {
   request_prep_template?: string,
   response_success_template?: string,
   response_error_template?: string,
+  system_prompt?: string,
+  oauth_provider?: string,
+  oauth_scopes?: string[],
+  skip_unknown_keys?: boolean,
+  transform_output?: boolean,
 }
 
 export interface IAssistantGPTScript {
@@ -592,16 +648,85 @@ export interface IAssistantConfig {
   image?: string;
   provider?: string;
   model?: string;
+  conversation_starters?: string[];
+  agent_mode?: boolean;
+  agent_type?: IAgentType;
+  memory?: boolean;
+  max_iterations?: number;
+  reasoning_model?: string;
+  reasoning_model_provider?: string;
+  reasoning_model_effort?: string;
+  generation_model?: string;
+  generation_model_provider?: string;
+  small_reasoning_model?: string;
+  small_reasoning_model_provider?: string;
+  small_reasoning_model_effort?: string;
+  small_generation_model?: string;
+  small_generation_model_provider?: string;
+  /**
+   * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+   * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+   * If empty, defaults to "zed_agent".
+   */
+  code_agent_runtime?: 'zed_agent' | 'qwen_code';
+  /**
+   * ContextLimit - the number of messages to include in the context for the AI assistant.
+   * When set to 1, the AI assistant will only see and remember the most recent message.
+   */
+  context_limit?: number;
+  /**
+   * How much to penalize new tokens based on their frequency in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - less repetitive
+   */
+  frequency_penalty?: number;  
+  /** The maximum number of tokens to generate before stopping. */
+  max_tokens?: number;
+  /**
+   * How much to penalize new tokens based on whether they appear in the text so far.
+   * Increases the model's likelihood to talk about new topics
+   * 0 - balanced
+   * 2 - open minded
+   */  
+  presence_penalty?: number;
+  /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
+  reasoning_effort?: string;
+  /**
+   * Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+   * 0.01 - precise
+   * 1 - neutral
+   * 2 - creative
+   */
+  temperature?: number;
+  /**
+   * An alternative to sampling with temperature, called nucleus sampling,
+   * where the model considers the results of the tokens with top_p probability mass.
+   * So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+   * 0 - balanced
+   * 2 - more creative
+   */
+  top_p?: number;
+  
   type?: ISessionType;
   system_prompt?: string;
   rag_source_id?: string;
   lora_id?: string;
   is_actionable_template?: string;
+  is_actionable_history_length?: number;
   apis?: IAssistantApi[];
+  mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
+  browser?: TypesAssistantBrowser;
+  web_search?: TypesAssistantWebSearch;
+  calculator?: TypesAssistantCalculator;
+  email?: TypesAssistantEmail;
+  azure_devops?: TypesAssistantAzureDevOps;
+  project_manager?: TypesAssistantProjectManager;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
+  tests?: ITest[];
 }
 
 export interface IKnowledgeProgress {
@@ -621,6 +746,7 @@ export interface IKnowledgeSource {
     results_count: number;
     chunk_size: number;
     chunk_overflow: number;
+    enable_vision: boolean;
   };
   state: string;
   message?: string;
@@ -661,6 +787,14 @@ export interface IKnowledgeSource {
       };
     };
     text?: string;
+    sharepoint?: {
+      site_id: string;
+      drive_id?: string;
+      folder_path?: string;
+      oauth_provider_id: string;
+      filter_extensions?: string[];
+      recursive: boolean;
+    };
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;
@@ -698,41 +832,29 @@ export interface IAppHelixConfig {
   avatar?: string;
   image?: string;
   assistants?: IAssistantConfig[];
-  // TODO: add triggers
+  triggers?: TypesTrigger[];
   external_url: string;
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
   // Add any other properties that might be part of the helix config
 }
 
-export interface IAppGithubConfigUpdate {
-  updated: string,
-  hash: string,
-  error: string,
-}
- 
-export interface IAppGithubConfig {
-  repo: string,
-  hash: string,
-  key_pair?: IKeyPair,
-  last_update?: IAppGithubConfigUpdate,
-}
-
 export interface IAppConfig {
-  helix: IAppHelixConfig;
-  github?: IAppGithubConfig;
+  helix: IAppHelixConfig;  
   secrets: Record<string, string>;
   allowed_domains: string[];
 }
 
 export interface IApp {
   id: string,
+  organization_id?: string,
   config: IAppConfig;
-  shared: boolean;
   global: boolean;
   created: Date;
   updated: Date;
   owner: string;
   owner_type: IOwnerType;
-  app_source: IAppSource;
+  user?: IUser;
 }
 
 export interface IAppUpdate {
@@ -741,21 +863,65 @@ export interface IAppUpdate {
     helix: IAppHelixConfig;
     secrets: Record<string, string>;
     allowed_domains: string[];
-    github?: IAppGithubConfig;
   };
-  shared: boolean;
   global: boolean;
   owner: string;
   owner_type: IOwnerType;
 }
 
-export interface IGithubStatus {
-  has_token: boolean,
-  redirect_url: string,
-}
+export interface IAppFlatState {
+  name?: string
+  description?: string
+  avatar?: string
+  image?: string
+  global?: boolean
+  secrets?: Record<string, string>
+  allowedDomains?: string[]
+  system_prompt?: string
+  provider?: string
+  model?: string
+  agent_mode?: boolean
+  memory?: boolean
+  max_iterations?: number
+  reasoning_model?: string
+  reasoning_model_provider?: string
+  reasoning_model_effort?: string
+  generation_model?: string
+  generation_model_provider?: string
+  small_reasoning_model?: string
+  small_reasoning_model_provider?: string
+  small_reasoning_model_effort?: string
+  small_generation_model?: string
+  small_generation_model_provider?: string
+  code_agent_runtime?: 'zed_agent' | 'qwen_code'
+  context_limit?: number
+  frequency_penalty?: number
+  max_tokens?: number
+  presence_penalty?: number
+  reasoning_effort?: string
+  temperature?: number
+  top_p?: number
+  
+  knowledge?: IKnowledgeSource[] // Added knowledge parameter
+  is_actionable_template?: string;
+  is_actionable_history_length?: number;
+  apiTools?: IAssistantApi[]
+  zapierTools?: IAssistantZapier[]
+  gptscriptTools?: IAssistantGPTScript[]
+  mcpTools?: TypesAssistantMCP[]
+  browserTool?: TypesAssistantBrowser
+  webSearchTool?: TypesAssistantWebSearch
+  calculatorTool?: TypesAssistantCalculator
+  emailTool?: TypesAssistantEmail
+  azureDevOpsTool?: TypesAssistantAzureDevOps
+  projectManagerTool?: TypesAssistantProjectManager
+  conversation_starters?: string[];
+  triggers?: TypesTrigger[];
+  tests?: ITest[];
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
 
-export interface IGithubRepo {
-  full_name: string,
+  tools?: ITool[]
 }
 
 export interface IGptScriptRequest {
@@ -773,12 +939,14 @@ export interface ICreateSessionConfig {
   activeToolIDs: string[],
   finetuneEnabled: boolean,
   ragEnabled: boolean,
-  ragDistanceFunction: IRagDistanceFunction, 
+  ragDistanceFunction: IRagDistanceFunction,
   ragThreshold: number,
   ragResultsCount: number,
   ragChunkSize: number,
   ragChunkOverflow: number,
   ragDisableChunking: boolean,
+  agentType: IAgentType,
+  externalAgentConfig?: IExternalAgentConfig,
 }
 
 export interface IHelixModel {
@@ -808,6 +976,33 @@ export interface IFeature {
   actions: IFeatureAction[],
 }
 
+export type IRequiredApiParameter = 'query' | 'header'
+
+// TODO: use TypesSkillDefinition instead
+export interface IAgentSkill {
+  name: string;
+  description: string;
+  icon?: React.ReactNode;
+  systemPrompt: string; // Will be used to configure the skill when it's running
+  apiSkill: {
+    schema: string;        // Schema of the API to be used, only applicable for API tools
+    url: string;           // URL of the API to be used, only applicable for API tools
+    headers?: Record<string, string>; // Headers to set for HTTP requests
+    query?: Record<string, string>;   // Query parameters to set for HTTP requests (will override whatever AI model sets)
+    oauth_provider?: string;
+    oauth_scopes?: string[];
+    skip_unknown_keys?: boolean;
+    transform_output?: boolean;
+    requiredParameters: Array<{
+      name: string;                // Name of the parameter
+      description: string;         // Description of the parameter
+      type: IRequiredApiParameter; // Type of the parameter (query, header)
+      required: boolean;           // Whether the parameter is required      
+    }>;
+  }
+  configurable: boolean; // Whether the skill can be configured by the user    
+}
+
 export interface ISessionLearnRequestRAGSettings {
   distance_function: string,
   threshold: number,
@@ -817,6 +1012,21 @@ export interface ISessionLearnRequestRAGSettings {
   disable_chunking: boolean,
 }
 
+export type IMessageContentPartText = {
+  type: 'text';
+  text: string;
+};
+
+export type IMessageContentPartImage = {
+  type: 'image_url';
+  image_url: {
+    url: string; // base64 data URI
+    // detail?: 'low' | 'high' | 'auto'; // Optional: for image detail control
+  };
+};
+
+export type IMessageContentPart = IMessageContentPartText | IMessageContentPartImage;
+
 export interface ISessionLearnRequest {
   type: ISessionType,
   data_entity_id: string,
@@ -825,31 +1035,29 @@ export interface ISessionLearnRequest {
   rag_settings: ISessionLearnRequestRAGSettings,
 }
 
-export interface IMessageContent {
-  content_type: string,
-  parts: any[],
-}
-
-export type IMessageRole = 'user' | 'system' | 'assistant'
-export interface IMessage {
-  role: IMessageRole,
-  content: IMessageContent,
-}
 
 export interface ISessionChatRequest {
+  regenerate?: boolean,
   app_id?: string,
+  project_id?: string,
+  organization_id?: string,
   assistant_id?: string,
   session_id?: string,
+  interaction_id?: string,
   stream?: boolean,
   legacy?: boolean,
   type?: ISessionType,
   lora_dir?: string,
   system?: string,
-  messages?: IMessage[],
+  messages?: TypesMessage[],
+  agent_type?: IAgentType,
+  external_agent_config?: IExternalAgentConfig,
   tools?: string[],
+  provider?: string,
   model?: string,
   rag_source_id?: string,
   lora_id?: string,
+  interrupt?: boolean, // If true, interrupt current agent work; if false, queue after current work completes
 }
 
 export interface IDataEntity {
@@ -861,6 +1069,8 @@ export interface IPageBreadcrumb {
   title: string,
   routeName?: string,
   params?: Record<string, any>,
+  // Override the page's orgBreadcrumbs setting for this specific breadcrumb
+  useOrgRouter?: boolean,
 }
 
 // Add this interface near the top of the file, with other interfaces
@@ -868,32 +1078,6 @@ export interface IApiOptions {
   snackbar?: boolean;
   errorCapture?: (error: any) => void;
   signal?: AbortSignal;
-}
-
-export interface LLMCall {
-  id: string;
-  created: string;
-  updated: string;
-  session_id: string;
-  interaction_id: string;
-  model: string;
-  provider: string;
-  step: string;
-  request: any;
-  response: any;
-  original_request: any;
-  duration_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
-
-export interface PaginatedLLMCalls {
-  calls: LLMCall[];
-  page: number;
-  pageSize: number;
-  totalCount: number;
-  totalPages: number;
 }
 
 export interface ICreateSecret {
@@ -917,6 +1101,7 @@ export interface IProviderEndpoint {
   name: string
   description: string
   models?: string[]
+  available_models?: string[] 
   endpoint_type: IProviderEndpointType
   owner: string
   owner_type: IOwnerType
@@ -924,4 +1109,116 @@ export interface IProviderEndpoint {
   api_key: string
   api_key_file?: string
   default: boolean
+  billing_enabled?: boolean
+  headers?: Record<string, string>
+}
+
+// Resource type for access grants
+export enum Resource {
+  Application = "application",
+  Dataset = "dataset",
+  ProviderEndpoint = "provider_endpoint",
+  Knowledge = "knowledge",
+}
+
+// User type used in access grants
+export interface IUser {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  token_type?: string;
+  email?: string;
+  username?: string;
+  full_name?: string;
+  avatar?: string;
+}
+
+// Role type used in access grants
+export interface IRole {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  organization_id: string;
+  name: string;
+  description: string;
+}
+
+// Access grant for apps to users or teams
+export interface IAccessGrant {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  resource_type: Resource;
+  resource_id: string;
+  organization_id: string;
+  team_id?: string;
+  user_id?: string;
+  user?: IUser;
+  roles?: IRole[];
+}
+
+// Request to create a new access grant
+export interface CreateAccessGrantRequest {
+  user_reference?: string; // User ID or email
+  team_id?: string;        // Team ID
+  roles: string[];         // Role names
+}
+
+export interface IUserAppAccessState {
+  loading: boolean
+  error: string | null
+  access: TypesUserAppAccessResponse | null
+  refresh: () => Promise<void>
+  isAdmin: boolean
+  canWrite: boolean
+  canRead: boolean
+}
+
+// Test interfaces
+export interface ITestStep {
+  prompt?: string;
+  expected_output?: string;
+}
+
+export interface ITest {
+  name?: string;
+  steps?: ITestStep[];
+}
+
+// Model substitution information returned from app creation
+export interface IModelSubstitution {
+  assistant_name: string
+  original_provider: string
+  original_model: string
+  new_provider: string
+  new_model: string
+  reason: string
+}
+
+// Extended app creation response that includes substitution info
+export interface IAppCreateResponse {
+  id: string,
+  organization_id?: string,
+  config: IAppConfig;
+  global: boolean;
+  created: Date;
+  updated: Date;
+  owner: string;
+  owner_type: IOwnerType;
+  model_substitutions?: IModelSubstitution[]
+}
+
+export interface IWallet {
+  id?: string;
+  balance?: number;
+  created_at?: string;
+  updated_at?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_status?: string;
+  subscription_current_period_start?: number;
+  subscription_current_period_end?: number;
+  subscription_created?: number;
+  user_id?: string;
+  org_id?: string;
 }

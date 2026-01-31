@@ -18,7 +18,7 @@ Definitions. Capitalized terms shall have the meanings defined herein.
 
 “Helix Platform” or “Service” means the Helix subscription service software, and components thereof, ordered by Customer as set forth in an applicable Order Form, including Helix Runner, Helix Hub, and any Add-on Services, as well as any updates thereto.  Except for certain third-party software expressly set forth in an applicable Order Form, the Helix Platform does not include Third-Party Products or content available in a registry or repository via the Helix Platform, which are instead subject to the corresponding third-party’s license or terms.
 
-“Documentation” means the Helix Platform documentation made available by Helix on the Helix website at https://helix.ml.
+“Documentation” means the Helix Platform documentation made available by Helix on the Helix website at https://helixml.tech.
 
 “Evaluation Services” means software or services that are distributed or otherwise made available for Customer to try at its option, at no additional charge, and which are designated as beta, limited release, developer preview, non-production, proof of concept, evaluation, or that are similarly described in the corresponding Order Form, applicable Evaluation Services registration process or Documentation. The terms applicable to such Evaluation Services shall be set forth in an applicable Order Form or addendum to this Agreement.
 
@@ -28,7 +28,7 @@ Definitions. Capitalized terms shall have the meanings defined herein.
 
 “Order Form” means the digital or physical ordering document identifying the products and related fees as applicable for Customer’s purchases from Helix. Order Forms shall be deemed incorporated herein by reference.
 
-“Pricing Page” means the Pricing and Subscriptions page which has a description of the Offering tier of the Service set forth at https://helix.ml/#pricing.
+“Pricing Page” means the Pricing and Subscriptions page which has a description of the Offering tier of the Service set forth at https://helixml.tech/#pricing.
 
 “Data Processing Agreement” means Helix’s data processing agreement available at https://github.com/helixml/helix/blob/main/data-processing-agreement.md.
 
@@ -43,7 +43,7 @@ License and Ownership.
 
 2.2 The Helix Platform is made available for use or licensed, not sold. Customer acknowledges and agrees that this Agreement does not transfer to Customer any Helix or third-party intellectual property rights. Customer acknowledges and agrees that, as between Helix and Customer, Helix owns all right, title, and interest in and to the Helix Platform (including any improvements, modifications, and enhancements thereto), and Helix shall, notwithstanding any other term of this Agreement, remain the owner of the Helix Platform. All rights not expressly granted by Helix herein are reserved.
 
-2.3 During the Subscription Term, Helix will provide support for the Helix Platform in accordance with the Service Level Agreement & Terms available at https://helix.ml/, as applicable to the products and support purchased via an Order Form.
+2.3 During the Subscription Term, Helix will provide support for the Helix Platform in accordance with the Service Level Agreement & Terms available at https://helixml.tech/, as applicable to the products and support purchased via an Order Form.
 
 Subscription Term; Payment.
 3.1 The length of the Subscription Term. The Subscription Term will automatically renew for additional 12-month periods unless a party provides at least 30 days’ written notice prior to the end of the then-current term that such party does not wish to renew for the upcoming term. All payment inquiries should be directed to receivables@helix.ml.

@@ -61,56 +61,6 @@ func GetServerURL() string {
 	return url
 }
 
-func GetHelixUser() string {
-	user := os.Getenv("HELIX_USER")
-	if user == "" {
-		log.Fatal("HELIX_USER environment variable is not set")
-	}
-	return user
-}
-
-func GetHelixPassword() string {
-	password := os.Getenv("HELIX_PASSWORD")
-	if password == "" {
-		log.Fatal("HELIX_PASSWORD environment variable is not set")
-	}
-	return password
-}
-
-func PerformLogin(t *testing.T, page *rod.Page) error {
-	if err := loginWithCredentials(t, page); err != nil {
-		return err
-	}
-	return verifyLogin(t, page)
-}
-
-func loginWithCredentials(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Looking for login button")
-	page.MustElement("button[id='login-button']").MustClick()
-
-	LogStep(t, "Getting credentials from environment")
-	username := GetHelixUser()
-	password := GetHelixPassword()
-
-	LogStep(t, "Filling in username and password")
-	page.MustElementX("//input[@type='text']").MustWaitVisible().MustInput(username)
-	page.MustElementX("//input[@type='password']").MustWaitVisible().MustInput(password)
-	page.MustElementX("//input[@type='submit']").MustWaitVisible().MustClick()
-
-	return nil
-}
-
-func verifyLogin(t *testing.T, page *rod.Page) error {
-	LogStep(t, "Verifying login")
-	username := GetHelixUser()
-	xpath := fmt.Sprintf(`//span[contains(text(), '%s')]`, username)
-	el := page.MustElementX(xpath)
-	if el == nil {
-		return fmt.Errorf("login failed - username not found")
-	}
-	return nil
-}
-
 func SendMessage(t *testing.T, page *rod.Page, message string) {
 	LogStep(t, "Looking for chat input textarea")
 	textarea := page.MustElement("textarea")

@@ -22,12 +22,12 @@ const ExamplePrompts: FC<{
   type: ISessionType,
   onChange: (prompt: string) => void,
   layout?: LayoutType,
-  header?: boolean,
+  header?: boolean,  
 }> = ({
   type,
   onChange,
   layout = 'horizontal',
-  header = true,
+  header = true,  
 }) => {
   const lightTheme = useLightTheme()
 
@@ -35,7 +35,7 @@ const ExamplePrompts: FC<{
     const usePrompts = EXAMPLE_PROMPTS[type] || []
     return usePrompts.sort(() => Math.random() - 0.5).slice(0, 3)
   }, [
-    type,
+    type,    
   ])
   
   return (

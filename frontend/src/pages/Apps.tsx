@@ -3,16 +3,18 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 import LockIcon from '@mui/icons-material/Lock'
+import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
-import CreateAppWindow from '../components/apps/CreateAppWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
+import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
 import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
+import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 
 import {
   IApp,
@@ -22,86 +24,51 @@ const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
   const snackbar = useSnackbar()
+  const createBlankAgent = useCreateBlankAgent()
+
   const {
     params,
-    setParams,
-    removeParams,
     navigate,
   } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateNewApp = useCallback(async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await apps.createEmptyHelixApp()
-    if(!newApp) return false
-    apps.loadData()
-    navigate('app', {
-      app_id: newApp.id,
+  const onEditApp = (app: IApp) => {
+    account.orgNavigate('app', {
+      app_id: app.id,
     })
-  }, [account.user, account.setShowLoginWindow, navigate])
+  }
 
-  const onConnectRepo = useCallback(async (repo: string) => {
+  const checkLoginStatus = (): boolean => {
     if (!account.user) {
       account.setShowLoginWindow(true)
       return false
     }
-    const newApp = await apps.createGithubApp(repo)
-    if(!newApp) return false
-    removeParams(['add_app'])
-    snackbar.success('app created')
-    apps.loadData()
-    navigate('app', {
-      app_id: newApp.id,
-    })
     return true
-  }, [
-    apps.createApp,
-  ])
+  }
 
-  const onEditApp = useCallback((app: IApp) => {
-    navigate('app', {
-      app_id: app.id,
-    })
-  }, [])
+  const onNewAgent = async () => {
+    if(!checkLoginStatus()) return
+    await createBlankAgent()
+  }
+
+  const onNewSecret = () => {
+    if(!checkLoginStatus()) return
+
+    account.orgNavigate('secrets')
+  }
 
   const onDeleteApp = useCallback(async () => {
     if(!deletingApp) return
     const result = await apps.deleteApp(deletingApp.id)
     if(!result) return
     setDeletingApp(undefined)
-    apps.loadData()
-    snackbar.success('app deleted')
+    apps.loadApps()
+    snackbar.success('Agent deleted')
   }, [
     deletingApp,
     apps.deleteApp,
-  ])
-
-  useEffect(() => {
-    if(!account.user) return
-    apps.loadData()
-  }, [
-    account.user,
-  ])
-
-  useEffect(() => {
-    if(!account.user) return
-    if(!params.add_app) return
-    apps.loadGithubStatus(`${window.location.href}?add_app=true`)
-  }, [
-    account.user,
-    params.add_app,
-  ])
-
-  useEffect(() => {
-    if(!apps.githubStatus) return
-    apps.loadGithubRepos()
-  }, [
-    apps.githubStatus,
-  ])
+  ])  
 
   useEffect(() => {
     if(!params.snackbar_message) return
@@ -110,9 +77,18 @@ const Apps: FC = () => {
     params.snackbar_message,
   ])
 
+  useEffect(() => {
+    if(account.user) {
+      apps.loadApps()
+    }
+  }, [
+    account, apps.loadApps,
+  ])
+  
   return (
     <Page
-      breadcrumbTitle="Apps"
+      breadcrumbTitle="Agents"
+      orgBreadcrumbs={ true }
       topbarContent={(
         <div>
           <Button
@@ -120,7 +96,7 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<LockIcon />}
-            onClick={() => navigate('secrets')}
+            onClick={onNewSecret}
             sx={{ mr: 2 }}
           >
             Secrets
@@ -131,25 +107,10 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            onClick={onCreateNewApp}
+            onClick={onNewAgent}
             sx={{ mr: 2 }}
           >
-            New App
-          </Button>
-          <Button
-            id="connect-repo-button"
-            variant="contained"
-            color="secondary"
-            endIcon={<AddIcon />}
-            onClick={ () => {
-              if(!account.user) {
-                account.setShowLoginWindow(true)
-                return false
-              }
-              setParams({add_app: 'true'})
-            }}
-          >
-            Connect Repo
+            New Agent
           </Button>
         </div>
       )}
@@ -161,29 +122,29 @@ const Apps: FC = () => {
         }}
       >
         <AppsTable
-          data={ apps.data }
+          authenticated={ !!account.user }
+          data={ apps.apps }
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
+          orgId={ account.organizationTools.organization?.id || '' }
         />
+        
+        {/* Find Agents CTA */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            mt: 6,
+            mb: 2,
+          }}
+        >
+          <LaunchpadCTAButton />
+        </Box>
       </Container>
-      {
-        params.add_app && apps.githubStatus && (
-          <CreateAppWindow
-            githubStatus={ apps.githubStatus }
-            githubRepos={ apps.githubRepos}
-            githubReposLoading={ apps.githubReposLoading }
-            onConnectRepo={ onConnectRepo }
-            onCancel={ () => removeParams(['add_app']) }
-            onLoadRepos={ apps.loadGithubRepos }
-            connectLoading= { apps.connectLoading }
-            connectError= { apps.connectError }
-          />
-        )
-      }
       {
         deletingApp && (
           <DeleteConfirmWindow
-            title="this app"
+            title="this agent"
             onCancel={ () => setDeletingApp(undefined) }
             onSubmit={ onDeleteApp }
           />

@@ -1,0 +1,749 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: github_issues
+  displayName: GitHub Issues
+  provider: github
+  category: Development
+  
+spec:
+  description: |
+    Access GitHub issues with OAuth authentication.
+
+    This skill provides secure access to GitHub's REST API, specifically focused on issue management, allowing you to:
+    • Create and track issues
+    • View and manage issue details
+    • Add comments to issues
+    • Search and filter issues by labels, state, and assignees
+    • Monitor issue activity and updates
+
+    Example Queries:
+    - "List open issues in my main project"
+    - "Create an issue for the bug I found"
+    - "Show me all issues labeled 'bug' in the repository"
+    - "Add a comment to issue #123"
+    - "Get details for issue #456"
+
+  systemPrompt: |
+    You are a GitHub issues specialist. Your expertise is in helping users manage GitHub issues, track bugs, and maintain project workflows through issue management.
+
+    Key capabilities:
+    - Issue creation, tracking, and management
+    - Issue commenting and collaboration
+    - Issue filtering and search by labels, state, and assignees
+    - Issue detail retrieval and monitoring
+    - Issue workflow optimization
+
+    When users ask about GitHub issues, bug tracking, or project management:
+    1. Help them create and manage issues effectively
+    2. Assist with issue search and filtering
+    3. Support issue commenting and collaboration
+    4. Provide issue insights and status updates
+    5. Help optimize issue workflows and organization
+
+    Always focus on GitHub issue-related tasks. If asked about other GitHub features like pull requests, repositories, or non-GitHub topics, politely redirect to issue-specific assistance or suggest using the general GitHub skill.
+
+    Examples of what you can help with:
+    - "Create an issue for the bug we discussed"
+    - "List all open issues in the repository"
+    - "Find issues labeled 'bug' or 'urgent'"
+    - "Add a comment to issue #123 explaining the fix"
+    - "Get the details for issue #456"
+    - "Show me issues assigned to me"
+
+  icon:
+    type: material-ui
+    name: GitHub
+    
+  oauth:
+    provider: github
+    scopes:
+      - repo
+      - user:read
+      
+  api:
+    baseUrl: https://api.github.com
+    headers:
+      Accept: application/vnd.github+json
+      X-GitHub-Api-Version: "2022-11-28"
+    
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: GitHub API
+        description: Access GitHub repositories, issues, pull requests, and user information
+        version: "2022-11-28"
+      servers:
+        - url: https://api.github.com
+      paths:        
+        /user/repos:
+          get:
+            summary: List repositories for the authenticated user
+            operationId: listUserRepos
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: type
+                in: query
+                schema:
+                  type: string
+                  enum: [all, owner, public, private, member]
+                  default: owner
+              - name: sort
+                in: query
+                schema:
+                  type: string
+                  enum: [created, updated, pushed, full_name]
+                  default: created
+              - name: direction
+                in: query
+                schema:
+                  type: string
+                  enum: [asc, desc]
+                  default: desc
+              - name: per_page
+                in: query
+                schema:
+                  type: integer
+                  default: 30
+                  maximum: 100
+            responses:
+              '200':
+                description: List of repositories
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          full_name:
+                            type: string
+                          description:
+                            type: string
+                          private:
+                            type: boolean
+                          html_url:
+                            type: string
+                          language:
+                            type: string
+                          stargazers_count:
+                            type: integer
+                          forks_count:
+                            type: integer
+                          created_at:
+                            type: string
+                          updated_at:
+                            type: string
+        /repos/{owner}/{repo}/issues:
+          get:
+            summary: List repository issues
+            operationId: listRepoIssues
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: state
+                in: query
+                schema:
+                  type: string
+                  enum: [open, closed, all]
+                  default: open
+              - name: labels
+                in: query
+                schema:
+                  type: string
+                description: A list of comma separated label names
+              - name: sort
+                in: query
+                schema:
+                  type: string
+                  enum: [created, updated, comments]
+                  default: created
+              - name: direction
+                in: query
+                schema:
+                  type: string
+                  enum: [asc, desc]
+                  default: desc
+              - name: per_page
+                in: query
+                schema:
+                  type: integer
+                  default: 30
+                  maximum: 100
+            responses:
+              '200':
+                description: List of issues
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          number:
+                            type: integer
+                          title:
+                            type: string
+                          user:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                          # body:
+                          #   type: string
+                          state:
+                            type: string
+                          labels:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                color:
+                                  type: string
+                          assignees:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                login:
+                                  type: string
+                          created_at:
+                            type: string
+                          updated_at:
+                            type: string
+                          # html_url:
+                          #   type: string
+          post:
+            summary: Create an issue
+            operationId: createIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - title
+                    properties:
+                      title:
+                        type: string
+                        description: The title of the issue
+                      body:
+                        type: string
+                        description: The contents of the issue
+                      assignees:
+                        type: array
+                        items:
+                          type: string
+                        description: Logins for Users to assign to this issue
+                      milestone:
+                        type: integer
+                        description: The number of the milestone to associate this issue with
+                      labels:
+                        type: array
+                        items:
+                          type: string
+                        description: Labels to associate with this issue
+            responses:
+              '201':
+                description: Issue created
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        number:
+                          type: integer
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        html_url:
+                          type: string
+        /repos/{owner}/{repo}/issues/{issue_number}:
+          get:
+            summary: Get a specific issue
+            operationId: getIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            responses:
+              '200':
+                description: Issue details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        number:
+                          type: integer
+                        state:
+                          type: string
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        labels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              color:
+                                type: string
+                              default:
+                                type: boolean
+                        assignee:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        assignees:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                        locked:
+                          type: boolean
+                        active_lock_reason:
+                          type: string
+                        comments:
+                          type: integer
+                        pull_request:
+                          type: object
+                          properties:
+                            diff_url:
+                              type: string
+                            patch_url:
+                              type: string
+                        closed_at:
+                          type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        closed_by:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        author_association:
+                          type: string
+                        state_reason:
+                          type: string
+          patch:
+            summary: Update an issue
+            operationId: updateIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                        description: The title of the issue
+                      body:
+                        type: string
+                        description: The contents of the issue
+                      state:
+                        type: string
+                        enum: [open, closed]
+                        description: State of the issue
+                      assignees:
+                        type: array
+                        items:
+                          type: string
+                        description: Logins for Users to assign to this issue
+                      milestone:
+                        type: integer
+                        description: The number of the milestone to associate this issue with
+                      labels:
+                        type: array
+                        items:
+                          type: string
+                        description: Labels to associate with this issue
+            responses:
+              '200':
+                description: Issue updated
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        number:
+                          type: integer
+                        state:
+                          type: string
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        labels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              color:
+                                type: string
+                              default:
+                                type: boolean
+                        assignee:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        assignees:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                        locked:
+                          type: boolean
+                        active_lock_reason:
+                          type: string
+                        comments:
+                          type: integer
+                        pull_request:
+                          type: object
+                          properties:
+                            diff_url:
+                              type: string
+                            patch_url:
+                              type: string
+                        closed_at:
+                          type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        closed_by:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        author_association:
+                          type: string
+                        state_reason:
+                          type: string
+        /repos/{owner}/{repo}/issues/{issue_number}/comments:
+          get:
+            summary: List issue comments
+            operationId: listIssueComments
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+              - name: per_page
+                in: query
+                schema:
+                  type: integer
+                  default: 30
+                  maximum: 100
+            responses:
+              '200':
+                description: List of issue comments
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          body:
+                            type: string
+                          user:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                          created_at:
+                            type: string
+                          updated_at:
+                            type: string
+                          author_association:
+                            type: string
+          post:
+            summary: Create an issue comment
+            operationId: createIssueComment
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - body
+                    properties:
+                      body:
+                        type: string
+                        description: The contents of the comment
+            responses:
+              '201':
+                description: Comment created
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        author_association:
+                          type: string
+        /search/repositories:
+          get:
+            summary: Search repositories
+            operationId: searchRepositories
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: q
+                in: query
+                required: true
+                schema:
+                  type: string
+                description: The search keywords, as well as any qualifiers
+              - name: sort
+                in: query
+                schema:
+                  type: string
+                  enum: [stars, forks, help-wanted-issues, updated]
+                description: The sort field
+              - name: order
+                in: query
+                schema:
+                  type: string
+                  enum: [desc, asc]
+                  default: desc
+              - name: per_page
+                in: query
+                schema:
+                  type: integer
+                  default: 30
+                  maximum: 100
+            responses:
+              '200':
+                description: Search results
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        total_count:
+                          type: integer
+                        incomplete_results:
+                          type: boolean
+                        items:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              full_name:
+                                type: string
+                              description:
+                                type: string
+                              html_url:
+                                type: string
+                              language:
+                                type: string
+                              stargazers_count:
+                                type: integer
+                              forks_count:
+                                type: integer
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: token
+
+  # Does not allow users to rewrite the schema
+  configurable: false
+  # Removes unknown keys from the response body, this is mostly
+  # used to filter out keys that we don't want to expose to the agent (lots of links, etc. that blow up the context)
+  skipUnknownKeys: true
+  # Transforms the JSON into a readable text to reduce the size of the response body, lists
+  # become tables without the keys
+  transformOutput: true

@@ -51,8 +51,9 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 
 func (c *ChainStrategy) getDefaultOptions() Options {
 	return Options{
-		isActionableTemplate: c.isActionableTemplate,
-		client:               c.apiClient,
+		isActionableTemplate:      c.isActionableTemplate,
+		isActionableHistoryLength: c.isActionableHistoryLength,
+		client:                    c.apiClient,
 	}
 }
 
@@ -65,6 +66,14 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 				return nil, err
 			}
 		}
+	}
+
+	if len(history) == 0 {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("no messages in the history, can't check for actionable or informative")
+		return nil, fmt.Errorf("no history to check if the user input is actionable or not")
 	}
 
 	if len(tools) == 0 {
@@ -88,6 +97,11 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Str("session_id", sessionID).
 		Str("interaction_id", interactionID).
 		Msg("Processing isActionable request")
+
+	// If history length is set, truncate history
+	if opts.isActionableHistoryLength > 0 {
+		history = truncateHistory(history, opts.isActionableHistoryLength)
+	}
 
 	for _, msg := range history {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -139,14 +153,54 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, answer)
 	}
 
+	var givenTools []string
+
+	for _, tool := range tools {
+		givenTools = append(givenTools, tool.Name)
+	}
+
 	log.Debug().
 		Str("justification", actionableResponse.Justification).
 		Str("needs_tool", actionableResponse.NeedsTool).
 		Str("chosen_tool", actionableResponse.API).
+		Str("given_tools", strings.Join(givenTools, ", ")).
 		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
+	if actionableResponse.API == "" {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("model thinks it needs a tool but no tool was chosen, setting needs_tool to no")
+		actionableResponse.NeedsTool = "no"
+	}
+
 	return &actionableResponse, nil
+}
+
+func truncateHistory(history []*types.ToolHistoryMessage, length int) []*types.ToolHistoryMessage {
+	log.Debug().
+		Int("history_length", len(history)).
+		Int("requested_length", length).
+		Msg("Truncating tool history")
+
+	if length == 0 {
+		log.Debug().Msg("Truncate length is 0, returning full history")
+		return history
+	}
+
+	// If length is greater than history, return history
+	if length > len(history) {
+		log.Debug().Msg("Requested truncate length exceeds history length, returning full history")
+		return history
+	}
+
+	log.Debug().
+		Int("original_length", len(history)).
+		Int("truncated_length", length).
+		Int("messages_removed", len(history)-length).
+		Msg("History truncated")
+	return history[len(history)-length:]
 }
 
 func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options Options) (openai.ChatCompletionMessage, error) {
@@ -171,12 +225,7 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 					ToolType:    string(tool.ToolType),
 				})
 			}
-		case types.ToolTypeGPTScript:
-			modelTools = append(modelTools, &modelTool{
-				Name:        tool.Name,
-				Description: tool.Description,
-				ToolType:    string(tool.ToolType),
-			})
+
 		case types.ToolTypeZapier:
 			modelTools = append(modelTools, &modelTool{
 				Name:        tool.Name,
@@ -199,8 +248,6 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to render 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
-	// log.Info().Msgf("tools prompt: %s", sb.String())
-
 	return openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: sb.String(),
@@ -214,7 +261,7 @@ type modelTool struct {
 	ToolType    string
 }
 
-const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use a tool but ONLY if you have a tool that exactly matches what they are trying to do. NEVER invent tools, only use the ones provided below in "the available tools". If the user asks about a specific item or person, always check with an appropriate tool if there is one rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools.
+const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should ONLY recommend using a tool if the user request MATCHES ONE OF THE TOOLS descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use a tool but ONLY if you have a tool that exactly matches what they are trying to do. NEVER invent tools, only use the ones provided below in "the available tools". If the user asks about a specific item or person, always check with an appropriate tool if there is one rather than making something up/depending on your background knowledge. API tools are used to call APIs.
 
 Examples:
 

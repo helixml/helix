@@ -1,0 +1,131 @@
+{{- if and .Values.kodit.enabled .Values.kodit.vectorchord.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit-vectorchord
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kodit-vectorchord
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/component: kodit-vectorchord
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit-vectorchord
+  labels:
+    app.kubernetes.io/component: kodit-vectorchord
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  # PostgreSQL is stateful, must use 1 replica
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kodit-vectorchord
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: kodit-vectorchord
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: vectorchord
+          {{- if .Values.global.imageRegistry }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.kodit.vectorchord.image.repository }}:{{ .Values.kodit.vectorchord.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.kodit.vectorchord.image.repository }}:{{ .Values.kodit.vectorchord.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.kodit.vectorchord.image.pullPolicy | default .Values.image.pullPolicy }}
+          ports:
+            - name: tcp-postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            # The storage backing the PVC is a filesystem (e.g., ext4) sometimes includes a lost+found directory by default.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.databaseKey | default "database" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: database
+              {{- end }}
+            - name: POSTGRES_USER
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.usernameKey | default "username" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: username
+              {{- end }}
+            - name: POSTGRES_PASSWORD
+              {{- if .Values.kodit.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kodit.auth.existingSecret }}
+                  key: {{ .Values.kodit.auth.passwordKey | default "password" }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helix-controlplane.fullname" . }}-kodit-auth
+                  key: password
+              {{- end }}
+          {{- if .Values.kodit.vectorchord.persistence.enabled }}
+          volumeMounts:
+            - name: vectorchord-storage
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+      {{- if .Values.kodit.vectorchord.persistence.enabled }}
+      volumes:
+        - name: vectorchord-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.kodit.vectorchord.persistence.existingClaim | default (printf "%s-kodit-vectorchord-pvc" (include "helix-controlplane.fullname" .)) }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

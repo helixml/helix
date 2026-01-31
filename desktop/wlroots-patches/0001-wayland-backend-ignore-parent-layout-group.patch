@@ -1,0 +1,45 @@
+--- a/backend/wayland/seat.c
++++ b/backend/wayland/seat.c
+@@ -1,5 +1,6 @@
+ #define _POSIX_C_SOURCE 200809L
+
++#include <stdbool.h>
+ #include <assert.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+@@ -18,6 +19,22 @@
+ #include "backend/wayland.h"
+ #include "util/time.h"
+
++/*
++ * HELIX PATCH: Ignore parent compositor's keyboard layout group
++ *
++ * When running as a nested compositor, the parent sends wl_keyboard.modifiers
++ * events with a layout group that would override our own layout selection.
++ * When WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1, we preserve our own layout.
++ */
++static bool should_ignore_parent_layout(void) {
++	static int cached = -1;
++	if (cached == -1) {
++		const char *env = getenv("WLR_IGNORE_PARENT_KEYBOARD_LAYOUT");
++		cached = (env != NULL && strcmp(env, "1") == 0) ? 1 : 0;
++	}
++	return cached == 1;
++}
++
+ static void keyboard_handle_keymap(void *data, struct wl_keyboard *wl_keyboard,
+ 		uint32_t format, int32_t fd, uint32_t size) {
+ 	close(fd);
+@@ -79,6 +96,12 @@ static void keyboard_handle_modifiers(void *data, struct wl_keyboard *wl_keyboar
+ 		uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
+ 		uint32_t mods_locked, uint32_t group) {
+ 	struct wlr_keyboard *keyboard = data;
++
++	/* HELIX PATCH: Preserve our own layout group if configured */
++	if (should_ignore_parent_layout()) {
++		group = keyboard->modifiers.group;
++	}
++
+ 	wlr_keyboard_notify_modifiers(keyboard, mods_depressed, mods_latched,
+ 		mods_locked, group);
+ }

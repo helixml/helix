@@ -3,12 +3,430 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export PROJECTS_ROOT="$(dirname "$DIR")"
+export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
+export STOP_POSTGRES=${STOP_POSTGRES:=""}
+export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
+export WIPE_SLOTS=${WIPE_SLOTS:="0"}
+export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
+
+# Helix-in-Helix mode detection
+# When running inside a Helix desktop with privileged mode, we have access to the host Docker
+# In this mode:
+# - Control plane (api, postgres, frontend) runs on inner Docker (Hydra's DinD)
+# - Sandbox runs on host Docker (because DinD-in-DinD-in-DinD doesn't work)
+export HELIX_IN_HELIX=${HELIX_IN_HELIX:=""}
+export DOCKER_HOST_INNER=${DOCKER_HOST_INNER:=""}
+export DOCKER_HOST_OUTER=${DOCKER_HOST_OUTER:=""}
+
+# Detect Helix-in-Helix mode by checking for host Docker socket
+function detect_helix_in_helix() {
+  # Allow manual override
+  if [[ -n "$HELIX_IN_HELIX" ]]; then
+    if [[ "$HELIX_IN_HELIX" == "true" || "$HELIX_IN_HELIX" == "1" ]]; then
+      echo "🔄 Helix-in-Helix mode enabled (via environment variable)"
+      export HELIX_IN_HELIX="true"
+    else
+      echo "🔄 Helix-in-Helix mode disabled (via environment variable)"
+      export HELIX_IN_HELIX="false"
+      return
+    fi
+  elif [ -S /var/run/host-docker.sock ]; then
+    # Auto-detect: host Docker socket available = we're inside a Helix desktop
+    echo "🔄 Helix-in-Helix mode detected (host Docker socket available)"
+    export HELIX_IN_HELIX="true"
+  else
+    export HELIX_IN_HELIX="false"
+    return
+  fi
+
+  # Set up Docker endpoints for Helix-in-Helix mode
+  export DOCKER_HOST_INNER="unix:///var/run/docker.sock"
+  export DOCKER_HOST_OUTER="unix:///var/run/host-docker.sock"
+
+  echo "  📦 Inner Docker (control plane): $DOCKER_HOST_INNER"
+  echo "  📦 Outer Docker (sandbox): $DOCKER_HOST_OUTER"
+}
+
+# Start sandbox on host Docker for Helix-in-Helix mode
+# The sandbox can't run inside Hydra's DinD (DinD-in-DinD-in-DinD doesn't work)
+# It must run on host Docker and connect via the EXPOSED inner API URL
+#
+# Network architecture:
+#   Inner Sandbox (host Docker) → Exposed URL → Outer Helix API → RevDial →
+#   → Hydra proxy → Inner API (Hydra's DinD)
+#
+# The inner API's container IP is NOT reachable from host Docker because it's
+# inside Hydra's DinD (different network namespace). We must use port exposure.
+function start_outer_sandbox() {
+  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
+    return
+  fi
+
+  echo ""
+  echo "🔄 Helix-in-Helix: Starting sandbox on host Docker..."
+
+  local SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
+
+  # Check if sandbox is already running on host Docker
+  if DOCKER_HOST="$DOCKER_HOST_OUTER" docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_NAME}$"; then
+    echo "  ✅ Sandbox already running on host Docker: $SANDBOX_NAME"
+    return
+  fi
+
+  # Check if sandbox image exists on host Docker
+  if ! DOCKER_HOST="$DOCKER_HOST_OUTER" docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "helix-sandbox:"; then
+    echo "  ⚠️  helix-sandbox image not found on host Docker"
+    echo "     Transfer with: docker save helix-sandbox:latest | docker -H $DOCKER_HOST_OUTER load"
+    echo ""
+    return
+  fi
+
+  # Expose the inner API through the outer Helix
+  # The desktop container should have HELIX_API_URL, HELIX_SESSION_ID, and USER_API_TOKEN set
+  local OUTER_API_URL="${HELIX_API_URL:-}"
+  local OUTER_SESSION_ID="${HELIX_SESSION_ID:-}"
+  local OUTER_API_TOKEN="${USER_API_TOKEN:-${HELIX_API_KEY:-}}"
+
+  if [[ -z "$OUTER_API_URL" || -z "$OUTER_SESSION_ID" || -z "$OUTER_API_TOKEN" ]]; then
+    echo "  ⚠️  Cannot auto-expose inner API (missing outer Helix context)"
+    echo "     HELIX_API_URL=$OUTER_API_URL"
+    echo "     HELIX_SESSION_ID=$OUTER_SESSION_ID"
+    echo "     USER_API_TOKEN=${OUTER_API_TOKEN:+<set>}"
+    echo ""
+    echo "  Manual steps required:"
+    echo "  1. Expose inner API: curl -X POST \"\$HELIX_API_URL/api/v1/sessions/\$HELIX_SESSION_ID/expose\" ..."
+    echo "  2. Start sandbox with exposed URL"
+    echo ""
+    return
+  fi
+
+  # Wait for inner API to be ready
+  echo "  ⏳ Waiting for inner API to start..."
+  local INNER_API_CONTAINER=""
+  local wait_count=0
+  while [[ -z "$INNER_API_CONTAINER" && $wait_count -lt 60 ]]; do
+    INNER_API_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E "^helix.*api" | head -1 || echo "")
+    if [[ -z "$INNER_API_CONTAINER" ]]; then
+      sleep 1
+      wait_count=$((wait_count + 1))
+    fi
+  done
+
+  if [[ -z "$INNER_API_CONTAINER" ]]; then
+    echo "  ⚠️  Inner API container not found after 60s"
+    echo "     Start sandbox manually once API is up"
+    return
+  fi
+
+  # Get the inner API container's IP on the docker network
+  local INNER_API_IP
+  INNER_API_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$INNER_API_CONTAINER" 2>/dev/null || echo "")
+
+  if [[ -z "$INNER_API_IP" ]]; then
+    echo "  ⚠️  Could not get inner API container IP"
+    return
+  fi
+
+  # Set up port forwarding from desktop localhost:8080 to inner API
+  # This is needed because the inner API is inside Hydra's DinD network
+  echo "  🔌 Setting up port forward: localhost:8080 → ${INNER_API_CONTAINER}:8080"
+
+  # Kill any existing socat on port 8080
+  pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
+
+  # Start socat in background to forward port 8080
+  if command -v socat &>/dev/null; then
+    nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:${INNER_API_IP}:8080 >/dev/null 2>&1 &
+    echo "  ✅ Port forward established via socat"
+  else
+    echo "  ⚠️  socat not found - port forwarding may not work"
+    echo "     Install with: apt-get install socat"
+  fi
+
+  # Expose port 8080 (inner API) through outer Helix
+  echo "  📡 Exposing inner API through outer Helix..."
+  local EXPOSE_RESPONSE
+  EXPOSE_RESPONSE=$(curl -s -X POST "${OUTER_API_URL}/api/v1/sessions/${OUTER_SESSION_ID}/expose" \
+    -H "Authorization: Bearer ${OUTER_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"port": 8080, "protocol": "http", "name": "inner-api"}' 2>/dev/null || echo "")
+
+  if [[ -z "$EXPOSE_RESPONSE" ]]; then
+    echo "  ❌ Failed to expose inner API (no response from outer Helix)"
+    return
+  fi
+
+  # Extract the proxy URL from the response
+  # Response format: {"urls":["http://..."],...}
+  local INNER_API_URL
+  INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | grep -o '"urls":\s*\[[^]]*\]' | grep -o 'http://[^"]*' | head -1 || echo "")
+
+  if [[ -z "$INNER_API_URL" ]]; then
+    echo "  ❌ Failed to parse exposed URL from response"
+    echo "     Response: $EXPOSE_RESPONSE"
+    return
+  fi
+
+  echo "  ✅ Inner API exposed at: $INNER_API_URL"
+
+  # Use the profile saved by setup_sandbox_profile (reads from .env)
+  # SANDBOX_SERVICE is also set by setup_sandbox_profile via get_sandbox_names
+  local SANDBOX_PROFILE="${OUTER_SANDBOX_PROFILE:-code-nvidia}"
+  echo "  🚀 Starting sandbox on host Docker (profile: $SANDBOX_PROFILE, service: $SANDBOX_SERVICE)..."
+
+  # Start ONLY the sandbox service on host Docker (not the whole stack!)
+  # Override HELIX_API_URL to point to the exposed inner API
+  DOCKER_HOST="$DOCKER_HOST_OUTER" \
+  COMPOSE_PROFILES="$SANDBOX_PROFILE" \
+  HELIX_API_URL="$INNER_API_URL" \
+  HELIX_API_BASE_URL="$INNER_API_URL" \
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+  if [[ $? -eq 0 ]]; then
+    echo "  ✅ Sandbox started on host Docker ($SANDBOX_SERVICE)"
+    echo ""
+    echo "  View logs: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
+  else
+    echo "  ❌ Failed to start sandbox"
+    echo "     Check: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs $SANDBOX_SERVICE"
+  fi
+  echo ""
+}
+
+# Desktop categories for build-sandbox
+# Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
+# Note: Using arrays because IFS is set to '\n\t' (no space splitting)
+PRODUCTION_DESKTOPS=(sway ubuntu)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce kde)
+# EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
+
+# Configure host networking for Docker-in-Docker support
+function setup_dev_networking() {
+  echo "🌐 Configuring networking for Docker-in-Docker support..."
+
+  # Check if already configured
+  local NEEDS_SETUP=false
+
+  if [[ $(cat /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null) != "1" ]]; then
+    NEEDS_SETUP=true
+  fi
+
+  if [[ "$NEEDS_SETUP" == "true" ]]; then
+    # route_localnet: Allow 127.x.x.x addresses on non-loopback interfaces
+    # Required for localhost:PORT forwarding to container networks via DNAT
+    sudo sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    echo "✅ Docker-in-Docker networking configured (route_localnet, ip_forward)"
+  else
+    echo "✅ Docker-in-Docker networking already configured"
+  fi
+
+  # Also ensure inotify limits are sufficient for Zed file watching
+  local CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+  local TARGET_WATCHES=1048576
+
+  if [[ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ]]; then
+    echo "📁 Increasing inotify limits for Zed file watching..."
+    sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+    sudo sysctl -w fs.inotify.max_user_instances=8192 >/dev/null 2>&1 || true
+    echo "✅ inotify limits increased"
+  fi
+}
+
+# Helper function to check for GPU and set appropriate runner profile
+function setup_runner_profile() {
+  export FORCE_CPU=${FORCE_CPU:=""}
+
+  if [[ -n "$FORCE_CPU" ]]; then
+    # Forced CPU mode
+    echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    # NVIDIA GPU mode
+    echo "🚀 NVIDIA GPU detected, using GPU support"
+    export RUNNER_CONTAINER="runner_gpu"
+    export RUNNER_PROFILE="--profile runner_gpu"
+    export DEV_CPU_ONLY_CMD=""
+    export VLLM_ENV_VARS=""
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    # AMD GPU mode (ROCm)
+    echo "🚀 AMD GPU detected (ROCm), using AMD GPU support"
+    export RUNNER_CONTAINER="runner_gpu_amd"
+    export RUNNER_PROFILE="--profile runner_gpu_amd"
+    export DEV_CPU_ONLY_CMD=""
+    export VLLM_ENV_VARS=""
+  elif [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*(Intel|Iris)" &> /dev/null; then
+    # Intel GPU mode - video encoding supported (QSV), but no GPU compute for LLM inference
+    echo "🖥️ Intel GPU detected - sandbox/video encoding supported (QSV), external LLM recommended for AI inference"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  else
+    # CPU mode (fallback)
+    echo "❌ No supported GPU detected, running without GPU support"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  fi
+}
+
+# Helper function to determine sandbox service and container names based on COMPOSE_PROFILES
+# Sets SANDBOX_SERVICE (docker-compose service name) and SANDBOX_CONTAINER (docker container name)
+function get_sandbox_names() {
+  local profile="${COMPOSE_PROFILES:-}"
+  if [[ "$profile" == *"code-software"* ]]; then
+    export SANDBOX_SERVICE="sandbox-software"
+    export SANDBOX_CONTAINER="helix-sandbox-software-1"
+  elif [[ "$profile" == *"code-amd-intel"* ]]; then
+    export SANDBOX_SERVICE="sandbox-amd-intel"
+    export SANDBOX_CONTAINER="helix-sandbox-amd-intel-1"
+  else
+    # Default to NVIDIA (code-nvidia profile)
+    export SANDBOX_SERVICE="sandbox-nvidia"
+    export SANDBOX_CONTAINER="helix-sandbox-nvidia-1"
+  fi
+}
+
+# Helper function to detect GPU type and set appropriate sandbox profile
+# Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
+# In Helix-in-Helix mode, sandbox is started separately on host Docker, not via compose profiles
+function setup_sandbox_profile() {
+  # In Helix-in-Helix mode, determine the sandbox profile but don't start sandbox
+  # on inner Docker - it will be started separately on host Docker by start_outer_sandbox()
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    echo "🎮 Helix-in-Helix mode: Sandbox will run on host Docker (not via compose profiles)"
+
+    # Check for GPU_VENDOR inherited from outer Helix (passed through to desktop container)
+    # This avoids needing to configure GPU settings in inner .env
+    if [[ -n "${GPU_VENDOR:-}" ]]; then
+      echo "  📋 GPU_VENDOR inherited from outer Helix: $GPU_VENDOR"
+      if [[ "$GPU_VENDOR" == "nvidia" ]]; then
+        export OUTER_SANDBOX_PROFILE="code-nvidia"
+      else
+        # AMD, Intel, or other -> use code-amd-intel profile
+        export OUTER_SANDBOX_PROFILE="code-amd-intel"
+      fi
+    else
+      # Fall back to .env or default
+      if [[ -f "$DIR/.env" ]]; then
+        source "$DIR/.env"
+      fi
+
+      if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
+        export OUTER_SANDBOX_PROFILE="${COMPOSE_PROFILES}"
+        echo "  📋 Using COMPOSE_PROFILES from .env: $OUTER_SANDBOX_PROFILE"
+      else
+        export OUTER_SANDBOX_PROFILE="code-nvidia"
+        echo "  ⚠️  No GPU_VENDOR or COMPOSE_PROFILES set, defaulting to code-nvidia"
+      fi
+    fi
+
+    # Set sandbox names based on the determined profile
+    # Temporarily set COMPOSE_PROFILES for get_sandbox_names to work
+    local saved_profile="${COMPOSE_PROFILES:-}"
+    export COMPOSE_PROFILES="$OUTER_SANDBOX_PROFILE"
+    get_sandbox_names
+    export COMPOSE_PROFILES="$saved_profile"
+
+    echo "  📋 Outer sandbox profile: $OUTER_SANDBOX_PROFILE (service: $SANDBOX_SERVICE)"
+
+    # Clear COMPOSE_PROFILES to ensure sandbox doesn't start on inner Docker
+    export COMPOSE_PROFILES=""
+    return
+  fi
+
+  # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
+  # (empty string triggers auto-detection, non-empty respects user's choice)
+  local env_was_set=""
+  if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
+    env_was_set="true"
+  fi
+
+  # Load existing .env if present
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+
+  # Stop conflicting sandbox containers before starting
+  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Silently remove any sandbox containers that might conflict with the one we're about to start
+  local current_profile="${COMPOSE_PROFILES:-}"
+  if [[ "$current_profile" == *"code-software"* ]]; then
+    # Starting software sandbox - stop GPU sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-amd-intel"* ]]; then
+    # Starting AMD/Intel sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 2>/dev/null || true
+  else
+    # Starting NVIDIA sandbox (default) - stop other sandboxes
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+  fi
+
+  # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
+  if [[ "$env_was_set" == "true" ]]; then
+    echo "🎮 Using COMPOSE_PROFILES from environment: '${COMPOSE_PROFILES:-<empty>}'"
+    get_sandbox_names
+    return
+  fi
+
+  # If COMPOSE_PROFILES is explicitly set in .env (even to empty), respect it
+  if [[ -f "$DIR/.env" ]] && grep -q "^COMPOSE_PROFILES=" "$DIR/.env"; then
+    echo "🎮 Using COMPOSE_PROFILES from .env: '${COMPOSE_PROFILES:-<empty>}'"
+    get_sandbox_names
+    return
+  fi
+
+  # Auto-detect GPU type
+  local gpu_profile=""
+
+  # Check for NVIDIA GPU first
+  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    gpu_profile="code-nvidia"
+    echo "🎮 NVIDIA GPU detected, using 'code-nvidia' sandbox profile"
+  # Check for AMD GPU (ROCm)
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    gpu_profile="code-amd-intel"
+    echo "🎮 AMD GPU detected (ROCm), using 'code-amd-intel' sandbox profile"
+  # Check for Intel GPU (or generic /dev/dri)
+  elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
+    gpu_profile="code-amd-intel"  # Intel uses same profile as AMD (no nvidia runtime)
+    echo "🎮 Intel/Generic GPU detected, using 'code-amd-intel' sandbox profile"
+  else
+    echo "⚠️  No GPU detected, sandbox features may not work"
+    get_sandbox_names
+    return
+  fi
+
+  # Add to COMPOSE_PROFILES if we detected a GPU
+  if [[ -n "$gpu_profile" ]]; then
+    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
+      export COMPOSE_PROFILES="${COMPOSE_PROFILES},${gpu_profile}"
+    else
+      export COMPOSE_PROFILES="$gpu_profile"
+    fi
+    echo "📋 COMPOSE_PROFILES set to: $COMPOSE_PROFILES"
+  fi
+
+  # Set sandbox service/container names based on profile
+  get_sandbox_names
+}
 
 function mock-runner() {
-   go run . runner \
+  echo "🔨 Building helix-runner binary for mock runner..."
+  build-runner || return 1
+
+  echo "🚀 Starting mock runner..."
+  ./helix-runner \
     --mock-runner \
     --server-port 8090 \
     --api-host http://localhost:8080 \
@@ -18,12 +436,49 @@ function mock-runner() {
     --label gpu=4090 "$@"
 }
 
-function compose() {
-  docker compose -f docker-compose.dev.yaml "$@"
-}
 
 function build() {
-  compose build
+  # First detect GPU and set variables
+  setup_runner_profile
+
+  if [[ -n "$WITH_RUNNER" ]]; then
+    # Check for Zed dependency and build if needed
+    if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+      echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
+      echo ""
+      echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+      echo ""
+      echo "Please run:"
+      echo "  cd .."
+      echo "  git clone https://github.com/helixml/zed.git"
+      echo "  cd helix"
+      echo "  WITH_RUNNER=1 ./stack build"
+      exit 1
+    fi
+
+    if [ ! -f "./zed-build/zed" ]; then
+      echo "🔨 Zed binary not found, building automatically..."
+      build-zed || {
+        echo "❌ Failed to build Zed. Please check the error messages above."
+        echo "Note: Rust/Cargo is required to build Zed. Install from: https://rustup.rs/"
+        exit 1
+      }
+    fi
+
+    echo "🔨 Building runner: $RUNNER_CONTAINER"
+    docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
+    return
+  fi
+
+  if [[ -n "$WITH_DEMOS" ]]; then
+    echo "🔨 Building demos"
+    docker compose -f docker-compose.dev.yaml --profile demos build
+    return
+  fi
+
+  # No profiles specified, just build everything
+  echo "🔨 Building all services"
+  docker compose -f docker-compose.dev.yaml build
 }
 
 function static-compile() {
@@ -31,84 +486,1159 @@ function static-compile() {
   go build -ldflags '-extldflags "-static"' -o helix .
 }
 
+function build-runner() {
+  echo "🔨 Building helix-runner binary..."
+  export CGO_ENABLED=1
+  local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
+
+  if go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version='$APP_VERSION -o helix-runner ./runner-cmd/helix-runner; then
+    echo "✅ Successfully built helix-runner binary"
+  else
+    echo "❌ Failed to build helix-runner binary"
+    return 1
+  fi
+}
+
+function build-runner-image() {
+  echo "🐳 Building runner Docker image..."
+  local IMAGE_TAG="${1:-test}"
+  local APP_VERSION=$(git rev-parse HEAD 2>/dev/null || echo "v0.0.0+dev")
+  # Base image tag - default to latest-empty for fast test builds (skips ~16GB download)
+  # Use 'latest-small' for production builds that need full base image
+  local BASE_TAG="${2:-latest-empty}"
+
+  echo "  Output: registry.helixml.tech/helix/runner:$IMAGE_TAG"
+  echo "  Base: registry.helixml.tech/helix/runner-base:$BASE_TAG"
+  echo "  Version: $APP_VERSION"
+  echo "  Note: ROCm vLLM build takes ~10 minutes"
+  echo ""
+
+  docker build \
+    -f Dockerfile.runner \
+    --build-arg TAG="$BASE_TAG" \
+    --build-arg APP_VERSION="$APP_VERSION" \
+    -t "registry.helixml.tech/helix/runner:$IMAGE_TAG" \
+    .
+}
+
+function build-zed() {
+  # ====================================================================
+  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
+  # ====================================================================
+  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
+  # Building in Docker ensures consistent, portable binaries regardless
+  # of the host OS version.
+  # ====================================================================
+  echo "🔨 Building Zed with External WebSocket Thread Sync (Docker build)..."
+
+  local ZED_SOURCE_DIR="$PROJECTS_ROOT/zed"
+  local ZED_OUTPUT_DIR="./zed-build"
+  local BUILD_TYPE="${1:-dev}"
+
+  # Validate build type
+  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
+    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
+    echo "Usage: ./stack build-zed [dev|release]"
+    echo ""
+    echo "Build types:"
+    echo "  dev     - Fast incremental builds with debug symbols (default)"
+    echo "  release - Optimized production builds (slower)"
+    return 1
+  fi
+
+  # Check if Zed source directory exists
+  if [ ! -d "$ZED_SOURCE_DIR" ]; then
+    echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
+    echo "Expected directory structure:"
+    echo "  helix/                 (current directory)"
+    echo "  zed/                   (Zed fork with external_websocket_sync)"
+    return 1
+  fi
+
+  # Check if external_websocket_sync exists in Zed source
+  if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
+    echo "❌ external_websocket_sync crate not found in Zed source"
+    echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
+    return 1
+  fi
+
+  # Create output directory and ensure we own it
+  # (Docker bind mounts may have created it as root on fresh installs)
+  mkdir -p "$ZED_OUTPUT_DIR"
+  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
+  fi
+
+  echo "🐳 Building Zed inside Ubuntu 25.10 container..."
+  echo "   Source: $ZED_SOURCE_DIR"
+  echo "   Output: $ZED_OUTPUT_DIR"
+  echo "   Mode: $BUILD_TYPE"
+
+  # Build the builder image if needed
+  if ! docker image inspect zed-builder:ubuntu25 &> /dev/null; then
+    echo "📦 Building zed-builder:ubuntu25 image (first time only, ~2-3 min)..."
+    docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build zed-builder:ubuntu25 image"
+      return 1
+    fi
+  fi
+
+  # Setup cargo + rustup cache for faster rebuilds
+  # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
+  # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
+  local CARGO_CACHE="$HOME/.cargo-docker-cache"
+  local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
+
+  # Build command based on type
+  # Use a separate target directory to avoid conflicts with host builds
+  local BUILD_CMD
+  local BINARY_PATH
+  local TARGET_DIR="target-ubuntu25"
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/release/zed"
+  else
+    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR cargo build --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/debug/zed"
+  fi
+
+  # Get absolute path to Zed source
+  local ZED_ABS_PATH
+  ZED_ABS_PATH=$(cd "$ZED_SOURCE_DIR" && pwd)
+
+  # Get absolute path to output directory
+  local OUTPUT_ABS_PATH
+  OUTPUT_ABS_PATH=$(cd "$ZED_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build (this may take a while on first run)..."
+
+  # Run build inside container
+  # Mount:
+  #   - Zed source at /zed
+  #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
+  #   - Cargo git cache at /root/.cargo/git (git dependencies)
+  #   - Rustup cache at /root/.rustup (toolchain 1.91.1 + wasm32-wasip2 target)
+  #   - Output directory at /output
+  # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
+  docker run --rm \
+    -v "$ZED_ABS_PATH:/zed" \
+    -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
+    -v "$CARGO_CACHE/git:/root/.cargo/git" \
+    -v "$RUSTUP_CACHE:/root/.rustup" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /zed \
+    zed-builder:ubuntu25 \
+    bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
+    return 1
+  fi
+
+  # Atomic rename (works even if old binary is in use)
+  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
+    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+  fi
+  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
+  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+
+  # Verify the binary
+  local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
+
+  echo "✅ Zed binary built successfully"
+  echo "📦 Binary size: $BINARY_SIZE"
+
+
+
+  # Note: Release builds are already stripped via RUSTFLAGS during compilation
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "✅ Binary built with symbols stripped (via linker flags)"
+  fi
+
+  # Create test configuration
+  cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
+{
+  "external_websocket_sync": {
+    "enabled": true,
+    "server": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 3030
+    },
+    "websocket_sync": {
+      "enabled": true,
+      "external_url": "localhost:8080",
+      "use_tls": false,
+      "auto_reconnect": true
+    }
+  }
+}
+EOF
+
+  echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+
+  # Copy Zed app icon for GNOME desktop integration
+  local ICON_SOURCE="$ZED_SOURCE_DIR/crates/zed/resources/app-icon-dev.png"
+  if [ -f "$ICON_SOURCE" ]; then
+    cp "$ICON_SOURCE" "$ZED_OUTPUT_DIR/app-icon.png"
+    echo "✅ Copied Zed app icon to $ZED_OUTPUT_DIR/app-icon.png"
+  else
+    echo "⚠️  Zed app icon not found at $ICON_SOURCE"
+  fi
+
+  echo "🎉 Zed build completed successfully!"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
+  echo "  2. Build Sway container with Zed: ./stack build-sway"
+  echo "  3. Start services: ./stack start"
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    echo "Session $TMUX_SESSION already exists. Attaching..."
+    echo "📺 Session $TMUX_SESSION already exists. Attaching..."
     sleep 1
     tmux -2 attach -t $TMUX_SESSION
     exit 0;
   fi
 
+  # Check for Zed dependency and build if needed
+  if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+    echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
+    echo ""
+    echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd $PROJECTS_ROOT"
+    echo "  git clone https://github.com/helixml/zed.git"
+    echo "  cd helix"
+    echo "  ./stack start"
+    exit 1
+  fi
+
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "🔨 Zed binary not found, building automatically..."
+    build-zed || {
+      echo "❌ Failed to build Zed. Please check the error messages above."
+      exit 1
+    }
+  fi
+
+  # Check if SERVE_PROD_FRONTEND_IN_DEV is enabled but frontend not built
+  if grep -q "^SERVE_PROD_FRONTEND_IN_DEV=true" .env 2>/dev/null; then
+    if [ ! -f "./frontend/dist/index.html" ]; then
+      echo "🔨 SERVE_PROD_FRONTEND_IN_DEV enabled but frontend not built, building..."
+      build-frontend || {
+        echo "❌ Failed to build frontend. Please check the error messages above."
+        exit 1
+      }
+    fi
+  fi
+
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  echo "Starting docker compose"
+  # Configure host networking for Docker-in-Docker
+  setup_dev_networking
 
-  local COMPOSE_FLAGS=""
-  local COMPOSE_PROFILES=""
+  # Detect if we're running in Helix-in-Helix mode
+  detect_helix_in_helix
 
+  echo "🐳 Starting docker compose"
+
+  # Setup runner profiles first
+  setup_runner_profile
+
+  # Setup sandbox profile based on GPU detection
+  # (in Helix-in-Helix mode, this skips sandbox profile and we start it on host Docker later)
+  setup_sandbox_profile
+
+  # Stop sandbox if running to ensure fresh start
+  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+
+  # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
-    COMPOSE_FLAGS="--build"
-    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile dev_gpu_runner"
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Both runner and demos
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
+    else
+      # Just runner
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) profile"
+      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
+    fi
+  elif [[ -n "$WITH_DEMOS" ]]; then
+    # Just demos
+    echo "🚀 Starting services with demos profile"
+    docker compose -f docker-compose.dev.yaml --profile demos up -d
+  else
+    # No special profiles
+    echo "🚀 Starting base services"
+    docker compose -f docker-compose.dev.yaml up -d
   fi
-
-  if [[ -n "$WITH_DEMOS" ]]; then
-    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile demos"
-  fi
-
-  eval "docker compose -f docker-compose.dev.yaml $COMPOSE_PROFILES up $COMPOSE_FLAGS -d"
 
   sleep 2
 
-  echo "Creating tmux session $TMUX_SESSION..."
+  # Wait for postgres to be ready before trying to wipe slots
+  echo "⏳ Waiting for postgres to be ready..."
+  timeout=60
+  while ! docker compose -f docker-compose.dev.yaml exec postgres pg_isready -h localhost -p 5432 >/dev/null 2>&1; do
+    timeout=$((timeout - 1))
+    if [[ $timeout -eq 0 ]]; then
+      echo "⚠️ Warning: Postgres not ready after 60 seconds, continuing anyway"
+      break
+    fi
+    echo "⏳ Waiting for postgres... ($timeout seconds remaining)"
+    sleep 1
+  done
 
-  # get the size of the window and create a session at that size
-  local screensize=$(stty size)
-  local width=$(echo -n "$screensize" | awk '{print $2}')
-  local height=$(echo -n "$screensize" | awk '{print $1}')
-  tmux -2 new-session -d -s $TMUX_SESSION -x "$width" -y "$(($height - 1))"
+  # Check if WIPE_SLOTS is set and wipe slots if requested
+  if [[ -n "$WIPE_SLOTS" ]]; then
+    echo "🧹 WIPE_SLOTS is set, wiping slots from database..."
+    if ! wipe-slots; then
+      echo "⚠️ Warning: Failed to wipe slots, but continuing startup..."
+    fi
+  fi
 
-  tmux split-window -v -d
-  tmux select-pane -t 1
-  tmux split-window -v -d
-  tmux select-pane -t 0
-  tmux split-window -v -d
-  tmux select-pane -t 1
-  tmux split-window -v -d
-  tmux select-pane -t 0
-  tmux split-window -v -d
+  # In Helix-in-Helix mode, start sandbox on host Docker
+  # This is done after the API is up so the sandbox can connect via RevDial
+  start_outer_sandbox
 
-  tmux send-keys -t 0 './stack compose logs -f frontend' C-m
-  tmux send-keys -t 1 './stack compose logs -f api' C-m
-  tmux send-keys -t 2 './stack compose logs -f haystack' C-m
+  echo "📺 Creating tmux session $TMUX_SESSION with 3x2 grid layout + full-width hacking terminal..."
+  tmux -2 new-session -d -s "$TMUX_SESSION"
 
+  # Create a 3x2 grid layout with full-width hacking terminal at bottom
+  # IMPORTANT: All tmux commands must explicitly target $TMUX_SESSION to avoid
+  # clobbering the user's current tmux session if they're running inside one
+  # First create top and middle rows for logs
+  tmux split-window -t "$TMUX_SESSION" -v -d
+  tmux split-window -t "$TMUX_SESSION" -v -d
+
+  # Split the top row into 3 columns (Frontend, API, Haystack)
+  tmux select-pane -t "$TMUX_SESSION:0.0"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.1"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+
+  # Split the middle row into 3 columns (Zed Agent, Zed Process, GPU Runner)
+  tmux select-pane -t "$TMUX_SESSION:0.3"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+  tmux select-pane -t "$TMUX_SESSION:0.4"
+  tmux split-window -t "$TMUX_SESSION" -h -d
+
+  # Bottom pane (6) stays full-width for hacking terminal
+
+  # Set pane titles and start processes in 3x2 + full-width layout
+  # Top row (0-2): Frontend, API, Haystack
+  tmux select-pane -t "$TMUX_SESSION:0.0" -T "Frontend Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.0" 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
+
+  tmux select-pane -t "$TMUX_SESSION:0.1" -T "API Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.1" 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
+
+  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
+
+  # Determine sandbox logs command based on Helix-in-Helix mode
+  local SANDBOX_LOGS_CMD
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, sandbox runs on host Docker via docker-compose
+    # Need COMPOSE_PROFILES to find the service, and specify the service name
+    SANDBOX_LOGS_CMD="DOCKER_HOST=$DOCKER_HOST_OUTER COMPOSE_PROFILES=$OUTER_SANDBOX_PROFILE docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
+  else
+    # Normal mode - sandbox runs via docker compose
+    SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
+  fi
+
+  # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 './stack compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
+    # WITH_RUNNER mode: Sandbox logs in pane 3
+    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
+    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
+
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
+
+    # GPU runner logs with air hot reloading
+    tmux select-pane -t "$TMUX_SESSION:0.5" -T "GPU Runner ($RUNNER_CONTAINER)"
+    tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
+  else
+    # WITHOUT_RUNNER mode: Sandbox logs
+    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
+    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
+
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
+
+    # Middle right pane (5) - contextual based on demos
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Demos interactive session
+      tmux select-pane -t "$TMUX_SESSION:0.5" -T "Demos"
+      tmux send-keys -t "$TMUX_SESSION:0.5" 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+    else
+      # Hacking terminal
+      tmux select-pane -t "$TMUX_SESSION:0.5" -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
   fi
 
-  if [[ -n "$WITH_DEMOS" ]]; then
-    tmux send-keys -t 4 'docker compose --profile demos -f docker-compose.dev.yaml exec demos bash' C-m
-    tmux send-keys -t 4 'go run .' C-m
+  # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
+  tmux select-pane -t "$TMUX_SESSION:0.6" -T "🔨 HACKING TERMINAL"
+  tmux send-keys -t "$TMUX_SESSION:0.6" 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+
+  if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
+    echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
   fi
+
+  # Enable pane titles display
+  tmux set-option -t "$TMUX_SESSION" pane-border-status top
+  tmux set-option -t "$TMUX_SESSION" pane-border-format "#{pane_index}: #{pane_title}"
+
+  # Make all panes equal size
+  tmux select-layout -t "$TMUX_SESSION" even-horizontal
+  tmux select-layout -t "$TMUX_SESSION" tiled
 
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
-  echo "Removing docker containers"
-  ./stack compose --profile dev_gpu_runner --profile demos down
-  echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION ||true
+  echo "🛑 Stopping docker containers and tmux session..."
+
+  # Build exclude pattern for services that should not be stopped
+  local exclude_services=()
+  [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
+  [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
+
+  # Setup runner profiles first
+  setup_runner_profile
+
+  if [[ ${#exclude_services[@]} -eq 0 ]]; then
+    echo "🗑️ Removing all docker containers"
+
+    # Stop containers based on enabled profiles
+    if [[ -n "$WITH_RUNNER" ]]; then
+      if [[ -n "$WITH_DEMOS" ]]; then
+        # Both runner and demos
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      else
+        # Just runner
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 || echo "⚠️  Some services may not exist"
+      fi
+    elif [[ -n "$WITH_DEMOS" ]]; then
+      # Just demos
+      echo "🔄 Stopping services with demos profile"
+      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+    else
+      # Include all profiles when no environment variables are set
+      echo "🔄 Stopping all services (all profiles)"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+    fi
+  else
+    # Create exclude list for display and grep pattern
+    local exclude_list=$(IFS=', '; echo "${exclude_services[*]}")
+    local exclude_pattern=$(IFS='|'; echo "${exclude_services[*]}")
+    echo "🗑️ Removing docker containers (except: $exclude_list)"
+
+    # Get list of services to stop (excluding the ones we want to keep)
+    if [[ -n "$WITH_RUNNER" ]]; then
+      if [[ -n "$WITH_DEMOS" ]]; then
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+      else
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+      fi
+    elif [[ -n "$WITH_DEMOS" ]]; then
+      echo "🔄 Stopping services with demos profile (except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+    else
+      echo "🔄 Stopping all services (all profiles, except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+    fi
+
+    # Stop only the non-excluded services
+    if [[ -n "$services" ]]; then
+      echo "🗑️ Going to remove containers: $(echo $services | tr '\n' ' ')"
+      # Stop and remove containers using a while loop to avoid xargs command line length issues
+      while IFS= read -r service; do
+        if [[ -n "$service" ]]; then
+          echo "🗑️ Stopping and removing: $service"
+          docker compose -f docker-compose.dev.yaml stop "$service" 2>/dev/null && \
+          docker compose -f docker-compose.dev.yaml rm -f "$service" 2>/dev/null || \
+          echo "⚠️  Could not stop/remove $service"
+        fi
+      done <<< "$services"
+    else
+      echo "✨ No services to stop (all are excluded)"
+    fi
+  fi
+
+  echo "📺 Stopping tmux session $TMUX_SESSION..."
+  if tmux has-session -t $TMUX_SESSION 2>/dev/null; then
+    tmux kill-session -t $TMUX_SESSION || echo "⚠️  Failed to kill tmux session, but continuing..."
+  else
+    echo "📺 Tmux session $TMUX_SESSION not found"
+  fi
+
+  echo "✨ Stop completed successfully!"
 }
 
 function up() {
+  # Setup sandbox profile based on GPU detection (if not already in .env)
+  setup_sandbox_profile
+
+  # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
+  # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
+
   docker compose -f docker-compose.dev.yaml up -d $@
+}
+
+function build-zed-agent() {
+  echo "🔨 Building Zed agent Docker image..."
+
+  # Build the Docker image using the Zed binary we built
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run './stack build-zed' first."
+    return 1
+  fi
+
+  docker build -t helix-sway:latest -f Dockerfile.sway-helix .
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Zed agent Docker image built successfully"
+  else
+    echo "❌ Failed to build Zed agent Docker image"
+    return 1
+  fi
+}
+
+function zed-agent-up() {
+  echo "Starting Zed agent services..."
+
+  # Build Zed if binary doesn't exist
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "Zed binary not found, building first..."
+    build-zed || return 1
+  fi
+
+  # Check if image doesn't exist
+  if ! docker image inspect helix/zed-agent:latest &> /dev/null; then
+    echo "Zed agent image not found, building first..."
+    build-zed-agent || return 1
+  fi
+
+  docker compose -f docker-compose.zed-agent.yaml up -d
+
+  echo "✅ Zed agent services started"
+  echo "📋 Services running:"
+  echo "  - Helix API: http://localhost:8080"
+  echo "  - Zed HTTP API: http://localhost:3030"
+  echo "  - VNC Web Client: http://localhost:6080"
+  echo ""
+  echo "🧪 Test commands:"
+  echo "  curl http://localhost:8080/health    # Helix API"
+  echo "  curl http://localhost:3030/health    # Zed integration API"
+}
+
+function zed-agent-down() {
+  echo "Stopping Zed agent services..."
+  docker compose -f docker-compose.zed-agent.yaml down
+}
+
+function zed-agent-logs() {
+  docker compose -f docker-compose.zed-agent.yaml logs -f "${1:-zed-agent-runner}"
 }
 
 function rebuild() {
   docker compose -f docker-compose.dev.yaml up -d --build $@
 }
+
+# Helper function to build image tags string (commit hash + git tag if available)
+function get_image_tags() {
+  local OLD_IFS=$IFS
+  IFS=' '  # Temporarily use space as IFS for proper word splitting
+
+  local IMAGE_BASE=$1
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  local TAG_STRING="-t ${IMAGE_BASE}:${COMMIT_HASH}"
+
+  if [ -n "$GIT_TAG" ]; then
+    TAG_STRING="${TAG_STRING} -t ${IMAGE_BASE}:${GIT_TAG}"
+    echo "🏷️  Git tag detected: ${GIT_TAG}" >&2
+  fi
+
+  printf "%s" "${TAG_STRING}"  # Use printf to avoid trailing newline issues
+
+  IFS=$OLD_IFS
+}
+
+function build-qwen-code() {
+  # ====================================================================
+  # Build Qwen Code inside container for consistent, reproducible builds
+  # ====================================================================
+  # This avoids issues with host npm/node versions and husky prepare scripts.
+  # The build produces a pre-bundled qwen-code that can be installed globally
+  # in the sway container without triggering prepare hooks.
+  # ====================================================================
+  echo "📦 Building Qwen Code (containerized build)..."
+
+  local QWEN_SOURCE_DIR="$PROJECTS_ROOT/qwen-code"
+  local QWEN_OUTPUT_DIR="./qwen-code-build"
+
+  # Check if qwen-code source directory exists
+  if [ ! -d "$QWEN_SOURCE_DIR" ]; then
+    echo "❌ qwen-code source directory not found at: $QWEN_SOURCE_DIR"
+    echo "Clone it next to helix with: cd $PROJECTS_ROOT && git clone git@github.com:helixml/qwen-code.git"
+    return 1
+  fi
+
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$QWEN_SOURCE_DIR" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "$QWEN_OUTPUT_DIR/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "$QWEN_OUTPUT_DIR/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild
+  local NEEDS_REBUILD=false
+  if [ ! -d "$QWEN_OUTPUT_DIR" ] || [ ! -f "$QWEN_OUTPUT_DIR/package.json" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ ! -d "$QWEN_OUTPUT_DIR/dist" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code dist directory missing (bundle not built)"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+  fi
+
+  if [ "$NEEDS_REBUILD" != "true" ]; then
+    echo "✅ Using existing qwen-code build at $QWEN_OUTPUT_DIR (${SAVED_HASH:0:8})"
+    return 0
+  fi
+
+  echo "🐳 Building qwen-code inside Node.js 20 container..."
+  echo "   Source: $QWEN_SOURCE_DIR"
+  echo "   Output: $QWEN_OUTPUT_DIR"
+
+  # Build the builder image if needed
+  if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
+    echo "📦 Building qwen-code-builder:node20 image (first time only)..."
+    docker build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build qwen-code-builder:node20 image"
+      return 1
+    fi
+  fi
+
+  # Setup npm cache for faster rebuilds
+  local NPM_CACHE="$HOME/.npm-docker-cache"
+  mkdir -p "$NPM_CACHE"
+
+  # Create output directory
+  mkdir -p "$QWEN_OUTPUT_DIR"
+  if [ ! -w "$QWEN_OUTPUT_DIR" ]; then
+    echo "⚠️  $QWEN_OUTPUT_DIR exists but is not writable"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$QWEN_OUTPUT_DIR"
+  fi
+
+  # Get absolute paths
+  local QWEN_ABS_PATH=$(cd "$QWEN_SOURCE_DIR" && pwd)
+  local OUTPUT_ABS_PATH=$(cd "$QWEN_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build..."
+
+  # Run build inside container
+  # 1. npm ci --ignore-scripts: Install deps without running prepare hook
+  # 2. npm run bundle: Build the dist/ directory manually
+  # Then copy the required files to output
+  docker run --rm \
+    -v "$QWEN_ABS_PATH:/qwen-code:ro" \
+    -v "$NPM_CACHE:/root/.npm" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /build \
+    qwen-code-builder:node20 \
+    bash -c '
+      set -e
+      echo "📋 Copying source to build directory..."
+      cp -r /qwen-code/. /build/
+
+      echo "📦 Installing dependencies (skipping prepare scripts)..."
+      npm ci --ignore-scripts
+
+      echo "🔨 Building bundle..."
+      npm run bundle
+
+      echo "📤 Copying build artifacts to output..."
+      # Copy everything needed for npm install -g
+      cp -r package.json package-lock.json dist/ /output/
+      # Copy packages directory (workspaces)
+      cp -r packages/ /output/ 2>/dev/null || true
+      # Copy node_modules (required for workspaces to work)
+      cp -r node_modules/ /output/
+
+      echo "✅ Build complete!"
+    '
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
+    return 1
+  fi
+
+  # Save the git commit hash for future change detection
+  echo "$QWEN_CODE_HASH" > "$QWEN_OUTPUT_DIR/.git-commit-hash"
+
+  echo "✅ qwen-code built successfully (${QWEN_CODE_HASH:0:8})"
+  echo "📦 Output: $QWEN_OUTPUT_DIR"
+}
+
+function build-xfce() {
+  echo "🖥️  Building custom XFCE container with passwordless sudo..."
+
+  # Build the custom XFCE image
+  echo "🔨 Building helix-xfce:latest container..."
+  if docker build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+    echo "✅ XFCE container built successfully"
+    echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Passwordless sudo for retro and user accounts"
+    echo "  - Proper work directory permissions"
+  else
+    echo "❌ Failed to build XFCE container"
+    exit 1
+  fi
+}
+
+# Generic desktop build function - builds any desktop (sway, zorin, ubuntu)
+# Uses Docker image hashes for content-addressable versioning
+function build-desktop() {
+  local DESKTOP_NAME="$1"
+
+  if [ -z "$DESKTOP_NAME" ]; then
+    echo "Usage: ./stack build-desktop <name>"
+    echo "Available: sway, zorin, ubuntu, xfce, kde, hyprland"
+    exit 1
+  fi
+
+  local DOCKERFILE="Dockerfile.${DESKTOP_NAME}-helix"
+  local IMAGE_NAME="helix-${DESKTOP_NAME}"
+
+  # Validate Dockerfile exists
+  if [ ! -f "$DOCKERFILE" ]; then
+    echo "❌ Dockerfile not found: $DOCKERFILE"
+    exit 1
+  fi
+
+  echo "🖥️  Building ${DESKTOP_NAME} desktop container..."
+
+  # Build Zed if binary doesn't exist
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build qwen-code using containerized build (avoids husky/prepare script issues)
+  # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
+  if ! build-qwen-code; then
+    echo "❌ Failed to build qwen-code"
+    exit 1
+  fi
+
+  # Capture image hash BEFORE build to detect if it actually changed
+  local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
+
+  # Build the desktop image
+  # Use --provenance=false to get stable image IDs when layers are cached
+  # (BuildKit attestation manifests change each build, causing ID changes)
+  # Docker automatically detects Go code changes via COPY layers
+  echo "🔨 Building ${IMAGE_NAME}:latest..."
+
+  docker build --provenance=false -f "$DOCKERFILE" \
+    -t "${IMAGE_NAME}:latest" \
+    .
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to build ${DESKTOP_NAME} container"
+    exit 1
+  fi
+
+  # Capture image hash AFTER build
+  local IMAGE_HASH_AFTER=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}')
+
+  # Get Docker image hash (content-addressable, survives save/load)
+  local IMAGE_HASH_FULL=$(echo "$IMAGE_HASH_AFTER" | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+
+  echo "✅ ${DESKTOP_NAME} container built successfully"
+  echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
+
+  # Check if image actually changed
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
+    echo "✅ Image unchanged - skipping transfer"
+    return 0
+  fi
+
+  # Transfer to running sandbox via local registry
+  # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
+  if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+    transfer-desktop-to-sandbox "$DESKTOP_NAME"
+  fi
+
+  # Write version file AFTER successful transfer
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file updated: ${IMAGE_TAG}"
+}
+
+# Generic transfer function - transfers any desktop image to sandbox's dockerd
+# Uses local registry for efficient layer-based transfers (only changed layers transfer)
+# Automatically starts registry if not running
+function transfer-desktop-to-sandbox() {
+  local DESKTOP_NAME="$1"
+  local IMAGE_NAME="helix-${DESKTOP_NAME}"
+
+  if [ -z "$DESKTOP_NAME" ]; then
+    echo "Usage: transfer-desktop-to-sandbox <name>"
+    return 1
+  fi
+
+  # Determine correct sandbox service/container based on GPU profile
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+
+  # Check if sandbox container is running
+  if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+    return 0
+  fi
+
+  # Ensure local registry is running (needed for push/pull transfer)
+  if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    echo "🚀 Starting local registry for image transfer..."
+    docker compose -f docker-compose.dev.yaml up -d registry
+    # Wait for registry to be ready
+    local TIMEOUT=10
+    local ELAPSED=0
+    until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
+        break
+      fi
+      sleep 1
+      ELAPSED=$((ELAPSED + 1))
+    done
+  fi
+
+  # Check if image exists on host
+  if ! docker images "${IMAGE_NAME}:latest" -q | grep -q .; then
+    echo "⚠️  ${IMAGE_NAME}:latest not found on host, skipping transfer"
+    return 0
+  fi
+
+  # Get image hash for versioned tag (content-addressable, survives push/pull)
+  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+
+  # Check if sandbox already has this exact image by version tag (skip transfer if so)
+  local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
+  if [ -n "$SANDBOX_HAS_TAG" ]; then
+    echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
+    # Still restart heartbeat to ensure API has the correct version
+    echo "🔄 Restarting heartbeat daemon to ensure version is current..."
+    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+    return 0
+  fi
+
+  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+  local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+
+  # Tag for local registry and push
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
+
+  echo "📤 Pushing to local registry..."
+  if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to push to local registry"
+    return 1
+  fi
+
+  # Pull from registry inside sandbox
+  echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
+  if ! docker exec "$SANDBOX_CONTAINER" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to pull from registry inside sandbox"
+    return 1
+  fi
+
+  # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
+  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
+  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+
+  # Remove the registry-prefixed tag to allow proper cleanup later
+  # (layers are shared, so this just removes the tag, not the data)
+  docker exec "$SANDBOX_CONTAINER" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
+
+  # Version files are bind-mounted from host (updated by build-desktop)
+  if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+    echo "📦 Version file: $(cat sandbox-images/${IMAGE_NAME}.version)"
+  fi
+
+  # Restart heartbeat to pick up the new version immediately
+  echo "🔄 Restarting heartbeat daemon to report new version..."
+  docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+  echo "✅ Image transferred and heartbeat restarted"
+}
+
+# Backward compatibility wrappers
+function build-sway() {
+  build-desktop sway
+}
+
+function transfer-sway-to-sandbox() {
+  transfer-desktop-to-sandbox sway
+}
+
+function build-zorin() {
+  build-desktop zorin
+}
+
+function transfer-zorin-to-sandbox() {
+  transfer-desktop-to-sandbox zorin
+}
+
+function build-ubuntu() {
+  build-desktop ubuntu
+}
+
+function transfer-ubuntu-to-sandbox() {
+  transfer-desktop-to-sandbox ubuntu
+}
+
+function build-xfce() {
+  build-desktop xfce
+}
+
+function transfer-xfce-to-sandbox() {
+  transfer-desktop-to-sandbox xfce
+}
+
+function build-kde() {
+  build-desktop kde
+}
+
+function transfer-kde-to-sandbox() {
+  transfer-desktop-to-sandbox kde
+}
+
+function build-hyprland() {
+  build-desktop hyprland
+}
+
+function transfer-hyprland-to-sandbox() {
+  transfer-desktop-to-sandbox hyprland
+}
+
+
+# Verify desktop image was built successfully
+function verify-desktop-build() {
+  local desktop="$1"
+  local IMAGE_NAME="helix-${desktop}"
+
+  if [ ! -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+    echo "⚠️  sandbox-images/${IMAGE_NAME}.version not found"
+  else
+    echo "✅ ${IMAGE_NAME} version=$(cat sandbox-images/${IMAGE_NAME}.version)"
+  fi
+}
+
+function build-sandbox() {
+  echo "📦 Building Helix Sandbox container (DinD + Hydra + RevDial)..."
+  echo ""
+  echo "This builds a container with:"
+  echo "  • Docker-in-Docker with NVIDIA/AMD runtime"
+  echo "  • Hydra multi-container isolation daemon"
+  echo "  • RevDial client (built from source)"
+  echo "  • Desktop images (pre-loaded into nested dockerd)"
+  echo "  • GOW-style init system (cont-init.d + entrypoint.sh)"
+  echo ""
+  # Convert EXPERIMENTAL_DESKTOPS from space-separated string to array
+  # This allows: EXPERIMENTAL_DESKTOPS="zorin xfce" ./stack build-sandbox
+  local EXPERIMENTAL_DESKTOPS_ARR=()
+  if [ -n "${EXPERIMENTAL_DESKTOPS:-}" ]; then
+    # Use read with default IFS to split on spaces
+    IFS=' ' read -ra EXPERIMENTAL_DESKTOPS_ARR <<< "$EXPERIMENTAL_DESKTOPS"
+  fi
+
+  echo "📋 Build configuration:"
+  echo "   Production desktops: ${PRODUCTION_DESKTOPS[*]}"
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    echo "   Experimental desktops: ${EXPERIMENTAL_DESKTOPS_ARR[*]}"
+  else
+    echo "   Experimental desktops: (none - set EXPERIMENTAL_DESKTOPS to enable)"
+  fi
+  echo ""
+
+  # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [1/6] Checking Zed binary..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "Building Zed in release mode..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed"
+      return 1
+    fi
+  else
+    echo "✅ Using existing Zed binary"
+  fi
+  echo ""
+
+  # Step 2: Build desktop images
+  # Build production desktops (always)
+  local STEP_NUM=2
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📦 Building production desktop: helix-${desktop}..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+      echo "❌ Failed to build helix-${desktop}"
+      return 1
+    fi
+    verify-desktop-build "$desktop"
+    echo ""
+    STEP_NUM=$((STEP_NUM + 1))
+  done
+
+  # Build experimental desktops (only if requested)
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🧪 Building experimental desktop: helix-${desktop}..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+        echo "❌ Failed to build helix-${desktop}"
+        return 1
+      fi
+      verify-desktop-build "$desktop"
+      echo ""
+      STEP_NUM=$((STEP_NUM + 1))
+    done
+  else
+    echo "ℹ️  Experimental desktops skipped (set EXPERIMENTAL_DESKTOPS=\"zorin xfce\" to build)"
+    echo ""
+  fi
+
+  # Build sandbox container
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 Building helix-sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to build helix-sandbox container"
+    return 1
+  fi
+
+  echo "✅ helix-sandbox container built successfully"
+  echo ""
+
+  # Step 6: Restart sandbox and transfer fresh image
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [6/6] Restarting sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Restart sandbox to pick up new image
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+  echo "✅ Sandbox container rebuilt and restarted"
+
+  # Wait for sandbox's nested dockerd to be ready
+  echo "⏳ Waiting for sandbox dockerd..."
+  local TIMEOUT=30
+  local ELAPSED=0
+  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
+      break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+
+  # Transfer desktop images to sandbox via local registry
+  echo ""
+  echo "📦 Transferring desktop images to sandbox..."
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    transfer-desktop-to-sandbox "$desktop"
+  done
+
+  echo ""
+  echo "📦 Sandbox ready: helix-sandbox:latest"
+  echo ""
+  echo "Components included:"
+  echo "  • Docker-in-Docker with NVIDIA/AMD runtime"
+  echo "  • Hydra multi-container isolation daemon"
+  echo "  • RevDial client (control plane connection)"
+  echo "  • Sandbox heartbeat (disk monitoring)"
+  echo "  • Desktop images (transferred via local registry):"
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    if [ -f "sandbox-images/helix-${desktop}.version" ]; then
+      local version=$(cat "sandbox-images/helix-${desktop}.version")
+      echo "    - helix-${desktop}:${version}"
+    fi
+  done
+  echo ""
+  echo "Services managed by GOW-style init system:"
+  echo "  • 40-start-dockerd.sh - starts nested dockerd + loads desktop images"
+  echo "  • 50-start-revdial-clients.sh - starts RevDial daemons"
+  echo "  • 55-start-sandbox-heartbeat.sh - starts disk monitoring"
+  echo "  • 60-setup-telemetry-firewall.sh - blocks agent telemetry"
+  echo "  • 70-start-hydra.sh - starts Hydra daemon"
+  echo "  • startup-app.sh - keeps container running"
+  echo ""
+  echo "🎉 Sandbox build completed successfully!"
+}
+
 
 function db() {
   local subcommand="${1-cli}"
@@ -116,9 +1646,9 @@ function db() {
   local containername="${1-postgres}"
   shift
   if [[ "$subcommand" == "cli" ]]; then
-    ./stack compose exec $containername psql --user postgres "$@"
+    docker compose -f docker-compose.dev.yaml exec $containername psql --user postgres "$@"
   elif [[ "$subcommand" == "pipe" ]]; then
-    ./stack compose exec -T $containername psql --user postgres "$@"
+    docker compose -f docker-compose.dev.yaml exec -T $containername psql --user postgres "$@"
   fi
 }
 
@@ -143,22 +1673,252 @@ function pgvector_pipe() {
   db pipe pgvector "$@"
 }
 
+function list-slots() {
+  echo "SELECT * FROM runner_slots ORDER BY created DESC;" | db pipe postgres
+}
+
+function slots() {
+  echo "Formatted view of all slots:"
+  echo "SELECT
+    id,
+    runner_id,
+    model,
+    runtime,
+    active,
+    ready,
+    status,
+    created::timestamp(0) as created,
+    updated::timestamp(0) as updated
+  FROM runner_slots
+  ORDER BY created DESC;" | db pipe postgres
+}
+
+function active-slots() {
+  echo "Active slots only:"
+  echo "SELECT
+    id,
+    runner_id,
+    model,
+    runtime,
+    status,
+    created::timestamp(0) as created
+  FROM runner_slots
+  WHERE active = true
+  ORDER BY created DESC;" | db pipe postgres
+}
+
+function slot-stats() {
+  echo "Slot statistics:"
+  echo "SELECT
+    runner_id,
+    COUNT(*) as total_slots,
+    COUNT(CASE WHEN active = true THEN 1 END) as active_slots,
+    COUNT(CASE WHEN active = false THEN 1 END) as inactive_slots
+  FROM runner_slots
+  GROUP BY runner_id
+  ORDER BY total_slots DESC;" | db pipe postgres
+}
+
+function wipe-slots() {
+  echo "🧹 Wiping all slots from database..."
+  echo "DELETE FROM runner_slots;" | db pipe postgres
+  echo "✅ All slots have been deleted from the database."
+}
+
 function install() {
   go install ./api/..
 }
 
 function update_openapi() {
-	go install github.com/swaggo/swag/cmd/swag@latest && \
+	echo "🔄 Installing swag..."
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4 || {
+		echo "❌ Failed to install swag"
+		return 1
+	}
+
+	echo "🔄 Generating swagger documentation..."
 	swag init -g api/pkg/server/swagger.go \
-	--parseDependency --parseInternal --parseDepth 3 \
-	-o api/pkg/server
-	# Copy the generated files to the frontend
-	cp -r api/pkg/server/swagger.yaml frontend/swagger/
-	npx swagger-typescript-api -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
+		--parseDependency --parseInternal --parseDepth 3 \
+		-o api/pkg/server || {
+		echo "❌ CRITICAL: Swagger generation FAILED"
+		echo "Check for ParseComment errors above"
+		return 1
+	}
+
+	# Verify swagger files were created
+	if [[ ! -f "api/pkg/server/swagger.json" ]]; then
+		echo "❌ CRITICAL: swagger.json was not generated"
+		return 1
+	fi
+
+	echo "✅ Swagger generated successfully"
+	echo "📋 Copying swagger to frontend..."
+	cp -r api/pkg/server/swagger.yaml frontend/swagger/ || {
+		echo "❌ Failed to copy swagger.yaml"
+		return 1
+	}
+
+	echo "🔄 Generating TypeScript client..."
+	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts || {
+		echo "❌ TypeScript client generation FAILED"
+		return 1
+	}
+
+	echo "✅ OpenAPI update complete"
+}
+
+function build-frontend() {
+	echo "🔄 Building production frontend for SERVE_PROD_FRONTEND_IN_DEV mode..."
+	cd "$DIR/frontend"
+	yarn build || {
+		echo "❌ Frontend build failed"
+		return 1
+	}
+	echo "✅ Frontend built to frontend/dist/"
+	echo "   Refresh your browser to see changes."
 }
 
 function lint() {
         golangci-lint run
+}
+
+# Before running this, ensure Postgres port is open (5432) for local connections
+# and that API server is stopped (if you started it with ./stack up)
+function test-integration() {
+  cd integration-test/api && go test -v "$@"
+}
+
+# Examples:
+# Run all tests:                    ./stack test
+# Run specific tests:               ./stack test ./api/pkg/oauth_test
+# Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
+
+function ollama-sync() {
+  local OLLAMA_PATH="$PROJECTS_ROOT/ollama"
+  local TARGET_DIR="api/pkg/ollamav11"
+
+  # Check if we're in the right directory (should have api/ subdirectory)
+  if [[ ! -d "api" ]]; then
+    echo "Error: Must run from the root of the helix repository"
+    echo "Expected to find 'api/' directory in current path"
+    exit 1
+  fi
+
+  if [[ ! -d "$OLLAMA_PATH" ]]; then
+    echo "Error: Ollama repository not found at $OLLAMA_PATH"
+    echo "Expected ollama to be checked out as a sibling directory to helix"
+    exit 1
+  fi
+
+  # Check that ollama is on a release tag
+  echo "Checking Ollama version..."
+  if [[ ! -d "$OLLAMA_PATH/.git" ]]; then
+    echo "Error: $OLLAMA_PATH is not a git repository"
+    exit 1
+  fi
+
+  local OLLAMA_TAG=$(cd "$OLLAMA_PATH" && git describe --exact-match --tags HEAD 2>/dev/null)
+  if [[ -z "$OLLAMA_TAG" ]]; then
+    local CURRENT_COMMIT=$(cd "$OLLAMA_PATH" && git rev-parse --short HEAD)
+    echo "Error: Ollama is not checked out on a release tag"
+    echo "Current commit: $CURRENT_COMMIT"
+    echo "Please checkout a specific release tag (e.g., v0.11.4) before syncing"
+    echo "Example: cd $OLLAMA_PATH && git checkout v0.11.4"
+    exit 1
+  fi
+
+  echo "✅ Ollama is on release tag: $OLLAMA_TAG"
+  echo "Syncing Ollama memory estimation files..."
+
+  # Clean out target directory first to avoid stale files
+  if [[ -d "$TARGET_DIR" ]]; then
+    echo "Cleaning existing target directory..."
+    rm -rf "$TARGET_DIR"
+  fi
+
+  # Create target directory
+  mkdir -p "$TARGET_DIR"
+
+  # Copy core memory estimation files
+  echo "Copying memory estimation files..."
+  cp "$OLLAMA_PATH/llm/memory.go" "$TARGET_DIR/"
+
+  # Copy GGML/GGUF parsing files
+  echo "Copying GGML/GGUF files..."
+  cp -r "$OLLAMA_PATH/fs/ggml" "$TARGET_DIR/"
+  cp -r "$OLLAMA_PATH/fs/gguf" "$TARGET_DIR/"
+
+  # Copy supporting files
+  echo "Copying supporting files..."
+  cp -r "$OLLAMA_PATH/discover" "$TARGET_DIR/"
+  cp "$OLLAMA_PATH/api/types.go" "$TARGET_DIR/api_types.go"
+  cp "$OLLAMA_PATH/envconfig/config.go" "$TARGET_DIR/envconfig.go"
+  cp "$OLLAMA_PATH/format/bytes.go" "$TARGET_DIR/format.go"
+  cp -r "$OLLAMA_PATH/fs/util" "$TARGET_DIR/"
+
+  # Transform imports to use local versions
+  echo "Transforming imports for local use..."
+
+  # Transform package declarations to avoid import cycle
+  sed -i 's|package llm|package ollamav11|g' "$TARGET_DIR/memory.go"
+  sed -i 's|package api|package ollamav11|g' "$TARGET_DIR/api_types.go"
+  sed -i 's|package envconfig|package ollamav11|g' "$TARGET_DIR/envconfig.go"
+  sed -i 's|package format|package ollamav11|g' "$TARGET_DIR/format.go"
+
+  # Transform imports in memory.go - avoid self-imports by removing local package imports
+  sed -i 's|"github.com/ollama/ollama/api"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/discover"|"github.com/helixml/helix/api/pkg/ollamav11/discover"|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/envconfig"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/format"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' "$TARGET_DIR/memory.go"
+
+  # Remove the dot imports that were created (they'll use local functions)
+  sed -i '/^\s*\.\s*$/d' "$TARGET_DIR/memory.go"
+
+  # Transform imports in subdirectories
+  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/gguf"|"github.com/helixml/helix/api/pkg/ollamav11/gguf"|g' {} \;
+  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/util/bufioutil"|"github.com/helixml/helix/api/pkg/ollamav11/util/bufioutil"|g' {} \;
+  find "$TARGET_DIR/gguf" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' {} \;
+  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/envconfig"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
+  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/format"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
+
+  echo "Import transformations complete. You can now create type adapters manually."
+
+  # Create sync info file
+  cat > "$TARGET_DIR/SYNC_INFO.md" << EOF
+# Ollama Memory Estimation Sync
+
+**Synced from:** $OLLAMA_PATH
+**Ollama version:** $OLLAMA_TAG
+**Sync date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+## Files synced:
+- llm/memory.go → memory.go
+- fs/ggml/ → ggml/
+- fs/gguf/ → gguf/
+- discover/ → discover/
+- api/types.go → api_types.go
+- envconfig/config.go → envconfig.go
+- format/bytes.go → format.go
+- fs/util/ → util/
+
+## Next steps:
+1. Create type adapters to convert Helix types to Ollama types
+2. Modify imports in copied files to use local versions
+3. Use exact Ollama EstimateGPULayers function with adapted types
+
+## Important:
+This sync was done against Ollama $OLLAMA_TAG. If Ollama is updated,
+re-run './stack ollama-sync' to get the latest memory estimation algorithms.
+EOF
+
+  echo "✅ Ollama files synced to $TARGET_DIR"
+  echo "📄 See $TARGET_DIR/SYNC_INFO.md for details"
+  echo ""
+  echo "Next steps:"
+  echo "1. Create type adapters in api/pkg/memory/ollama_wrapper.go"
+  echo "2. Update imports in copied files to use local versions"
+  echo "3. Test with exact Ollama memory estimation algorithm"
 }
 
 function test() {
@@ -178,16 +1938,13 @@ function test() {
   fi
 
   # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
   export POSTGRES_PASSWORD=postgres
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
-
-  export KEYCLOAK_USER=admin
-  export KEYCLOAK_PASSWORD=REPLACE_ME
 
   export PGVECTOR_USER=postgres
   export PGVECTOR_PASSWORD=postgres
@@ -200,10 +1957,112 @@ function test() {
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
-  # go test -v ./...
   # To debug test hangs, try this:
   # Run tests one at a time and show which test is running
-  go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+
+  # If a test path is provided, run tests from that path,
+  # otherwise run all tests
+  if [[ $# -gt 0 ]]; then
+    echo "Running tests from path: $1"
+    go test -v -p 1 "$@" 2>&1 | sed -u 's/^/[TEST] /'
+  else
+    echo "Running all tests"
+    go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
+  fi
 }
+
+function zed-test() {
+  echo "Testing Zed with External WebSocket Thread Sync..."
+
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run: ./stack build-zed"
+    return 1
+  fi
+
+  echo "🧪 Running basic tests..."
+
+  # Test 1: Binary execution
+  if ./zed-build/zed --version > /dev/null 2>&1; then
+    echo "✅ Zed binary executes successfully"
+  else
+    echo "❌ Zed binary failed to execute"
+    return 1
+  fi
+
+
+
+  echo "🎉 Basic Zed tests passed!"
+  echo ""
+  echo "For full integration testing:"
+  echo "  1. Start Zed: RUST_LOG=external_websocket_sync=debug ./zed-build/zed"
+  echo "  2. Open a project folder"
+  echo "  3. Test API: curl http://localhost:3030/health"
+}
+
+function help() {
+  echo "Helix Stack Management Tool"
+  echo ""
+  echo "Available commands:"
+  echo "  build              - Build docker containers (optionally with WITH_RUNNER or WITH_DEMOS)"
+  echo "  build-runner       - Build the helix-runner binary locally"
+  echo "  build-runner-image - Build the runner Docker image (includes ROCm vLLM)"
+  echo "  static-compile     - Build static Go binary"
+  echo "  start              - Start the development environment with tmux"
+  echo "  stop               - Stop docker containers"
+  echo "  mock-runner        - Start a mock runner for testing"
+  echo "  up [services]      - Start specific docker services"
+  echo "  rebuild [services] - Rebuild and start specific docker services"
+  echo ""
+  echo "Build commands:"
+  echo "  build-sandbox      - Build sandbox container (DinD + Hydra + RevDial)"
+  echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
+  echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
+  echo "  build-hyprland     - Build Hyprland+Zed container (alias for build-desktop hyprland)"
+  echo "  build-kde          - Build KDE Plasma+Zed container (alias for build-desktop kde)"
+  echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
+  echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
+  echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
+  echo ""
+  echo "Zed Agent commands:"
+  echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"
+  echo "  build-zed-agent    - Build Zed agent Docker image"
+  echo "  zed-agent-up       - Start Zed agent services"
+  echo "  zed-agent-down     - Stop Zed agent services"
+  echo "  zed-agent-logs [service] - View Zed agent logs"
+  echo "  zed-test           - Test Zed binary functionality"
+  echo ""
+  echo "Database commands:"
+  echo "  db [cli|pipe] [postgres|pgvector] - Access database"
+  echo "  psql               - PostgreSQL CLI"
+  echo "  pgvector           - PGVector CLI"
+  echo "  list-slots         - List all runner slots"
+  echo "  slots              - Formatted view of all slots"
+  echo "  active-slots       - Show only active slots"
+  echo "  slot-stats         - Show slot statistics"
+  echo "  wipe-slots         - Delete all slots from database"
+  echo ""
+  echo "Development commands:"
+  echo "  generate           - Generate test mocks"
+  echo "  update_openapi     - Update OpenAPI documentation"
+  echo "  lint               - Run linter"
+  echo "  test [path]        - Run tests"
+  echo "  test-integration   - Run integration tests"
+  echo "  ollama-sync        - Sync Ollama memory estimation files"
+  echo ""
+  echo "Environment variables:"
+  echo "  WITH_RUNNER=1      - Include runner containers"
+  echo "  WITH_DEMOS=1       - Include demo containers"
+  echo "  FORCE_CPU=1        - Force CPU-only mode"
+  echo "  WIPE_SLOTS=1       - Wipe database slots on start"
+  echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
+  echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
+  echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
+}
+
+# Show help if no arguments provided
+if [[ $# -eq 0 ]]; then
+  help
+  exit 0
+fi
 
 eval "$@"

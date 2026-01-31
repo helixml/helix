@@ -1,0 +1,43 @@
+# Example values for helix-runner chart
+
+# Simple approach using direct tokens
+runner:
+  host: https://app.helix.ml
+  token: "your-runner-token-here"
+  # Hugging Face token is now OPTIONAL - automatically distributed from control plane
+  # Only specify if you need a fallback token when control plane token is not configured
+  # huggingfaceToken: "hf_your_fallback_token_here"
+
+# Multi-GPU configuration examples
+# Each runner pod will manage the specified number of GPUs
+# The runner automatically detects and uses all allocated GPUs
+
+# Example 1: Single runner managing 4 GPUs
+gpuCount: 4
+replicaCount: 1
+
+# Example 2: Multiple runners each managing 2 GPUs
+# gpuCount: 2
+# replicaCount: 2
+
+# Example 3: CPU-only setup (no GPUs)
+# gpuCount: 0
+
+# Alternative: Using Kubernetes secrets (recommended for production)
+# Create secrets first:
+# kubectl create secret generic runner-tokens \
+#   --from-literal=api-token=your-actual-api-token
+# 
+# NOTE: Hugging Face token is now configured in the control plane and distributed automatically.
+# Only create a runner-specific HF token secret if you need a fallback when control plane token is not set:
+# kubectl create secret generic runner-hf-token \
+#   --from-literal=hf-token=your-fallback-hf-token
+#
+# Then configure like this:
+# runner:
+#   host: https://app.helix.ml
+#   tokenExistingSecret: "runner-tokens"
+#   tokenExistingSecretKey: "api-token"
+#   # Optional: Fallback HF token when control plane token is not configured
+#   # huggingfaceTokenExistingSecret: "runner-hf-token"
+#   # huggingfaceTokenExistingSecretKey: "hf-token"

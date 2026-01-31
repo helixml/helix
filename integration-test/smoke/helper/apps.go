@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"golang.org/x/exp/rand"
+	"golang.org/x/exp/rand" //nolint:staticcheck
 )
 
 func BrowseToAppsPage(t *testing.T, page *rod.Page) {
@@ -28,9 +28,8 @@ func CreateNewApp(t *testing.T, page *rod.Page) {
 	LogStep(t, fmt.Sprintf("Created app: %s", page.MustInfo().URL))
 }
 
-func SaveApp(t *testing.T, page *rod.Page) {
-	LogStep(t, "Saving app")
-	page.MustElementX(`//button[text() = 'Save']`).MustClick()
+func SaveApp(t *testing.T, _ *rod.Page) {
+	LogStep(t, "No more save button!")
 }
 
 // This function checks to see if Helix has responded. It doesn't check the text.

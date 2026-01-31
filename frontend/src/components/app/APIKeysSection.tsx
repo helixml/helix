@@ -16,7 +16,6 @@ interface APIKeysSectionProps {
   allowedDomains: string[];
   setAllowedDomains: (domains: string[]) => void;
   isReadOnly: boolean;
-  readOnly: boolean;
 }
 
 const APIKeysSection: React.FC<APIKeysSectionProps> = ({
@@ -26,15 +25,14 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
   allowedDomains,
   setAllowedDomains,
   isReadOnly,
-  readOnly,
 }) => {
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 2, pr: 3 }}>
       <Typography variant="subtitle1" sx={{mb: 1}}>
-        App-scoped API Keys
+        Agent-scoped API Keys
       </Typography>
       <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-        Using this key will automatically force all requests to use this app.
+        Using this key will automatically force all requests to use this agent.
       </Typography>
       <Row>
         <Cell grow>
@@ -60,19 +58,6 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
           onDeleteKey={onDeleteKey}
         />
       </Box>
-      <Typography variant="subtitle1" sx={{ mt: 4 }}>
-        Allowed Domains (website widget)
-      </Typography>
-      <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
-        The domain where your app is hosted. http://localhost and http://localhost:port are always allowed.
-        Ensures the website chat widget can work for your custom domain.
-      </Typography>
-      <StringArrayEditor
-        entityTitle="domain"
-        disabled={readOnly || isReadOnly}
-        data={allowedDomains}
-        onChange={setAllowedDomains}
-      />
     </Box>
   );
 };

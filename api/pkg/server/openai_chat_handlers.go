@@ -1,16 +1,18 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -24,7 +26,7 @@ const (
 	MEGABYTE
 )
 
-// POST https://app.tryhelix.ai/v1/chat/completions
+// POST https://app.helix.ml/v1/chat/completions
 
 // createChatCompletion godoc
 // @Summary Stream responses for chat
@@ -64,13 +66,74 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
+
+	// Special handling for kodit-model proxy
+	// When Kodit sends requests with model "kodit-model", we substitute with the configured model from SystemSettings
+	if chatCompletionRequest.Model == "kodit-model" {
+		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get system settings for kodit-model substitution")
+			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
+			return
+		}
+		if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
+			log.Warn().Msg("kodit-model requested but no enrichment model configured in system settings")
+			http.Error(rw, "Code Intelligence model not configured. Please configure the enrichment model in Admin > System Settings.", http.StatusBadRequest)
+			return
+		}
+
+		// Combine provider and model into the format expected by Helix routing
+		// e.g., "together_ai" + "Qwen/Qwen3-8B" -> "together_ai/Qwen/Qwen3-8B"
+		resolvedModel := settings.KoditEnrichmentProvider + "/" + settings.KoditEnrichmentModel
+		log.Debug().
+			Str("original_model", "kodit-model").
+			Str("provider", settings.KoditEnrichmentProvider).
+			Str("model", settings.KoditEnrichmentModel).
+			Str("resolved_model", resolvedModel).
+			Msg("substituted kodit-model with configured enrichment model")
+		chatCompletionRequest.Model = resolvedModel
+	}
+
+	// Parse provider prefix from model name (e.g., "openrouter/gpt-4" -> provider="openrouter", model="gpt-4")
+	// But first, check if the full model name (with slash) exists in any provider's model list.
+	// This handles HuggingFace-style model IDs like "Qwen/Qwen3-Coder" that might be incorrectly
+	// parsed as provider prefixes when there's also a provider named "Qwen".
+	var validatedProvider string
+	if strings.Contains(chatCompletionRequest.Model, "/") {
+		// Model name contains a slash - could be a HuggingFace model ID
+		// Check if any provider has this exact full model name in their model list
+		foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID)
+		if foundProvider != "" {
+			// Found a provider with this exact model - use it and keep the full model name
+			validatedProvider = foundProvider
+			log.Debug().
+				Str("model", chatCompletionRequest.Model).
+				Str("provider", foundProvider).
+				Msg("using full model name match (avoiding HF prefix collision)")
+		}
+	}
+
+	// If we didn't find a full model match, fall back to prefix parsing
+	if validatedProvider == "" {
+		providerFromModel, modelWithoutPrefix := model.ParseProviderFromModel(chatCompletionRequest.Model)
+		if providerFromModel != "" {
+			// Check if this prefix is a known provider (global or user-defined)
+			if s.isKnownProvider(r.Context(), providerFromModel, ownerID) {
+				validatedProvider = providerFromModel
+				chatCompletionRequest.Model = modelWithoutPrefix
+			}
+			// If not a known provider, treat the whole string as the model name (e.g., "meta-llama/Model")
+		}
+	}
+
 	modelName, err := model.ProcessModelName(
 		s.Cfg.Inference.Provider,
 		chatCompletionRequest.Model,
-		types.SessionModeInference,
 		types.SessionTypeText,
-		false,
-		false,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("error processing model name")
@@ -79,15 +142,13 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	chatCompletionRequest.Model = modelName
-	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	responseID := system.GenerateOpenAIResponseID()
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         ownerID,
+		ProjectID:       user.ProjectID,
+		SpecTaskID:      user.SpecTaskID,
 		SessionID:       responseID,
 		InteractionID:   "n/a",
 		OriginalRequest: body,
@@ -97,6 +158,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		AppID:       r.URL.Query().Get("app_id"),
 		AssistantID: r.URL.Query().Get("assistant_id"),
 		RAGSourceID: r.URL.Query().Get("rag_source_id"),
+		Provider:    validatedProvider,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
@@ -108,57 +170,54 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}(),
 	}
 
-	if user.AppID != "" {
-		options.AppID = user.AppID
+	var app *types.App
 
-		ctx = oai.SetContextAppID(ctx, user.AppID)
+	switch {
+	// If app ID is set from authentication token
+	case user.AppID != "":
+		// Basic sanity validation to see whether app ID from URL query matches
+		// the app ID from the authentication token
+		if options.AppID != "" && user.AppID != options.AppID {
+			log.Error().Str("app_id", user.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+			http.Error(rw, "URL query app_id does not match token app_id", http.StatusBadRequest)
+			return
+		}
+
+		app, err = s.Store.GetApp(ctx, user.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", user.AppID).Msg("error getting app")
+			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			return
+		}
+
+		options.AppID = user.AppID
+	// If app is set through URL query options
+	case options.AppID != "":
+		app, err = s.Store.GetApp(ctx, options.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", options.AppID).Msg("error getting app")
+			http.Error(rw, fmt.Sprintf("Error getting app: %s", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// If app is set
+	if app != nil {
+		// If app has org - set it
+		if app.OrganizationID != "" {
+			options.OrganizationID = app.OrganizationID
+		}
+
+		ctx = oai.SetContextAppID(ctx, app.ID)
+		ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
-		// Check if the appID contains a LORA
-		assistant, err := s.getAppLoraAssistant(ctx, options.AppID)
-		if err != nil {
-			log.Error().Err(err).Msg("error getting app assistant")
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Debug().Interface("assistant", assistant).Msg("got app assistant")
+		// If an app_id is being used, verify that the user has access to it
 
-		// If it has a Lora, we must use the old sessions handler.
-		if assistant != nil {
-			// Override the request's query parameters to set the app details
-			query := r.URL.Query()
-			query.Set("app_id", options.AppID)
-			query.Set("assistant_id", assistant.ID)
-			query.Set("lora_id", assistant.LoraID)
-			r.URL.RawQuery = query.Encode()
-
-			// Create a new body in the format the sessions API is expecting
-			messages := []*types.Message{}
-			for _, message := range chatCompletionRequest.Messages {
-				messages = append(messages, &types.Message{
-					Role: types.CreatorType(message.Role),
-					Content: types.MessageContent{
-						ContentType: types.MessageContentTypeText,
-						Parts:       []any{message.Content},
-					},
-				})
-			}
-			sessionBody := types.SessionChatRequest{
-				Model:    chatCompletionRequest.Model,
-				Stream:   chatCompletionRequest.Stream,
-				Messages: messages,
-				// Do not set lora_id or lora_dir here. It will break the logic in the handler.
-			}
-			body, err := json.Marshal(sessionBody)
-			if err != nil {
-				log.Error().Err(err).Msg("error marshalling session body")
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			log.Debug().Str("app_id", options.AppID).Str("lora_id", assistant.LoraID).Msg("overriding app_id in request and passing to old Session handler")
-			s.startChatSessionLegacyHandler(ctx, user, &sessionBody, r, rw)
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			log.Error().Err(err).Str("app_id", options.AppID).Str("user_id", user.ID).Msg("user is not authorized to access this app")
+			http.Error(rw, fmt.Sprintf("Not authorized to access app: %s", err), http.StatusForbidden)
 			return
 		}
 
@@ -204,6 +263,9 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
+	//  Will instruct the agent to send thoughts about tools and decisions
+	options.Conversational = true
+
 	// Streaming request, receive and write the stream in chunks
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -241,21 +303,119 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 }
 
-func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {
-	app, err := s.Store.GetAppWithTools(ctx, appID)
-	if err != nil {
-		return nil, err
+// isKnownProvider checks if a provider name exists as a global or user-defined provider
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+	// Check global providers first (fast path)
+	if types.IsGlobalProvider(providerName) {
+		return true
 	}
+	// Check for system-owned global providers (e.g., dynamic providers from env vars)
+	_, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+		Name:      providerName,
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	})
+	if err == nil {
+		return true
+	}
+	// Check for user-defined providers (user's own)
+	_, err = s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+		Name:  providerName,
+		Owner: ownerID,
+	})
+	if err == nil {
+		return true
+	}
+	// Check for admin-created global endpoints (owned by other users but endpoint_type = 'global')
+	// These are visible to all users but owned by the admin who created them
+	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	})
+	if err == nil {
+		for _, p := range providers {
+			if p.Name == providerName {
+				return true
+			}
+		}
+	}
+	return false
+}
 
-	// The old code had this in:
-	// TODO: support > 1 assistant
-	// because the sessions API can only handle one assistant at a time...
-	var assistant *types.AssistantConfig
-	if len(app.Config.Helix.Assistants) > 0 {
-		if app.Config.Helix.Assistants[0].LoraID != "" {
-			assistant = &app.Config.Helix.Assistants[0]
+// findProviderWithModel searches all accessible providers for one that has the given model
+// in its model list. This checks:
+// 1. Global providers from env vars (helix, openai, togetherai, anthropic, vllm) - via cached model lists
+// 2. Database-stored provider endpoints - via cached model lists AND static Models field
+//
+// This is used to handle HuggingFace-style model IDs (e.g., "Qwen/Qwen3-Coder") that might be
+// incorrectly parsed as provider prefixes when there's also a provider named "Qwen".
+//
+// Returns the provider name if found, empty string otherwise.
+func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID string) string {
+	// First check global providers from env vars (these are not in the database)
+	// Their cache key uses "system" as owner
+	globalProviders, err := s.providerManager.ListProviders(ctx, "")
+	if err == nil {
+		for _, globalProvider := range globalProviders {
+			cacheKey := fmt.Sprintf("%s:%s", globalProvider, types.OwnerTypeSystem)
+			if cached, found := s.cache.Get(cacheKey); found {
+				var cachedModels []types.OpenAIModel
+				if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
+					for _, m := range cachedModels {
+						if m.ID == modelName {
+							log.Debug().
+								Str("model", modelName).
+								Str("provider", string(globalProvider)).
+								Msg("found full model name in global provider's cached model list")
+							return string(globalProvider)
+						}
+					}
+				}
+			}
 		}
 	}
 
-	return assistant, nil
+	// Now check database-stored provider endpoints (user + global from DB)
+	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list provider endpoints for model lookup")
+		return ""
+	}
+
+	// Check each provider's model list for the full model name
+	for _, provider := range providers {
+		// First check the cached model list (dynamically fetched from provider's /v1/models)
+		// This is where the UI gets its model list from
+		cacheKey := fmt.Sprintf("%s:%s", provider.Name, provider.Owner)
+		if cached, found := s.cache.Get(cacheKey); found {
+			var cachedModels []types.OpenAIModel
+			if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
+				for _, m := range cachedModels {
+					if m.ID == modelName {
+						log.Debug().
+							Str("model", modelName).
+							Str("provider", provider.Name).
+							Msg("found full model name in provider's cached model list")
+						return provider.Name
+					}
+				}
+			}
+		}
+
+		// Fall back to checking the static Models field stored in database
+		for _, m := range provider.Models {
+			if m == modelName {
+				log.Debug().
+					Str("model", modelName).
+					Str("provider", provider.Name).
+					Msg("found full model name in provider's static model list")
+				return provider.Name
+			}
+		}
+	}
+
+	return ""
 }

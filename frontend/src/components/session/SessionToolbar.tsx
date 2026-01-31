@@ -1,70 +1,108 @@
 import React, { FC, useState, useCallback, useEffect, useContext } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
-import FolderOpenIcon from '@mui/icons-material/Folder'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
-import InfoIcon from '@mui/icons-material/Info'
-import DeleteIcon from '@mui/icons-material/Delete'
-import EditIcon from '@mui/icons-material/Edit'
-import MenuIcon from '@mui/icons-material/Menu'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import Chip from '@mui/material/Chip'
-import ShareIcon from '@mui/icons-material/Share'
-import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import TextField from '@mui/material/TextField'
-import SaveIcon from '@mui/icons-material/Save'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import Popover from '@mui/material/Popover'
+
+// Lucide
+import {
+  Info,
+  Trash2,
+  Edit,
+  Menu as MenuIcon,
+  Share,
+  Save,
+  MoreVertical,
+  Folder,
+  Plus,
+  ZoomIn,
+  ZoomOut
+} from 'lucide-react'
+
+// Material-UI icons
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import Computer from '@mui/icons-material/Computer'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
-  ISession,
-  ISessionSummary,
-} from '../../types'
+  TypesSession,
+} from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
-import useSessions from '../../hooks/useSessions'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useApps from '../../hooks/useApps'
+import { getAppName } from '../../utils/apps'
+import { useGetProject } from '../../services'
 
 import {
   TOOLBAR_HEIGHT,
 } from '../../config'
+import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
+import { Extension } from '@mui/icons-material'
+import ZedSettingsViewer, { useHasValidMCPTools } from './ZedSettingsViewer'
 
 export const SessionToolbar: FC<{
-  session: ISession,
+  session: TypesSession,
   onReload?: () => void,
   onOpenMobileMenu?: () => void,
+  showRDPViewer?: boolean,
+  onToggleRDPViewer?: () => void,
+  isExternalAgent?: boolean,
+  rdpViewerHeight?: number,
+  onRdpViewerHeightChange?: (height: number) => void,
 }> = ({
   session,
   onReload,
   onOpenMobileMenu,
+  showRDPViewer,
+  onToggleRDPViewer,
+  isExternalAgent,
+  rdpViewerHeight = 300,
+  onRdpViewerHeightChange,
 }) => {
   const {
     navigate,
     setParams,
+    params,
   } = useRouter()
-  const sessions = useSessions()
   const snackbar = useSnackbar()
   const loading = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const account = useAccount()
   const isBigScreen = useIsBigScreen()
+  const { apps } = useApps()
+  const { mutate: deleteSession } = useDeleteSession(session.id || '')
+  const { mutate: updateSession } = useUpdateSession(session.id || '')
+
+  // Check if we're in a project context and fetch project data
+  const projectId = params.id as string | undefined
+  const { data: project } = useGetProject(projectId || '', !!projectId)
 
   const isOwner = account.user?.id === session.owner
+
+  // Check if there are valid MCP tools to show the icon
+  const hasValidMCPTools = useHasValidMCPTools(isExternalAgent ? (session.id || '') : '')
+
+  // Find the app if this session belongs to one
+  const app = session.parent_app ? apps?.find(a => a.id === session.parent_app) : undefined
 
   const onShare = useCallback(() => {
     setParams({
@@ -72,16 +110,24 @@ export const SessionToolbar: FC<{
     })
   }, [setParams])
 
-  const [deletingSession, setDeletingSession] = useState<ISession>()
+  const onCreateNewSession = useCallback(() => {
+    if (app) {
+      // If we're in an app, navigate to new session with app_id
+      navigate('new', { app_id: app.id })
+    } else {
+      // If not in an app, navigate to new session without app_id
+      navigate('new')
+    }
+  }, [navigate, app])
+
+  const [deletingSession, setDeletingSession] = useState<TypesSession>()
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
     loading.setLoading(true)
     try {
-      const result = await sessions.deleteSession(session_id)
-      if(!result) return
-      setDeletingSession(undefined)
+      await deleteSession()
       snackbar.success(`Session deleted`)
-      navigate('home')
+      navigate('chat')
     } catch(e) {}
     loading.setLoading(false)
   }, [])
@@ -90,10 +136,12 @@ export const SessionToolbar: FC<{
   const [sessionName, setSessionName] = useState(session.name)
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [mcpToolsAnchor, setMcpToolsAnchor] = useState<null | HTMLElement>(null)
 
   useEffect(() => {
     setSessionName(session.name)
   }, [session.name])
+
 
   const handleSessionNameChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setSessionName(event.target.value)
@@ -103,7 +151,10 @@ export const SessionToolbar: FC<{
     if (sessionName !== session.name) {
       loading.setLoading(true)
       try {
-        await sessions.renameSession(session.id, sessionName)
+        await updateSession({
+          id: session.id,
+          name: sessionName,
+        })
         if (onReload) {
           onReload()
         }
@@ -117,10 +168,11 @@ export const SessionToolbar: FC<{
     setEditingSession(false)
   }
 
+
   return (
     <Row
       sx={{
-        height: `${TOOLBAR_HEIGHT}px`,
+        minHeight: TOOLBAR_HEIGHT,
       }}
     >
       <IconButton
@@ -131,7 +183,7 @@ export const SessionToolbar: FC<{
         aria-label="menu"
         sx={{ mr: 2, display: { sm: 'block', lg: 'none' } }}
       >
-        <MenuIcon />
+        <MenuIcon size={18} />
       </IconButton>
       <Cell flexGrow={ 1 }>
         <Box
@@ -172,11 +224,36 @@ export const SessionToolbar: FC<{
                   size="small"
                   sx={{ ml: 1 }}
                 >
-                  <SaveIcon />
+                  <Save size={18} />
                 </IconButton>
               </Box>
             ) : (
               <>
+                {project && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}>
+                    <Link
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        account.orgNavigate('project-specs', { id: projectId })
+                      }}
+                      sx={{
+                        fontSize: { xs: 'small', sm: 'medium', md: 'large' },
+                        color: 'text.secondary',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          color: theme.palette.primary.main,
+                          textDecoration: 'underline',
+                        },
+                      }}
+                    >
+                      {project.name}
+                    </Link>
+                    <Typography sx={{ fontSize: { xs: 'small', sm: 'medium', md: 'large' }, color: 'text.secondary' }}>
+                      /
+                    </Typography>
+                  </Box>
+                )}
                 <Typography
                   component="h1"
                   sx={{
@@ -198,84 +275,156 @@ export const SessionToolbar: FC<{
                   size="small"
                   sx={{ ml: 1 }}
                 >
-                  <EditIcon />
+                  <Edit size={18} />
                 </IconButton>
               </>
             )}
           </Box>
-          <Typography variant="caption" sx={{ color: 'gray' }}>
-            Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
-            | Model: {session.model_name}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="caption" sx={{ color: 'gray' }}>
+              Created on <Tooltip title={new Date(session.created || '').toLocaleString()}>
+                <Box component="span" sx={{  }}>{new Date(session.created || '').toLocaleDateString()}</Box>
+              </Tooltip>
+              {app && (
+                <>
+                  &nbsp;| Agent: <Link
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      account.orgNavigate('app', {
+                        app_id: app.id,
+                      })
+                    }}
+                    sx={{
+                      color: 'inherit',
+                      textDecoration: 'underline',
+                      '&:hover': {
+                        color: theme.palette.primary.main,
+                      }
+                    }}
+                  >
+                    {getAppName(app)}
+                  </Link>
+                </>
+              )}
+            </Typography>
+
+            {/* External Agent Controls - Show Zed on left */}
+            {(isOwner || account.admin) && isExternalAgent && onToggleRDPViewer && (
+              <Button
+                variant={showRDPViewer ? "contained" : "outlined"}
+                size="small"
+                startIcon={<Computer />}
+                onClick={onToggleRDPViewer}
+                sx={{
+                  fontSize: '0.7rem',
+                  py: 0.25,
+                  px: 1,
+                  minWidth: 'auto',
+                  ml: 1
+                }}
+              >
+                {showRDPViewer ? 'Hide' : 'Show'} Desktop
+              </Button>
+            )}
+
+            {/* Height Controls - Show when RDP viewer is visible */}
+            {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
+              <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
+                <Tooltip title="Zoom Out">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
+                      disabled={rdpViewerHeight <= 300}
+                      sx={{
+                        p: 0.25,
+                        opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
+                      }}
+                    >
+                      <ZoomOut size={16} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Zoom In">
+                  <IconButton
+                    size="small"
+                    onClick={() => onRdpViewerHeightChange(rdpViewerHeight + 100)}
+                    sx={{
+                      p: 0.25,
+                    }}
+                  >
+                    <ZoomIn size={16} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Reset Zoom">
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => onRdpViewerHeightChange(300)}
+                    sx={{
+                      fontSize: '0.65rem',
+                      py: 0.125,
+                      px: 0.5,
+                      minWidth: 'auto',
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </Tooltip>
+              </Box>
+            )}
+          </Box>
         </Box>
-      </Cell>
-      <Cell>
-        {session.type === 'image' && (
-          <Chip
-            label="Image"
-            size="small"
-            sx={{
-              bgcolor: '#3bf959', // Green background for image session
-              color: 'black',
-              mr: 2,
-              borderRadius: 1,
-              fontSize: "medium",
-              fontWeight: 800,
-            }}
-          />
-        )}
-        {session.type === 'text' && (
-          <Chip
-            label="Text"
-            size="small"
-            sx={{
-              bgcolor: '#ffff00', // Yellow background for text session
-              color: 'black',
-              mr: 2,
-              borderRadius: 1,
-              fontSize: "medium",
-              fontWeight: 800,
-            }}
-          />
-        )}
       </Cell>
       {
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
-              {/* "Share Session" is the first item if `isOwner` is true */}
-              {isOwner && (
+              {isExternalAgent && hasValidMCPTools && (
                 <Cell>
-                  <Tooltip title="Share Session">
+                  <Tooltip title="MCP Tools">
                     <IconButton
-                      onClick={(e) => {
-                        e.preventDefault();
-                        onShare();
-                      }}
+                      onClick={(e) => setMcpToolsAnchor(e.currentTarget)}
                       size="small"
                       sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        color: Boolean(mcpToolsAnchor)
+                          ? 'primary.main'
+                          : theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
                         '&:hover': {
                           color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
                         },
                       }}
                     >
-                      <ShareIcon />
+                      <Extension sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
+                  <Popover
+                    open={Boolean(mcpToolsAnchor)}
+                    anchorEl={mcpToolsAnchor}
+                    onClose={() => setMcpToolsAnchor(null)}
+                    anchorReference="none"
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          position: 'fixed',
+                          top: 60,
+                          right: 16,
+                          width: 380,
+                          maxHeight: 500,
+                          overflow: 'auto',
+                        }
+                      }
+                    }}
+                  >
+                    <ZedSettingsViewer sessionId={session.id || ''} />
+                  </Popover>
                 </Cell>
               )}
-            
-              {/* The rest of the icons follow */}
               <Cell>
-                <Tooltip title="Files">
+                <Tooltip title="New Session">
                   <IconButton
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate('files', {
-                        path: `/sessions/${session?.id}`
-                      });
-                    }}
+                    onClick={onCreateNewSession}
                     size="small"
                     sx={{
                       color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
@@ -284,7 +433,7 @@ export const SessionToolbar: FC<{
                       },
                     }}
                   >
-                    <FolderOpenIcon />
+                    <Plus size={18} />
                   </IconButton>
                 </Tooltip>
               </Cell>
@@ -300,7 +449,7 @@ export const SessionToolbar: FC<{
                         },
                       }}
                     >
-                      <InfoIcon />
+                      <Info size={18} />
                     </IconButton>
                   </Tooltip>
                 </JsonWindowLink>
@@ -320,26 +469,26 @@ export const SessionToolbar: FC<{
                       },
                     }}
                   >
-                    <DeleteIcon />
+                    <Trash2 size={18} />
                   </IconButton>
                 </Tooltip>
               </Cell>
-              
+
               {
                 deletingSession && (
                   <DeleteConfirmWindow
                     title={`session ${deletingSession.name}?`}
                     onCancel={ () => {
-                      setDeletingSession(undefined) 
+                      setDeletingSession(undefined)
                     }}
                     onSubmit={ () => {
-                      onDeleteSessionConfirm(deletingSession.id)
+                      onDeleteSessionConfirm(deletingSession.id || '')
                     }}
                   />
                 )
               }
             </Row>
-            
+
           </Box>
         ) : (
           <>
@@ -349,7 +498,7 @@ export const SessionToolbar: FC<{
               aria-haspopup="true"
               onClick={(e) => setAnchorEl(e.currentTarget)}
             >
-              <MoreVertIcon />
+              <MoreVertical size={18} />
             </IconButton>
             <Menu
               id="session-menu"
@@ -360,13 +509,23 @@ export const SessionToolbar: FC<{
             >
               <MenuItem onClick={(e) => {
                 e.preventDefault()
+                onCreateNewSession()
+                setAnchorEl(null)
+              }}>
+                <ListItemIcon>
+                  <Plus size={18} />
+                </ListItemIcon>
+                <ListItemText primary="New Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+              </MenuItem>
+              <MenuItem onClick={(e) => {
+                e.preventDefault()
                 navigate('files', {
                   path: `/sessions/${session?.id}`
                 })
                 setAnchorEl(null)
               }}>
                 <ListItemIcon>
-                  <FolderOpenIcon fontSize="small" />
+                  <Folder size={18} />
                 </ListItemIcon>
                 <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
@@ -384,7 +543,7 @@ export const SessionToolbar: FC<{
                 setAnchorEl(null)
               }}>
                 <ListItemIcon>
-                  <DeleteIcon fontSize="small" />
+                  <Trash2 size={18} />
                 </ListItemIcon>
                 <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
@@ -395,7 +554,7 @@ export const SessionToolbar: FC<{
                   setAnchorEl(null)
                 }}>
                   <ListItemIcon>
-                    <ShareIcon fontSize="small" />
+                    <Share size={18} />
                   </ListItemIcon>
                   <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
                 </MenuItem>
@@ -409,18 +568,16 @@ export const SessionToolbar: FC<{
           <DeleteConfirmWindow
             title={`session ${deletingSession.name}?`}
             onCancel={() => {
-              setDeletingSession(undefined) 
+              setDeletingSession(undefined)
             }}
             onSubmit={() => {
-              onDeleteSessionConfirm(deletingSession.id)
+              onDeleteSessionConfirm(deletingSession.id || '')
             }}
           />
         )
       }
-    </Row> 
+    </Row>
   )
 }
 
 export default SessionToolbar
-        
-        

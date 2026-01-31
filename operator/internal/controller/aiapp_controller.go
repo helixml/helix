@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package controller contains the Kubernetes controller for AIApp resources.
 package controller
 
 import (
@@ -83,7 +84,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Convert CRD to Helix App type
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        appID,
@@ -105,7 +105,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Image:                assistant.Image,
 			Provider:             assistant.Provider,
 			Model:                assistant.Model,
-			Type:                 types.SessionType(assistant.Type),
 			SystemPrompt:         assistant.SystemPrompt,
 			RAGSourceID:          assistant.RAGSourceID,
 			LoraID:               assistant.LoraID,
@@ -129,16 +128,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// Convert GPTScripts
-		for _, script := range assistant.GPTScripts {
-			helixAssistant.GPTScripts = append(helixAssistant.GPTScripts, types.AssistantGPTScript{
-				Name:        script.Name,
-				Description: script.Description,
-				File:        script.File,
-				Content:     script.Content,
-			})
-		}
-
-		// Convert Zapier configs
 		for _, zapier := range assistant.Zapier {
 			helixAssistant.Zapier = append(helixAssistant.Zapier, types.AssistantZapier{
 				Name:          zapier.Name,
@@ -216,7 +205,8 @@ func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	logger.Info("Initializing Helix client", "url", helixURL)
 
 	var err error
-	r.helix, err = helixclient.NewClient(helixURL, helixAPIKey)
+	// TODO: Add HELIX_TLS_SKIP_VERIFY env var support for enterprise deployments
+	r.helix, err = helixclient.NewClient(helixURL, helixAPIKey, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix client: %w", err)
 	}

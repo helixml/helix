@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
 
@@ -7,6 +7,7 @@ const Row: FC<{
   sx?: SxProps,
   center?: boolean,
   vertical?: boolean,
+  children?: ReactNode,
 }> = ({
   id,
   sx = {},

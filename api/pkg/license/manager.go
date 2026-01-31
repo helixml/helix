@@ -50,7 +50,7 @@ func (m *Manager) validate() error {
 	}
 
 	if m.license.Expired() {
-		return fmt.Errorf("license has expired, please contact founders@helix.ml")
+		return fmt.Errorf("license has expired, please contact info@helix.ml")
 	}
 
 	return nil

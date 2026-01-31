@@ -11,6 +11,19 @@ export const getAppAvatar = (app: IApp): string => {
   return app.config.helix?.avatar || ''
 }
 
+export const getAppAvatarUrl = (app: IApp): string => {
+  const avatar = getAppAvatar(app)
+  if (!avatar) return '/img/logo.png'
+  
+  // If it's already a full URL, use it directly
+  if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+    return avatar
+  }
+  
+  // Otherwise, assume it's an uploaded avatar and use the API endpoint
+  return `/api/v1/apps/${app.id}/avatar`
+}
+
 export const getAppName = (app: IApp): string => {
   return app.config.helix?.name || ''
 }
