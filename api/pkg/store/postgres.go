@@ -95,16 +95,48 @@ type MigrationScript struct {
 
 func (s *PostgresStore) autoMigrate() error {
 	// If schema is specified, check if it exists and if not - create it
+	// This must run for each store instance as different schemas may be used.
 	if s.cfg.Schema != "" {
-		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
-		if err != nil {
+		if err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error; err != nil {
 			return err
 		}
 	}
 
+	return s.runMigrations()
+}
+
+// runMigrations performs the actual database migrations.
+// This is separated from autoMigrate so it can be wrapped in sync.Once.
+func (s *PostgresStore) runMigrations() error {
+	// Use PostgreSQL advisory lock to serialize migrations across processes.
+	// This prevents duplicate constraint errors when multiple test packages
+	// (running as separate processes) try to create tables simultaneously.
+	// The lock is held for the duration of migration and released when the
+	// connection is closed.
+	const migrationLockID = 1
+
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	// Get a dedicated connection for the advisory lock.
+	// This connection holds the lock until we're done with migration.
+	lockConn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get lock connection: %w", err)
+	}
+	defer lockConn.Close()
+
+	// Acquire the advisory lock. This blocks until the lock is available.
+	if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
+		return fmt.Errorf("failed to acquire migration lock: %w", err)
+	}
+	log.Debug().Msg("acquired migration advisory lock")
+
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
-	err := s.MigrateUp()
+	err = s.MigrateUp()
 	if err != nil {
 		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
 		return fmt.Errorf("failed to run version migrations: %w", err)
