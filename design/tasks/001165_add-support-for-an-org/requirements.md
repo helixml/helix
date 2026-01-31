@@ -29,7 +29,7 @@ As an admin, I want to see which organizations have claimed which domains to pre
 ### Security Requirements
 - [ ] **Only OIDC users eligible for auto-join** - Helix native auth users are excluded
 - [ ] OIDC: Only auto-join if `email_verified` claim is `true`
-- [ ] Audit log when auto-join occurs
+- [ ] Log auto-join events (standard logging, not audit system - audit logs are project-specific)
 
 ## Security Note
 
