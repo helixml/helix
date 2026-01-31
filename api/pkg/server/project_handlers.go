@@ -859,6 +859,18 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError404("repository not found")
 	}
 
+	// Validate org scoping: project and repo must be in the same org scope
+	if project.OrganizationID != repo.OrganizationID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("project_org", project.OrganizationID).
+			Str("repo_id", repoID).
+			Str("repo_org", repo.OrganizationID).
+			Msg("cannot attach repository from different org scope")
+		return nil, system.NewHTTPError400("repository must be in the same organization as the project")
+	}
+
 	err = s.Store.AttachRepositoryToProject(r.Context(), projectID, repoID)
 	if err != nil {
 		log.Error().
