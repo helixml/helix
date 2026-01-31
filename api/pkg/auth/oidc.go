@@ -166,18 +166,35 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce))
+	// Add prompt=select_account to force the account picker (useful for Google)
+	// This ensures users can choose which account to use instead of auto-selecting
+	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("prompt", "select_account"))
 }
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code).Msg("Exchanging code for token")
+	// Log truncated code for debugging (avoid logging full code for security)
+	codePreview := code
+	if len(code) > 20 {
+		codePreview = code[:20] + "..."
+	}
+	log.Info().Str("code", codePreview).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("code", code).Msg("Exchanged code for token")
-	return oauth2Config.Exchange(ctx, code)
+	log.Info().
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Str("client_id", oauth2Config.ClientID).
+		Str("token_endpoint", oauth2Config.Endpoint.TokenURL).
+		Msg("Token exchange config")
+	token, err := oauth2Config.Exchange(ctx, code)
+	if err != nil {
+		log.Error().Err(err).Str("redirect_url", oauth2Config.RedirectURL).Msg("Token exchange failed")
+		return nil, err
+	}
+	log.Info().Msg("Token exchange successful")
+	return token, nil
 }
 
 // VerifyIDToken verifies the ID token and returns the claims
