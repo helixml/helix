@@ -74,28 +74,65 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
 }) => {
   const lightTheme = useLightTheme();
 
-  const [skill, setSkill] = useState<TypesAssistantMCP>({
-    name: '',
-    description: '',
-    transport: 'stdio',
-    command: '',
-    args: [],
-    env: {},
-  });
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [commandLine, setCommandLine] = useState(''); // Single field for "command arg1 arg2..."
+  const [env, setEnv] = useState<Record<string, string>>({});
 
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Parse command line into command and args, handling quoted strings
+  const parseCommandLine = (cmdLine: string): { command: string; args: string[] } => {
+    const parts: string[] = [];
+    let current = '';
+    let inQuote = false;
+    let quoteChar = '';
+
+    for (let i = 0; i < cmdLine.length; i++) {
+      const char = cmdLine[i];
+
+      if (!inQuote && (char === '"' || char === "'")) {
+        // Start of quoted string
+        inQuote = true;
+        quoteChar = char;
+      } else if (inQuote && char === quoteChar) {
+        // End of quoted string
+        inQuote = false;
+        quoteChar = '';
+      } else if (!inQuote && /\s/.test(char)) {
+        // Space outside quotes - end current part
+        if (current) {
+          parts.push(current);
+          current = '';
+        }
+      } else {
+        current += char;
+      }
+    }
+
+    // Don't forget the last part
+    if (current) {
+      parts.push(current);
+    }
+
+    if (parts.length === 0) return { command: '', args: [] };
+    return { command: parts[0], args: parts.slice(1) };
+  };
+
+  // Join command and args into a single string for display
+  const joinCommandLine = (command: string, args: string[]): string => {
+    if (!command) return '';
+    if (!args || args.length === 0) return command;
+    return `${command} ${args.join(' ')}`;
+  };
+
   useEffect(() => {
     if (initialSkill) {
-      setSkill({
-        name: initialSkill.name || '',
-        description: initialSkill.description || '',
-        transport: 'stdio',
-        command: initialSkill.command || '',
-        args: initialSkill.args || [],
-        env: initialSkill.env || {},
-      });
+      setName(initialSkill.name || '');
+      setDescription(initialSkill.description || '');
+      setCommandLine(joinCommandLine(initialSkill.command || '', initialSkill.args || []));
+      setEnv(initialSkill.env || {});
 
       // Find existing skill in app.mcpTools
       const existingIndex = app.mcpTools?.findIndex(
@@ -106,87 +143,39 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
       }
     } else {
       // Reset form when opening for new skill
-      setSkill({
-        name: '',
-        description: '',
-        transport: 'stdio',
-        command: '',
-        args: [],
-        env: {},
-      });
+      setName('');
+      setDescription('');
+      setCommandLine('');
+      setEnv({});
       setExistingSkillIndex(null);
     }
   }, [initialSkill, open, app.mcpTools]);
 
-  const handleChange = (field: keyof TypesAssistantMCP, value: string) => {
-    setSkill((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const handleArgChange = (index: number, value: string) => {
-    const newArgs = [...(skill.args || [])];
-    newArgs[index] = value;
-    setSkill((prev) => ({
-      ...prev,
-      args: newArgs,
-    }));
-  };
-
-  const addArg = () => {
-    setSkill((prev) => ({
-      ...prev,
-      args: [...(prev.args || []), ''],
-    }));
-  };
-
-  const removeArg = (index: number) => {
-    const newArgs = [...(skill.args || [])];
-    newArgs.splice(index, 1);
-    setSkill((prev) => ({
-      ...prev,
-      args: newArgs,
-    }));
-  };
-
   const handleEnvChange = (key: string, value: string) => {
-    const newEnv = { ...(skill.env || {}) };
+    const newEnv = { ...env };
     if (value === '') {
       delete newEnv[key];
     } else {
       newEnv[key] = value;
     }
-    setSkill((prev) => ({
-      ...prev,
-      env: newEnv,
-    }));
+    setEnv(newEnv);
   };
 
   const handleEnvKeyChange = (oldKey: string, newKey: string, value: string) => {
-    const newEnv = { ...(skill.env || {}) };
+    const newEnv = { ...env };
     delete newEnv[oldKey];
     newEnv[newKey] = value;
-    setSkill((prev) => ({
-      ...prev,
-      env: newEnv,
-    }));
+    setEnv(newEnv);
   };
 
   const addEnv = () => {
-    setSkill((prev) => ({
-      ...prev,
-      env: { ...(prev.env || {}), '': '' },
-    }));
+    setEnv({ ...env, '': '' });
   };
 
   const removeEnv = (key: string) => {
-    const newEnv = { ...(skill.env || {}) };
+    const newEnv = { ...env };
     delete newEnv[key];
-    setSkill((prev) => ({
-      ...prev,
-      env: newEnv,
-    }));
+    setEnv(newEnv);
   };
 
   const handleSave = async () => {
@@ -194,23 +183,26 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
       setError(null);
 
       // Validate required fields
-      if (!skill.name?.trim()) {
+      if (!name.trim()) {
         setError('Name is required');
         return;
       }
-      if (!skill.command?.trim()) {
+      if (!commandLine.trim()) {
         setError('Command is required');
         return;
       }
 
+      // Parse command line into command and args
+      const { command, args } = parseCommandLine(commandLine);
+
       // Construct the MCP skill object
       const mcpSkill: TypesAssistantMCP = {
-        name: skill.name,
-        description: skill.description,
+        name: name.trim(),
+        description: description.trim(),
         transport: 'stdio',
-        command: skill.command,
-        args: (skill.args || []).filter(a => a.trim() !== ''),
-        env: skill.env,
+        command,
+        args,
+        env,
       };
 
       // Copy app object
@@ -268,14 +260,10 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
       }}
       TransitionProps={{
         onExited: () => {
-          setSkill({
-            name: '',
-            description: '',
-            transport: 'stdio',
-            command: '',
-            args: [],
-            env: {},
-          });
+          setName('');
+          setDescription('');
+          setCommandLine('');
+          setEnv({});
           setExistingSkillIndex(null);
           setError(null);
           onClosed?.();
@@ -292,78 +280,133 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
             overflow: 'auto',
           }}
         >
-          <NameTypography>{skill.name || 'New Local MCP Server'}</NameTypography>
+          <NameTypography>{name || 'New Local MCP Server'}</NameTypography>
 
           <Typography variant="body2" sx={{ color: '#A0AEC0', mb: 3 }}>
-            Configure a local MCP server that runs inside the dev container. Use this for stdio-based MCPs like npx packages.
+            Configure a local MCP server that runs inside the dev container.
           </Typography>
 
+          {/* Examples Section - at top for easy copy/paste */}
+          <SectionCard>
+            <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+              Examples
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Box
+                sx={{
+                  bgcolor: '#1A1D24',
+                  borderRadius: 1,
+                  p: 1.5,
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem',
+                  color: '#10B981',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: '#1E2129' },
+                }}
+                onClick={() => setCommandLine('npx -y drone-ci-mcp')}
+              >
+                npx -y drone-ci-mcp
+              </Box>
+              <Box
+                sx={{
+                  bgcolor: '#1A1D24',
+                  borderRadius: 1,
+                  p: 1.5,
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem',
+                  color: '#10B981',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: '#1E2129' },
+                }}
+                onClick={() => setCommandLine('npx -y @anthropic/mcp-server-filesystem /workspace')}
+              >
+                npx -y @anthropic/mcp-server-filesystem /workspace
+              </Box>
+              <Box
+                sx={{
+                  bgcolor: '#1A1D24',
+                  borderRadius: 1,
+                  p: 1.5,
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem',
+                  color: '#10B981',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: '#1E2129' },
+                }}
+                onClick={() => setCommandLine('uvx mcp-server-git --repository /workspace')}
+              >
+                uvx mcp-server-git --repository /workspace
+              </Box>
+            </Box>
+            <Typography variant="body2" sx={{ color: '#A0AEC0', mt: 2 }}>
+              Click an example to use it as a starting point.
+            </Typography>
+          </SectionCard>
+
+          {/* Configuration Section */}
           <SectionCard>
             <DarkTextField
               fullWidth
               label="Name"
-              value={skill.name}
+              value={name}
               helperText="A unique name for this MCP server"
-              onChange={(e) => handleChange('name', e.target.value)}
+              onChange={(e) => setName(e.target.value)}
               margin="normal"
               required
-            />
-
-            <DarkTextField
-              fullWidth
-              label="Description"
-              value={skill.description}
-              helperText="Optional description of what this MCP server does"
-              onChange={(e) => handleChange('description', e.target.value)}
-              margin="normal"
-              multiline
-              rows={2}
             />
 
             <DarkTextField
               fullWidth
               label="Command"
-              value={skill.command}
-              helperText="The command to run (e.g., 'npx', 'node', 'python')"
-              onChange={(e) => handleChange('command', e.target.value)}
+              value={commandLine}
+              helperText={'The full command to run. Use quotes for arguments with spaces, e.g., npx -y my-mcp "arg with spaces"'}
+              onChange={(e) => setCommandLine(e.target.value)}
               margin="normal"
               required
+              placeholder="npx -y drone-ci-mcp"
             />
 
-            {/* Arguments Section */}
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
-                Command Arguments
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#A0AEC0', mb: 2 }}>
-                Arguments to pass to the command (e.g., for npx: "-y", "@example/mcp-server")
-              </Typography>
-              <List>
-                {(skill.args || []).map((arg, index) => (
-                  <ListItem key={`arg-${index}`} sx={{ px: 0 }}>
-                    <Grid container spacing={1} alignItems="center">
-                      <Grid item xs={10}>
-                        <DarkTextField
-                          size="small"
-                          placeholder={`Argument ${index + 1}`}
-                          value={arg}
-                          onChange={(e) => handleArgChange(index, e.target.value)}
-                          fullWidth
-                        />
-                      </Grid>
-                      <Grid item xs={2}>
-                        <IconButton size="small" onClick={() => removeArg(index)} sx={{ color: '#F87171' }}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </Grid>
-                    </Grid>
-                  </ListItem>
-                ))}
-              </List>
-              <Button startIcon={<AddIcon />} onClick={addArg} size="small" sx={{ mt: 1 }}>
-                Add Argument
-              </Button>
-            </Box>
+            {/* Preview how command is parsed */}
+            {commandLine.trim() && (
+              <Box
+                sx={{
+                  mt: 1,
+                  p: 1.5,
+                  bgcolor: '#1A1D24',
+                  borderRadius: 1,
+                  fontFamily: 'monospace',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <Typography variant="caption" sx={{ color: '#A0AEC0', display: 'block', mb: 0.5 }}>
+                  Parsed as:
+                </Typography>
+                <Box sx={{ color: '#10B981' }}>
+                  <div>
+                    <span style={{ color: '#A0AEC0' }}>command:</span> {parseCommandLine(commandLine).command}
+                  </div>
+                  <div>
+                    <span style={{ color: '#A0AEC0' }}>args:</span> [{parseCommandLine(commandLine).args.map((a, i) => (
+                      <span key={i}>
+                        {i > 0 && ', '}
+                        "{a}"
+                      </span>
+                    ))}]
+                  </div>
+                </Box>
+              </Box>
+            )}
+
+            <DarkTextField
+              fullWidth
+              label="Description"
+              value={description}
+              helperText="Optional description of what this MCP server does"
+              onChange={(e) => setDescription(e.target.value)}
+              margin="normal"
+              multiline
+              rows={2}
+            />
 
             {/* Environment Variables Section */}
             <Box sx={{ mt: 3 }}>
@@ -371,10 +414,10 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
                 Environment Variables
               </Typography>
               <Typography variant="body2" sx={{ color: '#A0AEC0', mb: 2 }}>
-                Environment variables to set for the MCP process. Use project secrets by referencing them here.
+                Environment variables for the MCP process (e.g., API tokens). Use this instead of passing secrets in the command.
               </Typography>
               <List>
-                {Object.entries(skill.env || {}).map(([key, value], index) => (
+                {Object.entries(env).map(([key, value], index) => (
                   <ListItem key={`env-${index}`} sx={{ px: 0 }}>
                     <Grid container spacing={1}>
                       <Grid item xs={5}>
@@ -408,39 +451,6 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
                 Add Variable
               </Button>
             </Box>
-          </SectionCard>
-
-          {/* Example Section */}
-          <SectionCard>
-            <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
-              Example: Drone CI MCP Server
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#A0AEC0', mb: 2 }}>
-              Access Drone CI build logs and info. Configure credentials via environment variables:
-            </Typography>
-            <Box
-              sx={{
-                bgcolor: '#1A1D24',
-                borderRadius: 1,
-                p: 2,
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                color: '#10B981',
-              }}
-            >
-              <div>Command: npx</div>
-              <div>Arguments: -y, drone-ci-mcp</div>
-              <div>Environment:</div>
-              <div style={{ marginLeft: '1rem' }}>DRONE_SERVER_URL=https://drone.example.com</div>
-              <div style={{ marginLeft: '1rem' }}>DRONE_ACCESS_TOKEN=your-drone-api-token</div>
-            </Box>
-            <Typography variant="body2" sx={{ color: '#A0AEC0', mt: 2 }}>
-              <strong>Security tip:</strong> Use environment variables for secrets instead of CLI arguments.
-              Tokens in args may be visible in process listings.
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#A0AEC0', mt: 1 }}>
-              <strong>Version pinning:</strong> For stability, pin versions (e.g., <code>drone-ci-mcp@0.0.3</code>).
-            </Typography>
           </SectionCard>
         </Box>
       </DialogContent>
@@ -485,7 +495,7 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
               size="small"
               variant="outlined"
               color="secondary"
-              disabled={!skill.name?.trim() || !skill.command?.trim()}
+              disabled={!name.trim() || !commandLine.trim()}
             >
               {existingSkillIndex !== null ? 'Save' : 'Add'}
             </Button>
