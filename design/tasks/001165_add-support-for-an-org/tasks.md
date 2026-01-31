@@ -28,12 +28,12 @@
 - [x] Show validation errors for invalid/duplicate domains
 
 ## Testing
-- [~] Unit test: domain validation (valid cases, invalid cases)
-- [ ] Unit test: auto-join triggers for OIDC user with verified email
-- [ ] Unit test: auto-join skipped for OIDC user with unverified email
-- [ ] Unit test: auto-join skipped for Helix native auth users
+- [x] Unit test: domain validation (valid cases, invalid cases)
+- [x] Unit test: auto-join triggers for OIDC user with verified email
+- [x] Unit test: auto-join skipped for OIDC user with unverified email
+- [x] Unit test: auto-join skipped for Helix native auth users
 - [ ] Integration test: create org with domain, login with matching email, verify membership created
 
 ## Documentation
-- [ ] Update API docs with new `auto_join_domain` field
+- [x] Update API docs with new `auto_join_domain` field (auto-generated via swagger)
 - [ ] Add admin guide section explaining domain auto-join feature and security considerations
