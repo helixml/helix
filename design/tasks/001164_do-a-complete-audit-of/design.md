@@ -98,87 +98,134 @@ The Helix monorepo contains multiple services and components:
    cd frontend && npx unimported
    ```
 
-### General
+## Critical: Analysis Order
 
-1. **tokei** (lines of code by language)
-   ```bash
-   tokei .
-   ```
+**The generated API client (`frontend/src/api/api.ts`) contains ALL backend routes, not just the ones the frontend uses.** Therefore, we cannot simply compare backend routes against the generated client.
 
-2. **Custom scripts** for cross-referencing routes with API client
-
-## Mapping Strategy
-
-### Phase 1: Entry Point Identification
-
-**Backend Entry Points:**
-- `main.go` → `api/cmd/` commands
-- `api/pkg/server/server.go` → HTTP routes
-- `api/pkg/cli/` → CLI commands
-- Background goroutines started in `NewServer()`
-- Scheduled jobs via `scheduler`
-- WebSocket handlers
-- Webhook handlers
-
-**Frontend Entry Points:**
-- `index.tsx` → `App.tsx` → `router.tsx`
-- All routes in `router.tsx` are reachable pages
-
-**Service Entry Points:**
-- Each Dockerfile's `ENTRYPOINT`/`CMD`
-- docker-compose service definitions
-
-### Phase 2: Dependency Graph Building
-
-For each entry point, trace all dependencies:
+### Correct Order of Operations
 
 ```
-Entry Point
-    └── Package A
-        ├── Function A1 (used)
-        │   └── Type T1 (used)
-        └── Function A2 (unused - no callers)
-    └── Package B
-        └── ...
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1: Clean Frontend First                                   │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Trace from router.tsx to find all accessible pages           │
+│  • Build import graph from accessible pages                     │
+│  • Identify components NOT reachable from navigation            │
+│  • DELETE unreachable frontend code (including their API calls) │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 2: Map Actual API Calls from Clean Frontend               │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Scan REMAINING frontend code for all API calls:              │
+│    - React Query hooks (useQuery, useMutation)                  │
+│    - Generated API client calls (apiClient.v1Xxx)               │
+│    - Manual fetch/axios calls (should not exist, but check)     │
+│    - Any custom hooks that wrap API calls                       │
+│  • Output: List of backend routes actually called by frontend   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 3: Map CLI API Calls                                      │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Scan api/pkg/cli/ for all API calls                          │
+│  • Output: List of backend routes called by CLI                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 4: Identify Dead Backend Routes                           │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Compare all backend routes against:                          │
+│    - Frontend calls (from Step 2)                               │
+│    - CLI calls (from Step 3)                                    │
+│    - Runner-authenticated routes (external caller)              │
+│    - Webhook routes (external caller)                           │
+│    - WebSocket endpoints                                        │
+│  • Routes with NO callers = DEAD                                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 5: Trace Dead Backend Code                                │
+│  ─────────────────────────────────────────────────────────────  │
+│  • For each dead route, trace handler → called functions        │
+│  • Identify functions ONLY called by dead routes                │
+│  • Identify types ONLY used by dead code                        │
+│  • This reveals entire chunks of dead backend code              │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 6: Remove Dead Backend Code                               │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Remove dead routes                                           │
+│  • Remove orphaned handlers                                     │
+│  • Remove orphaned functions/types                              │
+│  • Remove orphaned packages                                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Phase 3: Cross-Reference Analysis
+## Frontend API Call Patterns to Search
 
-**Backend routes ↔ Frontend API client:**
-- Parse `api/pkg/server/server.go` for all route definitions
-- Parse `frontend/src/api/api.ts` (generated) for all API methods
-- Identify routes not called by frontend or CLI
+The frontend may call APIs in several ways. All must be traced:
 
-**Backend routes ↔ CLI:**
-- Parse `api/pkg/cli/` for API calls
-- Match against route definitions
-
-**Backend routes ↔ External callers:**
-- `insecureRouter` routes (webhooks, callbacks)
-- Runner-authenticated routes
-- WebSocket endpoints
-- Document these as "externally called"
-
-### Phase 4: Service Dependency Mapping
-
+### 1. React Query with Generated Client (correct pattern)
+```typescript
+const apiClient = api.getApiClient();
+const { data } = useQuery({
+  queryKey: ['sessions'],
+  queryFn: () => apiClient.v1SessionsList().then(r => r.data)
+});
 ```
-docker-compose.yaml
-    └── api (Dockerfile)
-        └── depends on: postgres, vectorchord
-    └── frontend (proxied by api in dev)
-    └── ...
 
-docker-compose.dev.yaml
-    └── sandbox-nvidia (Dockerfile.sandbox)
-        └── pulls: helix-ubuntu, helix-sway
-    └── ...
+### 2. React Query Mutations
+```typescript
+const mutation = useMutation({
+  mutationFn: (data) => apiClient.v1SessionsCreate(data)
+});
+```
+
+### 3. Direct API Client Calls (outside React Query)
+```typescript
+// May exist in event handlers, useEffect, etc.
+await apiClient.v1SessionsResumeCreate(sessionId);
+```
+
+### 4. Manual fetch/axios Calls (should not exist, but check)
+```typescript
+// Bad pattern - should use generated client
+await fetch('/api/v1/sessions');
+await api.post('/api/v1/sessions', data);
+```
+
+### 5. Custom Hooks Wrapping API Calls
+```typescript
+// Check hooks in frontend/src/hooks/
+function useSession(id) {
+  return useQuery({
+    queryFn: () => apiClient.v1SessionsRead(id)
+  });
+}
 ```
 
 ## Key Decisions
 
-### Decision 1: Definition of "Dead Code"
+### Decision 1: Frontend Cleanup First
+**Choice**: Delete unreachable frontend code BEFORE analyzing API usage.
+
+**Rationale**: If we analyze API calls first, we'd include calls from dead frontend code, leading us to think those backend routes are needed when they're not.
+
+### Decision 2: Trace Actual Calls, Not Generated Client
+**Choice**: Grep/AST-parse the frontend code for actual API method invocations, not just compare against the generated client.
+
+**Rationale**: The generated client contains methods for ALL backend routes. We need to find which methods are actually called by accessible frontend code.
+
+### Decision 3: Definition of "Dead Code"
 Code is dead if it cannot be reached from ANY entry point:
-- Not called from HTTP routes
+- Not called from HTTP routes that have callers
 - Not called from CLI commands
 - Not called from startup/initialization
 - Not called from background jobs
@@ -190,17 +237,11 @@ Code is NOT dead if:
 - Called by scheduled jobs
 - Used in tests (but test-only code should be in `_test.go`)
 
-### Decision 2: Marking Convention
+### Decision 4: Marking Convention
 Each item in the codebase map gets one of:
 - ✅ **KEEP** - Confirmed active, traced from entry point
 - ⚠️ **REVIEW** - No direct trace found, may be reflection/dynamic
 - ❌ **REMOVE** - Confirmed unreachable, safe to delete
-
-### Decision 3: Removal Strategy
-1. Generate complete map first (don't delete anything)
-2. Human review of all ⚠️ REVIEW items
-3. Small, focused PRs for removal (one service/package at a time)
-4. Run full test suite after each removal
 
 ## Discovered Patterns
 
@@ -234,3 +275,4 @@ Each item in the codebase map gets one of:
 | Webhook endpoints | Mark as externally-called, don't remove |
 | Test-only code | Allow `_test.go` files, but audit test utilities |
 | Build-time only code | Trace from Dockerfiles and CI configs |
+| Manual API calls bypassing generated client | Grep for fetch/axios patterns, flag as tech debt |
