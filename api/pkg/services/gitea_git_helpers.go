@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,6 +14,47 @@ import (
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"github.com/rs/zerolog/log"
 )
+
+// ErrEmptyRepository is returned when operating on a repository that has no commits/refs
+var ErrEmptyRepository = errors.New("repository is empty (no refs)")
+
+// IsErrEmptyRepository checks if an error indicates an empty repository
+func IsErrEmptyRepository(err error) bool {
+	return errors.Is(err, ErrEmptyRepository)
+}
+
+// Git error message patterns - these are matched against stderr output.
+// Note: Git error messages can vary by version and locale. These patterns
+// cover common English git outputs from versions 2.x+.
+var gitErrorPatterns = struct {
+	AlreadyUpToDate   []string // Not really an error, just informational
+	EmptyRepository   []string // Remote has no refs (empty repo)
+	RemoteAlreadyExists []string
+}{
+	AlreadyUpToDate: []string{
+		"Already up to date",
+		"already up-to-date",
+	},
+	EmptyRepository: []string{
+		"couldn't find remote ref",
+		"does not appear to be a git repository",
+		"fatal: remote HEAD is ambiguous",
+	},
+	RemoteAlreadyExists: []string{
+		"already exists",
+	},
+}
+
+// matchesAnyPattern checks if text contains any of the given patterns (case-insensitive)
+func matchesAnyPattern(text string, patterns []string) bool {
+	lowerText := strings.ToLower(text)
+	for _, pattern := range patterns {
+		if strings.Contains(lowerText, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
 
 // FetchOptions contains options for git fetch operations
 type FetchOptions struct {
@@ -67,16 +109,17 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 	})
 	if err != nil {
 		// Check for "already up to date" which isn't an error
-		if strings.Contains(stderr, "Already up to date") || strings.Contains(stderr, "already up-to-date") {
+		if matchesAnyPattern(stderr, gitErrorPatterns.AlreadyUpToDate) {
 			return nil
 		}
 		// Handle empty repositories gracefully - if remote has no refs, that's not an error
-		if strings.Contains(stderr, "couldn't find remote ref") {
+		// but we return a typed error so callers can distinguish this case if needed
+		if matchesAnyPattern(stderr, gitErrorPatterns.EmptyRepository) {
 			log.Debug().
 				Str("repo_path", repoPath).
 				Str("stderr", stderr).
 				Msg("Remote repository appears to be empty (no refs found)")
-			return nil
+			return nil // Return nil for backwards compatibility - callers can opt-in to check
 		}
 		return fmt.Errorf("fetch failed: %w - %s", err, stderr)
 	}
@@ -134,7 +177,7 @@ func AddRemote(ctx context.Context, repoPath, remoteName, remoteURL string) erro
 		AddDynamicArguments(remoteName, remoteURL).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	if err != nil {
-		if strings.Contains(stderr, "already exists") {
+		if matchesAnyPattern(stderr, gitErrorPatterns.RemoteAlreadyExists) {
 			// Remote already exists, update URL instead
 			return SetRemoteURL(ctx, repoPath, remoteName, remoteURL)
 		}
