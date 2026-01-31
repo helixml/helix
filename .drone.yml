@@ -83,6 +83,29 @@ steps:
         - push
     depends_on: []
 
+  # Run database migrations once before parallel test steps.
+  # This prevents race conditions where multiple test steps try to create
+  # ENUM types simultaneously, causing "duplicate key" constraint errors.
+  - name: run-migrations
+    image: golang:1.25-alpine
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+    commands:
+      - go run ./api serve --migrate-only
+    when:
+      event:
+        - push
+    depends_on: [clone]
+
   - name: unit-test
     image: golang:1.25-alpine
     volumes:
@@ -93,8 +116,8 @@ steps:
     environment:
       # Disabled until tested with togetherai
       DISABLE_AGENT_TESTS: "true"
-      # Enable file-based migration locking to prevent race conditions
-      HELIX_TEST_MODE: "1"
+      # Skip migrations - already run by run-migrations step
+      HELIX_SKIP_AUTOMIGRATE: "1"
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
@@ -126,7 +149,7 @@ steps:
     when:
       event:
         - push
-    depends_on: []
+    depends_on: [run-migrations]
 
   - name: unit-test-nocgo
     image: golang:1.25-alpine
@@ -151,8 +174,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
-      # Enable file-based migration locking to prevent race conditions
-      HELIX_TEST_MODE: "1"
+      # Skip migrations - already run by run-migrations step
+      HELIX_SKIP_AUTOMIGRATE: "1"
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
@@ -198,7 +221,7 @@ steps:
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: [run-migrations]
 
   # - name: oauth-github-integration-test
   #   image: golang:1.25
@@ -365,8 +388,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
-      # Enable file-based migration locking to prevent race conditions
-      HELIX_TEST_MODE: "1"
+      # Skip migrations - already run by run-migrations step
+      HELIX_SKIP_AUTOMIGRATE: "1"
       # Microsoft OAuth test credentials
       MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
         from_secret: microsoft_skill_test_oauth_client_id
@@ -415,7 +438,7 @@ steps:
     when:
       event:
         - push
-    # depends_on: [unit-test]
+    depends_on: [run-migrations]
 
   - name: upload-oauth-outlook-test-artifacts
     image: golang:1.25
