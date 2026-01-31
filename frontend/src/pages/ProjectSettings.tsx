@@ -1327,6 +1327,9 @@ const ProjectSettings: FC = () => {
               <Skills
                 app={skillsFlatState}
                 onUpdate={handleSkillsUpdate}
+                hideHeader
+                defaultCategory="Core"
+                compactGrid
               />
             </Paper>
 
