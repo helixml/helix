@@ -164,6 +164,7 @@ type Store interface {
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error)
 	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	DeleteOrganization(ctx context.Context, id string) error
 	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
