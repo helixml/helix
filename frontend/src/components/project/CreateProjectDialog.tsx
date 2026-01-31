@@ -848,7 +848,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               onClick={async () => {
                                 try {
                                   const response = await api.get(
-                                    `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:user,user:email`
+                                    `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:org,read:user,user:email`
                                   )
                                   const authUrl = response.auth_url || response?.data?.auth_url
                                   if (authUrl) {
@@ -923,7 +923,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                                 onClick={async () => {
                                   try {
                                     const response = await api.get(
-                                      `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:user,user:email`
+                                      `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:org,read:user,user:email`
                                     )
                                     const authUrl = response.auth_url || response?.data?.auth_url
                                     if (authUrl) {

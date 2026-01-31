@@ -343,7 +343,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         // GitLab needs 'read_repository,write_repository' scopes
         let scopesParam = ''
         if (selectedProvider === 'github') {
-          scopesParam = '?scopes=repo,read:user,user:email'
+          scopesParam = '?scopes=repo,read:org,read:user,user:email'
         } else if (selectedProvider === 'gitlab') {
           scopesParam = '?scopes=read_repository,write_repository,read_user'
         }

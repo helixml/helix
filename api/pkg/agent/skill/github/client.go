@@ -111,6 +111,8 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 		Sort:        "updated",
 		// Include all repos: owned, collaborator access, and organization membership
 		Affiliation: "owner,collaborator,organization_member",
+		// Include all visibility types (public, private, internal)
+		Visibility: "all",
 	}
 
 	for {
