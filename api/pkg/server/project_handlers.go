@@ -1681,7 +1681,8 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 			item.NewName = &newName
 		}
 
-		// Check if this repo is shared with other projects
+		// Check if this repo is shared with other projects that will lose access
+		// Projects already in the target org won't lose access since the repo is moving there
 		allProjectIDs, err := s.Store.GetProjectsForRepository(r.Context(), repoID)
 		if err == nil && len(allProjectIDs) > 1 {
 			for _, otherProjectID := range allProjectIDs {
@@ -1690,6 +1691,10 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 				}
 				otherProject, err := s.Store.GetProject(r.Context(), otherProjectID)
 				if err == nil {
+					// Skip projects already in the target org - they won't lose access
+					if otherProject.OrganizationID == req.OrganizationID {
+						continue
+					}
 					item.AffectedProjects = append(item.AffectedProjects, types.AffectedProjectInfo{
 						ID:   otherProject.ID,
 						Name: otherProject.Name,
