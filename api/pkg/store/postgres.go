@@ -474,6 +474,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		sqlSettings = "sslmode=require"
 	}
 
+	// Set schema in search_path for migration queries
 	if s.cfg.Schema != "" {
 		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
 	}
@@ -488,10 +489,17 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		sqlSettings,
 	)
 
+	// Use a schema-specific migration table name to avoid conflicts when
+	// multiple tests use different schemas simultaneously
+	migrationTableName := "helix_migrations"
+	if s.cfg.Schema != "" {
+		migrationTableName = s.cfg.Schema + ".helix_migrations"
+	}
+
 	migrations, err := migrate.NewWithSourceInstance(
 		"iofs",
 		files,
-		fmt.Sprintf("%s&&x-migrations-table=helix_migrations", connectionString),
+		fmt.Sprintf("%s&x-migrations-table=%s", connectionString, migrationTableName),
 	)
 	if err != nil {
 		return nil, err
