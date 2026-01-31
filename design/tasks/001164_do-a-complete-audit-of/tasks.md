@@ -2,12 +2,12 @@
 
 ## Phase 1: Setup & Tooling
 
-- [~] Install Go analysis tools:
+- [x] Install Go analysis tools:
   ```bash
   go install golang.org/x/tools/cmd/deadcode@latest
   go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
   ```
-- [ ] Install and run frontend tools:
+- [~] Install and run frontend tools:
   ```bash
   cd frontend
   npx ts-prune --project tsconfig.json > ../ts-prune-report.txt
