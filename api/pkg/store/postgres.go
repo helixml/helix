@@ -145,6 +145,18 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("acquired migration advisory lock")
 
+	// Explicitly release the lock when we're done. This is necessary because
+	// lockConn.Close() returns the connection to the pool rather than closing
+	// the underlying TCP connection, so the session-scoped advisory lock would
+	// remain held if we don't explicitly release it.
+	defer func() {
+		if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID); err != nil {
+			log.Warn().Err(err).Msg("failed to release migration advisory lock")
+		} else {
+			log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("released migration advisory lock")
+		}
+	}()
+
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
 	err = s.MigrateUp()
