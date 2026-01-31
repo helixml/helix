@@ -83,16 +83,28 @@ steps:
         - push
     depends_on: []
 
-  # Run database migrations once before parallel test steps.
-  # This prevents race conditions where multiple test steps try to create
-  # ENUM types simultaneously, causing "duplicate key" constraint errors.
-  - name: run-migrations
+  # Build API binary once for migrations and integration tests.
+  # This avoids recompiling in each step that needs the binary.
+  - name: build-api-binary
     image: golang:1.25-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
       - name: go-mod-cache
         path: /go/pkg/mod
+    commands:
+      - apk add --no-cache gcc g++ musl-dev
+      - CGO_ENABLED=0 go build -ldflags "-s -w" -o ./helix-bin ./api
+    when:
+      event:
+        - push
+    depends_on: [clone]
+
+  # Run database migrations once before parallel test steps.
+  # This prevents race conditions where multiple test steps try to create
+  # ENUM types simultaneously, causing "duplicate key" constraint errors.
+  - name: run-migrations
+    image: golang:1.25-alpine
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -100,11 +112,11 @@ steps:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
     commands:
-      - go run ./api serve --migrate-only
+      - ./helix-bin serve --migrate-only
     when:
       event:
         - push
-    depends_on: [clone]
+    depends_on: [build-api-binary]
 
   - name: unit-test
     image: golang:1.25-alpine
@@ -211,9 +223,9 @@ steps:
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server binary (explicitly named 'helix' since go install uses directory name 'api')
-      - CGO_ENABLED=0 go build -ldflags "-s -w" -o $GOPATH/bin/helix ./api
-      # Debug: verify binary was built and test server startup
+      # Use pre-built binary from build-api-binary step
+      - cp ./helix-bin $GOPATH/bin/helix
+      # Debug: verify binary was copied and test server startup
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
