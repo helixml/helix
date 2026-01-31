@@ -293,13 +293,26 @@ const ProjectSettings: FC = () => {
         });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, organizationId) => {
       snackbar.success("Project moved to organization successfully");
       setMoveDialogOpen(false);
       setSelectedOrgToMove("");
       setMovePreview(null);
       // Invalidate project query to refresh data
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+      // Find the org to get its name (slug) for navigation
+      const targetOrg = account.organizationTools.organizations.find(
+        (org) => org.id === organizationId
+      );
+      if (targetOrg?.name) {
+        // Switch to the new org context and navigate to the project there
+        await account.organizationTools.loadOrganization(organizationId);
+        navigate("org_project-specs", {
+          org_id: targetOrg.name,
+          id: projectId,
+        });
+      }
     },
     onError: (err: any) => {
       const message = err?.response?.data?.error || "Failed to move project";
