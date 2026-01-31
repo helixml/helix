@@ -53,11 +53,8 @@ func (s *OIDCSuite) SetupTest() {
 	s.NoError(err)
 	s.client = client
 
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
-		ID:       "test-user-id",
-		Email:    "test@example.com",
-		FullName: "Test User",
-	}, nil).AnyTimes()
+	// Note: Individual tests should set up their own mock expectations
+	// to allow for more granular testing of the auto-join behavior
 
 	// Generate a valid access token
 	s.testToken = s.generateToken("test-aud")
@@ -134,6 +131,127 @@ func (s *OIDCSuite) TestAuthFlow() {
 	}
 }
 
+func (s *OIDCSuite) TestAutoJoinOrganization_VerifiedEmail() {
+	// Test that a user with a verified email auto-joins an organization
+	// when their email domain matches the org's auto_join_domain
+
+	// Setup: User exists, org exists with matching domain, user is not a member
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil)
+
+	// GetOrganizationByDomain should find an org
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(&types.Organization{
+		ID:             "org-123",
+		Name:           "example-org",
+		AutoJoinDomain: "example.com",
+	}, nil)
+
+	// User is not already a member
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+
+	// Should create membership
+	s.mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
+			s.Equal("org-123", m.OrganizationID)
+			s.Equal("test-user-id", m.UserID)
+			s.Equal(types.OrganizationRoleMember, m.Role)
+			return m, nil
+		})
+
+	// Call ValidateUserToken
+	user, err := s.client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	s.Equal("test@example.com", user.Email)
+}
+
+func (s *OIDCSuite) TestAutoJoinOrganization_UnverifiedEmail() {
+	// Test that a user with an unverified email does NOT auto-join
+
+	// Modify the mock server to return email_verified: false
+	originalHandler := s.mockOIDCServer.server.Config.Handler
+	s.mockOIDCServer.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/protocol/openid-connect/userinfo" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"sub":            "test-user-id",
+				"name":           "Test User",
+				"email":          "test@example.com",
+				"email_verified": false, // Not verified
+			})
+			return
+		}
+		originalHandler.ServeHTTP(w, r)
+	})
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil)
+
+	// GetOrganizationByDomain should NOT be called because email is not verified
+
+	// Call ValidateUserToken
+	user, err := s.client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	// Auto-join should not happen - no CreateOrganizationMembership call
+}
+
+func (s *OIDCSuite) TestAutoJoinOrganization_NoMatchingDomain() {
+	// Test that nothing happens when no org has a matching domain
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil)
+
+	// No org with this domain
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	// Call ValidateUserToken
+	user, err := s.client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	// No membership should be created
+}
+
+func (s *OIDCSuite) TestAutoJoinOrganization_AlreadyMember() {
+	// Test that nothing happens when user is already a member
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil)
+
+	// Org exists with matching domain
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(&types.Organization{
+		ID:             "org-123",
+		Name:           "example-org",
+		AutoJoinDomain: "example.com",
+	}, nil)
+
+	// User is already a member
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		OrganizationID: "org-123",
+		UserID:         "test-user-id",
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+
+	// CreateOrganizationMembership should NOT be called
+
+	// Call ValidateUserToken
+	user, err := s.client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+}
+
 func (s *OIDCSuite) TestUserOperations() {
 	// Note: We don't test JWT audience validation here because ValidateUserToken
 	// intentionally doesn't verify access tokens as JWTs. Keycloak access tokens
@@ -171,6 +289,15 @@ func (s *OIDCSuite) TestUserOperations() {
 			s.NoError(err)
 			s.Equal(tt.wantEmail, userInfo.Email)
 			s.Equal(tt.wantName, userInfo.Name)
+
+			// Set up mock expectations for ValidateUserToken
+			s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+				ID:       "test-user-id",
+				Email:    "test@example.com",
+				FullName: "Test User",
+			}, nil)
+			// Auto-join lookup (no matching domain)
+			s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 
 			// Test ValidateUserToken
 			user, err := s.client.ValidateUserToken(s.ctx, tt.accessToken)

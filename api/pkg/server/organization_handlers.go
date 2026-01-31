@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,37 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// domainRegex validates domain format (e.g., "example.com", "sub.example.co.uk")
+var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
+
+// validateAndNormalizeDomain validates and normalizes an email domain for auto-join
+// Returns the normalized domain (lowercase) or an error if invalid
+func validateAndNormalizeDomain(domain string) (string, error) {
+	if domain == "" {
+		return "", nil // Empty is allowed (clears the domain)
+	}
+
+	// Normalize to lowercase
+	domain = strings.ToLower(strings.TrimSpace(domain))
+
+	// Reject if starts with @
+	if strings.HasPrefix(domain, "@") {
+		return "", fmt.Errorf("domain should not start with @, use 'example.com' not '@example.com'")
+	}
+
+	// Reject if contains @
+	if strings.Contains(domain, "@") {
+		return "", fmt.Errorf("domain should not contain @, use 'example.com' not 'user@example.com'")
+	}
+
+	// Validate format
+	if !domainRegex.MatchString(domain) {
+		return "", fmt.Errorf("invalid domain format: %s", domain)
+	}
+
+	return domain, nil
+}
 
 // listOrganizations godoc
 // @Summary List organizations
@@ -275,6 +307,36 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	existingOrg.DisplayName = updatedOrganization.DisplayName
 	existingOrg.Name = updatedOrganization.Name
 
+	// Handle auto-join domain update
+	if updatedOrganization.AutoJoinDomain != existingOrg.AutoJoinDomain {
+		normalizedDomain, err := validateAndNormalizeDomain(updatedOrganization.AutoJoinDomain)
+		if err != nil {
+			http.Error(rw, "Invalid domain: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// If setting a domain, check it's not already claimed by another org
+		if normalizedDomain != "" {
+			existingOrgWithDomain, err := apiServer.Store.GetOrganizationByDomain(r.Context(), normalizedDomain)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				log.Err(err).Msg("error checking domain availability")
+				http.Error(rw, "Could not check domain availability: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if existingOrgWithDomain != nil && existingOrgWithDomain.ID != orgID {
+				http.Error(rw, fmt.Sprintf("Domain %s is already claimed by another organization", normalizedDomain), http.StatusConflict)
+				return
+			}
+		}
+
+		existingOrg.AutoJoinDomain = normalizedDomain
+		log.Info().
+			Str("org_id", orgID).
+			Str("domain", normalizedDomain).
+			Str("user_id", user.ID).
+			Msg("organization auto-join domain updated")
+	}
+
 	// Track guidelines changes with versioning
 	if updatedOrganization.Guidelines != existingOrg.Guidelines {
 		// Save current version to history before updating
@@ -307,6 +369,44 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	}
 
 	writeResponse(rw, existingOrg, http.StatusOK)
+}
+
+// OrganizationDomainInfo contains basic info about an org's auto-join domain
+type OrganizationDomainInfo struct {
+	OrganizationID   string `json:"organization_id"`
+	OrganizationName string `json:"organization_name"`
+	AutoJoinDomain   string `json:"auto_join_domain"`
+}
+
+// listOrganizationDomains godoc
+// @Summary List organization domains (admin only)
+// @Description List all organizations that have auto-join domains configured
+// @Tags    organizations
+// @Success 200 {array} OrganizationDomainInfo
+// @Router /api/v1/admin/organization-domains [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listOrganizationDomains(rw http.ResponseWriter, r *http.Request) {
+	// Get all organizations
+	organizations, err := apiServer.Store.ListOrganizations(r.Context(), &store.ListOrganizationsQuery{})
+	if err != nil {
+		log.Err(err).Msg("error listing organizations")
+		http.Error(rw, "Could not list organizations: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter to only those with domains set
+	var result []OrganizationDomainInfo
+	for _, org := range organizations {
+		if org.AutoJoinDomain != "" {
+			result = append(result, OrganizationDomainInfo{
+				OrganizationID:   org.ID,
+				OrganizationName: org.Name,
+				AutoJoinDomain:   org.AutoJoinDomain,
+			})
+		}
+	}
+
+	writeResponse(rw, result, http.StatusOK)
 }
 
 // getOrganizationGuidelinesHistory returns the history of guidelines changes for an organization

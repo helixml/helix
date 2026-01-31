@@ -111,6 +111,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/organization-domains": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all organizations that have auto-join domains configured",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization domains (admin only)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.OrganizationDomainInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -15076,6 +15101,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.OrganizationDomainInfo": {
+            "type": "object",
+            "properties": {
+                "auto_join_domain": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                }
+            }
+        },
         "server.PhaseProgress": {
             "type": "object",
             "properties": {
@@ -20438,6 +20477,10 @@ const docTemplate = `{
         "types.Organization": {
             "type": "object",
             "properties": {
+                "auto_join_domain": {
+                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },

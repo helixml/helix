@@ -722,6 +722,12 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface ServerOrganizationDomainInfo {
+  auto_join_domain?: string;
+  organization_id?: string;
+  organization_name?: string;
+}
+
 export interface ServerPhaseProgress {
   agent?: string;
   completed_at?: string;
@@ -2992,6 +2998,8 @@ export interface TypesOpenAIUsage {
 }
 
 export interface TypesOrganization {
+  /** AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members */
+  auto_join_domain?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
   display_name?: string;
@@ -5352,6 +5360,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all organizations that have auto-join domains configured
+     *
+     * @tags organizations
+     * @name V1AdminOrganizationDomainsList
+     * @summary List organization domains (admin only)
+     * @request GET:/api/v1/admin/organization-domains
+     * @secure
+     */
+    v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
+      this.request<ServerOrganizationDomainInfo[], any>({
+        path: `/api/v1/admin/organization-domains`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
