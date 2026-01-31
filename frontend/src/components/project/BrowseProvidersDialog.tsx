@@ -157,11 +157,16 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     }
   }, [open])
 
+  // Track if we're waiting for OAuth connection after popup
+  const waitingForOAuthRef = useRef(false)
+
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
     const checkPopupClosed = () => {
       if (oauthPopupRef.current && oauthPopupRef.current.closed) {
         oauthPopupRef.current = null
+        // Mark that we're waiting for connection data to refresh
+        waitingForOAuthRef.current = true
         // Refresh OAuth connections after popup closes
         queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
       }
@@ -170,6 +175,34 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     const interval = setInterval(checkPopupClosed, 500)
     return () => clearInterval(interval)
   }, [queryClient])
+
+  // Auto-navigate to browse-repos when OAuth connection is established
+  useEffect(() => {
+    // Only act if we're waiting for OAuth and on the choose-method screen
+    if (!waitingForOAuthRef.current || viewMode !== 'choose-method' || !selectedProvider) {
+      return
+    }
+
+    // Check if a connection now exists for the selected provider
+    const connection = oauthConnections?.find(conn => {
+      const connType = conn.provider?.type?.toLowerCase()
+      const connName = conn.provider?.name?.toLowerCase()
+      if (selectedProvider === 'azure-devops') {
+        return connType === 'azure-devops' || connType === 'ado' || connName?.includes('azure') || connName?.includes('ado')
+      }
+      if (selectedProvider === 'bitbucket') {
+        return connType === 'bitbucket' || connName?.includes('bitbucket')
+      }
+      return connType === selectedProvider || connName === selectedProvider || connName?.includes(selectedProvider)
+    })
+
+    if (connection) {
+      // Connection established - navigate to repo browser
+      waitingForOAuthRef.current = false
+      setSelectedConnectionId(connection.id || null)
+      setViewMode('browse-repos')
+    }
+  }, [oauthConnections, viewMode, selectedProvider])
 
   // Find OAuth connection for a provider type
   // Checks both type and name since providers may be configured with type="custom"
