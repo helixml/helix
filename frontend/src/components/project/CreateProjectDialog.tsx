@@ -44,7 +44,6 @@ import { useCreateProject } from '../../services'
 import { useListOAuthConnections, useListOAuthProviders, useListOAuthConnectionRepositories, oauthConnectionsQueryKey } from '../../services/oauthProvidersService'
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
-import useRouter from '../../hooks/useRouter'
 import useApi from '../../hooks/useApi'
 import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
@@ -107,7 +106,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
-  const router = useRouter()
   const api = useApi()
   const queryClient = useQueryClient()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
@@ -221,6 +219,30 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       .replace(/-+/g, '-')           // Collapse multiple hyphens
       .replace(/^-|-$/g, '')         // Remove leading/trailing hyphens
   }
+
+  // Open OAuth popup for GitHub authorization
+  const openOAuthPopup = useCallback(async (providerId: string) => {
+    try {
+      const response = await api.get(
+        `/api/v1/oauth/flow/start/${providerId}?scopes=repo,read:org,read:user,user:email`
+      )
+      const authUrl = response.auth_url || response?.data?.auth_url
+      if (authUrl) {
+        const width = 800
+        const height = 700
+        const left = (window.innerWidth - width) / 2
+        const top = (window.innerHeight - height) / 2
+        oauthPopupRef.current = window.open(
+          authUrl,
+          'oauth-popup',
+          `width=${width},height=${height},left=${left},top=${top}`
+        )
+      }
+    } catch (err) {
+      console.error('Failed to start OAuth flow:', err)
+      snackbar.error('Failed to start GitHub authorization')
+    }
+  }, [api, snackbar])
 
   // Auto-sync repo name from project name (if user hasn't modified it)
   useEffect(() => {
@@ -845,28 +867,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               color="inherit"
                               size="small"
                               startIcon={<RefreshCw size={14} />}
-                              onClick={async () => {
-                                try {
-                                  const response = await api.get(
-                                    `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:org,read:user,user:email`
-                                  )
-                                  const authUrl = response.auth_url || response?.data?.auth_url
-                                  if (authUrl) {
-                                    const width = 800
-                                    const height = 700
-                                    const left = (window.innerWidth - width) / 2
-                                    const top = (window.innerHeight - height) / 2
-                                    oauthPopupRef.current = window.open(
-                                      authUrl,
-                                      'oauth-popup',
-                                      `width=${width},height=${height},left=${left},top=${top}`
-                                    )
-                                  }
-                                } catch (err) {
-                                  console.error('Failed to start OAuth upgrade:', err)
-                                  snackbar.error('Failed to start GitHub authorization')
-                                }
-                              }}
+                              onClick={() => openOAuthPopup(githubProvider.id)}
                             >
                               Upgrade
                             </Button>
@@ -920,28 +921,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               <Button
                                 color="inherit"
                                 size="small"
-                                onClick={async () => {
-                                  try {
-                                    const response = await api.get(
-                                      `/api/v1/oauth/flow/start/${githubProvider.id}?scopes=repo,read:org,read:user,user:email`
-                                    )
-                                    const authUrl = response.auth_url || response?.data?.auth_url
-                                    if (authUrl) {
-                                      const width = 800
-                                      const height = 700
-                                      const left = (window.innerWidth - width) / 2
-                                      const top = (window.innerHeight - height) / 2
-                                      oauthPopupRef.current = window.open(
-                                        authUrl,
-                                        'oauth-popup',
-                                        `width=${width},height=${height},left=${left},top=${top}`
-                                      )
-                                    }
-                                  } catch (err) {
-                                    console.error('Failed to start OAuth flow:', err)
-                                    snackbar.error('Failed to start GitHub authorization')
-                                  }
-                                }}
+                                onClick={() => openOAuthPopup(githubProvider.id)}
                               >
                                 Connect
                               </Button>
