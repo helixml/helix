@@ -1299,6 +1299,23 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Str("session_id", session.ID).
 		Msg("🔗 [HELIX] Stored request_id->session mapping for thread creation")
 
+	// PERSIST: Store mappings in session metadata for restart recovery
+	now := time.Now()
+	session.Metadata.WaitingInteractionID = interaction.ID
+	session.Metadata.LastRequestID = requestID
+	session.Metadata.RequestStartedAt = &now
+	if _, err := s.Controller.Options.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).
+			Str("session_id", session.ID).
+			Msg("Failed to persist session mappings for restart recovery (non-fatal)")
+	} else {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("waiting_interaction_id", interaction.ID).
+			Str("last_request_id", requestID).
+			Msg("💾 [HELIX] Persisted session mappings for restart recovery")
+	}
+
 	log.Info().
 		Str("session_id", session.ID).
 		Str("request_id", requestID).

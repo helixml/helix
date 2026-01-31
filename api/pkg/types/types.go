@@ -404,6 +404,10 @@ type SessionMetadata struct {
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
 	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on bridge network
 	ExecutorMode  string `json:"executor_mode,omitempty"`  // Executor mode (deprecated - always "hydra")
+	// Session state for restart recovery (persisted in-memory mappings)
+	WaitingInteractionID string     `json:"waiting_interaction_id,omitempty"` // Interaction currently waiting for response
+	LastRequestID        string     `json:"last_request_id,omitempty"`        // Most recent request_id for reconnect routing
+	RequestStartedAt     *time.Time `json:"request_started_at,omitempty"`     // When current request started (for stale detection)
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
 	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)

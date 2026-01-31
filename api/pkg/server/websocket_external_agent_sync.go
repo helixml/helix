@@ -299,21 +299,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			Str("agent_session_id", agentID).
 			Str("helix_session_id", helixSessionID).
 			Msg("🚀 [HELIX] External agent connected with Helix session ID, checking for initial message")
-	} else {
-		apiServer.contextMappingsMutex.RLock()
-		mappedHelixID, exists := apiServer.externalAgentSessionMapping[agentID]
-		apiServer.contextMappingsMutex.RUnlock()
-		if exists {
-			// Agent session ID mapping - register connection with BOTH IDs for routing
-			helixSessionID = mappedHelixID
-			apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
-			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
-			log.Info().
-				Str("agent_session_id", agentID).
-				Str("helix_session_id", helixSessionID).
-				Msg("🚀 [HELIX] External agent connected with agent session ID, registered with BOTH IDs for routing")
-		}
 	}
+	// Note: Non-ses_ agent IDs are not currently supported - agents always connect with their session ID
 
 	// Start goroutines for handling connection
 	ctx, cancel := context.WithCancel(req.Context())
@@ -337,6 +324,78 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Str("helix_session_id", helixSessionID).
 					Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
 					Msg("🔧 [HELIX] Restored contextMappings from session metadata (ensures message routing after restart)")
+			}
+
+			// RESTART RECOVERY: Restore sessionToWaitingInteraction from persisted metadata
+			if helixSession.Metadata.WaitingInteractionID != "" {
+				apiServer.contextMappingsMutex.Lock()
+				if apiServer.sessionToWaitingInteraction == nil {
+					apiServer.sessionToWaitingInteraction = make(map[string]string)
+				}
+				apiServer.sessionToWaitingInteraction[helixSessionID] = helixSession.Metadata.WaitingInteractionID
+				apiServer.contextMappingsMutex.Unlock()
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("waiting_interaction_id", helixSession.Metadata.WaitingInteractionID).
+					Msg("🔧 [HELIX] Restored sessionToWaitingInteraction from session metadata (ensures response routing after restart)")
+			}
+
+			// RESTART RECOVERY: Restore requestToSessionMapping from persisted metadata
+			if helixSession.Metadata.LastRequestID != "" {
+				apiServer.contextMappingsMutex.Lock()
+				if apiServer.requestToSessionMapping == nil {
+					apiServer.requestToSessionMapping = make(map[string]string)
+				}
+				apiServer.requestToSessionMapping[helixSession.Metadata.LastRequestID] = helixSessionID
+				apiServer.contextMappingsMutex.Unlock()
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("last_request_id", helixSession.Metadata.LastRequestID).
+					Msg("🔧 [HELIX] Restored requestToSessionMapping from session metadata (ensures request routing after restart)")
+			}
+
+			// STALE REQUEST DETECTION: Check if WaitingInteractionID is stale (>5 min old)
+			// This prevents us from trying to resume interactions that have already timed out
+			staleThreshold := 5 * time.Minute
+			if helixSession.Metadata.WaitingInteractionID != "" && helixSession.Metadata.RequestStartedAt != nil {
+				requestAge := time.Since(*helixSession.Metadata.RequestStartedAt)
+				if requestAge > staleThreshold {
+					log.Warn().
+						Str("helix_session_id", helixSessionID).
+						Str("waiting_interaction_id", helixSession.Metadata.WaitingInteractionID).
+						Str("request_started_at", helixSession.Metadata.RequestStartedAt.Format(time.RFC3339)).
+						Dur("request_age", requestAge).
+						Dur("stale_threshold", staleThreshold).
+						Msg("⚠️ [HELIX] Detected stale waiting interaction on reconnect - clearing mappings")
+
+					// Mark the interaction as failed
+					staleInteraction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, helixSession.Metadata.WaitingInteractionID)
+					if err == nil && staleInteraction != nil && staleInteraction.State == types.InteractionStateWaiting {
+						staleInteraction.State = types.InteractionStateError
+						staleInteraction.Error = fmt.Sprintf("Request timed out after API restart (age: %v)", requestAge.Round(time.Second))
+						staleInteraction.Completed = time.Now()
+						staleInteraction.Updated = time.Now()
+						if _, updateErr := apiServer.Controller.Options.Store.UpdateInteraction(ctx, staleInteraction); updateErr != nil {
+							log.Warn().Err(updateErr).Str("interaction_id", staleInteraction.ID).Msg("Failed to mark stale interaction as error")
+						} else {
+							log.Info().Str("interaction_id", staleInteraction.ID).Msg("🔴 [HELIX] Marked stale interaction as error")
+						}
+					}
+
+					// Clear in-memory mappings
+					apiServer.contextMappingsMutex.Lock()
+					delete(apiServer.sessionToWaitingInteraction, helixSessionID)
+					delete(apiServer.requestToSessionMapping, helixSession.Metadata.LastRequestID)
+					apiServer.contextMappingsMutex.Unlock()
+
+					// Clear persisted metadata
+					helixSession.Metadata.WaitingInteractionID = ""
+					helixSession.Metadata.LastRequestID = ""
+					helixSession.Metadata.RequestStartedAt = nil
+					if _, updateErr := apiServer.Controller.Options.Store.UpdateSession(ctx, *helixSession); updateErr != nil {
+						log.Warn().Err(updateErr).Str("session_id", helixSessionID).Msg("Failed to clear stale session metadata")
+					}
+				}
 			}
 
 			// Check if agent was working before disconnect (to determine if continue prompt needed)
@@ -682,21 +741,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Str("context_id", contextID).
 		Msg("🆕 [HELIX] Creating NEW Helix session for user-initiated Zed context")
 
-	// Get the real user ID who created this external agent session
-	apiServer.contextMappingsMutex.RLock()
-	userID, exists := apiServer.externalAgentUserMapping[sessionID]
-	apiServer.contextMappingsMutex.RUnlock()
-	if !exists || userID == "" {
-		log.Warn().
-			Str("agent_session_id", sessionID).
-			Msg("⚠️ [HELIX] No user mapping found for external agent, using default")
-		userID = "external-agent-user" // Fallback for safety
-	}
-
+	// Use default user ID for external agent sessions
+	// Note: externalAgentUserMapping was removed as dead code - agents always use this default
+	userID := "external-agent-user"
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("user_id", userID).
-		Msg("✅ [HELIX] Using real user ID for Helix session")
+		Msg("✅ [HELIX] Using default user ID for Helix session")
 
 	// Create a new Helix session for this Zed context
 	helixSession := types.Session{
@@ -1751,6 +1802,29 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 	}
 
+	// CLEANUP: Clear in-memory mappings now that interaction is complete
+	apiServer.contextMappingsMutex.Lock()
+	delete(apiServer.sessionToWaitingInteraction, helixSessionID)
+	apiServer.contextMappingsMutex.Unlock()
+
+	// CLEANUP: Clear persisted session metadata for restart recovery
+	// Reload session to get fresh state before clearing
+	sessionToUpdate, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+	if err == nil && sessionToUpdate != nil {
+		sessionToUpdate.Metadata.WaitingInteractionID = ""
+		sessionToUpdate.Metadata.LastRequestID = ""
+		sessionToUpdate.Metadata.RequestStartedAt = nil
+		if _, updateErr := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *sessionToUpdate); updateErr != nil {
+			log.Warn().Err(updateErr).
+				Str("session_id", helixSessionID).
+				Msg("Failed to clear session restart recovery metadata (non-fatal)")
+		} else {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Msg("🧹 [HELIX] Cleared session restart recovery metadata (interaction complete)")
+		}
+	}
+
 	log.Info().
 		Str("helix_session_id", helixSessionID).
 		Str("interaction_id", targetInteraction.ID).
@@ -2668,5 +2742,3 @@ If you need to verify the current state, check the git status and any running pr
 			Msg("Failed to send continue prompt - channel full")
 	}
 }
-
-

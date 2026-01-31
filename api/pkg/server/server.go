@@ -93,8 +93,6 @@ type HelixAPIServer struct {
 	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -247,8 +245,6 @@ func NewServer(
 		contextMappings:             make(map[string]string),
 		sessionToWaitingInteraction: make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
-		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
