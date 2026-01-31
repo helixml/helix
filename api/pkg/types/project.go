@@ -190,6 +190,8 @@ type MoveProjectRequest struct {
 type MoveProjectPreviewResponse struct {
 	Project      MoveProjectPreviewItem      `json:"project"`
 	Repositories []MoveRepositoryPreviewItem `json:"repositories"`
+	// Warnings about things that won't be moved automatically
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // MoveProjectPreviewItem represents a project's naming conflict status

@@ -1718,9 +1718,15 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 		repoPreview = append(repoPreview, item)
 	}
 
+	// Add warning about agents not being moved
+	warnings := []string{
+		"Agents configured on this project will not be moved. You'll need to create new agents in the target organization and update the project settings.",
+	}
+
 	return &types.MoveProjectPreviewResponse{
 		Project:      projectPreview,
 		Repositories: repoPreview,
+		Warnings:     warnings,
 	}, nil
 }
 

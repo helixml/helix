@@ -225,6 +225,7 @@ const ProjectSettings: FC = () => {
       has_conflict: boolean;
       affected_projects?: Array<{ id: string; name: string }>;
     }>;
+    warnings?: string[];
   } | null>(null);
   const [acceptSharedRepoWarning, setAcceptSharedRepoWarning] = useState(false);
   const [loadingMovePreview, setLoadingMovePreview] = useState(false);
@@ -2134,6 +2135,22 @@ const ProjectSettings: FC = () => {
                 These repositories will become accessible to all members of the
                 organization based on their roles.
               </Typography>
+
+              {/* Warnings about things that won't be moved */}
+              {movePreview.warnings && movePreview.warnings.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {movePreview.warnings.map((warning, index) => (
+                    <Alert
+                      key={index}
+                      severity="info"
+                      icon={<WarningIcon />}
+                      sx={{ mb: 1 }}
+                    >
+                      {warning}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
 
               {/* Show checkbox if any repos have affected projects */}
               {movePreview.repositories.some(
