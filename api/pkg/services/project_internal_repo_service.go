@@ -63,6 +63,11 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 	// Get commit for HEAD branch
 	commit, err := repo.GetBranchCommit(headBranch)
 	if err != nil {
+		// Empty repo - HEAD branch exists but has no commits yet (unborn branch)
+		// Use gitea's typed error check instead of fragile string matching
+		if giteagit.IsErrNotExist(err) {
+			return "", nil
+		}
 		return "", fmt.Errorf("failed to get commit: %w", err)
 	}
 

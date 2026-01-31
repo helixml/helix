@@ -466,7 +466,8 @@ const GitRepoDetail: FC = () => {
     type: TypesExternalRepositoryType,
     username?: string,
     password?: string,
-    azureDevOps?: TypesAzureDevOps
+    azureDevOps?: TypesAzureDevOps,
+    oauthConnectionId?: string
   ): Promise<TypesGitRepository | null> => {
     try {
       const result = await createRepoMutation.mutateAsync({
@@ -477,6 +478,7 @@ const GitRepoDetail: FC = () => {
         password,
         azure_devops: azureDevOps,
         organization_id: currentOrg?.id,
+        oauth_connection_id: oauthConnectionId,
       })
       return result || null
     } catch (err) {

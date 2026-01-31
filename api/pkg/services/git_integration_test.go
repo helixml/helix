@@ -638,6 +638,169 @@ func (s *GitIntegrationSuite) TestSyncBaseBranch_NoDeadlockFromEntryPoint() {
 }
 
 // =============================================================================
+// Empty Repository Tests
+// =============================================================================
+
+func (s *GitIntegrationSuite) TestSyncAllBranches_EmptyRepo() {
+	// Test that syncing from an empty repo (no commits) doesn't error.
+	// This is important because users can connect repos that have been
+	// created on GitHub but never had any commits pushed.
+	require := s.Require()
+
+	// Create a completely empty bare repo (no commits)
+	emptyUpstreamDir := filepath.Join(s.testDir, "empty-upstream")
+	err := os.MkdirAll(emptyUpstreamDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyUpstreamDir, true, "sha1")
+	require.NoError(err)
+
+	// Set HEAD to main (like GitHub does for new repos)
+	err = SetHEAD(s.ctx, emptyUpstreamDir, "main")
+	require.NoError(err)
+
+	// Create middle repo for empty upstream
+	emptyMiddleRepoPath := filepath.Join(s.middleDir, "git-repositories", "empty-repo")
+	err = os.MkdirAll(emptyMiddleRepoPath, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyMiddleRepoPath, true, "sha1")
+	require.NoError(err)
+
+	// Add empty upstream as remote
+	err = AddRemote(s.ctx, emptyMiddleRepoPath, "origin", emptyUpstreamDir)
+	require.NoError(err)
+
+	// Set up mock for empty repo
+	emptyRepo := &types.GitRepository{
+		ID:            "empty-repo",
+		Name:          "empty-repo",
+		LocalPath:     emptyMiddleRepoPath,
+		IsExternal:    true,
+		ExternalURL:   "file://" + emptyUpstreamDir,
+		ExternalType:  types.ExternalRepositoryTypeGitHub,
+		DefaultBranch: "main",
+		Status:        types.GitRepositoryStatusActive,
+	}
+
+	s.mockStore.EXPECT().
+		GetGitRepository(gomock.Any(), "empty-repo").
+		Return(emptyRepo, nil).
+		AnyTimes()
+
+	// SyncAllBranches should NOT error for an empty repo
+	err = s.gitRepoService.SyncAllBranches(s.ctx, "empty-repo", false)
+	s.NoError(err, "SyncAllBranches should handle empty repos gracefully")
+}
+
+func (s *GitIntegrationSuite) TestFetch_EmptyRepo_Wildcard() {
+	// Test that Fetch with wildcard refspec handles empty repos gracefully
+	// Note: Wildcard refspec on empty repos succeeds silently (git behavior)
+	require := s.Require()
+
+	// Create empty bare repo
+	emptyDir := filepath.Join(s.testDir, "fetch-empty-upstream-wc")
+	err := os.MkdirAll(emptyDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyDir, true, "sha1")
+	require.NoError(err)
+
+	// Create local repo to fetch into
+	localDir := filepath.Join(s.testDir, "fetch-empty-local-wc")
+	err = os.MkdirAll(localDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
+	require.NoError(err)
+
+	// Fetch with wildcard from empty repo should not error (git succeeds silently)
+	err = Fetch(s.ctx, localDir, FetchOptions{
+		Remote:   emptyDir,
+		RefSpecs: []string{"refs/heads/*:refs/heads/*"},
+	})
+	s.NoError(err, "Fetch with wildcard should handle empty repos gracefully")
+}
+
+func (s *GitIntegrationSuite) TestFetch_EmptyRepo_SpecificBranch() {
+	// Test that Fetch with specific branch handles empty repos gracefully
+	// This triggers the "couldn't find remote ref" error that we handle
+	require := s.Require()
+
+	// Create empty bare repo
+	emptyDir := filepath.Join(s.testDir, "fetch-empty-upstream-sb")
+	err := os.MkdirAll(emptyDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyDir, true, "sha1")
+	require.NoError(err)
+
+	// Create local repo to fetch into
+	localDir := filepath.Join(s.testDir, "fetch-empty-local-sb")
+	err = os.MkdirAll(localDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
+	require.NoError(err)
+
+	// Fetch specific branch from empty repo should not error
+	// (our fix catches "couldn't find remote ref" and returns nil)
+	err = Fetch(s.ctx, localDir, FetchOptions{
+		Remote:   emptyDir,
+		RefSpecs: []string{"refs/heads/main:refs/heads/main"},
+	})
+	s.NoError(err, "Fetch with specific branch should handle empty repos gracefully")
+}
+
+func (s *GitIntegrationSuite) TestFetch_InvalidRemote_StillErrors() {
+	// Verify that actual errors still propagate (negative test)
+	// Empty repo handling should not swallow real errors
+	require := s.Require()
+
+	// Create local repo
+	localDir := filepath.Join(s.testDir, "fetch-invalid-local")
+	err := os.MkdirAll(localDir, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, localDir, true, "sha1")
+	require.NoError(err)
+
+	// Fetch from non-existent path should still error
+	err = Fetch(s.ctx, localDir, FetchOptions{
+		Remote:   "/nonexistent/path/that/does/not/exist",
+		RefSpecs: []string{"refs/heads/main:refs/heads/main"},
+	})
+	s.Error(err, "Fetch from invalid remote should still error")
+	s.NotContains(err.Error(), "couldn't find remote ref", "Error should not be about missing ref")
+}
+
+func (s *GitIntegrationSuite) TestLoadStartupScript_EmptyRepo() {
+	// Test that LoadStartupScriptFromCodeRepo handles empty repos gracefully
+	// (returns empty string, not an error)
+	require := s.Require()
+
+	// Create empty bare repo with HEAD pointing to main (like GitHub does)
+	emptyRepoPath := filepath.Join(s.testDir, "startup-empty-repo")
+	err := os.MkdirAll(emptyRepoPath, 0755)
+	require.NoError(err)
+
+	err = giteagit.InitRepository(s.ctx, emptyRepoPath, true, "sha1")
+	require.NoError(err)
+
+	// Set HEAD to main (mimics GitHub's behavior for new repos)
+	err = SetHEAD(s.ctx, emptyRepoPath, "main")
+	require.NoError(err)
+
+	// Create project repo service
+	projectRepoService := NewProjectRepoService(s.testDir)
+
+	// LoadStartupScriptFromCodeRepo should return empty string, not error
+	script, err := projectRepoService.LoadStartupScriptFromCodeRepo(emptyRepoPath)
+	s.NoError(err, "LoadStartupScriptFromCodeRepo should handle empty repos gracefully")
+	s.Empty(script, "Empty repo should return empty startup script")
+}
+
+// =============================================================================
 // HTTP Server Tests
 // =============================================================================
 

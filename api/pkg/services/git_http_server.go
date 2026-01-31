@@ -588,12 +588,25 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive
 	// rollback is needed - unauthorized pushes are rejected before refs are updated.
 
-	// For external repos, SYNCHRONOUSLY push to upstream
+	// For external repos, push to upstream synchronously.
+	// IMPORTANT: We use a background context here because the git client may disconnect
+	// after receiving the successful receive-pack response. At this point, HTTP response
+	// headers have already been sent, so we cannot signal upstream push failures to the
+	// client - they will see success regardless. If upstream push fails, we rollback
+	// locally but the agent won't know. This is a known architectural limitation.
 	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
+		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranches)).Msg("Starting external push with detached context")
+
 		upstreamPushFailed := false
 		for _, branch := range pushedBranches {
-			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream (synchronous)")
-			if err := s.gitRepoService.PushBranchToRemote(r.Context(), repoID, branch, false); err != nil {
+			// Create per-branch timeout so later branches don't get starved
+			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
+
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream")
+			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, false)
+			branchCancel()
+
+			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
 				break
