@@ -43,6 +43,11 @@ import {
   FloatingModalProvider,
 } from './floatingModal'
 
+// Import the VideoStreamProvider (tracks when video streaming is active)
+import {
+  VideoStreamProvider,
+} from './VideoStreamContext'
+
 const AllContextProvider = ({ children }: { children: ReactNode }) => {
   return (
     <RouterContextProvider>
@@ -54,7 +59,9 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
                   <StreamingContextProvider>
                     <FloatingRunnerStateProvider>
                       <FloatingModalProvider>
-                        {children}
+                        <VideoStreamProvider>
+                          {children}
+                        </VideoStreamProvider>
                       </FloatingModalProvider>
                     </FloatingRunnerStateProvider>
                   </StreamingContextProvider>

@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/git"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
-	"github.com/sourcegraph/go-diff/diff"
 
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/jfrog/froggit-go/vcsutils"
@@ -106,42 +106,9 @@ func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Me
 	return response, nil
 }
 
-// PullRequestDiffResult contains the diff information for a pull request
-type PullRequestDiffResult struct {
-	Changes     []*PullRequestChange      `json:"changes"`
-	PullRequest vcsclient.PullRequestInfo `json:"pull_request"`
-}
-
-type PullRequestChange struct {
-	Path          string       `json:"path"`
-	ChangeType    string       `json:"change_type"`
-	Content       string       `json:"content"`
-	ContentLength int          `json:"content_length"`
-	ContentType   string       `json:"content_type"`
-	Encoding      string       `json:"encoding"`
-	IsBinary      bool         `json:"is_binary"`
-	Hunks         []*diff.Hunk `json:"hunks,omitempty"`
-}
-
-type DiffHunk struct {
-	Header   string      `json:"header"`
-	OldStart int         `json:"old_start"`
-	OldLines int         `json:"old_lines"`
-	NewStart int         `json:"new_start"`
-	NewLines int         `json:"new_lines"`
-	Lines    []*DiffLine `json:"lines"`
-}
-
-type DiffLine struct {
-	Type    string `json:"type"`    // "added", "deleted", "context", "unchanged"
-	Content string `json:"content"` // The actual line content
-	OldNum  int    `json:"old_num"` // Line number in old file (0 if added)
-	NewNum  int    `json:"new_num"` // Line number in new file (0 if deleted)
-}
-
 // GetPullRequestDiff is a reusable function that gets pull request diffs and can be used
 // by other functions for reviews, analysis, etc.
-func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx types.AzureDevopsRepositoryContext) (*PullRequestDiffResult, error) {
+func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx types.AzureDevopsRepositoryContext) (*git.PullRequestDiffResult, error) {
 	logger := log.Ctx(ctx)
 
 	logger.Debug().
@@ -169,7 +136,7 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		return nil, fmt.Errorf("failed to get pull request details: %w", err)
 	}
 
-	changes, err := GetPullRequestChange(ctx, token, GetPullRequestChangeOptions{
+	changes, err := git.GetPullRequestChange(ctx, token, git.GetPullRequestChangeOptions{
 		RemoteURL:      azureCtx.RemoteURL,
 		TargetCommitID: azureCtx.LastMergeTargetCommitID,
 		SourceCommitID: azureCtx.LastMergeSourceCommitID,
@@ -180,7 +147,7 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		return nil, fmt.Errorf("failed to get pull request changes: %w", err)
 	}
 
-	return &PullRequestDiffResult{
+	return &git.PullRequestDiffResult{
 		Changes:     changes,
 		PullRequest: pr,
 	}, nil

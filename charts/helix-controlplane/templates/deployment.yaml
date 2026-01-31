@@ -7,10 +7,11 @@ metadata:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
   # Helix can't run multi-node yet, do not set
-  # to more than 1 replicas for controlplane
+  # to more than 1 replicas for controlplane. With ReadWriteOnce persistent volumes,
+  # only one pod can mount the volume at a time.
   replicas: 1
   strategy:
-    type: RollingUpdate
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: controlplane
@@ -33,6 +34,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -64,16 +66,30 @@ spec:
             - name: RUNNER_TOKEN
               value: {{ .Values.controlplane.runnerToken | quote }}
             {{- end }}
+            {{- if .Values.controlplane.encryptionKeyExistingSecret }}
+            - name: HELIX_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.encryptionKeyExistingSecret }}
+                  key: {{ .Values.controlplane.encryptionKeyExistingSecretKey | default "encryption-key" }}
+            {{- else if .Values.controlplane.encryptionKey }}
+            - name: HELIX_ENCRYPTION_KEY
+              value: {{ .Values.controlplane.encryptionKey | quote }}
+            {{- end }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.controlplane.authProvider | quote }}
             {{- if .Values.controlplane.licenseKeyExistingSecret }}
             - name: LICENSE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.controlplane.licenseKeyExistingSecret }}
-                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license-key" }}
+                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license" }}
             {{- else if .Values.controlplane.licenseKey }}
             - name: LICENSE_KEY
               value: {{ .Values.controlplane.licenseKey | quote }}
             {{- end }}
+            ### Keycloak specific configuration
+            {{- if .Values.controlplane.keycloak.enabled }}
             - name: KEYCLOAK_URL
               value: {{ .Values.controlplane.keycloak.url | quote }}
             - name: KEYCLOAK_FRONTEND_URL
@@ -95,10 +111,30 @@ spec:
             - name: KEYCLOAK_PASSWORD
               value: {{ .Values.controlplane.keycloak.password | quote }}
             {{- end }}
+            {{- end }}
+            ### End keycloak config
+            ### SMTP configuration
+            {{- if .Values.controlplane.smtp.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.controlplane.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.controlplane.smtp.port | quote }}
+            - name: SMTP_USERNAME
+              value: {{ .Values.controlplane.smtp.username | quote }}
+            - name: SMTP_PASSWORD
+              value: {{ .Values.controlplane.smtp.password | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.controlplane.smtp.from | quote }}
+            - name: SMTP_TO
+              value: {{ .Values.controlplane.smtp.to | quote }}
+            {{- end }}
+            ### End SMTP configuration
             - name: ADMIN_USER_SOURCE
               value: {{ .Values.controlplane.admin.userSource | quote }}
             - name: ADMIN_USER_IDS
               value: {{ .Values.controlplane.admin.userIds | quote }}
+            - name: PROVIDERS_MANAGEMENT_ENABLED
+              value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
             - name: TEXT_EXTRACTION_URL
@@ -290,6 +326,17 @@ spec:
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
             {{- end }}
+            {{- if .Values.kodit.enabled }}
+            - name: KODIT_ENABLED
+              value: "true"
+            - name: KODIT_BASE_URL
+              value: {{ .Values.controlplane.kodit.baseURL | default (printf "http://%s-kodit:8080" (include "helix-controlplane.fullname" .)) | quote }}
+            - name: KODIT_GIT_URL
+              value: {{ .Values.controlplane.kodit.gitURL | default (printf "http://%s:80" (include "helix-controlplane.fullname" .)) | quote }}
+            {{- else }}
+            - name: KODIT_ENABLED
+              value: "false"
+            {{- end }}
             {{- with .Values.controlplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -433,7 +480,7 @@ spec:
                   key: {{ .Values.pgvector.external.existingSecretDatabaseKey | default "database" }}
             {{- else }}
             - name: PGVECTOR_DSN
-              value: "postgresql://{{ .Values.pgvector.external.user }}:{{ .Values.pgvector.external.password }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.external.database }}"
+              value: "postgresql://{{ .Values.pgvector.auth.username | default "postgres" }}:{{ .Values.pgvector.auth.password | default "pgvector" }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.auth.database | default "postgres" }}"
             {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}

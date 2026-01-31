@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, ReactNode } from 'react'
 import { TypesDashboardRunner } from '../api/api'
 
 interface FloatingModalConfig {
-  type: 'logs'
-  runner: TypesDashboardRunner
-  runnerUrl?: string
+  type: 'logs' | 'rdp'
+  runner?: TypesDashboardRunner
+  sessionId?: string
 }
 
 interface FloatingModalContextType {

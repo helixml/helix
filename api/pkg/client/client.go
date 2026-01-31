@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,12 +86,26 @@ type Client interface {
 	// System Settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
+
+	// Users
+	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)
+	GetCurrentUser(ctx context.Context) (*types.User, error)
+	UpdateOwnPassword(ctx context.Context, newPassword string) error
+	AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error)
+	AdminDeleteUser(ctx context.Context, userID string) error
 }
 
 type SessionFilter struct {
 	OrganizationID string
 	Offset         int
 	Limit          int
+}
+
+type UserFilter struct {
+	Email    string
+	Username string
+	Page     int
+	PerPage  int
 }
 
 // HelixClient is the client for the helix api
@@ -110,10 +125,10 @@ func NewClientFromEnv() (*HelixClient, error) {
 		return nil, err
 	}
 
-	return NewClient(cfg.URL, cfg.APIKey)
+	return NewClient(cfg.URL, cfg.APIKey, cfg.TLSSkipVerify)
 }
 
-func NewClient(url, apiKey string) (*HelixClient, error) {
+func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	if url == "" {
 		url = DefaultURL
 	}
@@ -127,8 +142,17 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 		url = url + "/api/v1"
 	}
 
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	return &HelixClient{
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 		apiKey:     apiKey,
 		url:        url,
 	}, nil
@@ -214,4 +238,95 @@ func (c *HelixClient) UpdateSystemSettings(ctx context.Context, settings *types.
 		return nil, err
 	}
 	return &response, nil
+}
+
+// User methods
+
+// ListUsers returns a paginated list of users (admin only)
+func (c *HelixClient) ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error) {
+	path := "/users?"
+	if f != nil {
+		if f.Email != "" {
+			path += "email=" + f.Email + "&"
+		}
+		if f.Username != "" {
+			path += "username=" + f.Username + "&"
+		}
+		if f.Page > 0 {
+			path += fmt.Sprintf("page=%d&", f.Page)
+		}
+		if f.PerPage > 0 {
+			path += fmt.Sprintf("per_page=%d&", f.PerPage)
+		}
+	}
+	var response types.PaginatedUsersList
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetCurrentUserStatus returns the status of the currently authenticated user
+// Note: This returns limited info (user ID, admin flag, slug). Use GetCurrentUser for full details.
+func (c *HelixClient) GetCurrentUserStatus(ctx context.Context) (*types.UserStatus, error) {
+	var response types.UserStatus
+	err := c.makeRequest(ctx, http.MethodGet, "/status", nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetUser returns full user details by ID
+func (c *HelixClient) GetUser(ctx context.Context, userID string) (*types.User, error) {
+	var response types.User
+	err := c.makeRequest(ctx, http.MethodGet, "/users/"+userID, nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetCurrentUser returns the full details of the currently authenticated user
+func (c *HelixClient) GetCurrentUser(ctx context.Context) (*types.User, error) {
+	// First get the user ID from status
+	status, err := c.GetCurrentUserStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Then fetch full user details
+	return c.GetUser(ctx, status.User)
+}
+
+// UpdateOwnPassword updates the password for the currently authenticated user
+func (c *HelixClient) UpdateOwnPassword(ctx context.Context, newPassword string) error {
+	reqBody, err := json.Marshal(types.PasswordUpdateRequest{
+		NewPassword: newPassword,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return c.makeRequest(ctx, http.MethodPost, "/auth/password-update", strings.NewReader(string(reqBody)), nil)
+}
+
+// AdminResetPassword resets the password for any user (admin only)
+func (c *HelixClient) AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error) {
+	reqBody, err := json.Marshal(map[string]string{
+		"new_password": newPassword,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	var response types.User
+	err = c.makeRequest(ctx, http.MethodPut, "/admin/users/"+userID+"/password", strings.NewReader(string(reqBody)), &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// AdminDeleteUser deletes a user by ID (admin only)
+func (c *HelixClient) AdminDeleteUser(ctx context.Context, userID string) error {
+	return c.makeRequest(ctx, http.MethodDelete, "/admin/users/"+userID, nil, nil)
 }

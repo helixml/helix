@@ -28,7 +28,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import {
     TypesModel,
     TypesModelType,
-    TypesRuntime,
+    GithubComHelixmlHelixApiPkgTypesRuntime as TypesRuntime,
     TypesRunnerModelStatus,
 } from "../../api/api";
 import {

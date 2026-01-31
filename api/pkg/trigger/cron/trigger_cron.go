@@ -502,8 +502,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Msg("failed to run task blocking session job")
 
 		// Send failure notification
-		notifyErr := notifier.Notify(ctx, &notification.Notification{
-			Event:   notification.EventCronTriggerFailed,
+		notifyErr := notifier.Notify(ctx, &types.Notification{
+			Event:   types.EventCronTriggerFailed,
 			Session: session,
 			Message: err.Error(),
 		})
@@ -533,8 +533,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	// Send success notification
-	err = notifier.Notify(ctx, &notification.Notification{
-		Event:          notification.EventCronTriggerComplete,
+	err = notifier.Notify(ctx, &types.Notification{
+		Event:          types.EventCronTriggerComplete,
 		Session:        session,
 		Message:        resp.ResponseMessage,
 		RenderMarkdown: true,

@@ -22,6 +22,8 @@ import DialogContentText from '@mui/material/DialogContentText'
 import Page from '../components/system/Page'
 import CopyIcon from '@mui/icons-material/CopyAll'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import DarkDialog from '../components/dialog/DarkDialog'
+import CloseIcon from '@mui/icons-material/Close'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
@@ -37,7 +39,8 @@ import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import SmallSpinner from '../components/system/SmallSpinner'
 
-import { useGetUserAPIKeys, useGetConfig } from '../services/userService'
+import { useGetUserAPIKeys, useGetConfig, useUpdatePassword, useUpdateAccount } from '../services/userService'
+import { TypesAuthProvider } from '../api/api'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -45,19 +48,30 @@ const Account: FC = () => {
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
-  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet()
+  const themeConfig = useThemeConfig()  
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
+
+  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(undefined, !isLoadingServerConfig && serverConfig?.billing_enabled)
+
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [password, setPassword] = useState<string>('')
+  const [passwordConfirm, setPasswordConfirm] = useState<string>('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
 
   const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
 
   const regenerateApiKey = useRegenerateUserAPIKey()
+  const updatePassword = useUpdatePassword()
+  const updateAccount = useUpdateAccount()
+  
+  const [fullName, setFullName] = useState<string>(account.user?.name || '')
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -91,6 +105,27 @@ const Account: FC = () => {
     setRegenerateDialogOpen(false)
     setKeyToRegenerate('')
   }, [])
+
+  const handleUpdatePassword = useCallback(async () => {
+    if (password !== passwordConfirm) {
+      snackbar.error('Passwords do not match')
+      return
+    }
+    if (!password || password.length === 0) {
+      snackbar.error('Password cannot be empty')
+      return
+    }
+    try {
+      await updatePassword.mutateAsync(password)
+      snackbar.success('Password updated successfully')
+      setPassword('')
+      setPasswordConfirm('')
+      setPasswordDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to update password:', error)
+      snackbar.error('Failed to update password')
+    }
+  }, [password, passwordConfirm, updatePassword, snackbar])
 
   const handleSubscribe = useCallback(async () => {
     const result = await api.post(`/api/v1/subscription/new`, undefined, {}, {
@@ -144,11 +179,29 @@ const Account: FC = () => {
     account.token,
   ])
 
+  useEffect(() => {
+    setFullName(account.user?.name || '')
+  }, [account.user?.name])
+
+  const handleFullNameBlur = useCallback(async () => {
+    const currentFullName = account.user?.name || ''
+    if (fullName !== currentFullName && fullName.trim() !== '') {
+      try {
+        await updateAccount.mutateAsync({ full_name: fullName.trim() })
+        snackbar.success('Profile name has been updated')
+      } catch (error) {
+        console.error('Failed to update name:', error)
+        snackbar.error('Failed to update name')
+        setFullName(currentFullName)
+      }
+    }
+  }, [fullName, account.user, updateAccount, snackbar])
+
   if (!account.user || !apiKeys || !account.models || isLoadingServerConfig) {
     return null
   }
 
-  const paymentsActive = serverConfig?.stripe_enabled
+  const paymentsActive = serverConfig?.stripe_enabled && serverConfig?.billing_enabled
   const colSize = paymentsActive ? 6 : 12
 
   const apiKey = apiKeys.length > 0 ? apiKeys[0].key : ''
@@ -163,7 +216,7 @@ export HELIX_API_KEY=${apiKey}
     <Page
       breadcrumbTitle="Account"
     >
-      <Container maxWidth="lg" sx={{ mb: 4}}>
+      <Container maxWidth="lg" sx={{ mb: 4 }}>
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
             <Typography variant="h4" gutterBottom sx={{ mt: 4 }}></Typography>
@@ -181,8 +234,9 @@ export HELIX_API_KEY=${apiKey}
               </Grid>
             </Grid>
 
-            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
-              {paymentsActive && (
+            {paymentsActive && (
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+
                 <>
                   <Grid item xs={12} md={colSize}>
                     <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
@@ -236,7 +290,7 @@ export HELIX_API_KEY=${apiKey}
                               <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
                               <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
                             </Box>
-                            <Box sx={{ display: 'flex',  mb: 1,justifyContent: 'flex-end' }}>
+                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
                               <Button variant="outlined" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
                                 Manage Subscription
                               </Button>
@@ -259,21 +313,60 @@ export HELIX_API_KEY=${apiKey}
                       </Box>
                     </Box>
                   </Grid></>
-              )}
+              </Grid>
+            )}
+
+            {/* Full Name Update */}
+            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="h6" gutterBottom>Full Name</Typography>
+                  <form autoComplete="off" style={{ width: '50%' }}>
+                    <TextField
+                      fullWidth
+                      value={fullName}
+                      autoComplete="name"
+                      data-form-type="other"
+                      onChange={(e) => setFullName(e.target.value)}
+                      onBlur={handleFullNameBlur}
+                      variant="outlined"
+                      disabled={updateAccount.isPending}
+                    />
+                  </form>
+                </Box>
+              </Grid>
             </Grid>
+
+            {/* Password Update */}
+            {serverConfig?.auth_provider === TypesAuthProvider.AuthProviderRegular && (
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="h6" gutterBottom>Update Password</Typography>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => setPasswordDialogOpen(true)}
+                    >
+                      Update Password
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
+            )}
 
             {/* API keys setup */}
             <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
               <Grid item xs={12}>
                 {/* <Typography variant="h4" gutterBottom>API Keys</Typography> */}
-                
+
                 {/* API Key Display */}
                 <Box sx={{ mb: 3 }}>
                   <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>API Key</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Specify your key as a header 'Authorization: Bearer &lt;token&gt;' with every request
                   </Typography>
-                  
+
                   {apiKeys && apiKeys.length > 0 ? (
                     apiKeys.map((apiKey) => (
                       <Box key={apiKey.key} sx={{ mb: 2 }}>
@@ -302,7 +395,7 @@ export HELIX_API_KEY=${apiKey}
                                 </IconButton>
                                 <IconButton
                                   onClick={() => handleRegenerateApiKey(apiKey.key || '')}
-                                  edge="end"                                  
+                                  edge="end"
                                 >
                                   <RefreshIcon />
                                 </IconButton>
@@ -327,7 +420,7 @@ export HELIX_API_KEY=${apiKey}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Install the Helix CLI to interact with the API from your terminal
                   </Typography>
-                  
+
                   <Box sx={{ position: 'relative' }}>
                     <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
                       <Button
@@ -364,7 +457,7 @@ export HELIX_API_KEY=${apiKey}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Set your authentication credentials for the CLI
                   </Typography>
-                  
+
                   {apiKeys && apiKeys.length > 0 ? (
                     apiKeys.map((apiKey) => (
                       <Box key={apiKey.key} sx={{ position: 'relative' }}>
@@ -405,30 +498,126 @@ export HELIX_API_KEY=${apiKey}
                   )}
                 </Box>
               </Grid>
-            </Grid>
+            </Grid>                    
+
           </Box>
         </Box>
       </Container>
 
       {/* Footer */}
       <Box
-          component="footer"
+        component="footer"
+        sx={{
+          py: 2,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+        }}
+      >
+        <Typography
           sx={{
-            py: 2,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+            fontSize: '0.8rem',
           }}
         >
-          <Typography
-            sx={{              
-              fontSize: '0.8rem',
-            }}
-          >
-            {/* TODO: Add footer text, maybe helix version */}
+          {/* TODO: Add footer text, maybe helix version */}
+        </Typography>
+      </Box>
+
+      {/* Password Update Dialog */}
+      <DarkDialog
+        open={passwordDialogOpen}
+        onClose={() => {
+          setPasswordDialogOpen(false)
+          setPassword('')
+          setPasswordConfirm('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" component="div">
+            Update Password
           </Typography>
-        </Box>
+          <IconButton
+            aria-label="close"
+            onClick={() => {
+              setPasswordDialogOpen(false)
+              setPassword('')
+              setPasswordConfirm('')
+            }}
+            sx={{ color: '#A0AEC0' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              fullWidth
+              label="New Password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              variant="outlined"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <TextField
+              fullWidth
+              label="Confirm Password"
+              type={showPasswordConfirm ? 'text' : 'password'}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              variant="outlined"
+              error={password !== '' && passwordConfirm !== '' && password !== passwordConfirm}
+              helperText={password !== '' && passwordConfirm !== '' && password !== passwordConfirm ? 'Passwords do not match' : ''}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
+                      edge="end"
+                    >
+                      {showPasswordConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              setPasswordDialogOpen(false)
+              setPassword('')
+              setPasswordConfirm('')
+            }}
+            disabled={updatePassword.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleUpdatePassword}
+            disabled={updatePassword.isPending || !password || !passwordConfirm || password !== passwordConfirm}
+          >
+            {updatePassword.isPending ? 'Updating...' : 'Update Password'}
+          </Button>
+        </DialogActions>
+      </DarkDialog>
 
       {/* Regenerate API Key Confirmation Dialog */}
       <Dialog
@@ -440,7 +629,7 @@ export HELIX_API_KEY=${apiKey}
         <DialogTitle>Regenerate API Key</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to regenerate your API key? This will invalidate the current key and create a new one. 
+            Are you sure you want to regenerate your API key? This will invalidate the current key and create a new one.
             Any applications or scripts using the current key will need to be updated with the new key.
           </DialogContentText>
         </DialogContent>
@@ -448,16 +637,17 @@ export HELIX_API_KEY=${apiKey}
           <Button onClick={handleCancelRegenerate} disabled={regenerateApiKey.isPending}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleConfirmRegenerate} 
-            color="error" 
-            variant="contained" 
+          <Button
+            onClick={handleConfirmRegenerate}
+            color="error"
+            variant="contained"
             disabled={regenerateApiKey.isPending}
           >
             {regenerateApiKey.isPending ? 'Regenerating...' : 'Regenerate Key'}
           </Button>
         </DialogActions>
       </Dialog>
+
     </Page>
   )
 }

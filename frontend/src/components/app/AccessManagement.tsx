@@ -27,17 +27,17 @@ import GroupsIcon from '@mui/icons-material/Groups'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
-import { IAccessGrant, CreateAccessGrantRequest, IRole } from '../../types'
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesRole } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
 import useTheme from '@mui/material/styles/useTheme'
 
 interface AccessManagementProps {
   appId: string;
-  accessGrants: IAccessGrant[];
+  accessGrants: TypesAccessGrant[];
   isLoading: boolean;
   isReadOnly: boolean;
-  onCreateGrant: (request: CreateAccessGrantRequest) => Promise<IAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 
@@ -122,7 +122,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const handleCreateTeamGrant = async () => {
     if (!selectedTeamId) return;
     
-    const request: CreateAccessGrantRequest = {
+    const request: TypesCreateAccessGrantRequest = {
       roles: [selectedRole],
       team_id: selectedTeamId
     };
@@ -139,7 +139,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     const user = members.find(m => m.id === selectedUserId);
     if (!user) return;
     
-    const request: CreateAccessGrantRequest = {
+    const request: TypesCreateAccessGrantRequest = {
       roles: [selectedRole],
       user_reference: user.email
     };

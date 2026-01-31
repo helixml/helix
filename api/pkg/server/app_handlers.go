@@ -18,6 +18,7 @@ import (
 
 	"encoding/base64"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -98,7 +99,8 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			Str("assistant_name", assistant.Name).
 			Str("original_provider", assistant.Provider).
 			Str("original_model", assistant.Model).
-			Bool("agent_mode", assistant.AgentMode).
+			Str("agent_type", string(assistant.GetAgentType())).
+			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Processing assistant for model substitution")
 
 		// Helper function to apply substitution for a provider/model pair
@@ -169,7 +171,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			func(m string) { assistant.Model = m })
 
 		// Agent mode model fields
-		if assistant.AgentMode {
+		if assistant.IsAgentMode() {
 			// Reasoning model
 			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
 				func(p string) { assistant.ReasoningModelProvider = p },
@@ -544,7 +546,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
-			err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
+			err = tools.ValidateTool(user.ID, assistant, tool, s.oauthManager, s.Controller.ToolsPlanner, s.mcpClientGetter, true)
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}
@@ -653,17 +655,18 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("assistant_name", assistant.Name).
 			Str("provider", assistant.Provider).
 			Str("model", assistant.Model).
-			Bool("agent_mode", assistant.AgentMode).
+			Str("agent_type", string(assistant.GetAgentType())).
+			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Validating individual assistant")
 
 		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.AgentMode)
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())
 		if err != nil {
 			return err
 		}
 
 		// If in agent mode, validate all agent mode model fields
-		if assistant.AgentMode {
+		if assistant.IsAgentMode() {
 			// Validate reasoning model
 			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
 			if err != nil {
@@ -1050,7 +1053,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
-			err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
+			err = tools.ValidateTool(user.ID, assistant, tool, s.oauthManager, s.Controller.ToolsPlanner, s.mcpClientGetter, true)
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}
@@ -1959,4 +1962,142 @@ func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, bas
 		Msg("Successfully extracted file from zip")
 
 	return nil
+}
+
+// duplicateApp godoc
+// @Summary Duplicate app
+// @Description duplicate app.
+// @Tags    apps
+
+// @Success 200
+// @Param id path string true "App ID"
+// @Param name query string false "Optional new name for the app"
+// @Router /api/v1/apps/{id}/duplicate [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	app.ID = system.GenerateAppID()
+	app.Owner = user.ID
+	app.OwnerType = user.Type
+	app.Updated = time.Now()
+
+	app.Config.Helix.Name = r.URL.Query().Get("name")
+
+	app, err = s.Store.CreateApp(r.Context(), app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return app, nil
+}
+
+// listAppMemories godoc
+// @Summary List app memories
+// @Description List memories for a specific app and user
+// @Tags    memories
+// @Produce json
+// @Success 200 {array} types.Memory
+// @Router /api/v1/apps/{id}/memories [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listAppMemories(_ http.ResponseWriter, r *http.Request) ([]*types.Memory, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	// Get the app to verify it exists and authorize access
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("App not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Authorize user to access the app
+	if err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403("You do not have access to this app")
+	}
+
+	// List memories for the user and app
+	memories, err := s.Store.ListMemories(r.Context(), &types.ListMemoryRequest{
+		UserID: user.ID,
+		AppID:  appID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return memories, nil
+}
+
+// deleteAppMemory godoc
+// @Summary Delete app memory
+// @Description Delete a specific memory for an app and user
+// @Tags    memories
+// @Produce json
+// @Success 200
+// @Param id path string true "App ID"
+// @Param memory_id path string true "Memory ID"
+// @Router /api/v1/apps/{id}/memories/{memory_id} [delete]
+// @Security BearerAuth
+func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request) (*types.Memory, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	// Extract memory ID from the URL path
+	memoryID := mux.Vars(r)["memory_id"]
+
+	// Get the app to verify it exists and authorize access
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("App not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Authorize user to access the app
+	if err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403("You do not have permission to delete memories for this app")
+	}
+
+	// Delete the memory
+	err = s.Store.DeleteMemory(r.Context(), &types.Memory{
+		ID:     memoryID,
+		UserID: user.ID,
+		AppID:  appID,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("app_id", appID).
+			Str("memory_id", memoryID).
+			Msg("Failed to delete memory")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("app_id", appID).
+		Str("memory_id", memoryID).
+		Msg("Successfully deleted memory")
+
+	return &types.Memory{
+		ID: memoryID,
+	}, nil
 }

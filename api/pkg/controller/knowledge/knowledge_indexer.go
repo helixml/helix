@@ -580,19 +580,8 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 							Str("source_url", sourceURL).
 							Msg("Found source_url in metadata")
 					}
-				} else {
-					log.Info().
-						Str("knowledge_id", k.ID).
-						Str("metadata_file", metadataFilePath).
-						Msg("No metadata found for file")
 				}
 			}
-		} else {
-			log.Info().
-				Str("knowledge_id", k.ID).
-				Str("chunk_filename", chunk.Filename).
-				Interface("metadata", metadata).
-				Msg("Chunk already has metadata")
 		}
 
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{

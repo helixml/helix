@@ -3,24 +3,34 @@ package auth
 import (
 	"context"
 
-	"github.com/coreos/go-oidc"
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+//go:generate mockgen -source auth.go -destination mock.go -package auth
+
 type Authenticator interface {
 	GetUserByID(ctx context.Context, userID string) (*types.User, error)
-	ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error)
-}
+	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
+	UpdatePassword(ctx context.Context, userID, newPassword string) error
+	ValidatePassword(ctx context.Context, user *types.User, password string) error
 
-type AuthenticatorOIDC interface {
+	// ValidateUserToken validates an access token and returns the user.
+	// For OIDC mode, this uses the OIDC client.
+	// For regular auth, this validates cookies/JWT.
 	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
+
+	GenerateUserToken(ctx context.Context, user *types.User) (string, error)
+
+	RequestPasswordReset(ctx context.Context, email string) error
+	PasswordResetComplete(ctx context.Context, token, newPassword string) error
 }
 
 type OIDC interface {
-	AuthenticatorOIDC
+	// AuthenticatorOIDC
+	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
 	GetAuthURL(state, nonce string) string
 	Exchange(ctx context.Context, code string) (*oauth2.Token, error)
 	VerifyIDToken(ctx context.Context, token *oauth2.Token) (*oidc.IDToken, error)

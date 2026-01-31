@@ -1,40 +1,28 @@
 ---
-description: 
+description: Generated API client usage
 globs: frontend/*
 alwaysApply: false
 ---
-## Using generated HTTP API client
+**MANDATORY: Use generated TypeScript client + React Query**
 
-Always use generated typescript client when communicating with the backend. Under no circumstances write custom API functions within components/hooks such as:
-
-```
-const url = `/api/v1/skills${queryString ? `?${queryString}` : ''}`;
+```typescript
+// ❌ WRONG: Manual API calls
+const url = `/api/v1/skills${queryString}`;
 const response = await api.get<BackendSkillsListResponse>(url);
-return response;
-```
 
-Always use the generated client by:
-
-```
-import useApi from './useApi';
-
-...
-
+// ✅ CORRECT: Generated client
 const api = useApi();
 const apiClient = api.getApiClient();
 
 return useQuery({
-    queryKey: skillListQuery(category, provider),
-    queryFn: () => apiClient.v1SkillsList({ category, provider }),    
-    refetchInterval: options?.refetchInterval
-  })
+  queryKey: skillListQuery(category, provider),
+  queryFn: () => apiClient.v1SkillsList({ category, provider }),
+  refetchInterval: options?.refetchInterval
+})
 ```
 
-If you can't find the correct function on the API client (`const apiClient = api.getApiClient();`) then it's probably missing and we need to add it in the backend or it's missing the doc string and that's why it wasn't generated. Once doc string in the Go backend is added, run `./stack update_openapi` command to regenerate the API client.
+**Missing function?** Add Swagger annotations in Go backend, then: `./stack update_openapi`
 
-## Adding new react-query hooks
-
-All API calls must use react-query together with the generated API client. They should be placed in appropriate file `frontend/srv/service/<resource type>Service.ts`, for example:
-
-- oauth provider related react-query functions go into `oauthProvidersService.ts`
-- app related react-query functions go into `appService.ts`
+**React Query hooks location:** `frontend/src/service/<resource>Service.ts`
+- OAuth providers → `oauthProvidersService.ts`
+- Apps → `appService.ts`

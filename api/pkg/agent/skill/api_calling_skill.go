@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
@@ -16,7 +17,7 @@ import (
 // NewAPICallingSkillWithReasoning converts an API tool into a list of API calling tools for the
 // agent to use. It converts into a list of tools because the API tool can have multiple
 // actions (each API path is an action).
-func NewAPICallingSkillWithReasoning(planner tools.Planner, tool *types.Tool) agent.Skill {
+func NewAPICallingSkillWithReasoning(planner tools.Planner, oauthManager *oauth.Manager, tool *types.Tool) agent.Skill {
 	var skillTools []agent.Tool
 	for _, action := range tool.Config.API.Actions {
 		parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)
@@ -40,6 +41,7 @@ func NewAPICallingSkillWithReasoning(planner tools.Planner, tool *types.Tool) ag
 			action:           action,
 			parameters:       parameters,
 			planner:          planner,
+			oauthManager:     oauthManager,
 			parameterNameMap: parameterNameMap,
 		})
 	}
@@ -55,7 +57,7 @@ func NewAPICallingSkillWithReasoning(planner tools.Planner, tool *types.Tool) ag
 // NewDirectAPICallingSkills converts an API tool into multiple direct skills, one per API action.
 // This allows the main agent to orchestrate API calls alongside other tools (like Calculator, Currency_Exchange_Rates)
 // instead of having an inner skill context runner try to coordinate everything.
-func NewDirectAPICallingSkills(planner tools.Planner, tool *types.Tool) []agent.Skill {
+func NewDirectAPICallingSkills(planner tools.Planner, oauthManager *oauth.Manager, tool *types.Tool) []agent.Skill {
 	var skills []agent.Skill
 
 	for _, action := range tool.Config.API.Actions {
@@ -80,6 +82,7 @@ func NewDirectAPICallingSkills(planner tools.Planner, tool *types.Tool) []agent.
 			action:           action,
 			parameters:       parameters,
 			planner:          planner,
+			oauthManager:     oauthManager,
 			parameterNameMap: parameterNameMap,
 		}
 
@@ -216,6 +219,7 @@ type APICallingTool struct {
 	action           *types.ToolAPIAction
 	parameters       []*tools.Parameter
 	planner          tools.Planner
+	oauthManager     *oauth.Manager
 	parameterNameMap map[string]string
 }
 
@@ -301,34 +305,24 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[
 	if t.tool.Config.API != nil && t.tool.Config.API.OAuthProvider != "" {
 		req.OAuthTokens = make(map[string]string)
 
-		// Try to get OAuth token for this provider from the planner
-		// This requires the planner to have OAuth manager functionality
-		if toolsPlanner, ok := t.planner.(interface {
-			GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error)
-		}); ok {
-			// Try to get OAuth token for the provider
-			token, err := toolsPlanner.GetTokenForApp(ctx, meta.UserID, t.tool.Config.API.OAuthProvider)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("tool_name", t.toolName).
-					Str("user_id", meta.UserID).
-					Str("oauth_provider", t.tool.Config.API.OAuthProvider).
-					Msg("Failed to get OAuth token for API tool")
-			} else if token != "" {
-				req.OAuthTokens[t.tool.Config.API.OAuthProvider] = token
-				log.Info().
-					Str("tool_name", t.toolName).
-					Str("user_id", meta.UserID).
-					Str("oauth_provider", t.tool.Config.API.OAuthProvider).
-					Str("token_prefix", token[:min(len(token), 10)]+"...").
-					Msg("Successfully retrieved OAuth token for API tool")
-			}
-		} else {
-			log.Debug().
+		// Try to get OAuth token for the provider with required scopes
+		token, err := t.oauthManager.GetTokenForTool(ctx, meta.UserID, t.tool.Config.API.OAuthProvider, t.tool.Config.API.OAuthScopes)
+		if err != nil {
+			log.Warn().
+				Err(err).
 				Str("tool_name", t.toolName).
+				Str("user_id", meta.UserID).
 				Str("oauth_provider", t.tool.Config.API.OAuthProvider).
-				Msg("Planner does not support OAuth token retrieval")
+				Strs("required_scopes", t.tool.Config.API.OAuthScopes).
+				Msg("Failed to get OAuth token for API tool")
+		} else if token != "" {
+			req.OAuthTokens[t.tool.Config.API.OAuthProvider] = token
+			log.Info().
+				Str("tool_name", t.toolName).
+				Str("user_id", meta.UserID).
+				Str("oauth_provider", t.tool.Config.API.OAuthProvider).
+				Str("token_prefix", token[:min(len(token), 10)]+"...").
+				Msg("Successfully retrieved OAuth token for API tool")
 		}
 	}
 

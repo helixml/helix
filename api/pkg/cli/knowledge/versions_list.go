@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
 )
 
@@ -39,23 +39,7 @@ var versionsListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list knowledge versions: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"ID", "Created", "State", "Message", "Version", "Size"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Created", "State", "Message", "Version", "Size"})
 
 		for _, v := range versions {
 			row := []string{
@@ -67,10 +51,10 @@ var versionsListCmd = &cobra.Command{
 				humanize.Bytes(uint64(v.Size)),
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 
 		return nil
 	},

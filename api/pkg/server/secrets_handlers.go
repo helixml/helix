@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // listSecrets godoc
@@ -63,9 +68,24 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
+	// Encrypt the secret value before storing
+	encryptionKey, err := s.getEncryptionKey()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get encryption key for secret")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
+	encryptedValue, err := crypto.EncryptAES256GCM([]byte(secretReq.Value), encryptionKey)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt secret value")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
 	secret := &types.Secret{
-		Name:  secretReq.Name,
-		Value: []byte(secretReq.Value),
+		Name:      secretReq.Name,
+		Value:     []byte(encryptedValue),
+		AppID:     secretReq.AppID,
+		ProjectID: secretReq.ProjectID,
 	}
 	secret.Owner = user.ID
 	secret.OwnerType = types.OwnerTypeUser
@@ -116,6 +136,22 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	// Encrypt the secret value if provided
+	if len(secret.Value) > 0 {
+		encryptionKey, err := s.getEncryptionKey()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get encryption key for secret update")
+			return nil, system.NewHTTPError500("Failed to encrypt secret")
+		}
+
+		encryptedValue, err := crypto.EncryptAES256GCM(secret.Value, encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encrypt secret value")
+			return nil, system.NewHTTPError500("Failed to encrypt secret")
+		}
+		secret.Value = []byte(encryptedValue)
 	}
 
 	secret.ID = id
@@ -177,4 +213,161 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 	existing.Value = nil
 
 	return existing, nil
+}
+
+// listProjectSecrets godoc
+// @Summary List secrets for a project
+// @Description List all secrets associated with a specific project.
+// @Tags    secrets
+// @Param   id path string true "Project ID"
+// @Success 200 {array} types.Secret
+// @Router /api/v1/projects/{id}/secrets [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Request) ([]*types.Secret, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	projectID := mux.Vars(r)["id"]
+	if projectID == "" {
+		return nil, system.NewHTTPError400("project ID required")
+	}
+
+	// Verify user has access to the project
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("Project not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Check if user owns the project (or is in the org)
+	if project.UserID != user.ID {
+		return nil, system.NewHTTPError403("Access denied")
+	}
+
+	secrets, err := s.Store.ListProjectSecrets(ctx, projectID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Remove the values from the secrets (don't expose encrypted data)
+	for idx, secret := range secrets {
+		secret.Value = nil
+		secrets[idx] = secret
+	}
+
+	return secrets, nil
+}
+
+// createProjectSecret godoc
+// @Summary Create a secret for a project
+// @Description Create a new secret associated with a specific project. The secret will be injected as an environment variable in project sessions.
+// @Tags    secrets
+// @Param   id path string true "Project ID"
+// @Param   request body types.CreateSecretRequest true "Request body with secret name and value."
+// @Success 200 {object} types.Secret
+// @Router /api/v1/projects/{id}/secrets [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Request) (*types.Secret, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	projectID := mux.Vars(r)["id"]
+	if projectID == "" {
+		return nil, system.NewHTTPError400("project ID required")
+	}
+
+	// Verify user has access to the project
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("Project not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if project.UserID != user.ID {
+		return nil, system.NewHTTPError403("Access denied")
+	}
+
+	var secretReq types.CreateSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	// Encrypt the secret value before storing
+	encryptionKey, err := s.getEncryptionKey()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get encryption key for project secret")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
+	encryptedValue, err := crypto.EncryptAES256GCM([]byte(secretReq.Value), encryptionKey)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt project secret value")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
+	secret := &types.Secret{
+		Name:      secretReq.Name,
+		Value:     []byte(encryptedValue),
+		ProjectID: projectID, // Associate with project
+	}
+	secret.Owner = user.ID
+	secret.OwnerType = types.OwnerTypeUser
+
+	createdSecret, err := s.Store.CreateSecret(ctx, secret)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Remove the value from the response
+	createdSecret.Value = nil
+
+	return createdSecret, nil
+}
+
+// GetProjectSecretsAsEnvVars retrieves project secrets and returns them as environment variables
+// This is used to inject secrets into desktop container environments
+func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string) ([]string, error) {
+	if projectID == "" {
+		return nil, nil
+	}
+
+	secrets, err := s.Store.ListProjectSecrets(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project secrets: %w", err)
+	}
+
+	if len(secrets) == 0 {
+		return nil, nil
+	}
+
+	encryptionKey, err := s.getEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get encryption key: %w", err)
+	}
+
+	var envVars []string
+	for _, secret := range secrets {
+		// Decrypt the secret value
+		decrypted, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
+		if err != nil {
+			log.Warn().Err(err).Str("secret_name", secret.Name).Msg("Failed to decrypt project secret, skipping")
+			continue
+		}
+
+		// Use the secret name as the env var name (uppercase, replace - with _)
+		envVars = append(envVars, fmt.Sprintf("%s=%s", secret.Name, string(decrypted)))
+		log.Debug().Str("name", secret.Name).Str("project_id", projectID).Msg("Injecting project secret as env var")
+	}
+
+	return envVars, nil
 }

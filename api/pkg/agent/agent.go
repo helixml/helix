@@ -156,7 +156,12 @@ func (a *Agent) StopTool() openai.Tool {
 			Description: `Request a stop after tool execution when one of the below is true
 1. You have answer for user request
 2. You have completed the task
-3. You don't know what to do next with the given tools or information`,
+3. You don't know what to do next with the given tools or information
+
+IMPORTANT: do not say that you are calling 'stop' tool, just call it and potentially answer the question. Examples:
+
+BAD: I will use the stop tool now because I have answered the user's question.
+GOOD: I have already answered your question.`,
 			Parameters: jsonschema.Definition{
 				Type: jsonschema.Object,
 				Properties: map[string]jsonschema.Definition{

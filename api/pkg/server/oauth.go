@@ -8,6 +8,10 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/github"
+	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/sharepoint"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -29,9 +33,13 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 	r.HandleFunc("/oauth/connections/{id}", system.DefaultWrapper(s.handleDeleteOAuthConnection)).Methods("DELETE")
 	r.HandleFunc("/oauth/connections/{id}/refresh", system.DefaultWrapper(s.handleRefreshOAuthConnection)).Methods("POST")
 	r.HandleFunc("/oauth/connections/{id}/test", system.DefaultWrapper(s.handleTestOAuthConnection)).Methods("GET")
+	r.HandleFunc("/oauth/connections/{id}/repositories", system.DefaultWrapper(s.handleListOAuthConnectionRepositories)).Methods("GET")
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
 	r.HandleFunc("/oauth/flow/start/{provider_id}", system.DefaultWrapper(s.handleStartOAuthFlow)).Methods("GET")
+
+	// SharePoint helper routes
+	r.HandleFunc("/oauth/sharepoint/resolve-site", system.DefaultWrapper(s.handleResolveSharePointSite)).Methods("POST")
 }
 
 // handleListOAuthProviders returns the list of available OAuth providers
@@ -193,8 +201,30 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 		log.Debug().Str("redirect_url", redirectURL).Msg("Using provided redirect URL")
 	}
 
+	// Get optional scopes - consumer specifies exactly what scopes they need
+	// Scopes should be provided by the caller (from skill YAML, app config, etc.)
+	scopesParam := r.URL.Query().Get("scopes")
+	var scopes []string
+	if scopesParam != "" {
+		scopes = strings.Split(scopesParam, ",")
+		for i, s := range scopes {
+			scopes[i] = strings.TrimSpace(s)
+		}
+		log.Debug().Strs("scopes", scopes).Msg("Using consumer-specified scopes")
+	}
+
+	// Get optional metadata for provider-specific data (e.g., organization_url for Azure DevOps)
+	organizationURL := r.URL.Query().Get("organization_url")
+	var metadata string
+	if organizationURL != "" {
+		metadataMap := map[string]string{"organization_url": organizationURL}
+		metadataBytes, _ := json.Marshal(metadataMap)
+		metadata = string(metadataBytes)
+		log.Debug().Str("organization_url", organizationURL).Msg("Using provided organization URL for OAuth")
+	}
+
 	// Start the OAuth flow
-	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL)
+	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL, metadata, scopes)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", user.ID).Msg("Failed to start OAuth flow")
 		return nil, fmt.Errorf("error starting OAuth flow: %w", err)
@@ -543,7 +573,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
@@ -576,7 +605,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<div class="icon">&#10004;</div>
 		<h1>Connection Successful</h1>
 		<p>You have successfully connected to %s.</p>
-		<p>This window will close automatically in a few seconds.</p>
+		<p>You can now close this window.</p>
 		<script>
 			// Send a message to the opener window
 			window.opener && window.opener.postMessage({
@@ -584,9 +613,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 				connectionId: '%s',
 				providerId: '%s'
 			}, '*');
-			
-			// Close this window automatically after a short delay
-			setTimeout(() => window.close(), 2000);
 		</script>
 	</body></html>`, providerName, connection.ID, requestToken.ProviderID)
 
@@ -662,4 +688,263 @@ func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *htt
 			Message: "Connection is valid but testing is not implemented for this provider type",
 		}, nil
 	}
+}
+
+// SharePointSiteResolveRequest is the request body for resolving a SharePoint site URL
+type SharePointSiteResolveRequest struct {
+	SiteURL    string `json:"site_url"`
+	ProviderID string `json:"provider_id"`
+}
+
+// SharePointSiteResolveResponse is the response for resolving a SharePoint site URL
+type SharePointSiteResolveResponse struct {
+	SiteID      string `json:"site_id"`
+	DisplayName string `json:"display_name"`
+	WebURL      string `json:"web_url"`
+}
+
+// handleResolveSharePointSite resolves a SharePoint site URL to a site ID
+// resolveSharePointSite godoc
+// @Summary Resolve SharePoint site URL to site ID
+// @Description Resolve a SharePoint site URL to its site ID using Microsoft Graph API
+// @Tags    oauth
+// @Accept  json
+// @Produce json
+// @Param   request body SharePointSiteResolveRequest true "Request body with site URL and provider ID"
+// @Success 200 {object} SharePointSiteResolveResponse
+// @Router /api/v1/oauth/sharepoint/resolve-site [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) handleResolveSharePointSite(_ http.ResponseWriter, r *http.Request) (*SharePointSiteResolveResponse, error) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+
+	// Parse request body
+	var req SharePointSiteResolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	// Validate request
+	if req.SiteURL == "" {
+		return nil, fmt.Errorf("site_url is required")
+	}
+	if req.ProviderID == "" {
+		return nil, fmt.Errorf("provider_id is required")
+	}
+
+	// Validate URL format
+	if !strings.Contains(req.SiteURL, "sharepoint.com") {
+		return nil, fmt.Errorf("invalid SharePoint URL: must be a sharepoint.com URL (e.g., https://contoso.sharepoint.com/sites/MySite)")
+	}
+
+	// Get the OAuth connection for the user and provider
+	connection, err := s.oauthManager.GetConnection(ctx, user.ID, req.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth connection: %w (have you connected to this OAuth provider?)", err)
+	}
+
+	// Create SharePoint client with the access token
+	spClient := sharepoint.NewClient(connection.AccessToken, s.Cfg.Tools.TLSSkipVerify)
+
+	// Resolve the site URL to a site object
+	site, err := spClient.GetSiteByURL(ctx, req.SiteURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve SharePoint site: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("site_url", req.SiteURL).
+		Str("site_id", site.ID).
+		Str("site_name", site.DisplayName).
+		Msg("Resolved SharePoint site URL to site ID")
+
+	return &SharePointSiteResolveResponse{
+		SiteID:      site.ID,
+		DisplayName: site.DisplayName,
+		WebURL:      site.WebURL,
+	}, nil
+}
+
+// handleListOAuthConnectionRepositories lists repositories accessible via an OAuth connection
+// listOAuthConnectionRepositories godoc
+// @Summary List repositories from an OAuth connection
+// @Description List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)
+// @Tags    oauth
+// @Produce json
+// @Param   id path string true "Connection ID"
+// @Success 200 {object} types.ListOAuthRepositoriesResponse
+// @Router /api/v1/oauth/connections/{id}/repositories [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWriter, r *http.Request) (*types.ListOAuthRepositoriesResponse, error) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+
+	// Get the connection ID from the URL
+	vars := mux.Vars(r)
+	connectionID := vars["id"]
+	if connectionID == "" {
+		return nil, fmt.Errorf("connection ID is required")
+	}
+
+	// Get the connection from the database
+	connection, err := s.Store.GetOAuthConnection(ctx, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	// Check if the connection belongs to the user
+	if connection.UserID != user.ID && !user.Admin {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	// Get the provider to determine the type
+	provider, err := s.Store.GetOAuthProvider(ctx, connection.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider: %w", err)
+	}
+
+	var repos []types.RepositoryInfo
+
+	switch provider.Type {
+	case types.OAuthProviderTypeGitHub:
+		// For GitHub Enterprise, extract base URL from AuthURL
+		// AuthURL format: https://github.example.com/login/oauth/authorize
+		baseURL := ""
+		if provider.AuthURL != "" && !strings.Contains(provider.AuthURL, "github.com") {
+			// Extract base URL from AuthURL (remove /login/oauth/authorize path)
+			baseURL = strings.TrimSuffix(provider.AuthURL, "/login/oauth/authorize")
+		}
+
+		ghClient := github.NewClientWithOAuthAndBaseURL(connection.AccessToken, baseURL)
+		ghRepos, err := ghClient.ListRepositories(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)
+		}
+
+		for _, repo := range ghRepos {
+			repos = append(repos, types.RepositoryInfo{
+				Name:          repo.GetName(),
+				FullName:      repo.GetFullName(),
+				CloneURL:      repo.GetCloneURL(),
+				HTMLURL:       repo.GetHTMLURL(),
+				Description:   repo.GetDescription(),
+				Private:       repo.GetPrivate(),
+				DefaultBranch: repo.GetDefaultBranch(),
+			})
+		}
+
+	case types.OAuthProviderTypeGitLab:
+		// For self-hosted GitLab, extract base URL from AuthURL
+		// AuthURL format: https://gitlab.example.com/oauth/authorize
+		baseURL := ""
+		if provider.AuthURL != "" && !strings.Contains(provider.AuthURL, "gitlab.com") {
+			// Extract base URL from AuthURL (remove /oauth/authorize path)
+			baseURL = strings.TrimSuffix(provider.AuthURL, "/oauth/authorize")
+		}
+
+		glClient, err := gitlab.NewClientWithOAuth(baseURL, connection.AccessToken)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GitLab client: %w", err)
+		}
+
+		glProjects, err := glClient.ListProjects(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list GitLab projects: %w", err)
+		}
+
+		for _, project := range glProjects {
+			repos = append(repos, types.RepositoryInfo{
+				Name:          project.Name,
+				FullName:      project.PathWithNamespace,
+				CloneURL:      project.HTTPURLToRepo,
+				HTMLURL:       project.WebURL,
+				Description:   project.Description,
+				Private:       project.Visibility != "public",
+				DefaultBranch: project.DefaultBranch,
+			})
+		}
+
+	case types.OAuthProviderTypeAzureDevOps:
+		// Azure DevOps OAuth uses the access token directly
+		// The organization URL needs to be stored in the provider metadata or derived
+		// For now, we'll try to get it from the provider's AuthURL
+		// AuthURL format: https://app.vssps.visualstudio.com/oauth2/authorize
+		// We need the organization URL which should be stored elsewhere
+
+		// Azure DevOps doesn't store org URL in AuthURL - we need it from connection metadata
+		// For OAuth connections, the organization is typically in the token's audience
+		// As a workaround, we'll return an error for now until we have proper org URL storage
+		if connection.Metadata == "" {
+			return nil, fmt.Errorf("Azure DevOps OAuth connection requires organization URL in metadata")
+		}
+
+		// Try to parse organization URL from metadata (expected format: {"organization_url": "https://dev.azure.com/org"})
+		var metadata map[string]string
+		if err := json.Unmarshal([]byte(connection.Metadata), &metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse connection metadata: %w", err)
+		}
+
+		orgURL, ok := metadata["organization_url"]
+		if !ok || orgURL == "" {
+			return nil, fmt.Errorf("Azure DevOps OAuth connection requires organization_url in metadata")
+		}
+
+		// Create ADO client with OAuth token
+		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken)
+
+		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
+		if err != nil {
+			return nil, fmt.Errorf("failed to list Azure DevOps repositories: %w", err)
+		}
+
+		for _, repo := range adoRepos {
+			name := ""
+			fullName := ""
+			cloneURL := ""
+			htmlURL := ""
+			defaultBranch := ""
+
+			if repo.Name != nil {
+				name = *repo.Name
+			}
+			if repo.Project != nil && repo.Project.Name != nil {
+				fullName = *repo.Project.Name + "/" + name
+			} else {
+				fullName = name
+			}
+			if repo.RemoteUrl != nil {
+				cloneURL = *repo.RemoteUrl
+				htmlURL = *repo.RemoteUrl
+			}
+			if repo.DefaultBranch != nil {
+				// ADO returns "refs/heads/main", we want just "main"
+				defaultBranch = strings.TrimPrefix(*repo.DefaultBranch, "refs/heads/")
+			}
+
+			repos = append(repos, types.RepositoryInfo{
+				Name:          name,
+				FullName:      fullName,
+				CloneURL:      cloneURL,
+				HTMLURL:       htmlURL,
+				Description:   "", // ADO repos don't have description in the basic response
+				Private:       true, // ADO repos are private by default
+				DefaultBranch: defaultBranch,
+			})
+		}
+
+	default:
+		return nil, fmt.Errorf("listing repositories is not supported for provider type: %s", provider.Type)
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("connection_id", connectionID).
+		Str("provider_type", string(provider.Type)).
+		Int("repository_count", len(repos)).
+		Msg("Listed repositories from OAuth connection")
+
+	return &types.ListOAuthRepositoriesResponse{
+		Repositories: repos,
+	}, nil
 }

@@ -46,8 +46,13 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     flatState.image = app.config.helix.image
     flatState.triggers = app.config.helix.triggers || []
     
+    // Extract app-level agent configuration
+    flatState.default_agent_type = app.config.helix.default_agent_type
+    flatState.external_agent_config = app.config.helix.external_agent_config
+    
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
+    
     if (assistant) {
       flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
@@ -62,6 +67,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.top_p = assistant.top_p
 
       flatState.agent_mode = assistant.agent_mode
+      flatState.memory = assistant.memory
       flatState.max_iterations = assistant.max_iterations
       flatState.reasoning_model = assistant.reasoning_model
       flatState.reasoning_model_provider = assistant.reasoning_model_provider
@@ -73,11 +79,13 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.small_reasoning_model_effort = assistant.small_reasoning_model_effort
       flatState.small_generation_model = assistant.small_generation_model
       flatState.small_generation_model_provider = assistant.small_generation_model_provider
-      
+      flatState.code_agent_runtime = assistant.code_agent_runtime
+
       flatState.knowledge = assistant.knowledge || []
       flatState.apiTools = assistant.apis || []
       flatState.zapierTools = assistant.zapier || []
       flatState.gptscriptTools = assistant.gptscripts || []
+      flatState.mcpTools = assistant.mcps || []
       flatState.is_actionable_template = assistant.is_actionable_template
       flatState.is_actionable_history_length = assistant.is_actionable_history_length
       flatState.browserTool = assistant.browser || undefined
@@ -86,6 +94,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.emailTool = assistant.email || undefined
       flatState.tests = assistant.tests || []
       flatState.azureDevOpsTool = assistant.azure_devops || undefined
+      flatState.projectManagerTool = assistant.project_manager || undefined
 
       flatState.tools = assistant.tools || []
     }
@@ -93,6 +102,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
   
   return flatState
 }
+
+
 
 
 /**
@@ -166,12 +177,9 @@ export const validateApp = (app: IApp): string[] => {
   // Validate assistants
   if (!app.config.helix.assistants || app.config.helix.assistants.length === 0) {
     errors.push('At least one assistant is required')
-  } else {
-    const assistant = app.config.helix.assistants[0]
-    if (!assistant.model) {
-      errors.push('Assistant model is required')
-    }
   }
+  // Note: Model is optional - agents can be saved without a model selected initially
+  // and configured later. The model will be required at runtime when starting a session.
 
   errors = errors.concat(validateApiSchemas(app))
   errors = errors.concat(validateKnowledge(app))

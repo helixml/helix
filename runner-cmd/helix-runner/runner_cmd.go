@@ -39,7 +39,9 @@ func newRunnerOptions() *RunnerOptions {
 			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
-			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
+			// Default cache dir: /root/.cache/huggingface in Docker (persistent storage, models baked there)
+			// Falls back to temp dir on non-Linux systems (macOS) where /root doesn't exist
+			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", getDefaultCacheDir()),
 			WebServer: runner.WebServer{
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
 				Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
@@ -157,7 +159,10 @@ func newRunnerCmd() *cobra.Command {
 }
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
+	fmt.Fprintf(os.Stderr, "DEBUG: runnerCLI() called\n")
+	fmt.Fprintf(os.Stderr, "DEBUG: Starting logging setup\n")
 	system.SetupLogging()
+	fmt.Fprintf(os.Stderr, "DEBUG: Logging setup complete\n")
 
 	if options.Runner.APIToken == "" {
 		return fmt.Errorf("api token is required")
@@ -178,20 +183,26 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	defer cancel()
 
 	janitor := janitor.NewJanitor(options.Janitor)
+	fmt.Fprintf(os.Stderr, "DEBUG: About to initialize janitor\n")
 	err = janitor.Initialize()
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Janitor initialized\n")
 
+	fmt.Fprintf(os.Stderr, "DEBUG: About to initialize models cache\n")
 	err = initializeModelsCache(options.Runner.Config)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to initialize models cache")
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Models cache initialized\n")
 
+	fmt.Fprintf(os.Stderr, "DEBUG: About to create runner controller\n")
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Runner controller created successfully\n")
 
 	go runnerController.Run(ctx)
 
@@ -235,6 +246,19 @@ func initializeModelsCache(cfg *config.RunnerConfig) error {
 	}
 
 	return nil
+}
+
+// getDefaultCacheDir returns the appropriate cache directory based on the platform.
+// On Linux (Docker), we use /root/.cache/huggingface which is often bind-mounted
+// as persistent storage and matches where initializeModelsCache copies models.
+// On other platforms (macOS), we use a temp directory to avoid "read-only file system" errors.
+func getDefaultCacheDir() string {
+	// Check if /root exists and is writable (Linux/Docker)
+	if info, err := os.Stat("/root"); err == nil && info.IsDir() {
+		return "/root/.cache/huggingface"
+	}
+	// Fall back to temp directory (macOS, etc.)
+	return os.TempDir()
 }
 
 // Utility functions for environment variable handling

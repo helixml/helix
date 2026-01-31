@@ -22,7 +22,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         mode: mode,
         background: {
-          default: '#23272f',
+          default: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
         },
       },
       typography: {
@@ -34,6 +34,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         MuiCssBaseline: {
           styleOverrides: {
             body: {
+              backgroundColor: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
               '&::-webkit-scrollbar': {
                 width: '4px',
                 borderRadius: '8px',
@@ -67,10 +68,11 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
-        // Adding dark style to the menus
+        // Adding dark style to the menus + high z-index for dialogs
         MuiMenu: {
           styleOverrides: {
             root: {
+              zIndex: 100003, // Above dialogs (z-index 100002)
               '& .MuiMenu-list': {
                 padding: 0,
                 backgroundColor: 'rgba(26, 26, 26, 0.97)',
@@ -110,6 +112,56 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
                 backdropFilter: 'blur(10px)',
                 borderRadius: '10px',
                 boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+              },
+            },
+          },
+        },
+        MuiDialog: {
+          defaultProps: {
+            // Enable 1Password and password manager autofill compatibility
+            disableEnforceFocus: true,
+          },
+          styleOverrides: {
+            paper: {
+              background: '#181A20',
+              color: '#F1F1F1',
+              borderRadius: 16,
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+              transition: 'all 0.2s ease-in-out',
+            },
+            root: {
+              zIndex: 100002, // Above floating windows (z-index 9999) and tooltips (100001)
+              transition: 'all 0.2s ease-in-out',
+            },
+          },
+        },
+        // Ensure tooltips appear above floating windows (z-index 9999) and modals
+        MuiTooltip: {
+          defaultProps: {
+            // Higher z-index ensures tooltips appear above floating windows
+            slotProps: {
+              popper: {
+                sx: {
+                  zIndex: 100001,
+                },
+              },
+            },
+          },
+        },
+        // Ensure popovers (including Select dropdowns) appear above dialogs
+        MuiPopover: {
+          styleOverrides: {
+            root: {
+              zIndex: 100003,
+            },
+          },
+        },
+        // Ensure Select menus appear above dialogs
+        MuiSelect: {
+          defaultProps: {
+            MenuProps: {
+              sx: {
+                zIndex: 100003,
               },
             },
           },

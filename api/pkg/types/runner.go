@@ -51,9 +51,9 @@ type GPUStatus struct {
 	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
 	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
 	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
-	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
-	DriverVersion string `json:"driver_version"` // NVIDIA driver version
-	CUDAVersion   string `json:"cuda_version"`   // CUDA version
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900 XTX")
+	DriverVersion string `json:"driver_version"` // GPU driver version (NVIDIA or AMD)
+	SDKVersion    string `json:"sdk_version"`    // GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
 }
 
 // GPUInfoForEstimation represents GPU information sent from controlplane for memory estimation

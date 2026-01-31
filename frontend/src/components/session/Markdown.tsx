@@ -73,6 +73,9 @@ export class MessageProcessor {
     // Process XML citations
     processedMessage = this.processXmlCitations(processedMessage);
 
+    // Process filter mentions
+    processedMessage = this.processFilterMentions(processedMessage);
+
     // Process document IDs and convert to links
     processedMessage = this.processDocumentIds(processedMessage);
 
@@ -251,6 +254,39 @@ export class MessageProcessor {
         });
       }
     }
+  }
+
+  private processFilterMentions(message: string): string {
+    const filterPattern = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/g;
+    const matches = [...message.matchAll(filterPattern)];
+
+    let processedMessage = message;
+
+    for (const match of matches) {
+      const fullMatch = match[0];
+      const docName = match[1];
+      const docId = match[2];
+
+      const basename = docName.split('/').pop() || docName;
+
+      let fileUrl = "#";
+      if (this.options.session.config?.document_ids) {
+        const docIdsMap = this.options.session.config.document_ids;
+        for (const fname in docIdsMap) {
+          if (docIdsMap[fname] === docId) {
+            const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+            fileUrl = isURL ? fname : this.options.getFileURL(fname);
+            break;
+          }
+        }
+      }
+
+      // TODO: open a sidebar with the PDF itself on click
+      const replacement = `<a href="#" class="filter-mention" title="Document ID: ${docId}">@${basename}</a>`;
+      processedMessage = processedMessage.replace(fullMatch, replacement);
+    }
+
+    return processedMessage;
   }
 
   private processDocumentIds(message: string): string {
@@ -436,11 +472,33 @@ export class MessageProcessor {
       return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
     });
 
+    // Also protect inline code spans
+    const inlineCode: string[] = [];
+    processedMessage = processedMessage.replace(/`([^`]+)`/g, (match) => {
+      inlineCode.push(match);
+      return `__INLINE_CODE_${inlineCode.length - 1}__`;
+    });
+
+    // Escape HTML-like tags that aren't in our allowlist BEFORE DOMPurify
+    // This prevents malformed tags like <svg xmlns="... from breaking rendering
+    const ALLOWED_TAG_NAMES = ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
+    processedMessage = processedMessage.replace(/<(\/?)([\w-]+)/g, (match, slash, tagName) => {
+      if (ALLOWED_TAG_NAMES.includes(tagName.toLowerCase())) {
+        return match; // Keep allowed tags
+      }
+      return `&lt;${slash}${tagName}`; // Escape disallowed tags
+    });
+
     // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
     processedMessage = DOMPurify.sanitize(processedMessage, {
-      ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_TAGS: ALLOWED_TAG_NAMES,
       ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
       ADD_ATTR: ['target']
+    });
+
+    // Restore inline code
+    inlineCode.forEach((code, index) => {
+      processedMessage = processedMessage.replace(`__INLINE_CODE_${index}__`, code);
     });
 
     // Restore code blocks
@@ -659,16 +717,30 @@ const CodeBlockWithCopy: FC<{ children: string; language?: string }> = ({ childr
           </IconButton>
         </Tooltip>
       </Box>
-      <SyntaxHighlighter
-        language={language}
-        style={oneDark}
-        PreTag="div"
+      <Box
+        sx={{
+          overflowY: 'clip',
+          overflowX: 'auto',
+        }}
       >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            overflow: 'visible',
+          }}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </Box>
     </Box>
   );
 };
+
+// Throttle interval for streaming updates (ms)
+const STREAMING_THROTTLE_MS = 150;
 
 // Main component
 const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
@@ -684,17 +756,23 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
   const [thinkingWidgetContent, setThinkingWidgetContent] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!text) {
+  // Throttling refs for streaming performance
+  const throttleTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProcessedTextRef = React.useRef<string>('');
+  const pendingTextRef = React.useRef<string>('');
+
+  // Process content helper
+  const processContent = useCallback((textToProcess: string) => {
+    if (!textToProcess) {
       setProcessedContent('');
       setCitationData(null);
       setThinkingWidgetContent(null);
       return;
     }
-    // Process the message content
+
     let content: string;
     if (session) {
-      const processor = new MessageProcessor(text, {
+      const processor = new MessageProcessor(textToProcess, {
         session,
         getFileURL,
         showBlinker,
@@ -728,21 +806,64 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         setThinkingWidgetContent(null);
       }
     } else {
-      content = processBasicContent(text);
+      content = processBasicContent(textToProcess);
       setCitationData(null);
       setThinkingWidgetContent(null);
     }
     setProcessedContent(content);
-  }, [text, session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
+    lastProcessedTextRef.current = textToProcess;
+  }, [session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
+
+  useEffect(() => {
+    // Store the latest text
+    pendingTextRef.current = text;
+
+    // If not streaming, process immediately
+    if (!isStreaming) {
+      // Clear any pending throttle
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+        throttleTimeoutRef.current = null;
+      }
+      processContent(text);
+      return;
+    }
+
+    // During streaming, throttle updates
+    // If no pending timeout, process immediately and start throttle window
+    if (!throttleTimeoutRef.current) {
+      processContent(text);
+      throttleTimeoutRef.current = setTimeout(() => {
+        throttleTimeoutRef.current = null;
+        // Process any pending text that arrived during throttle window
+        if (pendingTextRef.current !== lastProcessedTextRef.current) {
+          processContent(pendingTextRef.current);
+        }
+      }, STREAMING_THROTTLE_MS);
+    }
+    // If there's already a pending timeout, the text will be processed when it fires
+
+    return () => {
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+        throttleTimeoutRef.current = null;
+      }
+    };
+  }, [text, isStreaming, processContent]);
 
   return (
     <>
       <Box
         sx={{
+          fontSize: '0.9rem',
           '& pre': {
             padding: '1em',
             borderRadius: '4px',
+            // Only allow horizontal scroll (for wide code)
+            // Vertical scroll must go to parent container to prevent "getting stuck"
+            // when scrolling the chat and momentum stops inside a code block
             overflowX: 'auto',
+            overflowY: 'visible',
             position: 'relative',
           },
           '& code': {
@@ -774,6 +895,20 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             textDecoration: 'none',
             '&:hover': {
               backgroundColor: 'rgba(88, 166, 255, 0.3)',
+            }
+          },
+          '& .filter-mention': {
+            color: theme.palette.mode === 'light' ? '#1976d2' : '#58a6ff',
+            backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.08)' : 'rgba(88, 166, 255, 0.15)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            textDecoration: 'none',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.15)' : 'rgba(88, 166, 255, 0.25)',
+              textDecoration: 'none',
             }
           },
           '& table': {

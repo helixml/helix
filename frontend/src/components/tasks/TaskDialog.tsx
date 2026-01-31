@@ -402,7 +402,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
             disabled={isSubmitting || !taskName.trim() || !selectedAgent || !triggers[0].cron?.input}
             startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
           >
-            {isSubmitting ? 'Saving...' : (task ? 'Update Task' : 'Create Task')}
+            {isSubmitting ? 'Saving...' : (task ? 'Save' : 'Create')}
           </Button>
         </Box>
       </DialogActions>

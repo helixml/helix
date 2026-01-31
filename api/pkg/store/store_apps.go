@@ -170,6 +170,12 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 		assistant := &app.Config.Helix.Assistants[i]
 		var tools []*types.Tool
 
+		initializedTools := make(map[string]*types.Tool)
+
+		for _, tool := range assistant.Tools {
+			initializedTools[tool.Name] = tool
+		}
+
 		// Browser is simple, just add it to the tools, nothing to validate for now
 		if assistant.Browser.Enabled {
 			tools = append(tools, &types.Tool{
@@ -181,6 +187,8 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 						Enabled:                assistant.Browser.Enabled,
 						MarkdownPostProcessing: assistant.Browser.MarkdownPostProcessing,
 						ProcessOutput:          assistant.Browser.ProcessOutput,
+						Cache:                  assistant.Browser.Cache,
+						NoBrowser:              assistant.Browser.NoBrowser,
 					},
 				},
 			})
@@ -194,6 +202,20 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 				Config: types.ToolConfig{
 					WebSearch: &types.ToolWebSearchConfig{
 						Enabled: assistant.WebSearch.Enabled,
+					},
+				},
+			})
+		}
+
+		if assistant.ProjectManager.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Project Manager",
+				Description: "Use the project manager to manage Helix projects",
+				ToolType:    types.ToolTypeProjectManager,
+				Config: types.ToolConfig{
+					ProjectManager: &types.ToolProjectManagerConfig{
+						Enabled:   assistant.ProjectManager.Enabled,
+						ProjectID: assistant.ProjectManager.ProjectID,
 					},
 				},
 			})
@@ -265,15 +287,22 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
-		// Convert GPTScripts to Tools
-		for _, script := range assistant.GPTScripts {
+		// Convert MCP to Tools
+		for _, mcp := range assistant.MCPs {
 			tools = append(tools, &types.Tool{
-				Name:        script.Name,
-				Description: script.Description,
-				ToolType:    types.ToolTypeGPTScript,
+				Name:        mcp.Name,
+				Description: mcp.Description,
+				ToolType:    types.ToolTypeMCP,
 				Config: types.ToolConfig{
-					GPTScript: &types.ToolGPTScriptConfig{
-						Script: script.Content,
+					MCP: &types.ToolMCPClientConfig{
+						Name:          mcp.Name,
+						Description:   mcp.Description,
+						URL:           mcp.URL,
+						Transport:     mcp.Transport,
+						Headers:       mcp.Headers,
+						OAuthProvider: mcp.OAuthProvider,
+						OAuthScopes:   mcp.OAuthScopes,
+						Tools:         mcp.Tools,
 					},
 				},
 			})
@@ -308,7 +337,8 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 	// Handle organization_id based on specific conditions
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
-	} else {
+	} else if q.Owner != "" {
+		// Listing for specific user
 		query = query.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
@@ -343,6 +373,9 @@ func setAppDefaults(apps ...*types.App) {
 		if app.Config.Helix.Assistants == nil {
 			app.Config.Helix.Assistants = []types.AssistantConfig{}
 		}
+
+		// Migrate agent types for backward compatibility
+		app.Config.Helix.MigrateAgentTypes()
 
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
@@ -396,6 +429,16 @@ func filterOutEmptyTriggers(triggers []types.Trigger) []types.Trigger {
 		}
 
 		if trigger.Discord != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Crisp != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Teams != nil {
 			filtered = append(filtered, trigger)
 			continue
 		}

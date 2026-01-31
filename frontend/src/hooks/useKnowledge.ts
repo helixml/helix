@@ -7,6 +7,7 @@ import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useAccount from './useAccount'
 import useFilestore from './useFilestore'
+import { getRelativePath } from '../utils/filestore'
 
 export const default_max_depth = 1
 export const default_max_pages = 5
@@ -232,7 +233,17 @@ export const useKnowledge = ({
         }
         return;
       }
-      
+
+      // For SharePoint knowledge, we need site_id and oauth_provider_id
+      if (source.source.sharepoint) {
+        if (!source.source.sharepoint.site_id) {
+          newErrors[`${index}`] = ["A SharePoint Site ID must be specified."];
+        } else if (!source.source.sharepoint.oauth_provider_id) {
+          newErrors[`${index}`] = ["An OAuth provider must be selected for SharePoint."];
+        }
+        return;
+      }
+
       // If none of the above types are specified
       newErrors[`${index}`] = ["Knowledge source type is not properly configured."];
     });
@@ -331,6 +342,12 @@ export const useKnowledge = ({
     if (!uploadPath.startsWith(`apps/${appId}/`)) {
       uploadPath = `apps/${appId}/${uploadPath}`
     }
+    
+    // Remove user prefix from path if config is available and has user_prefix
+    if (filestore.config && filestore.config.user_prefix) {
+      uploadPath = getRelativePath(filestore.config, { path: uploadPath } as IFileStoreItem)
+    }
+    
     console.log(`[useKnowledge] Upload path: ${uploadPath}`)
 
     uploadCancelledRef.current = false

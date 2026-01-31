@@ -292,6 +292,8 @@ func TestNatsStreaming(t *testing.T) {
 		messageCounter := 0
 
 		go func() {
+			// Wait for consumers to be ready before publishing
+			time.Sleep(2 * time.Second)
 			for i := 0; i < 100; i++ {
 				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{
 					"foo": "bar",

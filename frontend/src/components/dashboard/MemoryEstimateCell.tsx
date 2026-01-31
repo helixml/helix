@@ -118,8 +118,7 @@ const MemoryEstimateCell: FC<MemoryEstimateCellProps> = ({ model }) => {
             );
         }
 
-        const estimate = memoryEstimate.estimate;
-        const isCached = memoryEstimate.cached;
+        const estimate = memoryEstimate.estimate;        
 
         if (!estimate) {
             return (
@@ -155,16 +154,6 @@ const MemoryEstimateCell: FC<MemoryEstimateCellProps> = ({ model }) => {
                         </>
                     )}
                 </Box>
-
-                {isCached && (
-                    <Chip
-                        label="Cached"
-                        size="small"
-                        color="success"
-                        variant="outlined"
-                        sx={{ fontSize: "0.6rem", height: "16px" }}
-                    />
-                )}
 
                 <Tooltip
                     title={

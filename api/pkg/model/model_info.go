@@ -140,5 +140,15 @@ func (p *BaseModelInfoProvider) getProvider(baseURL string) (string, bool) {
 		return provider, true
 	}
 
+	// If provider doesn't have /v1 suffix, add it
+	if !strings.HasSuffix(baseURL, "/v1") {
+		baseURL = fmt.Sprintf("%s/v1", baseURL)
+	}
+
+	provider, ok = p.providers[baseURL]
+	if ok {
+		return provider, true
+	}
+
 	return "", false
 }

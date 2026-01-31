@@ -95,10 +95,13 @@ const (
 type WebsocketEventType string
 
 const (
-	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
-	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
-	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
-	WebsocketEventProcessingStepInfo WebsocketEventType = "step_info" // Helix tool use, rag search, etc
+	WebsocketEventSessionUpdate        WebsocketEventType = "session_update"
+	WebsocketEventInteractionUpdate    WebsocketEventType = "interaction_update" // Single interaction update (optimized for streaming)
+	WebsocketEventWorkerTaskResponse   WebsocketEventType = "worker_task_response"
+	WebsocketLLMInferenceResponse      WebsocketEventType = "llm_inference_response"
+	WebsocketEventProcessingStepInfo   WebsocketEventType = "step_info"            // Helix tool use, rag search, etc
+	WebsocketEventCommentResponseChunk WebsocketEventType = "comment_response_chunk" // Streaming agent response to design review comment
+	WebsocketEventCommentResponse      WebsocketEventType = "comment_response"       // Final agent response to design review comment
 )
 
 type WorkerTaskResponseType string
@@ -281,12 +284,11 @@ func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, e
 type TokenType string
 
 const (
-	TokenTypeNone     TokenType = ""
-	TokenTypeRunner   TokenType = "runner"
-	TokenTypeKeycloak TokenType = "keycloak"
-	TokenTypeOIDC     TokenType = "oidc"
-	TokenTypeAPIKey   TokenType = "api_key"
-	TokenTypeSocket   TokenType = "socket"
+	TokenTypeNone   TokenType = ""
+	TokenTypeRunner TokenType = "runner"
+	TokenTypeOIDC   TokenType = "oidc"
+	TokenTypeAPIKey TokenType = "api_key"
+	TokenTypeSocket TokenType = "socket"
 )
 
 type ScriptRunState string

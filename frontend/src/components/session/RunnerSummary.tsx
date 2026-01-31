@@ -218,15 +218,17 @@ const GPUCard: FC<{
             </Box>
         ) : null;
 
-    // Simplify GPU model name for display
+    // Simplify GPU model name for display (vendor-neutral)
     const getSimpleModelName = (fullName: string) => {
         if (!fullName || fullName === "unknown") return "Unknown GPU";
 
-        // Extract key parts: NVIDIA H100, RTX 4090, etc.
+        // Extract key parts: H100, RTX 4090, RX 7900 XTX, etc.
+        // Remove vendor prefix and connection type suffixes
         const name = fullName
-            .replace(/^NVIDIA\s+/, "")
-            .replace(/\s+PCIe.*$/, "")
-            .replace(/\s+SXM.*$/, "");
+            .replace(/^(NVIDIA|AMD|Intel)\s+/, "")  // Remove vendor prefix
+            .replace(/\s+PCIe.*$/, "")               // Remove PCIe details
+            .replace(/\s+SXM.*$/, "")                // Remove SXM details
+            .replace(/^Radeon\s+/, "");              // Remove "Radeon" prefix for AMD
         return name;
     };
 
@@ -261,7 +263,7 @@ const GPUCard: FC<{
                         GPU {gpu.index}
                     </Typography>
                     <Tooltip
-                        title={`${gpu.model_name || "Unknown GPU"} • Driver: ${gpu.driver_version || "unknown"} • CUDA: ${gpu.cuda_version || "unknown"}`}
+                        title={`${gpu.model_name || "Unknown GPU"} • Driver: ${gpu.driver_version || "unknown"} • SDK: ${gpu.sdk_version || "unknown"}`}
                     >
                         <Typography
                             variant="caption"

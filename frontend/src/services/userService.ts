@@ -138,3 +138,30 @@ export function useRegenerateUserAPIKey() {
     },
   })
 }
+
+export function useUpdatePassword() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useMutation({
+    mutationFn: async (newPassword: string) => {
+      await apiClient.v1AuthPasswordUpdateCreate({ new_password: newPassword })
+      return newPassword
+    },
+  })
+}
+
+export function useUpdateAccount() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { full_name?: string }) => {
+      const response = await apiClient.v1AuthUpdateCreate({ full_name: data.full_name })
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user"] })
+    },
+  })
+}
+

@@ -1,0 +1,16 @@
+Your branch cannot be automatically merged because {{ .DefaultBranch }} has diverged.
+
+Please update your branch to include the latest changes from {{ .DefaultBranch }}:
+
+1. First, fetch and merge the latest changes:
+   git fetch origin {{ .DefaultBranch }}
+   git merge origin/{{ .DefaultBranch }}
+
+2. If there are merge conflicts, resolve them and commit:
+   git add .
+   git commit -m "chore: merge {{ .DefaultBranch }} into {{ .BranchName }}"
+
+3. Push your updated branch:
+   git push origin {{ .BranchName }}
+
+After you complete the rebase and push, please tell the user they need to click "Accept" again to approve the merged code and complete the task.

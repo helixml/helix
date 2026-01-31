@@ -104,7 +104,7 @@ var runProxyCmd = &cobra.Command{
 			return fmt.Errorf("HELIX_APP_ID is not set")
 		}
 
-		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
+		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey, cfg.TLSSkipVerify)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create api client")
 			return err
@@ -137,6 +137,12 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get app")
 		return err
+	}
+
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		log.Error().Str("app_id", mcps.appID).Msg("app has no assistants configured")
+		return fmt.Errorf("app %s has no assistants configured", mcps.appID)
 	}
 
 	// TODO: configure assistant
@@ -181,7 +187,7 @@ type helixMCPTool struct {
 	toolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
-// TODO: load gptscript, zapier tools as well
+// TODO: load zapier tools as well
 func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.AssistantConfig) ([]*helixMCPTool, error) {
 	var mcpTools []*helixMCPTool
 
@@ -238,17 +244,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		}
 	}
 
-	for _, gptScript := range app.GPTScripts {
-		mcpTool := mcp.NewTool(gptScript.Name,
-			mcp.WithDescription(gptScript.Description),
-		)
-
-		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:        mcpTool,
-			toolHandler: mcps.gptScriptToolHandler,
-		})
-	}
-
 	for _, zapier := range app.Zapier {
 		mcpTool := mcp.NewTool(zapier.Name,
 			mcp.WithDescription(zapier.Description),
@@ -272,7 +267,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 	for _, knowledge := range knowledges {
 		knowledgeDescription :=
-			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.	
+			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.
 		`
 		if knowledge.Description != "" {
 			knowledgeDescription += fmt.Sprintf("This tool contains information on: %s", knowledge.Description)
@@ -303,7 +298,7 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 
 		params := make(map[string]interface{})
 
-		for k, v := range request.Params.Arguments {
+		for k, v := range request.GetArguments() {
 			params[k] = v
 		}
 
@@ -317,11 +312,6 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 	}
 }
 
-func (mcps *ModelContextProtocolServer) gptScriptToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
-	// TODO: implement gpt script tool handler
-	return mcp.NewToolResultText("Hello, World!"), nil
-}
-
 func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
 	// TODO: implement zapier tool handler
 	return mcp.NewToolResultText("Hello, World!"), nil
@@ -329,22 +319,17 @@ func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ m
 
 func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query, ok := request.Params.Arguments["query"]
-		if !ok {
+		query, err := request.RequireString("query")
+		if err != nil {
 			return mcp.NewToolResultError("prompt is required"), nil
 		}
 
-		log.Info().Str("knowledge_id", knowledgeID).Str("query", query.(string)).Msg("searching knowledge")
-
-		queryStr, ok := query.(string)
-		if !ok {
-			return mcp.NewToolResultError("prompt must be a string"), nil
-		}
+		log.Info().Str("knowledge_id", knowledgeID).Str("query", query).Msg("searching knowledge")
 
 		results, err := mcps.apiClient.SearchKnowledge(ctx, &client.KnowledgeSearchQuery{
 			AppID:       mcps.appID,
 			KnowledgeID: knowledgeID,
-			Prompt:      queryStr,
+			Prompt:      query,
 		})
 		if err != nil {
 			log.Error().Err(err).Msg("failed to search knowledge")

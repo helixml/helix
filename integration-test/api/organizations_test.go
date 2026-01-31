@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -21,9 +20,9 @@ func TestOrganizationsTestSuite(t *testing.T) {
 
 type OrganizationsTestSuite struct {
 	suite.Suite
-	ctx      context.Context
-	db       *store.PostgresStore
-	keycloak *auth.KeycloakAuthenticator
+	ctx           context.Context
+	db            *store.PostgresStore
+	authenticator auth.Authenticator
 }
 
 func (suite *OrganizationsTestSuite) SetupTest() {
@@ -32,24 +31,11 @@ func (suite *OrganizationsTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	var keycloakCfg config.Keycloak
-
-	err = envconfig.Process("", &keycloakCfg)
-	suite.NoError(err)
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
-		KeycloakURL:         keycloakCfg.KeycloakURL,
-		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
-		ServerURL:           keycloakCfg.ServerURL,
-		APIClientID:         keycloakCfg.APIClientID,
-		AdminRealm:          keycloakCfg.AdminRealm,
-		Realm:               keycloakCfg.Realm,
-		Username:            keycloakCfg.Username,
-		Password:            keycloakCfg.Password,
-	}, suite.db)
+	cfg := &config.ServerConfig{}
+	authenticator, err := auth.NewHelixAuthenticator(cfg, suite.db, "test-secret", nil)
 	suite.Require().NoError(err)
 
-	suite.keycloak = keycloakAuthenticator
+	suite.authenticator = authenticator
 }
 
 func (suite *OrganizationsTestSuite) TestCreateOrganization() {
@@ -57,7 +43,7 @@ func (suite *OrganizationsTestSuite) TestCreateOrganization() {
 	emailID := uuid.New().String()
 	userEmail := fmt.Sprintf("test-create-org-%s@test.com", emailID)
 
-	user, apiKey, err := createUser(suite.T(), suite.db, suite.keycloak, userEmail)
+	user, apiKey, err := createUser(suite.T(), suite.db, suite.authenticator, userEmail)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(user)
 	suite.Require().NotNil(apiKey)

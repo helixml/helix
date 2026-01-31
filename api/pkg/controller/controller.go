@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/dgraph-io/ristretto/v2"
 	agent "github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -20,28 +22,31 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type Options struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	ProviderManager   manager.ProviderManager // OpenAI client provider
+	Config                *config.ServerConfig
+	Store                 store.Store
+	GitRepositoryService  *services.GitRepositoryService
+	PubSub                pubsub.PubSub
+	Extractor             extract.Extractor
+	RAG                   rag.RAG
+	ExternalAgentExecutor external_agent.Executor // Interface for external agents
+	Filestore             filestore.FileStore
+	Janitor               *janitor.Janitor
+	Notifier              notification.Notifier
+	ProviderManager       manager.ProviderManager // OpenAI client provider
 	// DataprepOpenAIClient openai.Client
 	Scheduler        *scheduler.Scheduler
 	RunnerController *scheduler.RunnerController
 	OAuthManager     *oauth.Manager
 	Browser          *browser.Browser
 	SearchProvider   searxng.SearchProvider
+	MCPClientGetter  mcp.ClientGetter
 }
 
 type Controller struct {
@@ -51,7 +56,7 @@ type Controller struct {
 
 	providerManager manager.ProviderManager
 
-	// dataprepOpenAIClient openai.Client
+	gitRepositoryService *services.GitRepositoryService
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
@@ -73,6 +78,8 @@ type Controller struct {
 
 	// Memory estimation service for calculating model memory requirements
 	memoryEstimationService *MemoryEstimationService
+
+	browserCache *ristretto.Cache[string, string]
 }
 
 type TriggerStatusKey struct {
@@ -100,16 +107,33 @@ func NewController(
 		return nil, fmt.Errorf("provider manager is required")
 	}
 
+	if options.MCPClientGetter == nil {
+		// Initialize default client getter
+		options.MCPClientGetter = &mcp.DefaultClientGetter{
+			TLSSkipVerify: options.Config.Tools.TLSSkipVerify,
+		}
+	}
+
 	models, err := model.GetModels()
 	if err != nil {
 		return nil, err
 	}
 
+	browserCache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create browser cache: %w", err)
+	}
+
 	controller := &Controller{
-		Ctx:             ctx,
-		Options:         options,
-		providerManager: options.ProviderManager,
-		models:          models,
+		Ctx:                  ctx,
+		Options:              options,
+		providerManager:      options.ProviderManager,
+		gitRepositoryService: options.GitRepositoryService,
+		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
@@ -118,6 +142,7 @@ func NewController(
 		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:     make(map[TriggerStatusKey]types.TriggerStatus),
 		triggerStatusesMu:   &sync.RWMutex{},
+		browserCache:        browserCache,
 	}
 
 	// Default provider
@@ -126,7 +151,7 @@ func NewController(
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, toolsOpenAIClient)
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, toolsOpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}

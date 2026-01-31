@@ -1,8 +1,8 @@
-import { 
+import {
   TypesUserAppAccessResponse,
   TypesStepInfo,
   TypesMessage,
-  TypesMessageContent,
+  TypesInteraction,
   TypesAssistantCalculator,
   TypesToolCalculatorConfig,
   TypesAssistantBrowser,
@@ -12,8 +12,11 @@ import {
   TypesAssistantWebSearch,
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
+  TypesAssistantProjectManager,
   TypesTrigger,
-  TypesSession,  
+  TypesSession,
+  TypesAssistantMCP,
+  TypesToolMCPClientConfig,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -40,8 +43,9 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'worker_task_response' | 'step_info'
+export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
+export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
@@ -85,6 +89,58 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 ]
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
+
+// Agent Types
+export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
+export const AGENT_TYPE_HELIX_BASIC: IAgentType = 'helix_basic'
+export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
+export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
+
+export interface IExternalAgentConfig {
+  workspace_dir?: string
+  project_path?: string
+  env_vars?: string[]
+  auto_connect_rdp?: boolean
+  // Video settings (Phase 3.5) - matches PDE display settings
+  display_width?: number        // Streaming resolution width (default: 1920)
+  display_height?: number       // Streaming resolution height (default: 1080)
+  display_refresh_rate?: number // Streaming refresh rate (default: 60)
+  // Resolution and desktop configuration
+  resolution?: string   // Resolution preset: "1080p" (default) or "4k"
+  desktop_type?: string // Desktop environment: "ubuntu" (default) or "sway"
+  zoom_level?: number   // GNOME zoom percentage (100 default, 200 for 4k)
+}
+
+export interface IAgentTypeOption {
+  value: IAgentType
+  label: string
+  description: string
+  icon?: string
+  disabled?: boolean
+}
+
+export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
+  {
+    value: AGENT_TYPE_HELIX_BASIC,
+    label: 'Basic Helix Agent',
+    description: 'Simple conversational AI (no multi-turn, useful for RAG)',
+    icon: 'chat',
+  },
+  {
+    value: AGENT_TYPE_HELIX_AGENT,
+    label: 'Multi-Turn Helix Agent',
+    description: 'Advanced conversational AI with multi-turn tool use and reasoning',
+    icon: 'auto_awesome',
+  },
+  {
+    value: AGENT_TYPE_ZED_EXTERNAL,
+    label: 'External Agent',
+    description: 'Full development environment with code editing via streaming desktop',
+    icon: 'code',
+  }
+]
+
+
 
 export interface IKeycloakUser {
   id: string,
@@ -269,8 +325,10 @@ export interface IInteractionMessage {
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
+  interaction_id?: string,
   owner: string,
   session?: TypesSession,
+  interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
 }
@@ -471,7 +529,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser' | 'mcp'
 
 export interface IToolApiAction {
   name: string,
@@ -514,6 +572,7 @@ export interface IToolConfig {
   calculator?: TypesToolCalculatorConfig,
   email?: TypesToolEmailConfig,
   web_search?: TypesToolWebSearchConfig,
+  mcp?: TypesToolMCPClientConfig,
 }
 
 export interface ITool {
@@ -591,6 +650,8 @@ export interface IAssistantConfig {
   model?: string;
   conversation_starters?: string[];
   agent_mode?: boolean;
+  agent_type?: IAgentType;
+  memory?: boolean;
   max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
@@ -602,6 +663,12 @@ export interface IAssistantConfig {
   small_reasoning_model_effort?: string;
   small_generation_model?: string;
   small_generation_model_provider?: string;
+  /**
+   * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+   * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+   * If empty, defaults to "zed_agent".
+   */
+  code_agent_runtime?: 'zed_agent' | 'qwen_code';
   /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
@@ -648,6 +715,7 @@ export interface IAssistantConfig {
   is_actionable_template?: string;
   is_actionable_history_length?: number;
   apis?: IAssistantApi[];
+  mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
   browser?: TypesAssistantBrowser;
@@ -655,6 +723,7 @@ export interface IAssistantConfig {
   calculator?: TypesAssistantCalculator;
   email?: TypesAssistantEmail;
   azure_devops?: TypesAssistantAzureDevOps;
+  project_manager?: TypesAssistantProjectManager;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
@@ -718,6 +787,14 @@ export interface IKnowledgeSource {
       };
     };
     text?: string;
+    sharepoint?: {
+      site_id: string;
+      drive_id?: string;
+      folder_path?: string;
+      oauth_provider_id: string;
+      filter_extensions?: string[];
+      recursive: boolean;
+    };
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;
@@ -757,6 +834,8 @@ export interface IAppHelixConfig {
   assistants?: IAssistantConfig[];
   triggers?: TypesTrigger[];
   external_url: string;
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
   // Add any other properties that might be part of the helix config
 }
 
@@ -802,6 +881,7 @@ export interface IAppFlatState {
   provider?: string
   model?: string
   agent_mode?: boolean
+  memory?: boolean
   max_iterations?: number
   reasoning_model?: string
   reasoning_model_provider?: string
@@ -813,6 +893,7 @@ export interface IAppFlatState {
   small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
+  code_agent_runtime?: 'zed_agent' | 'qwen_code'
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number
@@ -827,14 +908,18 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
+  mcpTools?: TypesAssistantMCP[]
   browserTool?: TypesAssistantBrowser
   webSearchTool?: TypesAssistantWebSearch
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
   azureDevOpsTool?: TypesAssistantAzureDevOps
+  projectManagerTool?: TypesAssistantProjectManager
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
 
   tools?: ITool[]
 }
@@ -860,6 +945,8 @@ export interface ICreateSessionConfig {
   ragChunkSize: number,
   ragChunkOverflow: number,
   ragDisableChunking: boolean,
+  agentType: IAgentType,
+  externalAgentConfig?: IExternalAgentConfig,
 }
 
 export interface IHelixModel {
@@ -952,6 +1039,7 @@ export interface ISessionLearnRequest {
 export interface ISessionChatRequest {
   regenerate?: boolean,
   app_id?: string,
+  project_id?: string,
   organization_id?: string,
   assistant_id?: string,
   session_id?: string,
@@ -962,11 +1050,14 @@ export interface ISessionChatRequest {
   lora_dir?: string,
   system?: string,
   messages?: TypesMessage[],
+  agent_type?: IAgentType,
+  external_agent_config?: IExternalAgentConfig,
   tools?: string[],
   provider?: string,
   model?: string,
   rag_source_id?: string,
   lora_id?: string,
+  interrupt?: boolean, // If true, interrupt current agent work; if false, queue after current work completes
 }
 
 export interface IDataEntity {
@@ -978,6 +1069,8 @@ export interface IPageBreadcrumb {
   title: string,
   routeName?: string,
   params?: Record<string, any>,
+  // Override the page's orgBreadcrumbs setting for this specific breadcrumb
+  useOrgRouter?: boolean,
 }
 
 // Add this interface near the top of the file, with other interfaces
@@ -1017,6 +1110,7 @@ export interface IProviderEndpoint {
   api_key_file?: string
   default: boolean
   billing_enabled?: boolean
+  headers?: Record<string, string>
 }
 
 // Resource type for access grants

@@ -2,6 +2,7 @@ import React, { useEffect, createContext, useMemo, useState, useCallback, ReactN
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
+import { getRelativePath } from '../utils/filestore'
 
 import {
   IFileStoreItem,
@@ -167,10 +168,14 @@ export const useFilestoreContext = (): IFilestoreContext => {
       files.forEach((file) => {
         formData.append("files", file)
       })
+      
+      // Remove user prefix from path if config is available and has user_prefix
+      const uploadPath = config && config.user_prefix ? getRelativePath(config, { path } as IFileStoreItem) : path
+      
       try {
         await api.post('/api/v1/filestore/upload', formData, {
           params: {
-            path,
+            path: uploadPath,
           },
           onUploadProgress: (progressEvent) => {
             const percent = progressEvent.total && progressEvent.total > 0 ?
@@ -194,6 +199,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     return result
   }, [
     loadFiles,
+    config,
   ])
 
   const rename = useCallback(async (oldName: string, newName: string) => {

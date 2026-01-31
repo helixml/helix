@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # WebSocket streaming port
+    - port: {{ .Values.service.web.port }}
+      targetPort: web
+      protocol: TCP
+      name: web
+  selector:
+    {{- include "helix-sandbox.selectorLabels" . | nindent 4 }}

@@ -215,6 +215,10 @@ export const getNewSessionBreadcrumbs = ({
     } else if (app) {
         return [
             {
+                title: 'Agents',
+                routeName: 'apps',
+            },
+            {
                 title: getAppName(app),
             },
         ];

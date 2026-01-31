@@ -9,9 +9,11 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsSidebar from '../components/session/SessionsSidebar'
+import FilesSidebar from '../components/files/FilesSidebar'
 import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
 import OrgSidebar from '../components/orgs/OrgSidebar'
 import AppSidebar from '../components/app/AppSidebar'
+import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -21,6 +23,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
+import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
@@ -39,6 +42,8 @@ import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
 import useApi from '../hooks/useApi'
 import useUserMenuHeight from '../hooks/useUserMenuHeight'
+import { useGetConfig } from '../services/userService'
+import { TypesAuthProvider } from '../api/api'
 
 const Layout: FC<{
   children: ReactNode,
@@ -58,6 +63,7 @@ const Layout: FC<{
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const userMenuHeight = useUserMenuHeight()
+  const { data: config } = useGetConfig()
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -201,12 +207,16 @@ const Layout: FC<{
     switch (routeName) {
       case 'dashboard':
         return <AdminPanelSidebar />
-      
+
+      case 'projects':
+      case 'org_projects':
+        return <ProjectsSidebar />
+
       case 'app':
       case 'org_app':
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />
-      
+
       case 'org_settings':
       case 'org_people':
       case 'org_teams':
@@ -214,7 +224,10 @@ const Layout: FC<{
       case 'team_people':
         // Organization management pages use the org context sidebar
         return <OrgSidebar />
-      
+
+      case 'files':
+        return <FilesSidebar onOpenFile={() => {}} />
+
       default:
         // Default to SessionsMenu for most routes
         return (
@@ -239,8 +252,10 @@ const Layout: FC<{
       <Box
         id="root-container"
         sx={{
-          height: showVersionBanner && hasNewVersion ? 'calc(100% - 48px)' : '100%',
+          minHeight: showVersionBanner && hasNewVersion ? 'calc(100dvh - 48px)' : '100dvh',
+          height: '100%',
           display: 'flex',
+          backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
         }}
         component="div"
       >
@@ -249,21 +264,30 @@ const Layout: FC<{
               variant={ isBigScreen ? "permanent" : "temporary" }
               open={ isBigScreen || account.mobileMenuOpen }
               onClose={ () => account.setMobileMenuOpen(false) }
-              sx={{
-                height: '100%',
-                '& .MuiDrawer-paper': {
+              PaperProps={{
+                sx: {
+                  background: lightTheme.backgroundColor,
                   backgroundColor: lightTheme.backgroundColor,
-                  position: 'relative',
+                  // For mobile (temporary), let MUI handle positioning (fixed)
+                  // For desktop (permanent), use relative positioning
+                  position: isBigScreen ? 'relative' : undefined,
                   whiteSpace: 'nowrap',
                   width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
                   overflowX: 'hidden', // Prevent horizontal scrolling
-                  height: userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%',
+                  // Mobile gets full height, desktop respects user menu
+                  // Use dvh (dynamic viewport height) for iOS Safari compatibility
+                  height: isBigScreen
+                    ? (userMenuHeight > 0 ? `calc(100dvh - ${userMenuHeight}px)` : '100%')
+                    : '100dvh',
                   overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
                   padding: 0,
                 },
+              }}
+              sx={{
+                height: '100%',
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
@@ -316,9 +340,12 @@ const Layout: FC<{
               return lightTheme.backgroundColor
             },
             flexGrow: 1,
+            minWidth: 0,
+            maxWidth: '100%',
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
           <Box
@@ -328,6 +355,8 @@ const Layout: FC<{
               backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
               height: '100%',
               minHeight: '100%',
+              minWidth: 0,
+              overflow: 'hidden',
             }}
           >
             { account.loggingOut ? (
@@ -360,52 +389,59 @@ const Layout: FC<{
         <GlobalLoading />
         {
           account.showLoginWindow && (
-            <DarkDialog
-              open
-              maxWidth="md"
-              fullWidth
-              onClose={() => {
-                account.setShowLoginWindow(false)
-              }}
-            >
-              <DialogTitle>
-                Please login to continue
-              </DialogTitle>
-              <DialogContent>
-                <Typography gutterBottom>
-                  You can login with your Google account or your organization's SSO provider.
-                </Typography>
-                <Typography>
-                  We will keep what you've done here for you, so you may continue where you left off.
-                </Typography>
-              </DialogContent>
-              <DialogActions>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false)
-                  }}
-                  color="primary"
-                  variant="outlined"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    account.onLogin()
-                  }}
-                  variant="contained"
-                  color="secondary"
-                >
-                  Login
-                </Button>
-              </DialogActions>
-            </DarkDialog>
+            config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
+              <LoginRegisterDialog
+                open
+                onClose={() => {
+                  account.setShowLoginWindow(false)
+                }}
+              />
+            ) : (
+              <DarkDialog
+                open
+                maxWidth="md"
+                fullWidth
+                onClose={() => {
+                  account.setShowLoginWindow(false)
+                }}
+              >
+                <DialogTitle>
+                  Please login to continue
+                </DialogTitle>
+                <DialogContent>
+                  <Typography>
+                    Sign in to access all features.
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button
+                    onClick={() => {
+                      account.setShowLoginWindow(false)
+                    }}
+                    color="primary"
+                    variant="outlined"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      account.setShowLoginWindow(false)
+                      account.onLogin()
+                    }}
+                    variant="contained"
+                    color="secondary"
+                  >
+                    Login
+                  </Button>
+                </DialogActions>
+              </DarkDialog>
+            )
           )
         }
         {
-          (account.serverConfig?.license && !account.serverConfig.license.valid) || 
-          account.serverConfig?.deployment_id === "unknown" ? 
-            <LicenseKeyPrompt /> : 
+          (account.serverConfig?.license && !account.serverConfig.license.valid) ||
+          account.serverConfig?.deployment_id === "unknown" ?
+            <LicenseKeyPrompt /> :
             null
         }
         {
@@ -414,7 +450,7 @@ const Layout: FC<{
           )
         }
         {
-          account.admin && floatingModal.isVisible && (
+          floatingModal.isVisible && account.admin && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }

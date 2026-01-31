@@ -1,0 +1,28 @@
+{{- if and .Values.kodit.enabled .Values.kodit.vectorchord.enabled .Values.kodit.vectorchord.persistence.enabled (not .Values.kodit.vectorchord.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-kodit-vectorchord-pvc
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kodit-vectorchord
+  {{- with .Values.kodit.vectorchord.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+  {{- range .Values.kodit.vectorchord.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.kodit.vectorchord.persistence.size | quote }}
+  {{- if .Values.kodit.vectorchord.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.kodit.vectorchord.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.kodit.vectorchord.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.kodit.vectorchord.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.kodit.vectorchord.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}

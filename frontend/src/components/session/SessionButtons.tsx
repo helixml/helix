@@ -4,10 +4,8 @@ import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
-import FolderOpenIcon from '@mui/icons-material/Folder'
+import { Folder, Info, Trash2 } from 'lucide-react'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
-import InfoIcon from '@mui/icons-material/Info'
-import DeleteIcon from '@mui/icons-material/Delete'
 import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
 
 import {
@@ -37,7 +35,7 @@ export const SessionButtons: FC<{
     try {
       await deleteSession()
       snackbar.success(`Session deleted`)
-      navigate('home')
+      navigate('chat')
     } catch(e) {}
     loading.setLoading(false)
   }, [])
@@ -61,7 +59,7 @@ export const SessionButtons: FC<{
           }}
         >
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-            <FolderOpenIcon sx={{ mr: 2 }} />
+            <Folder size={16} style={{ marginRight: 8 }} />
           </Box>
         </Typography>
       </Link>
@@ -76,7 +74,7 @@ export const SessionButtons: FC<{
           }}
         >
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-            <InfoIcon sx={{ mr: 2 }} />            
+            <Info size={16} style={{ marginRight: 8 }} />            
           </Box>
         </Typography>
       </JsonWindowLink>
@@ -88,7 +86,7 @@ export const SessionButtons: FC<{
         }}
       >
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-          <DeleteIcon sx={{ mr: 2 }} />
+          <Trash2 size={16} style={{ marginRight: 8 }} />
         </Box>
       </Link>
       {/* { session.lora_dir && !session.parent_bot && (

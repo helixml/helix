@@ -38,7 +38,7 @@ export function useListProviders(options: ListProvidersOptions) {
 
 export function useCreateProviderEndpoint() {
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -50,16 +50,15 @@ export function useCreateProviderEndpoint() {
       return result.data
     },
     onSuccess: () => {
-      // Invalidate provider queries to refetch the list
-      queryClient.invalidateQueries({ queryKey: providersQueryKey() })
-      queryClient.invalidateQueries({ queryKey: providersQueryKey(true) })
+      // Invalidate all provider queries (with any combination of params)
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
   });
 }
 
 export function useUpdateProviderEndpoint(id: string) {
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -71,15 +70,15 @@ export function useUpdateProviderEndpoint(id: string) {
       return result.data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: providersQueryKey() })
-      queryClient.invalidateQueries({ queryKey: providersQueryKey(true) })
+      // Invalidate all provider queries (with any combination of params)
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
   });
 }
 
 export function useDeleteProviderEndpoint() {
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -88,8 +87,8 @@ export function useDeleteProviderEndpoint() {
       return result.data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: providersQueryKey() })
-      queryClient.invalidateQueries({ queryKey: providersQueryKey(true) })
+      // Invalidate all provider queries (with any combination of params)
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
   });
 }

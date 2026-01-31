@@ -23,6 +23,11 @@ import (
 // @Router /api/v1/wallet [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Request) (*types.Wallet, *system.HTTPError) {
+	// Return early if billing is disabled
+	if !s.Cfg.Stripe.BillingEnabled {
+		return nil, system.NewHTTPError400("Billing is not enabled")
+	}
+
 	ctx := req.Context()
 	user := getRequestUser(req)
 
@@ -129,6 +134,11 @@ type CreateTopUpRequest struct {
 // @Router /api/v1/top-ups/new [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (string, error) {
+	// Return early if billing is disabled
+	if !s.Cfg.Stripe.BillingEnabled {
+		return "", fmt.Errorf("billing is not enabled")
+	}
+
 	user := getRequestUser(req)
 
 	// Parse request body to get amount
@@ -209,6 +219,11 @@ func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.O
 // @Router /api/v1/subscription/new [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
+	// Return early if billing is disabled
+	if !s.Cfg.Stripe.BillingEnabled {
+		return "", fmt.Errorf("billing is not enabled")
+	}
+
 	user := getRequestUser(req)
 
 	var orgName string
@@ -251,6 +266,11 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 // @Router /api/v1/subscription/manage [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
+	// Return early if billing is disabled
+	if !s.Cfg.Stripe.BillingEnabled {
+		return "", fmt.Errorf("billing is not enabled")
+	}
+
 	user := getRequestUser(req)
 
 	var orgName string

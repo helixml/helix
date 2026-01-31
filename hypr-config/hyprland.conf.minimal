@@ -1,0 +1,111 @@
+# Minimal working Hyprland configuration for VNC
+# This replaces the complex illogical-impulse setup to fix window positioning
+
+# Monitor configuration - 4K output for VNC
+monitor = WL-1,3840x2160@60,0x0,1
+
+# GPU environment for NVIDIA acceleration
+env = NVIDIA_VISIBLE_DEVICES,all
+env = NVIDIA_DRIVER_CAPABILITIES,all
+env = GBM_BACKEND,nvidia-drm
+env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+
+# Basic appearance
+general {
+    gaps_in = 5
+    gaps_out = 10
+    border_size = 2
+    col.active_border = rgba(0DB7D4FF)
+    col.inactive_border = rgba(31313600)
+    layout = dwindle
+}
+
+# Input configuration
+input {
+    kb_layout = us
+    follow_mouse = 1
+    touchpad {
+        natural_scroll = false
+    }
+    sensitivity = 0
+}
+
+# Decoration
+decoration {
+    rounding = 10
+    shadow {
+        enabled = true
+        range = 4
+        render_power = 3
+        color = rgba(1a1a1aee)
+    }
+    blur {
+        enabled = true
+        size = 3
+        passes = 1
+    }
+}
+
+# Animations (minimal for performance)
+animations {
+    enabled = true
+    bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+    animation = windows, 1, 7, myBezier
+    animation = windowsOut, 1, 7, default, popin 80%
+    animation = border, 1, 10, default
+    animation = borderangle, 1, 8, default
+    animation = fade, 1, 7, default
+    animation = workspaces, 1, 6, default
+}
+
+# Layout configuration
+dwindle {
+    pseudotile = true
+    preserve_split = true
+}
+
+# Misc settings
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    force_default_wallpaper = 0
+}
+
+# Window rules - NO FLOATING by default, place terminals properly
+windowrulev2 = size 1200 800, class:^(kitty)$
+windowrulev2 = center, class:^(kitty)$
+
+# Key bindings (minimal set)
+$mainMod = SUPER
+
+bind = $mainMod, Return, exec, kitty
+bind = $mainMod, Q, killactive
+bind = $mainMod, M, exit
+bind = $mainMod, E, exec, dolphin
+bind = $mainMod, V, togglefloating
+bind = $mainMod, R, exec, wofi --show drun
+bind = $mainMod, P, pseudo
+
+# Move focus with mainMod + arrow keys
+bind = $mainMod, left, movefocus, l
+bind = $mainMod, right, movefocus, r
+bind = $mainMod, up, movefocus, u
+bind = $mainMod, down, movefocus, d
+
+# Switch workspaces with mainMod + [0-9]
+bind = $mainMod, 1, workspace, 1
+bind = $mainMod, 2, workspace, 2
+bind = $mainMod, 3, workspace, 3
+bind = $mainMod, 4, workspace, 4
+bind = $mainMod, 5, workspace, 5
+
+# Move active window to a workspace with mainMod + SHIFT + [0-9]
+bind = $mainMod SHIFT, 1, movetoworkspace, 1
+bind = $mainMod SHIFT, 2, movetoworkspace, 2
+bind = $mainMod SHIFT, 3, movetoworkspace, 3
+bind = $mainMod SHIFT, 4, movetoworkspace, 4
+bind = $mainMod SHIFT, 5, movetoworkspace, 5
+
+# Start a terminal immediately 
+exec-once = kitty
+exec-once = bash -c 'sleep 2 && kitty'

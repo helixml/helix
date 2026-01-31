@@ -225,7 +225,6 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 			Str("slot_id", id.String()).
 			Str("model", slot.Model).
 			Bool("ready", slot.Ready).
-			Bool("active", slot.Active).
 			Msg("Processing slot for memory calculation")
 
 		// We need to get the memory requirements for each slot
@@ -284,7 +283,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 			UsedMemory:    gpu.UsedMemory,
 			ModelName:     gpu.ModelName,
 			DriverVersion: gpu.DriverVersion,
-			CUDAVersion:   gpu.CUDAVersion,
+			SDKVersion:    gpu.SDKVersion,
 		})
 	}
 
@@ -625,24 +624,35 @@ func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilizationWithContext(
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
+		// Runner returns all fields for backward compatibility
+		// Minimal fields (populated by runner): ID, RunnerID, Ready, Status, CommandLine, Version, Created, Updated
+		// Configuration fields (set to defaults, scheduler enriches): Model, Runtime, etc.
 		slotList = append(slotList, &types.RunnerSlot{
-			ID:                     id,
-			RunnerID:               apiServer.runnerOptions.ID,
-			Runtime:                slot.Runtime(),
-			Version:                slot.Version(),
-			Model:                  slot.Model,
-			ModelMemoryRequirement: slot.ModelMemoryRequirement,
-			ContextLength:          slot.ContextLength,
-			RuntimeArgs:            slot.RuntimeArgs, // Include runtime args for frontend display
-			Active:                 slot.Active,
-			Ready:                  slot.Ready,
-			Status:                 slot.Status(r.Context()),
-			GPUIndex:               slot.GPUIndex,
-			GPUIndices:             slot.GPUIndices,
-			TensorParallelSize:     slot.TensorParallelSize,
-			CommandLine:            slot.CommandLine,
-			Created:                slot.Created,
-			MemoryEstimationMeta:   slot.MemoryEstimationMeta,
+			// Minimal state from runner
+			ID:          id,
+			RunnerID:    apiServer.runnerOptions.ID,
+			Ready:       slot.Ready,
+			Status:      slot.Status(r.Context()),
+			CommandLine: slot.CommandLine,
+			Version:     slot.Version(),
+			Created:     slot.Created,
+			Updated:     time.Now(), // Current time as proxy for last activity
+
+			// Deprecated fields - provided for backwards compatibility, will be removed in a future release
+			Runtime:                "",
+			Model:                  "",
+			ModelMemoryRequirement: 0,
+			ContextLength:          0,
+			RuntimeArgs:            nil,
+			Active:                 false,
+			ActiveRequests:         0,
+			MaxConcurrency:         1,
+			GPUIndex:               nil,
+			GPUIndices:             nil,
+			TensorParallelSize:     0,
+			WorkloadData:           nil,
+			GPUAllocationData:      nil,
+			MemoryEstimationMeta:   nil,
 		})
 		return true
 	})
@@ -669,23 +679,35 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Runner returns all fields for backward compatibility
+	// Minimal fields (populated by runner): ID, RunnerID, Ready, Status, CommandLine, Version, Created, Updated
+	// Configuration fields (set to defaults, scheduler enriches): Model, Runtime, etc.
 	response := &types.RunnerSlot{
-		ID:                     slotUUID,
-		RunnerID:               apiServer.runnerOptions.ID,
-		Runtime:                slot.Runtime(),
-		Version:                slot.Version(),
-		Model:                  slot.Model,
-		ModelMemoryRequirement: slot.ModelMemoryRequirement,
-		ContextLength:          slot.ContextLength,
-		RuntimeArgs:            slot.RuntimeArgs, // Include runtime args for frontend display
-		Active:                 slot.Active,
-		Ready:                  slot.Ready,
-		Status:                 slot.Status(r.Context()),
-		GPUIndex:               slot.GPUIndex,
-		GPUIndices:             slot.GPUIndices,
-		TensorParallelSize:     slot.TensorParallelSize,
-		CommandLine:            slot.CommandLine,
-		MemoryEstimationMeta:   slot.MemoryEstimationMeta,
+		// Minimal state from runner
+		ID:          slotUUID,
+		RunnerID:    apiServer.runnerOptions.ID,
+		Ready:       slot.Ready,
+		Status:      slot.Status(r.Context()),
+		CommandLine: slot.CommandLine,
+		Version:     slot.Version(),
+		Created:     slot.Created,
+		Updated:     time.Now(), // Current time as proxy for last activity
+
+		// Configuration fields - defaults for backward compatibility (scheduler enriches)
+		Runtime:                "",
+		Model:                  "",
+		ModelMemoryRequirement: 0,
+		ContextLength:          0,
+		RuntimeArgs:            nil,
+		Active:                 false,
+		ActiveRequests:         0,
+		MaxConcurrency:         1,
+		GPUIndex:               nil,
+		GPUIndices:             nil,
+		TensorParallelSize:     0,
+		WorkloadData:           nil,
+		GPUAllocationData:      nil,
+		MemoryEstimationMeta:   nil,
 	}
 
 	err = json.NewEncoder(w).Encode(response)
@@ -815,7 +837,6 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 				http.Error(w, "slot not found", http.StatusNotFound)
 				return nil, true
 			}
-			oldValue.Active = true
 			return oldValue, false
 		})
 		next.ServeHTTP(w, r)
@@ -823,11 +844,16 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
+	log.Debug().Str("slot_id", slotUUID.String()).Msg("marking slot as complete")
 	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 		if !loaded {
+			log.Warn().Str("slot_id", slotUUID.String()).Msg("attempted to mark non-existent slot as complete")
 			return nil, true
 		}
-		oldValue.Active = false
+		log.Info().
+			Str("slot_id", slotUUID.String()).
+			Str("model", oldValue.Model).
+			Msg("slot marked as complete")
 		return oldValue, false
 	})
 }

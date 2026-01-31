@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -90,6 +91,61 @@ func (s *HelixAPIServer) getInteraction(_ http.ResponseWriter, req *http.Request
 
 	if interaction.SessionID != sessionID {
 		return nil, system.NewHTTPError403("you are not allowed to access this interaction")
+	}
+
+	return interaction, nil
+}
+
+// feedbackInteraction godoc
+// @Summary Provide feedback for an interaction
+// @Description Provide feedback for an interaction
+// @Tags    interactions
+// @Produce json
+// @Param   id path string true "Session ID"
+// @Param   interaction_id path string true "Interaction ID"
+// @Param   feedback body types.FeedbackRequest true "Feedback"
+// @Success 200 {object} types.Interaction
+// @Router /api/v1/sessions/{id}/interactions/{interaction_id}/feedback [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) feedbackInteraction(_ http.ResponseWriter, req *http.Request) (*types.Interaction, *system.HTTPError) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	sessionID := mux.Vars(req)["id"]
+	interactionID := mux.Vars(req)["interaction_id"]
+
+	// First load the session
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", sessionID, err))
+	}
+
+	interaction, err := s.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interaction %s, error: %s", interactionID, err))
+	}
+
+	if interaction.SessionID != sessionID {
+		return nil, system.NewHTTPError403("you are not allowed to access this interaction")
+	}
+
+	if !canSeeSession(user, session) {
+		return nil, system.NewHTTPError403("you are not allowed to access this session")
+	}
+
+	var r types.FeedbackRequest
+	if err := json.NewDecoder(req.Body).Decode(&r); err != nil {
+		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode feedback request, error: %s", err))
+	}
+
+	if r.Feedback == "" {
+		return nil, system.NewHTTPError400("feedback is required")
+	}
+
+	interaction.Feedback = r.Feedback
+	interaction.FeedbackMessage = r.FeedbackMessage
+
+	if _, err := s.Store.UpdateInteraction(ctx, interaction); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update interaction %s, error: %s", interactionID, err))
 	}
 
 	return interaction, nil

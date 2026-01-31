@@ -18,7 +18,12 @@ import {
   FormLabel,
   Checkbox,
   Typography,
+  IconButton,
+  Box,
+  Divider,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
@@ -28,6 +33,7 @@ interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
   existingEndpoints: IProviderEndpoint[];
+  providersManagementEnabled?: boolean; // When false, hide "User" option (only admins can create global)
 }
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
@@ -36,19 +42,23 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   open,
   onClose,
   existingEndpoints,
+  providersManagementEnabled = true,
 }) => {
   const { mutate: createProviderEndpoint } = useCreateProviderEndpoint();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  // When providers management is disabled, default to global (only admins can use this dialog)
+  const defaultEndpointType = providersManagementEnabled ? 'user' : 'global';
   const [formData, setFormData] = useState({
     name: '',
     base_url: '',
     api_key: '',
     api_key_file: '',
-    endpoint_type: 'user' as const,
+    endpoint_type: defaultEndpointType as 'user' | 'global',
     description: '',
     auth_type: 'none' as AuthType,
     billing_enabled: false,
+    headers: [] as Array<{ key: string; value: string }>,
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>) => {
@@ -80,6 +90,30 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       api_key_file: value === 'api_key_file' ? prev.api_key_file : '',
     }));
     setError('');
+  };
+
+  const handleHeaderChange = (index: number, field: 'key' | 'value', value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: prev.headers.map((header, i) =>
+        i === index ? { ...header, [field]: value } : header
+      ),
+    }));
+    setError('');
+  };
+
+  const addHeader = () => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: [...prev.headers, { key: '', value: '' }],
+    }));
+  };
+
+  const removeHeader = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: prev.headers.filter((_, i) => i !== index),
+    }));
   };
 
   const validateForm = useCallback(() => {
@@ -117,6 +151,14 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
 
     setLoading(true);
     try {
+      // Convert headers array to object, filtering out empty entries
+      const headersObj: Record<string, string> = {};
+      formData.headers.forEach(({ key, value }) => {
+        if (key.trim() && value.trim()) {
+          headersObj[key.trim()] = value.trim();
+        }
+      });
+
       await createProviderEndpoint({
         name: formData.name,
         base_url: formData.base_url,
@@ -125,6 +167,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         description: formData.description,
         billing_enabled: formData.billing_enabled,
+        headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
       });
       handleClose();
     } catch (err) {
@@ -144,6 +187,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       description: '',
       auth_type: 'none',
       billing_enabled: false,
+      headers: [],
     });
     setError('');
     onClose();
@@ -173,8 +217,8 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             fullWidth
             required
             autoComplete="off"
-            placeholder="https://api.example.com"
-            helperText="Enter a valid HTTP or HTTPS URL"
+            placeholder="https://api.openai.com/v1"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">
@@ -221,7 +265,12 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
               onChange={(e) => handleInputChange(e as React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>)}
               label="Type"
             >
-              <MenuItem value="user">User (available to you only)</MenuItem>
+              {/* Only show User option when providers management is enabled -
+                  when disabled, only admins can create endpoints and "user" type
+                  would only be visible to that specific admin, not useful */}
+              {providersManagementEnabled && (
+                <MenuItem value="user">User (available to you only)</MenuItem>
+              )}
               <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
@@ -236,9 +285,62 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             }
             label="Billing Enabled"
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Users will be using their wallet balance for inference
-          </Typography>
+          {formData.billing_enabled && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Users will be charged from their wallet balance for inference
+            </Typography>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          <Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">Custom Headers</Typography>
+              <Button
+                startIcon={<AddIcon />}
+                onClick={addHeader}
+                variant="outlined"
+                size="small"
+              >
+                Add Header
+              </Button>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Add custom headers that will be sent with requests to this endpoint
+            </Typography>
+            
+            {formData.headers.map((header, index) => (
+              <Box key={index} sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+                <TextField
+                  label="Header Name"
+                  value={header.key}
+                  onChange={(e) => handleHeaderChange(index, 'key', e.target.value)}
+                  placeholder="e.g., X-API-Key"
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Header Value"
+                  value={header.value}
+                  onChange={(e) => handleHeaderChange(index, 'value', e.target.value)}
+                  placeholder="e.g., your-api-key"
+                  sx={{ flex: 1 }}
+                />
+                <IconButton
+                  onClick={() => removeHeader(index)}
+                  color="error"
+                  size="small"
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Box>
+            ))}
+            
+            {formData.headers.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                No custom headers added. Click "Add Header" to add custom headers.
+              </Typography>
+            )}
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions>

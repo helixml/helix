@@ -26,6 +26,7 @@ func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.Use
 	return types.UserStatus{
 		Admin:  user.Admin,
 		User:   user.ID,
+		Slug:   usermeta.Slug,
 		Config: usermeta.Config,
 	}, nil
 }
@@ -76,7 +77,9 @@ func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types
 }
 
 func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey string) error {
-	fetchedAPIKey, err := c.Options.Store.GetAPIKey(ctx, apiKey)
+	fetchedAPIKey, err := c.Options.Store.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey,
+	})
 	if err != nil {
 		return err
 	}
@@ -95,7 +98,9 @@ func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey 
 }
 
 func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	key, err := c.Options.Store.GetAPIKey(ctx, apiKey)
+	key, err := c.Options.Store.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +135,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 			} else {
 				ggufMemory, err := c.getGGUFBasedMemoryEstimateForDashboard(ctx, model.ID)
 				if err != nil {
-					log.Debug().
+					log.Trace().
 						Str("model_id", model.ID).
 						Err(err).
 						Msg("📋 GGUF estimation failed, skipping model")
@@ -146,22 +151,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		}
 
 		modelMemoryMap[model.ID] = memory
-
-		log.Debug().
-			Str("MEMORY_DEBUG", "storing_in_modelMemoryMap").
-			Str("model_id", model.ID).
-			Str("model_type", string(model.Type)).
-			Str("runtime", string(model.Runtime)).
-			Bool("enabled", model.Enabled).
-			Uint64("memory_bytes", memory).
-			Uint64("memory_gb", memory/(1024*1024*1024)).
-			Float64("memory_gib", float64(memory)/(1024*1024*1024)).
-			Msg("🔥 MEMORY_DEBUG: Storing model memory in modelMemoryMap")
 	}
-
-	log.Trace().
-		Int("total_models_in_store", len(allModels)).
-		Msg("📊 Total models loaded from store for memory lookup")
 
 	runners := make([]*types.DashboardRunner, 0, len(runnerStatuses))
 	for _, runnerStatus := range runnerStatuses {
@@ -322,14 +312,6 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
 	}
 
-	// Use model's actual context length - no fallbacks
-	log.Debug().
-		Str("CONTEXT_DEBUG", "dashboard").
-		Str("model_id", modelID).
-		Int64("context_length_from_store", targetModel.ContextLength).
-		Str("runtime", string(targetModel.Runtime)).
-		Msg("🦈 HAMMERHEAD Dashboard reading context length from model store")
-
 	if targetModel.ContextLength == 0 {
 		log.Error().
 			Str("model_id", modelID).
@@ -344,49 +326,15 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	// This fixes the 14.848 GiB vs 47.75 GB discrepancy
 	if targetModel.Concurrency > 0 {
 		opts.NumParallel = targetModel.Concurrency
-		log.Debug().
-			Str("model_id", modelID).
-			Int("concurrency", targetModel.Concurrency).
-			Msg("🦈 HAMMERHEAD Dashboard using per-model concurrency setting")
 	} else if targetModel.Runtime == types.RuntimeOllama {
 		opts.NumParallel = memory.DefaultOllamaParallelSequences
-		log.Debug().
-			Str("model_id", modelID).
-			Int("concurrency", opts.NumParallel).
-			Msg("🦈 HAMMERHEAD Dashboard using Ollama default concurrency")
 	}
-
-	log.Debug().
-		Str("CONTEXT_DEBUG", "dashboard_opts").
-		Str("model_id", modelID).
-		Int("num_ctx_being_used", opts.NumCtx).
-		Int("num_parallel_being_used", opts.NumParallel).
-		Str("kv_cache_type", opts.KVCacheType).
-		Msg("🦈 HAMMERHEAD Dashboard using these estimation options")
 
 	// Get memory estimation
 	result, err := memEstService.EstimateModelMemory(ctx, modelID, opts)
 	if err != nil {
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
-
-	log.Debug().
-		Str("MEMORY_DEBUG", "estimation_result_received").
-		Str("model_id", modelID).
-		Str("recommendation", result.Recommendation).
-		Uint64("single_gpu_total_size", func() uint64 {
-			if result.SingleGPU != nil {
-				return result.SingleGPU.TotalSize
-			}
-			return 0
-		}()).
-		Uint64("single_gpu_vram_size", func() uint64 {
-			if result.SingleGPU != nil {
-				return result.SingleGPU.VRAMSize
-			}
-			return 0
-		}()).
-		Msg("🔥 MEMORY_DEBUG: Raw estimation result from memory service")
 
 	// Select the appropriate estimate based on recommendation
 	var estimate *memory.MemoryEstimate
@@ -397,12 +345,6 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		estimate = result.TensorParallel
 	case "insufficient_memory":
 		// For UI display, prefer GPU estimates to show actual VRAM requirements
-		log.Debug().
-			Str("model_id", modelID).
-			Str("recommendation", result.Recommendation).
-			Interface("single_gpu", result.SingleGPU).
-			Interface("tensor_parallel", result.TensorParallel).
-			Msg("📋 SALMON Memory estimation result details for insufficient_memory case")
 
 		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
 			estimate = result.SingleGPU
@@ -454,14 +396,6 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 
 	// Always use TotalSize for consistent memory estimation
 	if estimate.TotalSize > 0 {
-		log.Debug().
-			Str("MEMORY_DEBUG", "final_dashboard_value").
-			Str("model_id", modelID).
-			Uint64("total_size", estimate.TotalSize).
-			Uint64("total_size_gb", estimate.TotalSize/(1024*1024*1024)).
-			Float64("total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
-			Uint64("vram_size", estimate.VRAMSize).
-			Msg("🔥 MEMORY_DEBUG: Final memory value being returned for dashboard")
 		return estimate.TotalSize, nil
 	} else {
 		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)

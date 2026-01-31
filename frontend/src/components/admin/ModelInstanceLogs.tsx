@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -31,103 +31,38 @@ import {
   Download as DownloadIcon
 } from '@mui/icons-material'
 import { TypesDashboardRunner } from '../../api/api'
-
-interface LogEntry {
-  timestamp: string
-  level: string
-  message: string
-  source: string
-}
-
-interface LogMetadata {
-  slot_id: string
-  model_id: string
-  created_at: string
-  status: string
-  last_error?: string
-}
-
-interface LogResponse {
-  slot_id: string
-  metadata: LogMetadata
-  logs: LogEntry[]
-  count: number
-}
-
-interface LogsSummary {
-  active_instances: number
-  recent_errors: number
-  instances_with_errors: number
-  max_lines_per_buffer: number
-  error_retention_hours: number
-}
+import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
 
 const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => {
   const [selectedSlot, setSelectedSlot] = useState<string>('')
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [metadata, setMetadata] = useState<LogMetadata | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(100)
-  const [summary, setSummary] = useState<LogsSummary | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
 
-  // Get runner URL - assuming it's available via the runner data
-  const getRunnerURL = () => {
-    // This would need to be implemented based on how runner URLs are exposed
-    // For now, assume it's on a standard port
-    return `http://localhost:8080` // This should be dynamic based on runner info
+  // Build stable query parameters (no 'since')
+  const query = {
+    lines: maxLines > 0 ? maxLines : undefined,
+    level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
   }
 
-  const fetchLogsSummary = async () => {
-    try {
-      const response = await fetch(`${getRunnerURL()}/api/v1/logs`)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      const data: LogsSummary = await response.json()
-      setSummary(data)
-    } catch (err) {
-      console.error('Failed to fetch logs summary:', err)
+  // Use React Query for fetching logs
+  const { data, isLoading, error, refetch } = useSlotLogs(
+    selectedSlot,
+    query,
+    {
+      enabled: !!selectedSlot,
+      refetchInterval: autoRefresh ? 5000 : false, // Refetch every 5s when auto-refresh is on
+      // No sinceRef needed - this component replaces logs on each fetch (non-tail mode)
     }
-  }
+  )
 
-  const fetchLogs = useCallback(async (slotId: string) => {
-    if (!slotId) return
-    
-    setLoading(true)
-    setError(null)
-    
-    try {
-      const params = new URLSearchParams()
-      if (maxLines > 0) params.set('lines', maxLines.toString())
-      if (logLevel !== 'all') params.set('level', logLevel.toUpperCase())
-      
-      const url = `${getRunnerURL()}/api/v1/logs/${slotId}?${params.toString()}`
-      const response = await fetch(url)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      
-      const data: LogResponse = await response.json()
-      setLogs(data.logs || [])
-      setMetadata(data.metadata)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch logs')
-      setLogs([])
-      setMetadata(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [maxLines, logLevel])
+  const logs = data?.logs || []
+  const metadata = data?.metadata || null
 
   const handleRefresh = () => {
     if (selectedSlot) {
-      fetchLogs(selectedSlot)
+      refetch()
     }
-    fetchLogsSummary()
   }
 
   const exportLogs = () => {
@@ -178,28 +113,6 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
     }
   }
 
-  useEffect(() => {
-    fetchLogsSummary()
-  }, [])
-
-  // Auto-fetch logs when a slot is selected
-  useEffect(() => {
-    if (selectedSlot) {
-      fetchLogs(selectedSlot)
-    }
-  }, [selectedSlot, fetchLogs]) // Re-fetch when slot or fetchLogs changes
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
-    if (autoRefresh && selectedSlot) {
-      interval = setInterval(() => {
-        fetchLogs(selectedSlot)
-      }, 5000) // Refresh every 5 seconds
-    }
-    return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [autoRefresh, selectedSlot, maxLines, logLevel])
 
   const availableSlots = runner.slots || []
 
@@ -213,32 +126,6 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
             <Typography variant="h6">Model Instance Logs</Typography>
-            {summary && (
-              <Box sx={{ display: 'flex', gap: 1, ml: 'auto', mr: 2 }}>
-                <Chip
-                  size="small"
-                  label={`${summary.active_instances} Active`}
-                  color="primary"
-                  variant="outlined"
-                />
-                {summary.instances_with_errors > 0 && (
-                  <Chip
-                    size="small"
-                    label={`${summary.instances_with_errors} Errors`}
-                    color="error"
-                    variant="outlined"
-                  />
-                )}
-                {summary.recent_errors > 0 && (
-                  <Chip
-                    size="small"
-                    label={`${summary.recent_errors} Recent Errors`}
-                    color="warning"
-                    variant="outlined"
-                  />
-                )}
-              </Box>
-            )}
           </Box>
         </AccordionSummary>
         <AccordionDetails>
@@ -287,8 +174,8 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
               <Button
                 variant="outlined"
                 onClick={handleRefresh}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={16} /> : <RefreshIcon />}
+                disabled={isLoading}
+                startIcon={isLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
               >
                 Refresh
               </Button>
@@ -354,8 +241,8 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
 
             {/* Error Display */}
             {error && (
-              <Alert severity="error" onClose={() => setError(null)}>
-                {error}
+              <Alert severity="error">
+                {error instanceof Error ? error.message : String(error)}
               </Alert>
             )}
 

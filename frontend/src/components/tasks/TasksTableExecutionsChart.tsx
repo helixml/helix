@@ -64,8 +64,15 @@ const TasksTableExecutionsChart: React.FC<TasksTableExecutionsChartProps> = ({ t
       return { values: [], labels: [], executions: [] };
     }
 
+    // Sort executions by creation date (oldest first) so newest appear on the right
+    const sortedExecutions = [...triggerExecutions.data].sort((a, b) => {
+      const dateA = new Date(a.created || '').getTime();
+      const dateB = new Date(b.created || '').getTime();
+      return dateA - dateB;
+    });
+
     // Take the last 20 executions for better visualization
-    const recentExecutions = triggerExecutions.data.slice(0, 20);
+    const recentExecutions = sortedExecutions.slice(-20);
     
     const values = recentExecutions.map(execution => execution.duration_ms || 0);
     const labels = recentExecutions.map((execution, index) => {

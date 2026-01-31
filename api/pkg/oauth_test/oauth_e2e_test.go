@@ -95,6 +95,9 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
 
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
 	// Use a unique schema for this test to avoid migration conflicts
 	testSchema := fmt.Sprintf("oauth_test_%d_%d", time.Now().UnixNano(), atomic.AddInt64(&testCounter, 1))
 
@@ -103,7 +106,7 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	testStoreCfg.Schema = testSchema
 
 	// Use database configuration from environment variables (provided by the test harness)
-	db, err := store.NewPostgresStore(testStoreCfg)
+	db, err := store.NewPostgresStore(testStoreCfg, ps)
 	require.NoError(t, err, "Failed to create store connection")
 	defer db.Close()
 
@@ -275,12 +278,12 @@ paths:
 	mockClient.EXPECT().APIKey().Return("test-key").AnyTimes()
 
 	// Create OAuth manager
-	oauthManager := oauth.NewManager(db)
+	oauthManager := oauth.NewManager(db, cfg.Tools.TLSSkipVerify)
 	err = oauthManager.LoadProviders(context.Background())
 	require.NoError(t, err, "Failed to load OAuth providers")
 
 	// Set up the rest of the controller
-	toolsPlanner, err := tools.NewChainStrategy(&cfg, db, nil, mockClient)
+	toolsPlanner, err := tools.NewChainStrategy(&cfg, db, mockClient)
 	require.NoError(t, err, "Failed to create chain strategy")
 	tools.InitChainStrategyOAuth(toolsPlanner, oauthManager, db, db)
 

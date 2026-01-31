@@ -293,7 +293,7 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 
 	model, err := c.store.GetModel(context.Background(), string(embeddingRequest.Model))
 	if err != nil {
-		return resp, fmt.Errorf("error getting model: %w", err)
+		return resp, fmt.Errorf("embedding model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models: %w", embeddingRequest.Model, err)
 	}
 
 	// Enqueue the request for processing
@@ -387,7 +387,7 @@ func (c *InternalHelixServer) CreateFlexibleEmbeddings(ctx context.Context, flex
 
 	model, err := c.store.GetModel(context.Background(), flexibleRequest.Model)
 	if err != nil {
-		return resp, fmt.Errorf("error getting model: %w", err)
+		return resp, fmt.Errorf("embedding model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models: %w", flexibleRequest.Model, err)
 	}
 
 	// Enqueue the request for processing

@@ -157,6 +157,8 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		Owner:    "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
@@ -204,7 +206,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	// Mock Notify for success notification
 	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, n *notification.Notification) error {
-			suite.Equal(notification.EventCronTriggerComplete, n.Event)
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
 			suite.NotEmpty(n.Message)
 			return nil
 		},
@@ -283,6 +285,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		Owner:    "test-org",
 	}).Return(suite.openAiClient, nil).Times(1)
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
@@ -331,7 +335,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	// Mock Notify for success notification
 	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, n *notification.Notification) error {
-			suite.Equal(notification.EventCronTriggerComplete, n.Event)
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
 			suite.NotEmpty(n.Message)
 			return nil
 		},

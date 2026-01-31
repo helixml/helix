@@ -211,11 +211,14 @@ func (suite *ModelTestSuite) TestUpdateModel() {
 }
 
 func (suite *ModelTestSuite) TestListModels() {
+	// Use unique prefix for this test run to avoid conflicts with parallel tests or seed data
+	prefix := "list-model-" + system.GenerateAppID() + "-"
+
 	// Create some models with different properties
-	model1 := &types.Model{ID: "list-model-1", Name: "List Model One", Type: types.ModelTypeChat, Runtime: types.RuntimeOllama, ContextLength: 1024, Memory: 1, Enabled: true}
-	model2 := &types.Model{ID: "list-model-2", Name: "List Model Two", Type: types.ModelTypeChat, Runtime: types.RuntimeVLLM, ContextLength: 2048, Memory: 2, Enabled: false}
-	model3 := &types.Model{ID: "list-model-3", Name: "List Model Three", Type: types.ModelTypeImage, Runtime: types.RuntimeDiffusers, ContextLength: 0, Memory: 3, Enabled: true}
-	model4 := &types.Model{ID: "list-model-4", Name: "List Model Four", Type: types.ModelTypeChat, Runtime: types.RuntimeOllama, ContextLength: 4096, Memory: 4, Enabled: true}
+	model1 := &types.Model{ID: prefix + "1", Name: prefix + "One", Type: types.ModelTypeChat, Runtime: types.RuntimeOllama, ContextLength: 1024, Memory: 1, Enabled: true}
+	model2 := &types.Model{ID: prefix + "2", Name: prefix + "Two", Type: types.ModelTypeChat, Runtime: types.RuntimeVLLM, ContextLength: 2048, Memory: 2, Enabled: false}
+	model3 := &types.Model{ID: prefix + "3", Name: prefix + "Three", Type: types.ModelTypeImage, Runtime: types.RuntimeDiffusers, ContextLength: 0, Memory: 3, Enabled: true}
+	model4 := &types.Model{ID: prefix + "4", Name: prefix + "Four", Type: types.ModelTypeChat, Runtime: types.RuntimeOllama, ContextLength: 4096, Memory: 4, Enabled: true}
 
 	_, err := suite.db.CreateModel(suite.ctx, model1)
 	suite.Require().NoError(err)
@@ -226,66 +229,101 @@ func (suite *ModelTestSuite) TestListModels() {
 	_, err = suite.db.CreateModel(suite.ctx, model4)
 	suite.Require().NoError(err)
 
+	// Clean up after test
+	defer func() {
+		_ = suite.db.DeleteModel(suite.ctx, model1.ID)
+		_ = suite.db.DeleteModel(suite.ctx, model2.ID)
+		_ = suite.db.DeleteModel(suite.ctx, model3.ID)
+		_ = suite.db.DeleteModel(suite.ctx, model4.ID)
+	}()
+
 	// Test listing all models (no filters) - includes seeded models if any
 	allModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{})
 	suite.NoError(err)
-	suite.GreaterOrEqual(len(allModels), 4, "Should list at least the 4 created models") // Use >= because seedModels might run
+	suite.GreaterOrEqual(len(allModels), 4, "Should list at least the 4 created models")
 
-	// Test filtering by Type
+	// Verify our specific models exist in the result
+	modelIDs := make(map[string]bool)
+	for _, m := range allModels {
+		modelIDs[m.ID] = true
+	}
+	suite.True(modelIDs[model1.ID], "model1 should be in list")
+	suite.True(modelIDs[model2.ID], "model2 should be in list")
+	suite.True(modelIDs[model3.ID], "model3 should be in list")
+	suite.True(modelIDs[model4.ID], "model4 should be in list")
+
+	// Test filtering by Type - count only our test models
 	chatModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Type: types.ModelTypeChat})
 	suite.NoError(err)
-	suite.Len(chatModels, 3, "Should list 3 chat models")
-	for _, m := range chatModels {
+	ourChatModels := filterModelsByPrefix(chatModels, prefix)
+	suite.Len(ourChatModels, 3, "Should have 3 chat models with our prefix")
+	for _, m := range ourChatModels {
 		suite.Equal(types.ModelTypeChat, m.Type)
 	}
 
 	imageModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Type: types.ModelTypeImage})
 	suite.NoError(err)
-	suite.Len(imageModels, 1, "Should list 1 image model")
-	suite.Equal(types.ModelTypeImage, imageModels[0].Type)
+	ourImageModels := filterModelsByPrefix(imageModels, prefix)
+	suite.Len(ourImageModels, 1, "Should have 1 image model with our prefix")
+	suite.Equal(types.ModelTypeImage, ourImageModels[0].Type)
 
-	// Test filtering by Runtime
+	// Test filtering by Runtime - count only our test models
 	ollamaModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Runtime: types.RuntimeOllama})
 	suite.NoError(err)
-	suite.Len(ollamaModels, 2, "Should list 2 ollama models")
-	for _, m := range ollamaModels {
+	ourOllamaModels := filterModelsByPrefix(ollamaModels, prefix)
+	suite.Len(ourOllamaModels, 2, "Should have 2 ollama models with our prefix")
+	for _, m := range ourOllamaModels {
 		suite.Equal(types.RuntimeOllama, m.Runtime)
 	}
 
-	// Test filtering by Enabled status
+	// Test filtering by Enabled status - count only our test models
 	enabled := true
 	enabledModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Enabled: &enabled})
 	suite.NoError(err)
-	suite.Len(enabledModels, 3, "Should list 3 enabled models")
-	for _, m := range enabledModels {
+	ourEnabledModels := filterModelsByPrefix(enabledModels, prefix)
+	suite.Len(ourEnabledModels, 3, "Should have 3 enabled models with our prefix")
+	for _, m := range ourEnabledModels {
 		suite.True(m.Enabled)
 	}
 
 	disabled := false
 	disabledModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Enabled: &disabled})
 	suite.NoError(err)
-	suite.Len(disabledModels, 1, "Should list 1 disabled model")
-	suite.False(disabledModels[0].Enabled)
+	ourDisabledModels := filterModelsByPrefix(disabledModels, prefix)
+	suite.Len(ourDisabledModels, 1, "Should have 1 disabled model with our prefix")
+	suite.False(ourDisabledModels[0].Enabled)
 
 	// Test filtering by Name (exact match)
-	nameModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Name: "List Model One"})
+	nameModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Name: prefix + "One"})
 	suite.NoError(err)
 	suite.Len(nameModels, 1, "Should list 1 model by exact name")
-	suite.Equal("List Model One", nameModels[0].Name)
+	suite.Equal(prefix+"One", nameModels[0].Name)
 
-	// Test combining filters
+	// Test combining filters - count only our test models
 	enabledChatModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Type: types.ModelTypeChat, Enabled: &enabled})
 	suite.NoError(err)
-	suite.Len(enabledChatModels, 2, "Should list 2 enabled chat models")
-	for _, m := range enabledChatModels {
+	ourEnabledChatModels := filterModelsByPrefix(enabledChatModels, prefix)
+	suite.Len(ourEnabledChatModels, 2, "Should have 2 enabled chat models with our prefix")
+	for _, m := range ourEnabledChatModels {
 		suite.True(m.Enabled)
 		suite.Equal(types.ModelTypeChat, m.Type)
 	}
 
 	// Test filter resulting in no models
-	noModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Name: "Non Existent Name"})
+	noModels, err := suite.db.ListModels(suite.ctx, &ListModelsQuery{Name: "Non Existent Name That Should Never Match"})
 	suite.NoError(err)
 	suite.Empty(noModels, "Should list no models for non-existent name")
+}
+
+// filterModelsByPrefix filters models to only those with IDs starting with the given prefix
+func filterModelsByPrefix(models []*types.Model, prefix string) []*types.Model {
+	var filtered []*types.Model
+	for _, m := range models {
+		if len(m.ID) >= len(prefix) && m.ID[:len(prefix)] == prefix {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 func (suite *ModelTestSuite) TestDeleteModel() {

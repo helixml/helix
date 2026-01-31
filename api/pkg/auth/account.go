@@ -2,44 +2,37 @@ package auth
 
 import (
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
+// AdminConfig holds configuration for admin status determination
 type AdminConfig struct {
+	// AdminUserIDs is a list of user IDs that should be admins.
+	// Can contain "all" for dev mode (everyone is admin), or specific user IDs.
 	AdminUserIDs []string
-	AdminUserSrc config.AdminSrcType
 }
 
-type account struct {
-	userInfo *UserInfo
-}
-
-func (acct *account) isAdmin(cfg *AdminConfig) bool {
-	switch cfg.AdminUserSrc {
-	case config.AdminSrcTypeEnv:
-		return acct.isUserAdmin(cfg)
-	case config.AdminSrcTypeJWT:
-		return acct.isTokenAdmin()
-	}
-	return false
-}
-
-func (acct *account) isUserAdmin(cfg *AdminConfig) bool {
-	for _, adminID := range cfg.AdminUserIDs {
-		// development mode everyone is an admin
-		if adminID == types.AdminAllUsers {
-			return true
-		}
-		if adminID == acct.userInfo.Subject {
+// IsAllUsersAdmin returns true if ADMIN_USER_IDS contains "all" (dev mode)
+func (cfg *AdminConfig) IsAllUsersAdmin() bool {
+	for _, id := range cfg.AdminUserIDs {
+		if id == config.AdminAllUsers {
 			return true
 		}
 	}
 	return false
 }
 
-func (acct *account) isTokenAdmin() bool {
-	if acct.userInfo == nil {
+// IsUserInAdminList returns true if the given user ID is in the admin list
+func (cfg *AdminConfig) IsUserInAdminList(userID string) bool {
+	if userID == "" {
 		return false
 	}
-	return acct.userInfo.Admin
+	for _, id := range cfg.AdminUserIDs {
+		if id == config.AdminAllUsers {
+			return true // "all" means everyone is admin
+		}
+		if id == userID {
+			return true
+		}
+	}
+	return false
 }

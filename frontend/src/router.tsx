@@ -18,12 +18,26 @@ import Create from './pages/Create'
 import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
-import NewAgent from './pages/NewAgent'
+// NewAgent wizard removed - now creating blank agent and going directly to App settings
+// import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
+import SpecTasksPage from './pages/SpecTasksPage'
+import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
+import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
+import TeamDesktopPage from './pages/TeamDesktopPage'
+import Projects from './pages/Projects'
+import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import QuestionSets from './pages/QuestionSets'
+import QuestionSetResults from './pages/QuestionSetResults'
+import GitRepos from './pages/GitRepos'
+import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
+import PasswordReset from './pages/PasswordReset'
+import PasswordResetComplete from './pages/PasswordResetComplete'
+import DesignDocPage from './pages/DesignDocPage'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -43,16 +57,44 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 // so rather than duplicate these routes let's return them from this utility function
 const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] => {
   return [{
-    name: namePrefix + 'home',
+    // Projects is now the landing page
+    name: namePrefix + 'projects',
     path: routePrefix + (routePrefix ? '' : '/'),
     meta: {
-      title: 'Home',
+      title: 'Projects',
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+        <Projects />
+    ),
+  }, {
+    // Chat (formerly Home) - the AI chat interface
+    name: namePrefix + 'chat',
+    path: routePrefix + '/chat',
+    meta: {
+      title: 'Chat',
       drawer: true,
       orgRouteAware: true,
     },
     render: () => (
         <Home />
     ),
+  }, {
+    // Legacy home route - redirect to projects for backward compatibility
+    name: namePrefix + 'home',
+    path: routePrefix + '/home',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+    },
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'new',
     path: routePrefix + '/new',
@@ -74,7 +116,45 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <Apps />
     ),
-  }, 
+  }, {
+    name: namePrefix + 'git-repos',
+    path: routePrefix + '/git-repos',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Git Repositories',
+    },
+    render: () => {
+      // Redirect to Projects page with repositories tab
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate('projects', { tab: 'repositories' }, { replace: true })
+      }, [])
+      return null
+    },
+  }, {
+    name: namePrefix + 'git-repo-detail',
+    path: routePrefix + '/git-repos/:repoId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Repository',
+    },
+    render: () => (
+      <GitRepoDetail />
+    ),
+  }, {
+    name: namePrefix + 'qa',
+    path: routePrefix + '/qa',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Q&A',
+    },
+    render: () => (
+      <QuestionSets />
+    ),
+  },
   {
     name: namePrefix + 'providers',
     path: routePrefix + '/providers',
@@ -95,6 +175,99 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <Tasks />
     ),
   }, {
+    name: namePrefix + 'spec-tasks',
+    path: routePrefix + '/spec-tasks',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'SpecTasks',
+    },
+    render: () => (
+      <SpecTasksPage />
+    ),
+  }, {
+    // Legacy /projects route - redirect to root for backward compatibility
+    name: namePrefix + 'projects-legacy',
+    path: routePrefix + '/projects',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+    },
+    render: () => {
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate(namePrefix + 'projects', {}, { replace: true })
+      }, [])
+      return null
+    },
+  }, {
+    name: namePrefix + 'project-specs',
+    path: routePrefix + '/projects/:id/specs',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Tasks',
+    },
+    render: () => (
+      <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-detail',
+    path: routePrefix + '/projects/:id/tasks/:taskId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Task Details',
+    },
+    render: () => (
+      <SpecTaskDetailPage />
+    ),
+  }, {
+    name: namePrefix + 'project-task-review',
+    path: routePrefix + '/projects/:id/tasks/:taskId/review/:reviewId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Spec Review',
+    },
+    render: () => (
+      <SpecTaskReviewPage />
+    ),
+  }, {
+    name: namePrefix + 'project-team-desktop',
+    path: routePrefix + '/projects/:id/desktop/:sessionId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Team Desktop',
+    },
+    render: () => (
+      <TeamDesktopPage />
+    ),
+  }, {
+    name: namePrefix + 'project-settings',
+    path: routePrefix + '/projects/:id/settings',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Settings',
+    },
+    render: () => (
+      <ProjectSettings />
+    ),
+  }, {
+    name: namePrefix + 'project-session',
+    path: routePrefix + '/projects/:id/session/:session_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+      orgRouteAware: true,
+      title: 'Project Session',
+    },
+    render: () => (
+      <Session />
+    ),
+  }, {
     name: namePrefix + 'app',
     path: routePrefix + '/app/:app_id',
     meta: {
@@ -104,13 +277,15 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <App />
     ),
   }, {
+    // NewAgent wizard removed - Apps.tsx now creates blank agent and navigates to App settings
+    // Keeping route for backwards compatibility (redirects to apps list)
     name: namePrefix + 'new-agent',
     path: routePrefix + '/new-agent',
     meta: {
       drawer: false,
     },
     render: () => (
-      <NewAgent />
+      <Apps />
     ),
   }, {
     name: namePrefix + 'session',
@@ -121,6 +296,16 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Session />
+    ),
+  },  {
+    name: namePrefix + 'qa-results',
+    path: routePrefix + '/qa-results/:question_set_id/:execution_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+    },
+    render: () => (
+      <QuestionSetResults />
     ),
   }]
 }
@@ -252,6 +437,30 @@ const routes: IApplicationRoute[] = [
     drawer: false,
   },
   render: () => <OpenAPI />,
+}, {
+  name: 'password-reset',
+  path: '/password-reset',
+  meta: {
+    drawer: false,
+    title: 'Reset Password',
+  },
+  render: () => <PasswordReset />,
+}, {
+  name: 'password-reset-complete',
+  path: '/password-reset-complete',
+  meta: {
+    drawer: false,
+    title: 'Set New Password',
+  },
+  render: () => <PasswordResetComplete />,
+}, {
+  name: 'design-doc',
+  path: '/design-doc/:specTaskId/:reviewId',
+  meta: {
+    drawer: false,
+    title: 'Design Document',
+  },
+  render: () => <DesignDocPage />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

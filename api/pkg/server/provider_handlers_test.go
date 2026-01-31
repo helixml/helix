@@ -40,6 +40,7 @@ func (s *ProviderHandlersSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.RAG.PGVector.Provider = string(types.ProviderOpenAI)
+	cfg.ProvidersManagementEnabled = true // Enable provider management to avoid early-return path
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)

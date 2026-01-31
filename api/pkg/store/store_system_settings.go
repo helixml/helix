@@ -64,6 +64,12 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.HuggingFaceToken != nil {
 		settings.HuggingFaceToken = *req.HuggingFaceToken
 	}
+	if req.KoditEnrichmentProvider != nil {
+		settings.KoditEnrichmentProvider = *req.KoditEnrichmentProvider
+	}
+	if req.KoditEnrichmentModel != nil {
+		settings.KoditEnrichmentModel = *req.KoditEnrichmentModel
+	}
 
 	settings.Updated = time.Now()
 

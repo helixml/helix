@@ -2,21 +2,61 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type DefaultMemory struct {
+	enabled bool
+	store   store.Store
 }
 
-func NewDefaultMemory() *DefaultMemory {
-	return &DefaultMemory{}
+func NewDefaultMemory(enabled bool, store store.Store) *DefaultMemory {
+	return &DefaultMemory{
+		enabled: enabled,
+		store:   store,
+	}
 }
 
-func (m *DefaultMemory) Retrieve(_ *Meta) (*MemoryBlock, error) {
-	// TODO: integrate mem0 or other memory store
-	return NewMemoryBlock(), nil
+func (m *DefaultMemory) Retrieve(meta *Meta) (*MemoryBlock, error) {
+	if !m.enabled {
+		return NewMemoryBlock(), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	log.Info().
+		Str("user_id", meta.UserID).
+		Str("app_id", meta.AppID).Msg("retrieving memories")
+	// Load current memory
+	memories, err := m.store.ListMemories(ctx, &types.ListMemoryRequest{
+		UserID: meta.UserID,
+		AppID:  meta.AppID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load memories: %w", err)
+	}
+
+	block := NewMemoryBlock()
+
+	for idx, memory := range memories {
+		memBlock := NewMemoryBlock()
+		memBlock.AddString("id", memory.ID)
+		memBlock.AddString("contents", memory.Contents)
+
+		block.AddBlock("memory_"+strconv.Itoa(idx), memBlock)
+	}
+
+	return block, nil
 }
 
 // ValueType represents the type of a memory value

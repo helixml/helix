@@ -1,0 +1,19 @@
+# ====================================================================
+# Node.js 20 Build Environment for Qwen Code
+# ====================================================================
+# Produces pre-built qwen-code bundles that can be installed globally
+# without triggering prepare scripts (which require husky).
+#
+# Usage: ./stack build-qwen-code
+# ====================================================================
+FROM node:20-slim
+
+# Install git (required for simple-git dependency)
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory for builds
+WORKDIR /qwen-code
+
+# The build script mounts qwen-code source here and runs npm ci + bundle

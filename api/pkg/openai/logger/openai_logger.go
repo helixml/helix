@@ -348,6 +348,8 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,
+		ProjectID:        vals.ProjectID,
+		SpecTaskID:       vals.SpecTaskID,
 	}
 
 	if apiError != nil {

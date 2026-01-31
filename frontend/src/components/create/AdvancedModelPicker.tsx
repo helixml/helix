@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   DialogTitle,
   DialogContent,
@@ -22,12 +22,11 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
-import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StarIcon from '@mui/icons-material/Star';
 // import ImageIcon from '@mui/icons-material/Image';
-import { Image, Cog } from 'lucide-react';
+import { Image, Cog, Bot } from 'lucide-react';
 
 import { useListProviders } from '../../services/providersService';
 import { useGetUserTokenUsage } from '../../services/userService';
@@ -56,6 +55,7 @@ interface AdvancedModelPickerProps {
   disabled?: boolean; // New prop to disable the picker
   hint?: string; // Optional hint text to display in the dialog
   recommendedModels?: string[]; // List of recommended model IDs to show at the top
+  autoSelectFirst?: boolean; // Whether to auto-select first model when none is selected (default: true)
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -86,7 +86,7 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
   // Default robot head
   return (
     <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
-      <SmartToyIcon />
+      <Bot size={20} />
     </Avatar>
   );  
 };
@@ -151,12 +151,16 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   disabled = false, // Default to false
   hint,
   recommendedModels = [], // Default to empty array
+  autoSelectFirst = true, // Default to true for backward compatibility
 }) => {
   const router = useRouter()
   const lightTheme = useLightTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
+
+  // Track the initially selected model when dialog opens (so it stays at top without jumping)
+  const initialSelectedModelRef = useRef<string | undefined>(undefined);
 
   const orgName = router.params.org_id  
 
@@ -187,11 +191,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   useEffect(() => {
     // For text type, we need to use chat models
     const effectiveType = currentType === "text" ? "chat" : currentType;
-    
+
     // Select first model if none selected or if current model doesn't match the new type
     if (allModels.length > 0) {
-      // If no model is selected, select the first one of the right type
-      if (!selectedModelId) {
+      // If no model is selected, select the first one of the right type (only if autoSelectFirst is enabled)
+      if (!selectedModelId && autoSelectFirst) {
         const firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
         if (firstModel && firstModel.id) {
           onSelectModel(firstModel.provider?.name || '', firstModel.id);
@@ -221,7 +225,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         }
       }
     }
-  }, [allModels, selectedModelId, currentType, onSelectModel]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allModels, selectedModelId, currentType, autoSelectFirst]);
   
 
   // Find the full name/ID of the selected model, default if not found or not selected
@@ -232,11 +237,16 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
   
-  // Determine tooltip title based on disabled state
+  // Determine tooltip title based on disabled state - include provider name
   const tooltipTitle = useMemo(() => {
     if (disabled) return "Model selection is disabled";
+    const selectedModel = allModels.find(model => model.id === selectedModelId);
+    const providerName = selectedModel?.provider?.name || selectedProvider;
+    if (providerName) {
+      return `${displayModelName} (${providerName})`;
+    }
     return displayModelName;
-  }, [disabled, displayModelName]);
+  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider]);
 
   // Check if monthly token limit is reached
   const isMonthlyLimitReached = useMemo(() => {
@@ -259,12 +269,21 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       models = models.filter(model => model.enabled);
     }
 
-    // Sort models to put recommended ones at the top
-    if (recommendedModels.length > 0) {
-      models.sort((a, b) => {
+    // Sort models: initially selected first, then recommended, then others
+    models.sort((a, b) => {
+      const initialModel = initialSelectedModelRef.current;
+
+      // Initially selected model always comes first
+      if (initialModel) {
+        if (a.id === initialModel && b.id !== initialModel) return -1;
+        if (b.id === initialModel && a.id !== initialModel) return 1;
+      }
+
+      // Then sort by recommended list
+      if (recommendedModels.length > 0) {
         const aIndex = recommendedModels.indexOf(a.id || '');
         const bIndex = recommendedModels.indexOf(b.id || '');
-        
+
         // If both are in recommended list, maintain their order in recommended list
         if (aIndex !== -1 && bIndex !== -1) {
           return aIndex - bIndex;
@@ -272,16 +291,19 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         // If only one is in recommended list, put it first
         if (aIndex !== -1) return -1;
         if (bIndex !== -1) return 1;
-        // If neither is in recommended list, maintain original order
-        return 0;
-      });
-    }
+      }
+
+      // If neither is in recommended list, maintain original order
+      return 0;
+    });
 
     return models;
-  }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels]);
+  }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels, dialogOpen]);
 
   const handleOpenDialog = () => {
     setSearchQuery('');
+    // Capture the initially selected model so we can pin it to the top without jumping
+    initialSelectedModelRef.current = selectedModelId;
     setDialogOpen(true);
   };
 
@@ -478,34 +500,45 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     </ListItemIcon>
                     <ListItemText
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="body1" component="span">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Chip
+                            label={model.provider.name}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#353945',
+                              color: '#A0AEC0',
+                              fontSize: '0.7rem',
+                              height: '20px',
+                              minWidth: '70px',
+                              '& .MuiChip-label': {
+                                px: 1,
+                              },
+                            }}
+                          />
+                          <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {model.id || 'Unnamed Model'}
                           </Typography>
                           {isRecommended && (
                             <Tooltip title="Recommended model">
-                              <StarIcon 
-                                sx={{ 
-                                  fontSize: '1rem', 
+                              <StarIcon
+                                sx={{
+                                  fontSize: '1rem',
                                   color: '#FFD700',
                                   ml: 0.5,
                                   verticalAlign: 'middle'
-                                }} 
+                                }}
                               />
                             </Tooltip>
                           )}
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
-                            {model.provider.name}
-                          </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
                           {model.description && (
-                            <Typography 
-                              variant="caption" 
-                              component="span" 
-                              sx={{ 
+                            <Typography
+                              variant="caption"
+                              component="span"
+                              sx={{
                                 color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
                                 fontSize: '0.75rem',
                                 lineHeight: 1.2,
@@ -514,23 +547,24 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               {model.description}
                             </Typography>
                           )}
-                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
-                            {model.provider.name}                        
-                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}            
-                                {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input tokens`}
-                                {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}                            
-                          </>)}
-                           </Typography>
+                          {model.provider.billing_enabled && model.model_info?.pricing && (
+                            <Typography variant="body2" component="span" sx={{ color: '#A0AEC0', fontSize: '0.75rem' }}>
+                              {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input`}
+                              {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
+                              {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output`}
+                            </Typography>
+                          )}
                         </Box>
                       }
                       primaryTypographyProps={{
+                        component: 'div',
                         sx: {
                           fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
                       }}
+                      secondaryTypographyProps={{ component: 'div' }}
                       sx={{ mr: 1 }}
                     />
                   </Box>
@@ -648,34 +682,45 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       </ListItemIcon>
                       <ListItemText
                         primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Typography variant="body1" component="span">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip
+                              label={model.provider.name}
+                              size="small"
+                              sx={{
+                                backgroundColor: '#353945',
+                                color: '#A0AEC0',
+                                fontSize: '0.7rem',
+                                height: '20px',
+                                minWidth: '70px',
+                                '& .MuiChip-label': {
+                                  px: 1,
+                                },
+                              }}
+                            />
+                            <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {model.id || 'Unnamed Model'}
                             </Typography>
                             {isRecommended && (
                               <Tooltip title="Recommended model">
-                                <StarIcon 
-                                  sx={{ 
-                                    fontSize: '1rem', 
+                                <StarIcon
+                                  sx={{
+                                    fontSize: '1rem',
                                     color: '#FFD700',
                                     ml: 0.5,
                                     verticalAlign: 'middle'
-                                  }} 
+                                  }}
                                 />
                               </Tooltip>
                             )}
                           </Box>
                         }
                         secondary={
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                            <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
-                              {model.provider.name}
-                            </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
                             {model.description && (
-                              <Typography 
-                                variant="caption" 
-                                component="span" 
-                                sx={{ 
+                              <Typography
+                                variant="caption"
+                                component="span"
+                                sx={{
                                   color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
                                   fontSize: '0.75rem',
                                   lineHeight: 1.2,
@@ -687,12 +732,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Box>
                         }
                         primaryTypographyProps={{
+                          component: 'div',
                           sx: {
                             fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                           }
                         }}
+                        secondaryTypographyProps={{ component: 'div' }}
                         sx={{ mr: 1 }}
                       />
                     </Box>

@@ -135,12 +135,12 @@ func parseGGUFMetadata(r io.ReadSeeker) (*ModelMetadata, error) {
 		if _, exists := layers[layerName]; !exists {
 			layers[layerName] = LayerInfo{Tensors: make(map[string]TensorInfo)}
 		}
-		
+
 		tensorKey := strings.TrimPrefix(tensorName, layerName+".")
 		if tensorKey == tensorName {
 			tensorKey = tensorName // If no prefix was removed, use full name
 		}
-		
+
 		layers[layerName].Tensors[tensorKey] = *tensorInfo
 	}
 
@@ -354,7 +354,7 @@ func getString(kv map[string]interface{}, key, defaultValue string) string {
 	if val, ok := kv[key].(string); ok {
 		return val
 	}
-	
+
 	// Try with architecture prefix
 	if arch, ok := kv["general.architecture"].(string); ok {
 		prefixedKey := arch + "." + strings.TrimPrefix(key, "general.")
@@ -362,7 +362,7 @@ func getString(kv map[string]interface{}, key, defaultValue string) string {
 			return val
 		}
 	}
-	
+
 	return defaultValue
 }
 
@@ -371,7 +371,7 @@ func getUint64(kv map[string]interface{}, key string) uint64 {
 	if val := convertToUint64(kv[key]); val > 0 {
 		return val
 	}
-	
+
 	// Try with architecture prefix
 	if arch, ok := kv["general.architecture"].(string); ok {
 		prefixedKey := arch + "." + key
@@ -379,7 +379,7 @@ func getUint64(kv map[string]interface{}, key string) uint64 {
 			return val
 		}
 	}
-	
+
 	return 0
 }
 
@@ -423,12 +423,12 @@ func getVocabSize(kv map[string]interface{}) uint64 {
 			return uint64(len(t))
 		}
 	}
-	
+
 	// Fallback: try to find vocab size in other fields
 	if val := getUint64(kv, "tokenizer.vocab_size"); val > 0 {
 		return val
 	}
-	
+
 	return 32000 // Reasonable default
 }
 
@@ -441,17 +441,17 @@ func extractLayerName(tensorName string) string {
 			return parts[0] + "." + parts[1] // e.g., "blk.0"
 		}
 	}
-	
+
 	// Handle output layers
 	if strings.HasPrefix(tensorName, "output") {
 		return "output"
 	}
-	
+
 	// Handle embedding layers
 	if strings.HasPrefix(tensorName, "token_embd") {
 		return "token_embd"
 	}
-	
+
 	// Handle vision layers
 	if strings.HasPrefix(tensorName, "v.") {
 		parts := strings.Split(tensorName, ".")
@@ -459,7 +459,7 @@ func extractLayerName(tensorName string) string {
 			return "v"
 		}
 	}
-	
+
 	// Default: use the first part before the first dot
 	parts := strings.Split(tensorName, ".")
 	return parts[0]
@@ -472,11 +472,11 @@ func calculateTensorSize(shape []uint64, tensorType uint32) uint64 {
 	for _, dim := range shape {
 		elements *= dim
 	}
-	
+
 	// Get type size and block size
 	typeSize := getTensorTypeSize(tensorType)
 	blockSize := getTensorBlockSize(tensorType)
-	
+
 	// Calculate total size
 	return elements * typeSize / blockSize
 }
@@ -592,12 +592,12 @@ func adjustArchitectureSpecificMetadata(metadata *ModelMetadata, kv map[string]i
 			metadata.HeadCountKV = metadata.HeadCount // No GQA in base LLaMA
 		}
 	}
-	
+
 	// Ensure HeadCountKV is set
 	if metadata.HeadCountKV == 0 {
 		metadata.HeadCountKV = metadata.HeadCount
 	}
-	
+
 	// Ensure Key/Value lengths are set
 	if metadata.KeyLength == 0 && metadata.HeadCount > 0 && metadata.EmbeddingLength > 0 {
 		metadata.KeyLength = metadata.EmbeddingLength / metadata.HeadCount
@@ -606,4 +606,3 @@ func adjustArchitectureSpecificMetadata(metadata *ModelMetadata, kv map[string]i
 		metadata.ValueLength = metadata.KeyLength
 	}
 }
-

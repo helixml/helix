@@ -179,6 +179,11 @@ func parseModelConfigFile(filename string) (*types.Model, error) {
 		}
 	}
 
+	// Recursively convert all map[interface{}]interface{} to map[string]interface{}
+	// This is needed because YAML unmarshaling creates nested maps as map[interface{}]interface{}
+	// but JSON marshaling requires map[string]interface{}
+	spec = convertYAMLMapToStringMap(spec)
+
 	if apiVersion == "" {
 		return nil, fmt.Errorf("apiVersion is required")
 	}
@@ -362,4 +367,41 @@ func updateModel(ctx context.Context, apiClient client.Client, model *types.Mode
 		return fmt.Errorf("failed to update model: %w", err)
 	}
 	return nil
+}
+
+// convertYAMLMapToStringMap recursively converts map[interface{}]interface{} to map[string]interface{}
+func convertYAMLMapToStringMap(input map[string]interface{}) map[string]interface{} {
+	output := make(map[string]interface{})
+	for key, value := range input {
+		output[key] = convertYAMLValue(value)
+	}
+	return output
+}
+
+// convertYAMLValue recursively converts YAML values to JSON-compatible types
+func convertYAMLValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case map[interface{}]interface{}:
+		result := make(map[string]interface{})
+		for key, val := range v {
+			if strKey, ok := key.(string); ok {
+				result[strKey] = convertYAMLValue(val)
+			}
+		}
+		return result
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		for key, val := range v {
+			result[key] = convertYAMLValue(val)
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = convertYAMLValue(val)
+		}
+		return result
+	default:
+		return v
+	}
 }

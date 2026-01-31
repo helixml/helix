@@ -62,6 +62,16 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 	return types.InferenceRuntimeAxolotl
 }
 
+// ParseProviderFromModel extracts a provider prefix from a model name.
+// Format: "provider/model" returns (provider, model)
+// If no prefix, returns ("", modelName)
+func ParseProviderFromModel(modelName string) (provider, model string) {
+	if idx := strings.Index(modelName, "/"); idx > 0 {
+		return modelName[:idx], modelName[idx+1:]
+	}
+	return "", modelName
+}
+
 // this will handle aliases and defaults
 func ProcessModelName(
 	provider string,
@@ -92,6 +102,10 @@ func ProcessModelName(
 			return ModelOllamaNoushermes2thetallama3, nil
 		case "helix-small":
 			return ModelOllamaPhi3, nil
+		case "external_agent":
+			// External agent requests should use this identifier
+			// The actual model is configured within the external agent (Zed, etc.)
+			return "external_agent", nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference

@@ -17,7 +17,13 @@ import {
   FormControlLabel,
   Radio,
   FormLabel,
+  IconButton,
+  Box,
+  Divider,
+  Typography,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useUpdateProviderEndpoint } from '../../services/providersService';
@@ -63,11 +69,13 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
+    name: endpoint?.name || '',
     base_url: endpoint?.base_url || '',
     api_key: '',
     api_key_file: endpoint?.api_key_file || '',
     endpoint_type: endpoint?.endpoint_type || 'user',
     auth_type: getEndpointAuthType(endpoint),
+    headers: [] as Array<{ key: string; value: string }>,
   });
 
   // Only initialize the mutation hook if we have a valid endpoint ID
@@ -76,12 +84,19 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   // Reset form data when endpoint changes
   React.useEffect(() => {
     if (endpoint) {
-      setFormData({       
+      // Convert headers object to array format
+      const headersArray = endpoint.headers
+        ? Object.entries(endpoint.headers).map(([key, value]) => ({ key, value }))
+        : [];
+
+      setFormData({
+        name: endpoint.name,
         base_url: endpoint.base_url,
         api_key: '',
         api_key_file: endpoint.api_key_file || '',
         endpoint_type: endpoint.endpoint_type,
         auth_type: getEndpointAuthType(endpoint),
+        headers: headersArray,
       });
       setError('');
     }
@@ -117,7 +132,36 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     setError('');
   };
 
+  const handleHeaderChange = (index: number, field: 'key' | 'value', value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: prev.headers.map((header, i) =>
+        i === index ? { ...header, [field]: value } : header
+      ),
+    }));
+    setError('');
+  };
+
+  const addHeader = () => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: [...prev.headers, { key: '', value: '' }],
+    }));
+  };
+
+  const removeHeader = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      headers: prev.headers.filter((_, i) => i !== index),
+    }));
+  };
+
   const validateForm = useCallback(() => {
+    if (!formData.name.trim()) {
+      setError('Name is required');
+      return false;
+    }
+
     if (!formData.base_url.trim()) {
       setError('Base URL is required');
       return false;
@@ -145,11 +189,31 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
 
     setLoading(true);
     try {
+      // Convert headers array to object, filtering out empty entries
+      const headersObj: Record<string, string> = {};
+      formData.headers.forEach(({ key, value }) => {
+        if (key.trim() && value.trim()) {
+          headersObj[key.trim()] = value.trim();
+        }
+      });
+
+      // For api_key: only send if user explicitly entered a new key, or '' to clear when auth_type is 'none'
+      // If auth_type is 'api_key' but field is empty, send undefined to preserve existing key
       const body = {
+        name: formData.name,
         base_url: formData.base_url,
-        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
-        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
-        endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),        
+        api_key: formData.auth_type === 'none'
+          ? ''
+          : (formData.auth_type === 'api_key' && formData.api_key)
+            ? formData.api_key
+            : undefined,
+        api_key_file: formData.auth_type === 'none'
+          ? ''
+          : (formData.auth_type === 'api_key_file' && formData.api_key_file)
+            ? formData.api_key_file
+            : undefined,
+        endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
+        headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
       }
       await updateProviderEndpoint(body);
       refreshData();
@@ -163,11 +227,13 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
 
   const handleClose = () => {
     setFormData({
+      name: endpoint?.name || '',
       base_url: endpoint?.base_url || '',
       api_key: '',
       api_key_file: endpoint?.api_key_file || '',
       endpoint_type: endpoint?.endpoint_type || 'user',
       auth_type: getEndpointAuthType(endpoint),
+      headers: [],
     });
     setError('');
     onClose();
@@ -186,10 +252,22 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
           <TextField
             name="id"
             label="Endpoint ID"
-            value={endpoint.id}            
-            fullWidth            
-            autoComplete="off"            
+            value={endpoint.id}
+            fullWidth
+            autoComplete="off"
             disabled
+          />
+
+          <TextField
+            name="name"
+            label="Name"
+            value={formData.name}
+            onChange={handleTextFieldChange}
+            fullWidth
+            required
+            autoComplete="off"
+            placeholder="my-provider"
+            helperText="A unique name to identify this provider endpoint"
           />
 
           <TextField
@@ -200,8 +278,8 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
             fullWidth
             required
             autoComplete="off"
-            placeholder="https://api.example.com"
-            helperText="Enter a valid HTTP or HTTPS URL"
+            placeholder="https://api.openai.com/v1"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">
@@ -253,6 +331,57 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
               <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">Custom Headers</Typography>
+              <Button
+                startIcon={<AddIcon />}
+                onClick={addHeader}
+                variant="outlined"
+                size="small"
+              >
+                Add Header
+              </Button>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Add custom headers that will be sent with requests to this endpoint
+            </Typography>
+            
+            {formData.headers.map((header, index) => (
+              <Box key={index} sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+                <TextField
+                  label="Header Name"
+                  value={header.key}
+                  onChange={(e) => handleHeaderChange(index, 'key', e.target.value)}
+                  placeholder="e.g., X-API-Key"
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Header Value"
+                  value={header.value}
+                  onChange={(e) => handleHeaderChange(index, 'value', e.target.value)}
+                  placeholder="e.g., your-api-key"
+                  sx={{ flex: 1 }}
+                />
+                <IconButton
+                  onClick={() => removeHeader(index)}
+                  color="error"
+                  size="small"
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Box>
+            ))}
+            
+            {formData.headers.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                No custom headers added. Click "Add Header" to add custom headers.
+              </Typography>
+            )}
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions>

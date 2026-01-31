@@ -218,6 +218,7 @@ func TestParseAndSumGPUMemory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &GPUManager{
 				runnerOptions: &Options{},
+				gpuVendor:     "nvidia", // Tests use nvidia-smi output format
 			}
 
 			result := g.parseAndSumGPUMemory(tt.output, tt.memoryType)

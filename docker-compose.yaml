@@ -6,7 +6,6 @@ services:
     image: registry.helixml.tech/helix/controlplane:latest
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
-    # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
@@ -24,11 +23,6 @@ services:
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-      - KEYCLOAK_URL=http://keycloak:8080/auth
-      # this is an insecure development key do not use!
-      - KEYCLOAK_USER=${KEYCLOAK_ADMIN_USER-admin}
-      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE-env}
@@ -48,12 +42,20 @@ services:
       # Only creates providers that don't already exist (won't overwrite existing ones)
       # Example: DYNAMIC_PROVIDERS=groq:gsk_xxxx:https://api.groq.com/openai/v1,cerebras:csk_xxxx:https://api.cerebras.ai/v1
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+      # Sandbox integration for Helix Code (External Agents / PDEs)
+      - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
+      - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
+      - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - KODIT_API_KEY=${KODIT_API_KEY:-default-kodit-api-key}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
+      # Bind-mount from host (sandbox creates socket here) - only needed for sandbox profiles
+      - /var/run/sandbox:/var/run/sandbox:rw
     depends_on:
       - postgres
-      - keycloak
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
@@ -63,12 +65,10 @@ services:
     #   - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
-      - ./scripts/postgres:/docker-entrypoint-initdb.d
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-      - POSTGRES_DATABASES=keycloak
   # postgres 15 with pgvector installed for vector database
   pgvector:
     profiles: [haystack]
@@ -82,42 +82,6 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
-  keycloak:
-    image: registry.helixml.tech/helix/keycloak:latest
-    restart: always
-    environment:
-      - KC_DB=postgres
-      - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
-      - KC_DB_USERNAME=postgres
-      - KC_DB_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-      - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      - KC_PROXY_HEADERS=forwarded|xforwarded
-      - KC_HEALTH_ENABLED=true
-      - KC_HOSTNAME_PATH=/auth
-      - KC_HTTP_RELATIVE_PATH=/auth/
-      - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-    command: ["start", "--proxy", "edge"]
-  gptscript_runner:
-    image: registry.helixml.tech/helix/gptscript-runner:latest
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - API_HOST=http://api:8080
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
-      - CONCURRENCY=20 # number of tasks to run concurrently
-      - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
-    depends_on:
-      - api
   tika:
     image: apache/tika:2.9.2.1
     restart: always
@@ -181,10 +145,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   kodit:
-    profiles: [kodit]
-    image: registry.helix.ml/helix/kodit:latest
-    # ports:
-    #   - 8632:8632
+    image: registry.helixml.tech/helix/kodit:0.5.23
+    ports:
+      - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
     restart: always
     depends_on:
@@ -203,32 +166,29 @@ services:
       # - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
       # - EMBEDDING_ENDPOINT_TIMEOUT=120
 
-      # External enrichment provider
-      - ENRICHMENT_ENDPOINT_TYPE=openai
-      - ENRICHMENT_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
+      # External enrichment provider - uses Helix as proxy with runner token auth
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      - ENRICHMENT_ENDPOINT_MODEL=qwen3:8b
+      - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
       - ENRICHMENT_ENDPOINT_TIMEOUT=120
 
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
-      - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
+      - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
       - SYNC_PERIODIC_RETRY_ATTEMPTS=3
 
       - LOG_LEVEL=INFO # INFO or DEBUG
       - LOG_FORMAT=json
 
       # API Key Configuration
-      - API_KEYS=${KODIT_API_KEYS:-}
-
+      - API_KEYS=${KODIT_API_KEYS:-default-kodit-api-key}
 
     volumes:
       - ${KODIT_DATA:-helix-kodit}:/data
       - helix-socket:/socket
 
   vectorchord-kodit:
-    profiles: [kodit]
     image: tensorchord/vchord-suite:pg17-20250601
     environment:
       - POSTGRES_DB=kodit
@@ -239,6 +199,9 @@ services:
       - "5432"
     restart: unless-stopped
 
+  # NOTE: Sandbox services are NOT defined here - they are configured by install.sh
+  # for production deployments. See docker-compose.dev.yaml for development sandboxes.
+
 volumes:
   helix-postgres-db:
   helix-pgvector-db:
@@ -247,7 +210,11 @@ volumes:
   helix-socket:
   helix-kodit:
   helix-vectorchord-kodit:
+  sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
 
 networks:
   default:
     name: helix_default
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16

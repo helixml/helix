@@ -221,14 +221,19 @@ func (r *Runner) Run(ctx context.Context) {
 		return nil
 	})
 
-	pool.Go(func() error {
-		log.Info().Msg("starting helix model reconciler")
-		err := r.startHelixModelReconciler(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("error starting helix model reconciler")
-		}
-		return err
-	})
+	// Skip model reconciler in mock runner mode
+	if !r.Options.MockRunner {
+		pool.Go(func() error {
+			log.Info().Msg("starting helix model reconciler")
+			err := r.startHelixModelReconciler(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("error starting helix model reconciler")
+			}
+			return err
+		})
+	} else {
+		log.Info().Msg("skipping helix model reconciler in mock runner mode")
+	}
 
 	err := pool.Wait()
 	if err != nil {

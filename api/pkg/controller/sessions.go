@@ -26,15 +26,21 @@ type RunSessionRequest struct {
 	Session        *types.Session
 	User           *types.User
 
+	InteractionID string // Optional, will generate a new interaction ID if not provided
+
 	PromptMessage types.MessageContent
 
-	HistoryLimit int
+	HistoryLimit int // Do -1 to not include any interactions
 }
 
 const DefaultHistoryLimit = 6
 
 // RunSessionBlocking - creates the interaction, runs the chat completion and returns the updated integration (already updated in the database)
 func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequest) (*types.Interaction, error) {
+	if req.User.Deactivated {
+		return nil, fmt.Errorf("user is deactivated")
+	}
+
 	if len(req.PromptMessage.Parts) == 0 {
 		return nil, fmt.Errorf("prompt message is required")
 	}
@@ -43,13 +49,20 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		req.HistoryLimit = DefaultHistoryLimit
 	}
 
-	interactions, _, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    req.Session.ID,
-		GenerationID: req.Session.GenerationID,
-		PerPage:      req.HistoryLimit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
+	var (
+		interactions []*types.Interaction
+		err          error
+	)
+
+	if req.HistoryLimit != -1 {
+		interactions, _, err = c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    req.Session.ID,
+			GenerationID: req.Session.GenerationID,
+			PerPage:      req.HistoryLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
+		}
 	}
 
 	systemPrompt := req.Session.Metadata.SystemPrompt
@@ -58,11 +71,18 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		systemPrompt = req.App.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	interactionID := system.GenerateInteractionID()
+	var interactionID string
+
+	if req.InteractionID != "" {
+		interactionID = req.InteractionID
+	} else {
+		interactionID = system.GenerateInteractionID()
+	}
 
 	// Add the new message to the existing session
 	interaction := &types.Interaction{
 		ID:                   interactionID,
+		Trigger:              req.Session.Trigger,
 		GenerationID:         req.Session.GenerationID,
 		AppID:                req.App.ID,
 		Created:              time.Now(),
@@ -106,6 +126,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		OwnerID:         req.User.ID,
 		SessionID:       req.Session.ID,
 		InteractionID:   interactionID,
+		ProjectID:       req.User.ProjectID,
+		SpecTaskID:      req.User.SpecTaskID,
 		OriginalRequest: bts,
 	})
 
@@ -178,6 +200,12 @@ func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, err
 
 // checkInferenceTokenQuota checks if the user has exceeded their monthly token quota for global providers
 func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
+	// Skip quota check for runner tokens (system-level access)
+	// Runner tokens are used by internal services like Kodit for enrichments
+	if userID == "runner-system" {
+		return nil
+	}
+
 	// Skip quota check if inference quotas are disabled
 	if !c.Options.Config.SubscriptionQuotas.Enabled || !c.Options.Config.SubscriptionQuotas.Inference.Enabled {
 		return nil
@@ -423,15 +451,31 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 	return nil
 }
 
-func (c *Controller) UpdateSessionName(_ context.Context, _ string, sessionID, name string) error {
+func (c *Controller) UpdateSessionName(ctx context.Context, ownerID string, sessionID, name string) error {
 	log.Trace().
 		Msgf("🔵 update session name: %s %+v", sessionID, name)
 
-	err := c.Options.Store.UpdateSessionName(context.Background(), sessionID, name)
+	err := c.Options.Store.UpdateSessionName(ctx, sessionID, name)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
+
+	// Publish WebSocket event so clients see the title update
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to get session for WebSocket notification")
+		return nil // Name already updated, just skip notification
+	}
+
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: sessionID,
+		Owner:     session.Owner,
+		Session:   session,
+	}
+
+	_ = c.publishEvent(ctx, event)
 
 	return nil
 }

@@ -123,6 +123,7 @@ controlplane:
   logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
 
   # Runner token for authentication (should be a secure random string)
+  # Also set this token in the kodit configuration below.
   runnerToken: "your-secure-runner-token-here"
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
@@ -133,9 +134,9 @@ controlplane:
   licenseKey: ""
   # Option: Use existing secret for license key (recommended for production)
   # Create the license secret with:
-  #   kubectl create secret generic helix-license --from-literal=license-key="<your-license-key-here>"
+  #   kubectl create secret generic helix-license --from-literal=license="<your-license-key-here>"
   # licenseKeyExistingSecret: "helix-license"
-  # licenseKeyExistingSecretKey: "license-key"  # defaults to "license-key" if not specified
+  # licenseKeyExistingSecretKey: "license"  # defaults to "license" if not specified
 
   # Hugging Face token configuration (distributed to all runners automatically,
   # only required if you need to use vLLM models)
@@ -146,20 +147,6 @@ controlplane:
     #   kubectl create secret generic huggingface-token --from-literal=token="hf_your_actual_token_here"
     # existingSecret: "huggingface-token"
     # existingSecretTokenKey: "token"  # defaults to "token" if not specified
-
-  # Keycloak configuration
-  keycloak:
-    # Internal Keycloak service URL
-    url: "http://keycloak:80/auth"
-    # frontendUrl defaults to global.serverUrl + "/auth" if not specified
-    # frontendUrl: "https://helix.mydomain.com/auth"
-    user: "admin"
-    password: "your-secure-keycloak-admin-password"
-
-    # Option: Use existing secret for Keycloak credentials
-    # existingSecret: "keycloak-auth-secret"
-    # existingSecretUserKey: "user"      # defaults to "user" if not specified
-    # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
 
   # Admin configuration
   admin:
@@ -234,8 +221,7 @@ controlplane:
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Admin Panel
-  providers:
-    {}
+  providers: {}
     # Examples - uncomment and configure for your specific setup:
     # vllm:
     #   baseUrl: "http://vllm-service.default.svc.cluster.local:8000/v1"
@@ -270,8 +256,7 @@ controlplane:
     enabled: false
 
   # Additional environment variables for unsupported/custom settings
-  extraEnv:
-    []
+  extraEnv: []
     # Examples:
     # - name: CUSTOM_FEATURE_FLAG
     #   value: "true"
@@ -314,8 +299,7 @@ ingress:
 # choice for the user. This also increases chances charts run on environments with little
 # resources, such as Minikube. If you do want to specify resources, uncomment the following
 # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-resources:
-  {}
+resources: {}
   # requests:
   #   cpu: "1000m"
   #   memory: "2Gi"
@@ -335,8 +319,7 @@ persistence:
   # existingClaim: "helix-data-pvc"
 
 ## Additional volume mounts and volumes
-volumeMounts:
-  []
+volumeMounts: []
   # Examples:
   # - name: temp-storage
   #   mountPath: "/tmp"
@@ -358,6 +341,13 @@ volumes:
 postgresql:
   # Set to false to use external PostgreSQL
   enabled: true
+
+  # PostgreSQL image configuration
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: latest
+    pullPolicy: Always
 
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
@@ -444,3 +434,86 @@ typesense:
     # selector:
     #   matchLabels:
     #     app: typesense
+
+## Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix.
+# It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.
+kodit:
+  enabled: true
+
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.23" # Pin to specific version
+    # Use custom registry if needed
+    # repository: "my-registry.example.com/helix/kodit"
+
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "secure-kodit-db-password"
+    database: "kodit"
+
+    # Option: Use existing secret for all auth credentials
+    # existingSecret: "kodit-auth-secret"
+    # usernameKey: "username"  # defaults to "username" if not specified
+    # passwordKey: "password"  # defaults to "password" if not specified
+    # databaseKey: "database"  # defaults to "database" if not specified
+
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  # This allows kodit to generate code enrichments using the Helix inference API
+  enrichment:
+    # Base URL defaults to http://<release-name>:80/v1 (Helix controlplane)
+    # baseUrl: "http://custom-llm-service:8080/v1"
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+
+    # API key for enrichment endpoint
+    # For production, use the runner token secret:
+    # existingSecret: "helix-runner-secrets"
+    # existingSecretKey: "api-token"
+    #
+    # Or create a dedicated secret:
+    #   kubectl create secret generic kodit-enrichment --from-literal=api-key="your-runner-token"
+    # existingSecret: "kodit-enrichment"
+    # existingSecretKey: "api-key"
+
+  # Persistence for kodit data
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "" # Use default storage class
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-kodit-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: kodit
+    # Custom data source
+    # dataSource:
+    #   name: "my-snapshot"
+    #   kind: "VolumeSnapshot"
+    #   apiGroup: "snapshot.storage.k8s.io"
+
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  # This is kodit's dedicated vector database, separate from helix's pgvector
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      # Use custom registry if needed
+      # repository: "my-registry.example.com/tensorchord/vchord-suite"
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: "" # Use default storage class
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      # Use existing PVC
+      # existingClaim: "my-kodit-vectorchord-pvc"

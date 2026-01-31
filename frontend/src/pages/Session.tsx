@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
 
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
@@ -13,6 +15,7 @@ import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
+import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
@@ -26,12 +29,13 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import { useGetSession, useUpdateSession } from '../services/sessionService'
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
+import { useGetSession, useUpdateSession, useStopExternalAgent, useGetSessionIdleStatus } from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_MODE_FINETUNE, 
+  SESSION_MODE_FINETUNE,
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
@@ -48,6 +52,158 @@ import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
+import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
+import OpenInNew from '@mui/icons-material/OpenInNew'
+import PlayArrow from '@mui/icons-material/PlayArrow'
+import CircularProgress from '@mui/material/CircularProgress'
+import StopIcon from '@mui/icons-material/Stop'
+import IconButton from '@mui/material/IconButton'
+
+// Hook to track sandbox/desktop state for external agent sessions
+const useSandboxState = (sessionId: string) => {
+  const api = useApi();
+  const [sandboxState, setSandboxState] = React.useState<string>('loading');
+
+  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
+  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
+  // Only show paused state when truly absent (not loading or starting)
+  const isPaused = sandboxState === 'absent';
+
+  return { sandboxState, isRunning, isPaused, isStarting };
+};
+
+// Desktop controls component - only shows Stop button when running
+const DesktopControls: React.FC<{
+  sessionId: string,
+  onStop: () => void,
+  isStopping: boolean
+}> = ({ sessionId, onStop, isStopping }) => {
+  const { isRunning } = useSandboxState(sessionId);
+
+  // Only show Stop button when desktop is running
+  if (isRunning) {
+    return (
+      <Button
+        variant="outlined"
+        size="small"
+        color="warning"
+        startIcon={isStopping ? <CircularProgress size={16} /> : <StopIcon />}
+        onClick={onStop}
+        disabled={isStopping}
+      >
+        {isStopping ? 'Stopping...' : 'Stop'}
+      </Button>
+    );
+  }
+
+  return null;
+};
+
+// Desktop viewer for external agent sessions - shows live screenshot or paused state
+const ExternalAgentDesktopViewer: React.FC<{
+  sessionId: string;
+  sandboxId?: string;
+  height: number;
+}> = ({ sessionId, sandboxId, height }) => {
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
+  const [isResuming, setIsResuming] = React.useState(false);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await api.post(`/api/v1/sessions/${sessionId}/resume`, {});
+      snackbar.success('External agent started successfully');
+    } catch (error: any) {
+      console.error('Failed to resume agent:', error);
+      snackbar.error(error?.message || 'Failed to start agent');
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  // Show starting state
+  if (isStarting || isResuming) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          gap: 2,
+        }}
+      >
+        <CircularProgress size={32} sx={{ color: 'primary.main' }} />
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+          Starting Desktop...
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (isPaused) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          gap: 2,
+        }}
+      >
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
+          Desktop Paused
+        </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+          onClick={handleResume}
+          disabled={isResuming}
+        >
+          {isResuming ? 'Starting...' : 'Start Desktop'}
+        </Button>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{
+      height: height,
+      border: '1px solid',
+      borderColor: 'divider',
+      borderRadius: 1,
+      overflow: 'hidden'
+    }}>
+      <ScreenshotViewer
+        sessionId={sessionId}
+        isRunner={false}
+        sandboxId={sandboxId}
+        enableStreaming={true}
+        onError={(error) => {
+          console.error('Screenshot viewer error:', error);
+        }}
+        height={height}
+      />
+    </Box>
+  );
+};
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -121,56 +277,56 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   );
 }, (prevProps, nextProps) => {
   // More thorough check for interaction changes, including completion state and content
-  const interactionChanged = 
+  const interactionChanged =
     // Basic identity/state checks
     prevProps.interaction.id !== nextProps.interaction.id ||
     prevProps.interaction.state !== nextProps.interaction.state ||
-    
+
     // Check output length in case content was added without state change
     (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
-    
+
     // Check for last_stream_pointer changes (indicates streaming position)
     prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
-    
+
     // Check for differences in error state
     prevProps.interaction.error !== nextProps.interaction.error;
-  
+
   // Use more efficient checks for document IDs (length and spot-check first/last)
-  const documentIdsChanged = 
+  const documentIdsChanged =
     !prevProps.session.document_ids || !nextProps.session.document_ids ||
     prevProps.session.document_ids.length !== nextProps.session.document_ids.length ||
-    (prevProps.session.document_ids.length > 0 && 
-     nextProps.session.document_ids.length > 0 && 
+    (prevProps.session.document_ids.length > 0 &&
+     nextProps.session.document_ids.length > 0 &&
      prevProps.session.document_ids[0] !== nextProps.session.document_ids[0]) ||
-    (prevProps.session.document_ids.length > 1 && 
-     nextProps.session.document_ids.length > 1 && 
-     prevProps.session.document_ids[prevProps.session.document_ids.length - 1] !== 
+    (prevProps.session.document_ids.length > 1 &&
+     nextProps.session.document_ids.length > 1 &&
+     prevProps.session.document_ids[prevProps.session.document_ids.length - 1] !==
      nextProps.session.document_ids[nextProps.session.document_ids.length - 1]);
-  
+
   // Check if RAG results changed by comparing length and most recent item's id/timestamp
   // This avoids expensive JSON.stringify operations
-  const ragResultsChanged = 
+  const ragResultsChanged =
     !prevProps.session.rag_results || !nextProps.session.rag_results ||
     prevProps.session.rag_results.length !== nextProps.session.rag_results.length ||
-    (prevProps.session.rag_results.length > 0 && nextProps.session.rag_results.length > 0 && 
+    (prevProps.session.rag_results.length > 0 && nextProps.session.rag_results.length > 0 &&
      (prevProps.session.rag_results[0].id !== nextProps.session.rag_results[0].id ||
       prevProps.session.rag_results[0].timestamp !== nextProps.session.rag_results[0].timestamp));
-  
+
   // Check if this was the last interaction and we're streaming
-  const isLastInteraction = prevProps.interaction === 
+  const isLastInteraction = prevProps.interaction ===
     prevProps.session.interactions[prevProps.session.interactions.length - 1];
-  
+
   // Always re-render the last interaction when it's not complete yet
   // This ensures streaming updates are properly displayed
-  const lastInteractionNotComplete = 
+  const lastInteractionNotComplete =
     isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
-  
 
-  
+
+
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
-  return !interactionChanged && 
-         !documentIdsChanged && 
-         !ragResultsChanged && 
+  return !interactionChanged &&
+         !documentIdsChanged &&
+         !ragResultsChanged &&
          !lastInteractionNotComplete &&
          prevProps.highlightAllFiles === nextProps.highlightAllFiles;
 });
@@ -202,13 +358,54 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
 
-  
+
   const { data: sessionSteps } = useListSessionSteps(session?.data?.id || '', {
     enabled: !!session?.data?.id
   })
 
   const isOwner = account.user?.id == session?.data?.owner
-  
+
+  // Stop external agent hook (works for any external agent session)
+  const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
+
+  // Get idle status for external agent sessions (check session data directly)
+  const { data: idleStatus } = useGetSessionIdleStatus(sessionID || '', {
+    enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
+  })
+
+  // Get sandbox state to check if desktop is running
+  const { isRunning: isDesktopRunning } = useSandboxState(sessionID || '')
+
+  const handleStopExternalAgent = () => {
+    setShowStopConfirm(true)
+  }
+
+  const handleConfirmStop = async () => {
+    setShowStopConfirm(false)
+    try {
+      await stopExternalAgentMutation.mutateAsync()
+      snackbar.success('External agent stopped')
+    } catch (err) {
+      snackbar.error('Failed to stop external agent')
+    }
+  }
+
+  // Test RDP Mode state
+  const [testRDPMode, setTestRDPMode] = useState(false)
+
+  // Check if this is an external agent session and show Zed editor by default
+  useEffect(() => {
+    if (session?.data?.config?.agent_type === 'zed_external' || testRDPMode) {
+      setIsExternalAgent(true)
+      // Show Zed editor by default for zed-enabled sessions
+      setShowRDPViewer(true)
+    } else {
+      setIsExternalAgent(false)
+      setShowRDPViewer(false)
+    }
+  }, [session?.data?.config?.agent_type, testRDPMode])
+
 
   // If params sessionID is not set, try to get it from URL query param sessionId=
   if (!sessionID) {
@@ -248,6 +445,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
+  const [showRDPViewer, setShowRDPViewer] = useState(false)
+  const [isExternalAgent, setIsExternalAgent] = useState(false)
+  const [rdpViewerHeight, setRdpViewerHeight] = useState(300)
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({})
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -262,7 +463,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Add state to track which session we've auto-scrolled
   const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
-  
+
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
 
@@ -281,15 +482,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Function to save scroll position
   const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
     if (!containerRef.current) return;
-    
+
     // Save if we were at the bottom (within 20 pixels)
     const container = containerRef.current;
-    const isNearBottom = 
+    const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 20;
-    
+
     // Store both the position and whether we were at the bottom
     scrollPositionRef.current = container.scrollTop;
-    
+
     // Store a special flag if we should scroll to bottom when restoring
     if (shouldPreserveBottom || isNearBottom) {
       // Use a special value to indicate "scroll to bottom"
@@ -300,20 +501,43 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Function to restore scroll position
   const restoreScrollPosition = useCallback(() => {
     if (!containerRef.current) return;
-    
+
     requestAnimationFrame(() => {
       if (!containerRef.current) return;
-      
+
       // If our saved position is our special "bottom" indicator
       if (scrollPositionRef.current === -1) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      } 
+      }
       // Otherwise restore to the saved position if it's valid
       else if (scrollPositionRef.current > 0) {
         containerRef.current.scrollTop = scrollPositionRef.current;
       }
     });
   }, []);
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    setInputValue(textarea.value)
+    
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto'
+    
+    // Calculate new height based on content
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
+    const maxLines = 5
+    const maxHeight = lineHeight * maxLines
+    
+    // Set height to scrollHeight, but cap at maxHeight
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+    textarea.style.height = `${newHeight}px`
+  }
+
+  useEffect(() => {
+    if (!inputValue && textFieldRef.current) {
+      textFieldRef.current.style.height = 'auto'
+    }
+  }, [inputValue])
 
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
@@ -352,7 +576,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     // Create a consistent block structure regardless of streaming state
     const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-    
+
     setVisibleBlocks([{
       startIndex,
       endIndex: totalInteractions,
@@ -371,7 +595,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     // Only update streaming state
     setIsStreaming(shouldBeStreaming)
-    
+
     // Don't change block structure here - maintain consistency
   }, [session?.data?.interactions])
 
@@ -382,10 +606,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const container = containerRef.current
     const containerTop = container.scrollTop
     const containerBottom = containerTop + container.clientHeight
-    
+
     setVisibleBlocks(prev => {
       let totalHeightAbove = 0
-      
+
       return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
@@ -399,26 +623,26 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         // 1. Currently intersecting the viewport
         // 2. A tall block that spans the viewport
         // 3. Recently was the active block (within last render cycle)
-        
+
         // Check if the block intersects with the viewport
         const blockIntersectsViewport = (
           (blockTop <= containerBottom && blockBottom >= containerTop) ||
           // Special case for blocks taller than viewport - if we're scrolled within the block
-          (blockHeight > container.clientHeight && 
-           ((blockTop <= containerTop && blockBottom >= containerTop) || 
+          (blockHeight > container.clientHeight &&
+           ((blockTop <= containerTop && blockBottom >= containerTop) ||
             (blockTop <= containerBottom && blockBottom >= containerBottom) ||
             (blockTop <= containerTop && blockBottom >= containerBottom)))
         )
-        
+
         // Much simpler logic: never ghost a block if it intersects viewport
         // or was previously not a ghost (this prevents sudden changes)
-        const isNearViewport = blockIntersectsViewport || 
+        const isNearViewport = blockIntersectsViewport ||
                               // Keep blocks visible that were visible in the last cycle
                               (block.isGhost === false) ||
                               // Use a modest buffer zone
                               (blockTop <= containerBottom + 300 &&
                                blockBottom >= containerTop - 300)
-        
+
         return {
           ...block,
           isGhost: !isNearViewport && blockHeight > 0,
@@ -435,7 +659,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         scrollPositionRef.current = containerRef.current.scrollTop;
       }
     };
-    
+
     const container = containerRef.current;
     if (container) {
       container.addEventListener('scroll', saveScrollOnScroll);
@@ -460,7 +684,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   useEffect(() => {
     updateVisibleBlocksInViewport()
   }, [blockHeights, updateVisibleBlocksInViewport])
-  
+
   // Measure block heights without affecting scroll
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -495,7 +719,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       performance.mark('input-end');
       performance.measure('input-latency', 'input-start', 'input-end');
       const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
+      
+      (`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
       performance.clearMarks();
       performance.clearMeasures();
     });
@@ -518,12 +743,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
     // Save current scroll position, with flag for preserving bottom if requested
     saveScrollPosition(shouldScrollToBottom);
-    
+
     // Refresh the session object
     refetchSession()
-    
+
     // Restore scroll position
-    setTimeout(restoreScrollPosition, 0);      
+    setTimeout(restoreScrollPosition, 0);
   }, [session, saveScrollPosition, restoreScrollPosition]);
 
   // Function to scroll to bottom immediately without animation to prevent jumpiness
@@ -611,18 +836,24 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       inferencePrompt: prompt,
     })) return
 
+    let actualPrompt = prompt
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     let newSession: TypesSession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
       // Get the appID from session.data.parent_app instead of URL params
-      const appID = session.data.parent_app || ''      
+      const appID = session.data.parent_app || ''
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()      
-      
+      scrollToBottom()
+
       newSession = await NewInference({
-        message: prompt,
+        message: actualPrompt,
         messages: [],
         image: selectedImage || undefined, // Optional field
         image_filename: selectedImageName || undefined, // Optional field
@@ -633,24 +864,24 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         sessionId: session?.data?.id,
         type: session?.data?.type || 'text',
       })
-      console.log("XXX new session done!!")
     } else {
       const formData = new FormData()
-      formData.set('input', prompt)
+      formData.set('input', actualPrompt)
       formData.set('model_name', session?.data?.model_name || '')
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
 
     if (!newSession) return
-    
+
     // After reloading the session, force scroll to bottom by passing true
     await safeReloadSession(true)
-    
+
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
       scrollToBottom()
@@ -661,15 +892,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     NewInference,
     scrollToBottom,
     safeReloadSession,
+    filterMap,
   ])
 
   const onRegenerate = useCallback(async (interactionID: string, message: string) => {
     if (!session?.data) return
     if (!checkOwnership({
       inferencePrompt: '',
-    })) return
-
-    console.log("onRegenerate", { interactionID, message })
+    })) return    
 
     let newSession: TypesSession | null = null
 
@@ -691,14 +921,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }
 
       // Get the interaction
-      const targetInteraction = session.data?.interactions?.[interactionIndex]     
+      const targetInteraction = session.data?.interactions?.[interactionIndex]
 
       // Convert interactions to messages based on the type of message being regenerated
       const messages: TypesMessage[] = []
-      
+
       // Add all interactions up to (but not including) the target interaction
       const interactionsBeforeTarget = session.data?.interactions?.slice(0, interactionIndex) || []
-      
+
       for (const interaction of interactionsBeforeTarget) {
         // If interaction.state is completed, it has both prompt_message and response_message
         if (interaction.state === 'complete' || interaction.state === 'error') {
@@ -712,7 +942,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               }
             })
           }
-          
+
           // Add assistant message (response_message)
           if (interaction.response_message) {
             messages.push({
@@ -725,7 +955,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           }
         }
       }
-      
+
       // Add the target interaction as a new user message with the provided message
       messages.push({
         role: 'user',
@@ -734,11 +964,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           parts: [message]
         }
       })
-      
+
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await NewInference({
         regenerate: true,
         message: '', // Empty message since we're using the history
@@ -758,15 +988,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
 
     if (!newSession) return
-    
+
     // After reloading the session, force scroll to bottom by passing true
     await safeReloadSession(true)
-    
+
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
       scrollToBottom()
@@ -803,7 +1033,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.onLogin()
   }, [
     shareInstructions,
-  ])    
+  ])
 
   const onAddDocuments = useCallback(() => {
     if (!session?.data) return
@@ -852,22 +1082,69 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       return
     }
     const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
-    if (!filterAction) {
+    if (!filterAction || !filterAction.value) {
       snackbar.error('Unable to filter document, no action found')
       return
     }
-    setInputValue(current => current + filterAction.value);
+    
+    const filterValue = filterAction.value;
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = filterValue.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: filterValue
+      }));
+      
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
+    } else {
+      setInputValue(current => current + filterValue);
+    }
   }, [appID, api, setInputValue, snackbar]);
 
   const handleInsertText = useCallback((text: string) => {
-    // Simply update the parent's state with the new value from the child
-    setInputValue(text);
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = text.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: text
+      }));
+
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
+    } else {
+      setInputValue(current => current + text);
+    }
   }, []);
 
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session?.data) return null;
-    
+
     // Create a stable reference for interactions
     const interactionStateIds = session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',') || '';
     return {
@@ -880,8 +1157,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const memoizedInteractions = useMemo(() => {
     return session?.data?.interactions || [];
   }, [
-    session?.data?.id, 
-    session?.data?.interactions?.length, 
+    session?.data?.id,
+    session?.data?.interactions?.length,
     // Add additional dependency to force update when any interaction state changes
     session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
@@ -977,10 +1254,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
-    
+
     // Use a consistent approach regardless of streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
-    
+
     return (
       <Box
         sx={{
@@ -989,7 +1266,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           flexDirection: 'column',
           alignItems: 'center',
           py: 2,
-          pb: 10,
+          pb: 2, // Reduced from pb: 10 to avoid excessive bottom padding
         }}
       >
         {hasMoreAbove && (
@@ -1017,7 +1294,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             maxWidth: 700,
             mx: 'auto',
             px: { xs: 1, sm: 2, md: 0 },
-            minHeight: '60vh',
+            // Removed minHeight: '60vh' - let content determine height naturally
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
@@ -1054,10 +1331,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       serverConfig={account.serverConfig}
                       interaction={interaction}
                       session={sessionData}
-                      highlightAllFiles={highlightAllFiles}                      
+                      highlightAllFiles={highlightAllFiles}
                       onReloadSession={safeReloadSession}
                       onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
-                      onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
+                      onFilterDocument={appID ? onHandleFilterDocument : undefined}
                       isLastInteraction={isLastInteraction}
                       isOwner={isOwner}
                       isAdmin={account.admin}
@@ -1065,7 +1342,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id || ''}
-                      onRegenerate={onRegenerate}
+                      onRegenerate={isExternalAgent ? undefined : onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
                     />
                   )
@@ -1083,7 +1360,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.serverConfig,
     account.user?.id,
     account.admin,
-    highlightAllFiles,    
+    highlightAllFiles,
     safeReloadSession,
     onAddDocuments,
     theme.palette.mode,
@@ -1098,6 +1375,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     appID,
     memoizedInteractions,
     sessionSteps?.data,
+    isExternalAgent,
   ])
 
   useEffect(() => {
@@ -1176,7 +1454,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [session?.data, appID, apps])
 
   const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
- 
+
   // Reset scroll tracking when session changes
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
@@ -1211,7 +1489,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const lastInteraction = session?.data?.interactions?.[session?.data?.interactions.length - 1]
     if (!lastInteraction) return
     if (lastInteraction.state == TypesInteractionState.InteractionStateComplete || lastInteraction.state == TypesInteractionState.InteractionStateError) return
-    
+
     // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
     const timer = setTimeout(() => {
       safeReloadSession()
@@ -1258,9 +1536,57 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+                showRDPViewer={showRDPViewer}
+                onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
+                isExternalAgent={isExternalAgent}
+                rdpViewerHeight={rdpViewerHeight}
+                onRdpViewerHeightChange={setRdpViewerHeight}
+              />
+              {/* Show desktop state for external agent sessions */}
+              {isExternalAgent && (
+                <Box sx={{ px: 2, pt: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+                      Desktop:
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <DesktopControls
+                        sessionId={sessionID}
+                        onStop={handleStopExternalAgent}
+                        isStopping={stopExternalAgentMutation.isPending}
+                      />
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+
+              {/* Idle timeout warning for external agent sessions - only show when desktop is running */}
+              {isExternalAgent && idleStatus?.data?.warning_threshold && isDesktopRunning && (
+                <Box sx={{ px: 2, pt: 1, pb: 1 }}>
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <AlertTitle sx={{ fontSize: '0.875rem', mb: 0.5 }}>Idle Session Warning</AlertTitle>
+                    <Typography variant="body2" sx={{ fontSize: '0.8125rem' }}>
+                      This external agent has been idle for {idleStatus.data.idle_minutes} minutes.
+                      It will be automatically terminated in {idleStatus.data.will_terminate_in} minutes to free GPU resources.
+                      <br /><strong>Send a message to keep the agent alive.</strong>
+                    </Typography>
+                  </Alert>
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Embedded RDP Viewer */}
+          {isExternalAgent && showRDPViewer && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <ExternalAgentDesktopViewer
+                sessionId={sessionID}
+                sandboxId={sessionID}
+                height={rdpViewerHeight}
               />
             </Box>
           )}
+
 
         </Box>
 
@@ -1270,8 +1596,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             flexGrow: 1,
             display: 'flex',
             flexDirection: 'column',
-            height: '100%', // Ensure full height
-            minHeight: 0, // This is crucial for proper flex behavior
+            minHeight: 0, // CRITICAL: This allows flex to shrink below content size
+            overflow: 'hidden', // Prevent this container from scrolling
           }}
         >
           <Box
@@ -1280,8 +1606,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               flexGrow: 1,
               display: 'flex',
               flexDirection: 'column',
-              overflowY: isStreaming ? 'hidden' : 'auto',
-              transition: 'overflow-y 0.3s ease',
+              overflowY: 'auto', // Always enable scrolling on the inner container
               pr: 3, // Add consistent padding to offset from the right edge
               minHeight: 0, // This is crucial for proper flex behavior
               ...lightTheme.scrollbar,
@@ -1293,57 +1618,64 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Fixed bottom section */}
           <Box
             sx={{
-              flexShrink: 0, // Prevent shrinking              
+              flexShrink: 0, // Prevent shrinking
             }}
           >
-            <Container maxWidth="lg">
+            <Container maxWidth={previewMode ? false : "lg"}>
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    {/* --- Start of new input area --- */}
-                    <Box
-                      sx={{
-                        width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
-                        margin: '0 auto',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '12px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        p: 2,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 1,
-                        bgcolor: theme.palette.background.default,
-                      }}
+                    <ContextMenuModal
+                      appId={appID || ''}
+                      textAreaRef={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                      onInsertText={handleInsertText}
                     >
-                      {/* Top row: textarea */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <textarea
-                          ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
-                          value={inputValue}
-                          onChange={e => setInputValue(e.target.value)}
-                          onKeyDown={handleKeyDown as any}
-                          rows={1}
-                          style={{
-                            width: '100%',
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#fff',
-                            opacity: 0.7,
-                            resize: 'none',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            fontSize: 'inherit',
-                          }}
-                          placeholder={
-                            session.data?.type == SESSION_TYPE_TEXT
-                              ? session.data.parent_app
-                                ? `Chat with ${apps.app?.config.helix.name}...`
-                                : 'Ask anything...'
-                              : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                          }
-                          disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                        />
-                      </Box>
+                      {/* --- Start of new input area --- */}
+                      <Box
+                        sx={{
+                          width: '95%',
+                          margin: '0 auto',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          p: 2,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 1,
+                          bgcolor: theme.palette.background.default,
+                        }}
+                      >
+                        {/* Top row: textarea */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <textarea
+                            ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                            value={inputValue}
+                            onChange={handleTextareaChange}
+                            onKeyDown={handleKeyDown as any}
+                            rows={1}
+                            style={{
+                              width: '100%',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#fff',
+                              opacity: 0.7,
+                              resize: 'none',
+                              outline: 'none',
+                              fontFamily: 'inherit',
+                              fontSize: 'inherit',
+                              lineHeight: '1.5',
+                              overflowY: 'auto',
+                            }}
+                            placeholder={
+                              session.data?.type == SESSION_TYPE_TEXT
+                                ? session.data.parent_app
+                                  ? `Chat with ${apps.app?.config.helix.name}...`
+                                  : 'Ask anything...'
+                                : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                            }
+                            disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                          />
+                        </Box>
                       {/* Bottom row: attachment icon, image name, send button */}
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1434,8 +1766,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                           </Tooltip>
                         </Box>
                       </Box>
-                    </Box>
-                    {/* --- End of new input area --- */}
+                      </Box>
+                      {/* --- End of new input area --- */}
+                    </ContextMenuModal>
                   </Cell>
                   {/* Temporary disabled feedback buttons, will be moved to interaction list */}
                   {/* {isBigScreen && (
@@ -1460,7 +1793,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       </Button>
                     </Cell>
                   )} */}
-                </Row>             
+                </Row>
                 {/* Only show disclaimer if not in preview mode */}
                 {!previewMode && (
                   <Box sx={{ mt: 2 }}>
@@ -1579,6 +1912,17 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
 
+      {/* Stop Confirmation Dialog */}
+      {showStopConfirm && (
+        <SimpleConfirmWindow
+          title="Stop External Agent?"
+          message="Stopping the external agent will terminate the running container. Any unsaved files or in-memory state will be lost. The conversation history will be preserved."
+          confirmTitle="Stop Agent"
+          cancelTitle="Cancel"
+          onCancel={() => setShowStopConfirm(false)}
+          onSubmit={handleConfirmStop}
+        />
+      )}
 
     </Box>
   )

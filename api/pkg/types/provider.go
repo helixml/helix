@@ -66,6 +66,7 @@ type ProviderEndpoint struct {
 	APIKeyFromFile string               `json:"api_key_file"`     // Must be mounted to the container
 	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
 	BillingEnabled bool                 `json:"billing_enabled"`
+	Headers        map[string]string    `json:"headers" gorm:"type:jsonb;serializer:json"` // If for example anthropic expects x-api-key and anthropic-version
 
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
 	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
@@ -113,11 +114,13 @@ type OpenAIModel struct {
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
 type UpdateProviderEndpoint struct {
+	Name         string               `json:"name"`
 	Description  string               `json:"description"`
 	Models       []string             `json:"models"`
 	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
 
-	BaseURL        string  `json:"base_url"`
-	APIKey         *string `json:"api_key,omitempty"`
-	APIKeyFromFile *string `json:"api_key_file,omitempty"` // Must be mounted to the container
+	BaseURL        string            `json:"base_url"`
+	APIKey         *string           `json:"api_key,omitempty"`
+	APIKeyFromFile *string           `json:"api_key_file,omitempty"` // Must be mounted to the container
+	Headers        map[string]string `json:"headers,omitempty"`      // Custom headers for the endpoint
 }

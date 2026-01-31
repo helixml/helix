@@ -13,12 +13,15 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string) => [
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string) => [
   "sessions",
   orgId,
   page,
   pageSize,
-  search
+  search,
+  questionSetExecutionId,
+  projectId,
+  appId,
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -34,28 +37,32 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: GET_SESSION_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsDetail(sessionId),
-    enabled: options?.enabled ?? true
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? ''),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
+      question_set_execution_id: questionSetExecutionId,
       page: page,
       page_size: pageSize,
+      project_id: projectId,
+      app_id: appId,
     }),
     enabled: options?.enabled ?? true
   })
@@ -90,6 +97,31 @@ export function useDeleteSession(sessionId: string, options?: { enabled?: boolea
       // Invalidate all sessions queries to refresh the list after deletion
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     }
+  })
+}
+
+export function useStopExternalAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiClient.v1SessionsStopExternalAgentDelete(sessionId),
+    onSuccess: () => {
+      // Invalidate session query to refresh wolf-app-state
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+    }
+  })
+}
+
+export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: ['session-idle-status', sessionId],
+    queryFn: () => apiClient.v1SessionsIdleStatusDetail(sessionId),
+    enabled: options?.enabled ?? true,
+    refetchInterval: 30000, // Refetch every 30 seconds to update idle time
   })
 }
 

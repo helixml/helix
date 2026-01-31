@@ -122,6 +122,8 @@ func (suite *ControllerSuite) Test_BasicInference() {
 		},
 	}
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{
@@ -290,6 +292,8 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		AppID: "app_id",
 	}).Return(knowledge, nil)
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{
@@ -376,6 +380,8 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge_MultiContent() {
 		Name:  "knowledge_name",
 		AppID: "app_id",
 	}).Return(knowledge, nil)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {

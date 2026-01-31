@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -76,6 +77,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// messageContextLimit - how many messages to keep in the context,
 	// configured by the app
 	var messageContextLimit int
+	var agentType string
 
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
@@ -89,6 +91,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		// Setting default message context limit
 		messageContextLimit = s.Cfg.Inference.DefaultContextLimit
+		agentType = startReq.AgentType
 	} else {
 		// If app ID is set, load the app
 		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
@@ -110,20 +113,48 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			startReq.OrganizationID = app.OrganizationID
 		}
 
-		// If an AssistantID is specified, get the correct assistant from the app
-		if startReq.AssistantID != "" {
+		// Determine agent type from assistant configuration
+		agentType = getAgentTypeFromApp(app, startReq)
+		log.Debug().
+			Str("app_id", startReq.AppID).
+			Str("determined_agent_type", agentType).
+			Msg("Determined agent type from app configuration")
+
+		// Load external agent config from app if agent type is external
+		if agentType == "zed_external" && startReq.ExternalAgentConfig == nil {
+			if app.Config.Helix.ExternalAgentConfig != nil {
+				// Check if the config has meaningful values (display settings)
+				appConfig := app.Config.Helix.ExternalAgentConfig
+				if appConfig.Resolution != "" || appConfig.DesktopType != "" || appConfig.DisplayWidth > 0 {
+					startReq.ExternalAgentConfig = appConfig
+					log.Debug().
+						Str("app_id", startReq.AppID).
+						Msg("Loaded external agent config from app configuration")
+				}
+			}
+		}
+
+		// Get the assistant from the app (use AssistantID if specified, otherwise default to first assistant)
+		{
 			var assistant *types.AssistantConfig
 			assistantID := startReq.AssistantID
 			if assistantID == "" {
-				assistantID = "0"
+				assistantID = "0" // Default to first assistant
 			}
 			assistant = data.GetAssistant(app, assistantID)
 
 			// Update the model if the assistant has one
-			if assistant.Model != "" {
+			// Prefer GenerationModel over Model (new field vs legacy field)
+			if assistant.GenerationModel != "" {
+				startReq.Model = assistant.GenerationModel
+				if assistant.GenerationModelProvider != "" {
+					startReq.Provider = types.Provider(assistant.GenerationModelProvider)
+				}
+			} else if assistant.Model != "" {
 				startReq.Model = assistant.Model
 			}
 
+			// Override provider if explicitly set on assistant
 			if assistant.Provider != "" {
 				startReq.Provider = types.Provider(assistant.Provider)
 			}
@@ -132,10 +163,20 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				messageContextLimit = assistant.ContextLimit
 			}
 
-			// If agent mode is enabled, used small generation model for session name generation
-			if assistant.AgentMode {
+			// Set model for session name generation based on agent type
+			if assistant.IsAgentMode() {
+				// For agent mode, use small generation model
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
+			} else {
+				// For basic mode, use generation model (or fall back to Model field)
+				if assistant.GenerationModel != "" {
+					generateSessionNameProvider = assistant.GenerationModelProvider
+					generateSessionNameModel = assistant.GenerationModel
+				} else if assistant.Model != "" {
+					generateSessionNameProvider = assistant.Provider
+					generateSessionNameModel = assistant.Model
+				}
 			}
 		}
 	}
@@ -214,6 +255,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		session.Interactions = interactions
 
 		startReq.OrganizationID = session.OrganizationID
+		startReq.ProjectID = session.ProjectID
 
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
@@ -235,11 +277,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Create session
 		newSession = true
 
+		// Set default agent type if not specified
+		if startReq.AgentType == "" {
+			startReq.AgentType = "helix"
+		}
+
 		session = &types.Session{
 			ID:             system.GenerateSessionID(),
 			Name:           s.getTemporarySessionName(message),
 			Created:        time.Now(),
 			Updated:        time.Now(),
+			ProjectID:      startReq.ProjectID,
 			Mode:           types.SessionModeInference,
 			Type:           types.SessionTypeText,
 			Provider:       string(startReq.Provider),
@@ -249,10 +297,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Owner:          user.ID,
 			OwnerType:      user.Type,
 			Metadata: types.SessionMetadata{
-				Stream:       startReq.Stream,
-				SystemPrompt: startReq.SystemPrompt,
-				AssistantID:  startReq.AssistantID,
-				HelixVersion: data.GetHelixVersion(),
+				Stream:              startReq.Stream,
+				SystemPrompt:        startReq.SystemPrompt,
+				AssistantID:         startReq.AssistantID,
+				HelixVersion:        data.GetHelixVersion(),
+				AgentType:           agentType,
+				ExternalAgentConfig: startReq.ExternalAgentConfig,
 			},
 		}
 
@@ -280,6 +330,26 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// Track which interactions are new (for external agent notification)
+	// For existing sessions, only the last interaction(s) are new (from current generation)
+	// For new sessions, all interactions are new
+	newInteractionsStartIndex := 0
+	if startReq.SessionID != "" {
+		// Existing session - find where old interactions end by checking GenerationID
+		// Only notify about interactions from the current generation
+		for i := len(session.Interactions) - 1; i >= 0; i-- {
+			if session.Interactions[i].GenerationID < session.GenerationID {
+				// This interaction is from a previous generation
+				newInteractionsStartIndex = i + 1
+				break
+			}
+		}
+		log.Debug().
+			Int("total_interactions", len(session.Interactions)).
+			Int("new_start_index", newInteractionsStartIndex).
+			Msg("Tracking new interactions for external agent notification")
+	}
+
 	// Write the initial interactions
 	err = s.Controller.WriteInteractions(req.Context(), session.Interactions...)
 	if err != nil {
@@ -287,8 +357,157 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// CRITICAL: For external agent sessions, publish session update to frontend immediately
+	// This ensures the frontend receives the new interaction (with user's prompt_message)
+	// without waiting for the 2-second refetch interval
+	if agentType == "zed_external" && len(session.Interactions) > 0 {
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		if err := s.publishSessionUpdateToFrontend(session, lastInteraction); err != nil {
+			log.Error().Err(err).
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Msg("Failed to publish initial session update to frontend for external agent")
+		} else {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("interaction_id", lastInteraction.ID).
+				Int("prompt_message_len", len(lastInteraction.PromptMessage)).
+				Msg("📤 [HELIX] Published initial session update to frontend for external agent")
+		}
+	}
+
+	// Notify external agents ONLY of NEW interactions (not replaying history)
+	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
+		interaction := session.Interactions[i]
+		// DIAGNOSTIC: Log when we're about to call NotifyExternalAgentOfNewInteraction
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("interaction_id", interaction.ID).
+			Str("agent_type", agentType).
+			Int("interaction_index", i).
+			Msg("🟠 [DIAG] About to call NotifyExternalAgentOfNewInteraction")
+		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Str("interaction_id", interaction.ID).
+				Msg("Failed to notify external agent of new interaction")
+		}
+	}
+
+	// Validate external agent configuration if specified
+	if agentType == "zed_external" {
+		if startReq.ExternalAgentConfig == nil {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("user_id", user.ID).
+				Msg("External agent type specified with no configuration, using defaults")
+
+			// Create empty configuration - executor handles workspace paths
+			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{}
+		}
+
+		log.Info().
+			Str("session_id", session.ID).
+			Str("user_id", user.ID).
+			Msg("Launching external agent for Zed session")
+	}
+
+	// Handle external agent routing if agent type is zed_external
+	if newSession && agentType == "zed_external" {
+		// Register the session in the external agent executor before launching
+		if s.externalAgentExecutor != nil {
+			// Create a ZedAgent struct with session info for registration
+			zedAgent := &types.DesktopAgent{
+				SessionID:   session.ID,
+				UserID:      user.ID,
+				Input:       "Initialize Zed development environment",
+				ProjectPath: "workspace", // Use relative path
+			}
+
+			// Apply display settings from external agent configuration
+			if startReq.ExternalAgentConfig != nil {
+				if startReq.ExternalAgentConfig.DisplayWidth > 0 {
+					zedAgent.DisplayWidth = startReq.ExternalAgentConfig.DisplayWidth
+				}
+				if startReq.ExternalAgentConfig.DisplayHeight > 0 {
+					zedAgent.DisplayHeight = startReq.ExternalAgentConfig.DisplayHeight
+				}
+				if startReq.ExternalAgentConfig.DisplayRefreshRate > 0 {
+					zedAgent.DisplayRefreshRate = startReq.ExternalAgentConfig.DisplayRefreshRate
+				}
+				// CRITICAL: Also copy resolution preset, zoom level, and desktop type
+				// These are needed for proper GNOME 2x HiDPI scaling
+				if startReq.ExternalAgentConfig.Resolution != "" {
+					zedAgent.Resolution = startReq.ExternalAgentConfig.Resolution
+				}
+				if startReq.ExternalAgentConfig.ZoomLevel > 0 {
+					zedAgent.ZoomLevel = startReq.ExternalAgentConfig.ZoomLevel
+				}
+				if startReq.ExternalAgentConfig.DesktopType != "" {
+					zedAgent.DesktopType = startReq.ExternalAgentConfig.DesktopType
+				}
+			}
+
+			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
+			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
+				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
+				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			// Register session in executor so RDP endpoint can find it
+			agentResp, regErr := s.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
+			if regErr != nil {
+				log.Error().Err(regErr).Str("session_id", session.ID).Msg("Failed to register session in external agent executor")
+				http.Error(rw, fmt.Sprintf("failed to initialize external agent: %s", regErr.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			// Store container ID and sandbox ID in session
+			if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
+				session.Metadata.DevContainerID = agentResp.DevContainerID
+				// CRITICAL: Store SandboxID on session record - required for sandbox state endpoint
+				// Without this, the frontend gets stuck at "Starting Desktop" forever
+				session.SandboxID = agentResp.SandboxID
+				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
+				if err != nil {
+					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+				} else {
+					log.Info().
+						Str("session_id", session.ID).
+						Str("container_id", agentResp.DevContainerID).
+						Str("sandbox_id", agentResp.SandboxID).
+						Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
+				}
+			}
+
+			log.Info().Str("session_id", session.ID).Msg("External agent session registered successfully")
+		}
+
+		// External agent session created successfully
+		// Message routing will be handled by handleExternalAgentStreaming when messages are sent
+		log.Info().Str("session_id", session.ID).Msg("External agent session created, ready for WebSocket communication")
+	}
+
 	if newSession {
-		go func() {
+		go func(sessionAgentType string) {
+			// Use default name for external agent sessions instead of generating via LLM
+			if sessionAgentType == "zed_external" {
+				defaultName := "External Agent Session"
+				log.Debug().
+					Str("session_id", session.ID).
+					Str("agent_type", startReq.AgentType).
+					Str("default_name", defaultName).
+					Msg("Using default name for external agent session")
+
+				session.Name = defaultName
+				err := s.Controller.UpdateSessionName(req.Context(), user.ID, session.ID, defaultName)
+				if err != nil {
+					log.Error().Err(err).Msg("error updating session name for external agent")
+				}
+				return
+			}
 
 			var (
 				provider string
@@ -315,7 +534,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			if err != nil {
 				log.Error().Err(err).Msg("error updating session name")
 			}
-		}()
+		}(agentType)
 	}
 
 	ownerID := user.ID
@@ -325,10 +544,18 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
+	projectID := user.ProjectID
+	if startReq.ProjectID != "" {
+		projectID = startReq.ProjectID
+		ctx = types.SetHelixProjectContext(ctx, projectID)
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
 		InteractionID:   lastInteraction.ID,
+		ProjectID:       projectID,
+		SpecTaskID:      user.SpecTaskID,
 		OriginalRequest: body,
 	})
 
@@ -471,6 +698,34 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	return session, nil
 }
 
+// getAgentTypeFromApp determines the agent type from the app's assistant configuration
+func getAgentTypeFromApp(app *types.App, startReq types.SessionChatRequest) string {
+	// Default to request agent type if no app
+	if app == nil {
+		return startReq.AgentType
+	}
+
+	// Get the assistant configuration
+	var assistant *types.AssistantConfig
+	if startReq.AssistantID != "" {
+		assistant = data.GetAssistant(app, startReq.AssistantID)
+	} else if len(app.Config.Helix.Assistants) > 0 {
+		assistant = &app.Config.Helix.Assistants[0]
+	}
+
+	// Use assistant agent type if available and non-empty
+	if assistant != nil && assistant.AgentType != "" {
+		return string(assistant.AgentType)
+	}
+
+	// Fall back to app's default agent type
+	if app.Config.Helix.DefaultAgentType != "" {
+		return string(app.Config.Helix.DefaultAgentType)
+	}
+
+	return startReq.AgentType
+}
+
 func getInteractionIndex(interactions []*types.Interaction, req *types.SessionChatRequest) int {
 	// Get last message interaction ID
 	if len(req.Messages) == 0 {
@@ -547,6 +802,8 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 		OwnerID:       ownerID,
 		SessionID:     session.ID,
 		InteractionID: lastInteractionID,
+		ProjectID:     user.ProjectID,
+		SpecTaskID:    user.SpecTaskID,
 	})
 
 	ctx = oai.SetStep(ctx, &oai.Step{
@@ -611,6 +868,16 @@ func (s *HelixAPIServer) handleBlockingSession(
 
 	start := time.Now()
 
+	// Check if this is an external agent session
+	if session.Metadata.AgentType == "zed_external" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Routing non-streaming session to external agent")
+
+		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+	}
+
 	// Call the LLM
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -653,6 +920,9 @@ func (s *HelixAPIServer) handleBlockingSession(
 	if err != nil {
 		return err
 	}
+
+	// Trigger async summary generation for this interaction and session title update
+	s.triggerSummaryGeneration(session, interaction, user.ID)
 
 	chatCompletionResponse.ID = session.ID
 
@@ -704,6 +974,16 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	}
 
 	start := time.Now()
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType == "zed_external" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Routing session to external agent")
+
+		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+	}
 
 	// Instruct the agent to send thoughts about tools and decisions
 	options.Conversational = true
@@ -863,7 +1143,470 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		return fmt.Errorf("error updating interaction: %w", err)
 	}
 
+	// Trigger async summary generation for this interaction and session title update
+	s.triggerSummaryGeneration(session, interaction, session.Owner)
+
 	return nil
+}
+
+// handleExternalAgentStreaming routes chat messages to external Zed agent via WebSocket
+func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user *types.User, session *types.Session, interaction *types.Interaction, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
+	// Check if external agent executor is available
+	if s.externalAgentExecutor == nil {
+		log.Error().Str("session_id", session.ID).Msg("External agent executor not available")
+		return s.writeErrorResponse(rw, "External agent not available")
+	}
+
+	// Get the external agent session
+	agentSession, err := s.externalAgentExecutor.GetSession(session.ID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent session not found")
+		return s.writeErrorResponse(rw, "External agent session not found")
+	}
+
+	// Ensure model parameter is set in chatCompletionRequest
+	if chatCompletionRequest.Model == "" {
+		// Use a default model for external agents or get from session metadata
+		chatCompletionRequest.Model = "gpt-4" // Default model for external agents
+		log.Debug().Str("session_id", session.ID).Str("model", chatCompletionRequest.Model).Msg("Set default model for external agent")
+	}
+
+	// Extract the user's message from the chat completion request
+	var userMessage string
+	if len(chatCompletionRequest.Messages) > 0 {
+		lastMessage := chatCompletionRequest.Messages[len(chatCompletionRequest.Messages)-1]
+		if lastMessage.Role == "user" {
+			// Handle both simple content (string) and multi-content (complex structure)
+			if lastMessage.Content != "" {
+				userMessage = lastMessage.Content
+			} else if len(lastMessage.MultiContent) > 0 {
+				// Extract text from multi-content parts
+				for _, part := range lastMessage.MultiContent {
+					if part.Type == openai.ChatMessagePartTypeText {
+						userMessage += part.Text
+					}
+				}
+			}
+		}
+	}
+
+	if userMessage == "" {
+		log.Error().Str("session_id", session.ID).Msg("No user message found in chat completion request")
+		return s.writeErrorResponse(rw, "No user message found")
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("user_message", userMessage).
+		Str("agent_session_status", agentSession.Status).
+		Msg("Sending message to external Zed agent")
+
+	// Send message to external agent via WebSocket and stream response back
+	return s.streamFromExternalAgent(ctx, session, userMessage, chatCompletionRequest, rw)
+}
+
+// streamFromExternalAgent sends a message to the external agent and streams the response
+func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage string, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter) error {
+	// Get the last interaction to update with the response
+	if len(session.Interactions) == 0 {
+		log.Error().Str("session_id", session.ID).Msg("No interactions found in session")
+		return fmt.Errorf("no interactions found in session")
+	}
+
+	interaction := session.Interactions[len(session.Interactions)-1]
+	start := time.Now()
+
+	// Wait for external agent to be ready (WebSocket connection established)
+	// Extended timeout to allow time for desktop container to start
+	if err := s.waitForExternalAgentReady(ctx, session.ID, 300*time.Second); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
+
+		// Update interaction with error
+		interaction.Error = fmt.Sprintf("External agent not ready: %s", err.Error())
+		interaction.State = types.InteractionStateError
+		interaction.Completed = time.Now()
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
+		s.Controller.UpdateInteraction(ctx, session, interaction)
+
+		http.Error(rw, fmt.Sprintf("External agent not ready: %s", err.Error()), http.StatusServiceUnavailable)
+		return err
+	}
+
+	// Generate unique request ID for tracking
+	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+
+	// Determine which agent to use based on the spec task's code agent config
+	agentName := s.getAgentNameForSession(ctx, session)
+
+	// DIAGNOSTIC: Log this code path with distinctive marker
+	log.Warn().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Str("request_id", requestID).
+		Str("zed_thread_id", session.Metadata.ZedThreadID).
+		Msg("🔵 [DIAG] streamFromExternalAgent CALLED - PATH B (NO role field)")
+
+	// Send chat message to external agent
+	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
+			"message":       userMessage,
+			"request_id":    requestID, // For correlation
+			"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
+			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
+		},
+	}
+
+	// Set up legacy channel handling for external agent communication
+	responseChan := make(chan string, 100)
+	doneChan := make(chan bool, 1)
+	errorChan := make(chan error, 1)
+
+	// Store response channel with request ID (would use proper storage in production)
+	s.storeResponseChannel(session.ID, requestID, responseChan, doneChan, errorChan)
+	defer s.cleanupResponseChannel(session.ID, requestID)
+
+	// CRITICAL: Store session->interaction mapping so message_added can find the right interaction
+	if s.sessionToWaitingInteraction == nil {
+		s.sessionToWaitingInteraction = make(map[string]string)
+	}
+	// DIAGNOSTIC: Check if we're overwriting an existing mapping (potential bug!)
+	s.contextMappingsMutex.Lock()
+	oldInteractionID, wasOverwritten := s.sessionToWaitingInteraction[session.ID]
+	s.sessionToWaitingInteraction[session.ID] = interaction.ID
+	s.contextMappingsMutex.Unlock()
+	if wasOverwritten && oldInteractionID != interaction.ID {
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("old_interaction_id", oldInteractionID).
+			Str("new_interaction_id", interaction.ID).
+			Msg("⚠️ [DIAG] sessionToWaitingInteraction OVERWRITTEN - responses to old interaction may go to wrong place!")
+	}
+	log.Info().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Msg("🔗 [HELIX] Stored session->interaction mapping for streaming request")
+
+	// CRITICAL: Store request_id->session mapping so thread_created can find the right session
+	if s.requestToSessionMapping == nil {
+		s.requestToSessionMapping = make(map[string]string)
+	}
+	s.requestToSessionMapping[requestID] = session.ID
+	log.Info().
+		Str("request_id", requestID).
+		Str("session_id", session.ID).
+		Msg("🔗 [HELIX] Stored request_id->session mapping for thread creation")
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("request_id", requestID).
+		Interface("command", command).
+		Msg("🔴 [HELIX] SENDING CHAT_MESSAGE COMMAND TO EXTERNAL AGENT")
+
+	log.Info().
+		Str("helix_session_id", session.ID).
+		Str("request_id", requestID).
+		Str("user_message", userMessage).
+		Msg("🗂️  [HELIX] SESSION MAPPING: Chat request details")
+
+	// Send command to external agent
+	if err := s.sendCommandToExternalAgent(session.ID, command); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to send command to external agent")
+		http.Error(rw, fmt.Sprintf("Failed to send command to external agent: %s", err.Error()), http.StatusInternalServerError)
+		return err
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("request_id", requestID).
+		Str("message", userMessage).
+		Msg("Sent message to external agent")
+
+	// Accumulate the full response for updating the interaction
+	var fullResponse string
+
+	// Create timeout timer ONCE before loop (not on each iteration)
+	// This prevents multiple timers from being created
+	timeout := time.NewTimer(90 * time.Second)
+	defer timeout.Stop()
+
+	// Stream response chunks as they arrive
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case chunk := <-responseChan:
+			// Accumulate the response
+			fullResponse += chunk
+
+			response := &openai.ChatCompletionStreamResponse{
+				Object: "chat.completion.chunk",
+				ID:     session.ID,
+				Model:  chatCompletionRequest.Model,
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Index: 0,
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: chunk,
+						},
+					},
+				},
+			}
+
+			bts, err := json.Marshal(response)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to marshal response")
+				continue
+			}
+
+			if err := writeChunk(rw, bts); err != nil {
+				log.Error().Err(err).Msg("failed to write chunk")
+				return err
+			}
+
+		case <-doneChan:
+			// CRITICAL: Stop the timeout timer to prevent it from firing after completion
+			timeout.Stop()
+			// CRITICAL: For external agent flow, the response was already saved to DB by handleMessageAdded
+			// We need to RELOAD the interaction from DB to get the final response, not use fullResponse
+			// which is only accumulated from responseChan (unused in external agent flow)
+
+			// Reload the interaction from database to get the final response
+			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelReload()
+
+			reloadedInteraction, err := s.Controller.Options.Store.GetInteraction(reloadCtx, interaction.ID)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", session.ID).
+					Str("interaction_id", interaction.ID).
+					Msg("Failed to reload interaction from database")
+			} else {
+				// Use the response from database (which was saved by handleMessageAdded)
+				interaction.ResponseMessage = reloadedInteraction.ResponseMessage
+				log.Info().
+					Str("session_id", session.ID).
+					Str("interaction_id", interaction.ID).
+					Int("response_length", len(reloadedInteraction.ResponseMessage)).
+					Msg("🔄 [HELIX] Reloaded interaction response from database for doneChan")
+			}
+
+			// Mark as complete
+			interaction.Completed = time.Now()
+			interaction.State = types.InteractionStateComplete
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+
+			// Create new context with a timeout for persisting session to the database
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err = s.Controller.UpdateInteraction(updateCtx, session, interaction)
+			if err != nil {
+				log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to update interaction")
+			}
+
+			// Send completion signal
+			response := &openai.ChatCompletionStreamResponse{
+				Object: "chat.completion.chunk",
+				ID:     session.ID,
+				Model:  chatCompletionRequest.Model,
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Index:        0,
+						Delta:        openai.ChatCompletionStreamChoiceDelta{},
+						FinishReason: "stop",
+					},
+				},
+			}
+
+			bts, err := json.Marshal(response)
+			if err == nil {
+				writeChunk(rw, bts)
+			}
+
+			// Send [DONE] signal
+			if err := writeChunk(rw, []byte("[DONE]")); err != nil {
+				log.Error().Err(err).Msg("failed to write done signal")
+			}
+
+			log.Info().
+				Str("session_id", session.ID).
+				Str("request_id", requestID).
+				Str("response_message", interaction.ResponseMessage).
+				Int("response_length", len(interaction.ResponseMessage)).
+				Int("duration_ms", interaction.DurationMs).
+				Msg("External agent response completed and interaction updated")
+			return nil
+
+		case err := <-errorChan:
+			// Update interaction with error
+			interaction.Error = err.Error()
+			interaction.State = types.InteractionStateError
+			interaction.Completed = time.Now()
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.Controller.UpdateInteraction(updateCtx, session, interaction)
+
+			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
+			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
+
+		case <-timeout.C:
+			// Update interaction with timeout error
+			interaction.Error = "External agent response timeout"
+			interaction.State = types.InteractionStateError
+			interaction.Completed = time.Now()
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.Controller.UpdateInteraction(updateCtx, session, interaction)
+
+			log.Warn().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response timeout")
+			return s.writeErrorResponse(rw, "External agent response timeout")
+		}
+	}
+}
+
+// waitForExternalAgentReady waits for the external agent WebSocket connection to be established
+func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionID string, timeout time.Duration) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Dur("timeout", timeout).
+		Msg("Waiting for external agent to be ready")
+
+	startCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	startTime := time.Now()
+	attemptCount := 0
+
+	for {
+		select {
+		case <-startCtx.Done():
+			elapsed := time.Since(startTime)
+			log.Error().
+				Str("session_id", sessionID).
+				Dur("elapsed", elapsed).
+				Int("attempts", attemptCount).
+				Msg("Timeout waiting for external agent to be ready")
+			return fmt.Errorf("timeout waiting for external agent to be ready after %v (%d attempts)", elapsed, attemptCount)
+		case <-ticker.C:
+			attemptCount++
+
+			// Check if any external Zed agent WebSocket connections exist
+			connections := s.externalAgentWSManager.listConnections()
+			log.Info().
+				Int("connection_count", len(connections)).
+				Interface("connections", connections).
+				Msg("🔍 [HELIX] Checking external agent connections")
+			if len(connections) > 0 {
+				elapsed := time.Since(startTime)
+				log.Info().
+					Str("session_id", sessionID).
+					Dur("elapsed", elapsed).
+					Int("attempts", attemptCount).
+					Msg("External agent is ready")
+				return nil
+			}
+
+			// Log periodic status updates
+			elapsed := time.Since(startTime)
+			if attemptCount%10 == 0 || elapsed > 10*time.Second {
+				timeLeft := timeout - elapsed
+				log.Debug().
+					Str("session_id", sessionID).
+					Dur("elapsed", elapsed).
+					Dur("time_left", timeLeft).
+					Int("attempt", attemptCount).
+					Msg("Still waiting for external agent to connect")
+			}
+		}
+	}
+}
+
+// Response channel management for external agent requests
+var responseChannels = make(map[string]map[string]chan string)
+var doneChannels = make(map[string]map[string]chan bool)
+var errorChannels = make(map[string]map[string]chan error)
+var channelMutex sync.RWMutex
+
+// storeResponseChannel stores response channels for a request
+func (s *HelixAPIServer) storeResponseChannel(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
+	channelMutex.Lock()
+	defer channelMutex.Unlock()
+
+	if responseChannels[sessionID] == nil {
+		responseChannels[sessionID] = make(map[string]chan string)
+		doneChannels[sessionID] = make(map[string]chan bool)
+		errorChannels[sessionID] = make(map[string]chan error)
+	}
+
+	responseChannels[sessionID][requestID] = responseChan
+	doneChannels[sessionID][requestID] = doneChan
+	errorChannels[sessionID][requestID] = errorChan
+}
+
+// cleanupResponseChannel cleans up channels for a request
+func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
+	channelMutex.Lock()
+	defer channelMutex.Unlock()
+
+	if responseChannels[sessionID] != nil {
+		delete(responseChannels[sessionID], requestID)
+		delete(doneChannels[sessionID], requestID)
+		delete(errorChannels[sessionID], requestID)
+
+		if len(responseChannels[sessionID]) == 0 {
+			delete(responseChannels, sessionID)
+			delete(doneChannels, sessionID)
+			delete(errorChannels, sessionID)
+		}
+	}
+}
+
+// getResponseChannel gets response channels for a request
+func (s *HelixAPIServer) getResponseChannel(sessionID, requestID string) (chan string, chan bool, chan error, bool) {
+	channelMutex.RLock()
+	defer channelMutex.RUnlock()
+
+	if responseChannels[sessionID] != nil {
+		responseChan, responseExists := responseChannels[sessionID][requestID]
+		doneChan, doneExists := doneChannels[sessionID][requestID]
+		errorChan, errorExists := errorChannels[sessionID][requestID]
+
+		if responseExists && doneExists && errorExists {
+			return responseChan, doneChan, errorChan, true
+		}
+	}
+
+	return nil, nil, nil, false
+}
+
+// writeErrorResponse writes an error response in SSE format
+func (s *HelixAPIServer) writeErrorResponse(rw http.ResponseWriter, errorMsg string) error {
+	// Write error message in SSE format
+	errorMsg = fmt.Sprintf("data: {\"error\":{\"message\":\"%s\"}}\n\n", errorMsg)
+	_, err := rw.Write([]byte(errorMsg))
+	if err != nil {
+		return err
+	}
+
+	if f, ok := rw.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
+// Helper function to create string pointer
+func stringPtr(s string) *string {
+	return &s
 }
 
 // getSessionStepInfo godoc
@@ -896,4 +1639,455 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 	}
 
 	return stepInfos, nil
+}
+
+// getSessionRDPConnection godoc
+// @Summary Get streaming connection info for a session
+// @Description Get streaming connection details for accessing a session
+// @Tags    sessions
+// @Success 200 {object} map[string]interface{}
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id}/rdp-connection [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	id := vars["id"]
+
+	// Get the session to validate ownership
+	session, err := s.Store.GetSession(ctx, id)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("session %s not found", id), http.StatusNotFound)
+		return
+	}
+
+	if session.Owner != user.ID {
+		http.Error(rw, "you are not allowed to access this session", http.StatusForbidden)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		log.Error().
+			Str("session_id", id).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Session is not an external agent session - streaming not available")
+		http.Error(rw, "Streaming not available for this session", http.StatusNotFound)
+		return
+	}
+
+	if s.externalAgentExecutor == nil {
+		http.Error(rw, "external agent executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get the external agent session info
+	agentSession, err := s.externalAgentExecutor.GetSession(id)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to find external agent session")
+		http.Error(rw, fmt.Sprintf("session %s not found: %s", id, err.Error()), http.StatusNotFound)
+		return
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("status", agentSession.Status).
+		Msg("Found external agent session")
+
+	// Return streaming connection details with WebSocket info
+	connectionInfo := types.ExternalAgentConnectionInfo{
+		SessionID:          agentSession.SessionID,
+		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
+		StreamURL:          fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, agentSession.SessionID),
+		Status:             agentSession.Status,
+		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
+		WebsocketConnected: s.isExternalAgentConnected(agentSession.SessionID),
+	}
+
+	log.Info().
+		Str("session_id", agentSession.SessionID).
+		Str("status", agentSession.Status).
+		Bool("websocket_connected", connectionInfo.WebsocketConnected).
+		Msg("Returning streaming connection info")
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(connectionInfo)
+}
+
+// resumeSession godoc
+// @Summary Resume a paused external agent session
+// @Description Restarts the external agent container for a session that has been stopped
+// @Tags    sessions
+// @Success 200 {object} map[string]interface{}
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id}/resume [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := mux.Vars(req)["id"]
+
+	log.Info().
+		Str("session_id", id).
+		Str("user_id", user.ID).
+		Msg("Resume session request")
+
+	// Get the session to check if it's an external agent session
+	session, err := s.Controller.Options.Store.GetSession(ctx, id)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to get session for resume")
+		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	// Check if user owns this session
+	if session.Owner != user.ID {
+		log.Warn().
+			Str("session_id", id).
+			Str("user_id", user.ID).
+			Str("owner_id", session.Owner).
+			Msg("User not authorized to resume session")
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		log.Warn().
+			Str("session_id", id).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Session is not an external agent session - cannot resume")
+		http.Error(rw, "only external agent sessions can be resumed", http.StatusBadRequest)
+		return
+	}
+
+	if s.externalAgentExecutor == nil {
+		http.Error(rw, "external agent executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create a new ZedAgent request to restart the agent
+	// We need to get the spec task ID if this was a spec task session
+	specTaskID := session.Metadata.SpecTaskID
+
+	// Build the ZedAgent config for resume
+	agent := &types.DesktopAgent{
+		SessionID:   id,
+		UserID:      user.ID,
+		Input:       "Resume session",
+		ProjectPath: "workspace",
+		SpecTaskID:  specTaskID,
+		// WorkDir left empty - sandbox uses its own storage
+	}
+
+	// Load project context for both SpecTask AND exploratory sessions
+	// This ensures startup scripts run on resume for all project-scoped sessions
+	var projectID string
+
+	if specTaskID != "" {
+		// SpecTask session - get project from task
+		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Msg("Failed to load spec task for resume, continuing without repository info")
+		} else if specTask.ProjectID != "" {
+			projectID = specTask.ProjectID
+		}
+	} else if session.Metadata.ProjectID != "" {
+		// Exploratory session - get project from session metadata
+		projectID = session.Metadata.ProjectID
+		log.Info().
+			Str("session_id", id).
+			Str("project_id", projectID).
+			Msg("Loading project context for exploratory session resume")
+	}
+
+	// If we have a project, load repositories and startup script
+	if projectID != "" {
+		agent.ProjectID = projectID
+
+		projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: projectID,
+		})
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+
+			// Set primary repository and UseHostDocker from project (repos are now managed at project level)
+			project, err := s.Controller.Options.Store.GetProject(ctx, projectID)
+			if err == nil {
+				if project.DefaultRepoID != "" {
+					agent.PrimaryRepositoryID = project.DefaultRepoID
+				}
+				// Set UseHostDocker from project (requires admin access)
+				if project.UseHostDocker {
+					if !user.Admin {
+						http.Error(rw, "UseHostDocker requires admin access", http.StatusForbidden)
+						return
+					}
+					agent.UseHostDocker = true
+				}
+			} else if len(projectRepos) > 0 {
+				// Use first repo as fallback if no default set
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	// The app ID comes from session.ParentApp (the agent assigned to the session)
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("session_id", id).
+				Str("app_id", session.ParentApp).
+				Int("display_width", width).
+				Int("display_height", height).
+				Int("display_refresh_rate", agent.DisplayRefreshRate).
+				Str("resolution", agent.Resolution).
+				Int("zoom_level", agent.ZoomLevel).
+				Str("desktop_type", agent.DesktopType).
+				Msg("Using display settings from app's ExternalAgentConfig for session resume")
+		}
+	}
+
+	// Add user's API token to agent environment for git operations
+	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
+		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
+		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("spec_task_id", specTaskID).
+		Msg("Resuming external agent session")
+
+	// Start the external agent (this will create a new sandbox container)
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to resume external agent")
+		http.Error(rw, fmt.Sprintf("failed to resume agent: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Update session metadata with new container info (only if non-empty)
+	// Don't overwrite existing metadata with empty values from lobby reuse
+	if response.DevContainerID != "" {
+		session.Metadata.DevContainerID = response.DevContainerID
+	}
+	// CRITICAL: Clear PausedScreenshotPath when resuming
+	// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
+	session.Metadata.PausedScreenshotPath = ""
+	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to update session metadata with new lobby info")
+		// Don't fail the request - the agent is running
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("dev_container_id", response.DevContainerID).
+		Msg("External agent session resumed successfully")
+
+	// If session has a ZedThreadID, send open_thread command to Zed
+	// This tells Zed to open the last thread in the AgentPanel UI
+	if session.Metadata.ZedThreadID != "" {
+		// Get the agent name from the session's code agent runtime
+		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
+
+		go func() {
+			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
+			// Retry mechanism: try multiple times with delays
+			maxRetries := 5
+			retryDelay := 2 * time.Second
+
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				time.Sleep(retryDelay)
+
+				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
+				if err == nil {
+					// Success - command sent
+					log.Info().
+						Str("session_id", id).
+						Str("thread_id", session.Metadata.ZedThreadID).
+						Str("agent_name", agentName).
+						Int("attempt", attempt).
+						Msg("✅ Sent open_thread command to Zed")
+					return
+				}
+
+				// Log retry attempt
+				log.Warn().
+					Err(err).
+					Str("session_id", id).
+					Str("thread_id", session.Metadata.ZedThreadID).
+					Int("attempt", attempt).
+					Int("max_retries", maxRetries).
+					Msg("Retrying open_thread command (WebSocket not connected yet)")
+			}
+
+			// All retries exhausted - log final failure
+			log.Error().
+				Str("session_id", id).
+				Str("thread_id", session.Metadata.ZedThreadID).
+				Int("retries", maxRetries).
+				Msg("❌ Failed to send open_thread command after all retries - WebSocket never connected")
+		}()
+	}
+
+	// Return success response
+	result := types.SessionResumeResponse{
+		SessionID:      id,
+		Status:         "resumed",
+		DevContainerID: response.DevContainerID,
+		ScreenshotURL:  response.ScreenshotURL,
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(result)
+}
+
+// sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
+// to tell it to open a specific thread in the AgentPanel UI.
+// agentName specifies which ACP agent to use (e.g., "qwen", "claude", "gemini", "codex")
+// or empty string for NativeAgent (Zed's built-in agent).
+func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string, agentName string) error {
+	data := map[string]interface{}{
+		"acp_thread_id": acpThreadID,
+	}
+	// Only include agent_name if it's set (ACP agents need this, NativeAgent doesn't)
+	if agentName != "" {
+		data["agent_name"] = agentName
+	}
+
+	command := types.ExternalAgentCommand{
+		Type: "open_thread",
+		Data: data,
+	}
+
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	return s.sendCommandToExternalAgent(sessionID, command)
+}
+
+// stopExternalAgentSession godoc
+// @Summary Stop external Zed agent session
+// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
+func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	// Get session to verify access and check if it's an external agent session
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	// Verify user owns this session
+	if user == nil || session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	// Stop the desktop agent container
+	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to stop external Zed agent")
+		return nil, system.NewHTTPError500("failed to stop external Zed agent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("External Zed agent stopped successfully")
+
+	return map[string]string{
+		"message":    "external Zed agent stopped",
+		"session_id": sessionID,
+	}, nil
+}
+
+// triggerSummaryGeneration triggers async summary generation for an interaction
+// and session title update. This is called when an interaction completes.
+func (s *HelixAPIServer) triggerSummaryGeneration(session *types.Session, interaction *types.Interaction, ownerID string) {
+	if s.summaryService == nil {
+		return
+	}
+
+	// Skip summary generation for internal requests (avoid infinite loops)
+	// These are identified by special session metadata or missing user context
+	if session.Metadata.SystemSession {
+		log.Debug().
+			Str("session_id", session.ID).
+			Msg("Skipping summary generation for system session")
+		return
+	}
+
+	// Use a fresh context (not tied to request context which may be cancelled)
+	ctx := context.Background()
+
+	// Generate summary for the interaction
+	s.summaryService.GenerateInteractionSummaryAsync(ctx, interaction, ownerID)
+
+	// Update session title based on TOC
+	s.summaryService.UpdateSessionTitleAsync(ctx, session.ID, ownerID)
 }

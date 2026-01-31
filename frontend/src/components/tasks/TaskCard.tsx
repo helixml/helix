@@ -1,0 +1,1284 @@
+import React, { useState, useMemo, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  Box,
+  Typography,
+  Button,
+  IconButton,
+  Tooltip,
+  Alert,
+  CircularProgress,
+  LinearProgress,
+  keyframes,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+} from "@mui/material";
+import {
+  Description as SpecIcon,
+  Visibility as ViewIcon,
+  CheckCircle as ApproveIcon,
+  Stop as StopIcon,
+  RocketLaunch as LaunchIcon,
+  Close as CloseIcon,
+  Circle as CircleIcon,
+  CheckCircle as CheckCircleIcon,
+  RadioButtonUnchecked as UncheckedIcon,
+  AccountTree as BatchIcon,
+  Delete as DeleteIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
+  RemoveCircleOutline as RemoveFromQueueIcon,
+} from "@mui/icons-material";
+import { EllipsisVertical, Wand2 } from "lucide-react";
+import {
+  useApproveImplementation,
+  useStopAgent,
+} from "../../services/specTaskWorkflowService";
+import {
+  useTaskProgress,
+  useUpdateSpecTask,
+  useDeleteSpecTask,
+} from "../../services/specTaskService";
+import { TypesSpecTaskStatus } from "../../api/api";
+import UsagePulseChart from "./UsagePulseChart";
+import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
+import CloneTaskDialog from "../specTask/CloneTaskDialog";
+import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
+import SpecTaskActionButtons from "./SpecTaskActionButtons";
+
+// Pulse animation for the active task spinner
+const pulseRing = keyframes`
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+`;
+
+const spin = keyframes`
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+`;
+
+// Pulse animation for active agent indicator
+const activePulse = keyframes`
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.7;
+  }
+`;
+
+// Agent work state from backend (replaces timestamp-based heuristics)
+type AgentWorkState = "idle" | "working" | "done";
+
+// Hook to manage agent activity status and attention state
+// Uses backend-tracked agent_work_state instead of timestamp heuristics
+const useAgentActivityCheck = (
+  agentWorkState?: AgentWorkState,
+  enabled: boolean = true,
+): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
+  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(
+    null,
+  );
+
+  // Agent is active if backend reports it's working
+  const isActive = enabled && agentWorkState === "working";
+
+  // Agent needs attention if:
+  // 1. It's idle or done (not actively working)
+  // 2. User hasn't marked the current state as seen
+  // 3. There IS an agent work state (undefined means no session yet)
+  const needsAttention =
+    enabled &&
+    agentWorkState !== undefined &&
+    agentWorkState !== "working" &&
+    agentWorkState !== lastSeenState;
+
+  const markAsSeen = () => {
+    if (agentWorkState) {
+      setLastSeenState(agentWorkState);
+    }
+  };
+
+  // Reset seen state when agent becomes active again
+  // (so if it goes idle again later, attention dot reappears)
+  useEffect(() => {
+    if (isActive && lastSeenState) {
+      setLastSeenState(null);
+    }
+  }, [isActive, lastSeenState]);
+
+  return { isActive, needsAttention, markAsSeen };
+};
+
+type SpecTaskPhase =
+  | "backlog"
+  | "planning"
+  | "review"
+  | "implementation"
+  | "pull_request"
+  | "completed";
+
+interface SpecTaskWithExtras {
+  id: string;
+  name: string;
+  status: string;
+  phase: SpecTaskPhase;
+  planningStatus?:
+    | "none"
+    | "active"
+    | "pending_review"
+    | "completed"
+    | "failed"
+    | "queued";
+  planning_session_id?: string;
+  archived?: boolean;
+  metadata?: { error?: string };
+  merged_to_main?: boolean;
+  just_do_it_mode?: boolean;
+  started_at?: string;
+  design_docs_pushed_at?: string;
+  clone_group_id?: string;
+  cloned_from_id?: string;
+  pull_request_id?: string;
+  pull_request_url?: string;
+  implementation_approved_at?: string;
+  // Branch tracking for direct-push detection
+  base_branch?: string;
+  branch_name?: string;
+  // Agent activity tracking
+  session_updated_at?: string;
+  agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
+  // Task number for display
+  task_number?: number;
+}
+
+interface KanbanColumn {
+  id: SpecTaskPhase;
+  limit?: number;
+  tasks: SpecTaskWithExtras[];
+}
+
+interface TaskCardProps {
+  task: SpecTaskWithExtras;
+  index: number;
+  columns: KanbanColumn[];
+  onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
+  onArchiveTask?: (
+    task: SpecTaskWithExtras,
+    archived: boolean,
+    shiftKey?: boolean,
+  ) => Promise<void>;
+  onTaskClick?: (task: SpecTaskWithExtras) => void;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
+  projectId?: string;
+  focusStartPlanning?: boolean;
+  isArchiving?: boolean;
+  hasExternalRepo?: boolean;
+  showMetrics?: boolean;
+  /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
+  hideCloneOption?: boolean;
+}
+
+// Interface for checklist items from API
+interface ChecklistItem {
+  index: number;
+  description: string;
+  status: string;
+}
+
+interface ChecklistProgress {
+  tasks: ChecklistItem[];
+  total_tasks: number;
+  completed_tasks: number;
+  in_progress_task?: ChecklistItem;
+  progress_pct: number;
+}
+
+const formatDuration = (startedAt: string): string => {
+  const start = new Date(startedAt).getTime();
+  const now = Date.now();
+  const diffMs = now - start;
+
+  if (diffMs < 0) return "0s";
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h${minutes}m`;
+  }
+  return `${minutes}m${seconds}s`;
+};
+
+const useRunningDuration = (
+  startedAt: string | undefined,
+  enabled: boolean,
+): string | null => {
+  const [duration, setDuration] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !startedAt) {
+      setDuration(null);
+      return;
+    }
+
+    setDuration(formatDuration(startedAt));
+
+    const interval = setInterval(() => {
+      setDuration(formatDuration(startedAt));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [startedAt, enabled]);
+
+  return duration;
+};
+
+// Gorgeous task progress display with fade effect and spinner
+const TaskProgressDisplay: React.FC<{
+  checklist: ChecklistProgress;
+  phaseColor: string;
+}> = React.memo(({ checklist, phaseColor }) => {
+  // Find the in-progress task index
+  const inProgressIndex = checklist.in_progress_task?.index ?? -1;
+
+  // Get visible tasks: 1 before, in-progress, 2 after (or adjust based on available)
+  const visibleTasks = useMemo(() => {
+    if (!checklist.tasks || checklist.tasks.length === 0) return [];
+
+    const tasks = checklist.tasks;
+    const activeIdx =
+      inProgressIndex >= 0
+        ? inProgressIndex
+        : tasks.findIndex((t) => t.status === "pending");
+
+    if (activeIdx < 0) {
+      // All completed - show last 3
+      return tasks
+        .slice(-3)
+        .map((t, i) => ({ ...t, fadeLevel: i === 2 ? 0 : 1 }));
+    }
+
+    // Show 1 before, active, 2 after with fade levels
+    const start = Math.max(0, activeIdx - 1);
+    const end = Math.min(tasks.length, activeIdx + 3);
+
+    return tasks.slice(start, end).map((t, i, arr) => {
+      const relativePos = t.index - activeIdx;
+      let fadeLevel = 0;
+      if (relativePos < 0)
+        fadeLevel = 2; // Before: more faded
+      else if (relativePos > 1)
+        fadeLevel = 2; // Far after: more faded
+      else if (relativePos === 1) fadeLevel = 1; // Just after: slightly faded
+      return { ...t, fadeLevel };
+    });
+  }, [checklist.tasks, inProgressIndex]);
+
+  if (visibleTasks.length === 0) return null;
+
+  return (
+    <Box
+      sx={{
+        mt: 1.5,
+        mb: 0.5,
+        background:
+          "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+        borderRadius: 2,
+        border: "1px solid rgba(255,255,255,0.06)",
+        overflow: "hidden",
+      }}
+    >
+      {/* Progress bar header */}
+      <Box
+        sx={{
+          px: 1.5,
+          py: 0.75,
+          background:
+            "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
+        <LinearProgress
+          variant="determinate"
+          value={checklist.progress_pct}
+          sx={{
+            flex: 1,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: "rgba(255,255,255,0.08)",
+            "& .MuiLinearProgress-bar": {
+              background: `linear-gradient(90deg, ${phaseColor}99 0%, ${phaseColor} 100%)`,
+              borderRadius: 2,
+            },
+          }}
+        />
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: "0.65rem",
+            color: "rgba(255,255,255,0.5)",
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            minWidth: 32,
+            textAlign: "right",
+          }}
+        >
+          {checklist.completed_tasks}/{checklist.total_tasks}
+        </Typography>
+      </Box>
+
+      {/* Task list with fade effect */}
+      <Box sx={{ py: 0.5 }}>
+        {visibleTasks.map((task, idx) => {
+          const isActive = task.status === "in_progress";
+          const isCompleted =
+            task.status === "done" || task.status === "completed";
+          const opacity =
+            task.fadeLevel === 2 ? 0.35 : task.fadeLevel === 1 ? 0.6 : 1;
+
+          return (
+            <Box
+              key={task.index}
+              sx={{
+                px: 1.5,
+                py: 0.5,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 0.75,
+                opacity,
+                transition: "opacity 0.3s ease",
+              }}
+            >
+              {/* Status indicator */}
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  mt: 0.1,
+                }}
+              >
+                {isActive ? (
+                  // Animated spinner for active task
+                  <Box sx={{ position: "relative", width: 14, height: 14 }}>
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        inset: 0,
+                        borderRadius: "50%",
+                        border: `2px solid ${phaseColor}`,
+                        borderTopColor: "transparent",
+                        animation: `${spin} 1s linear infinite`,
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        inset: 2,
+                        borderRadius: "50%",
+                        backgroundColor: phaseColor,
+                        animation: `${pulseRing} 2s ease-in-out infinite`,
+                      }}
+                    />
+                  </Box>
+                ) : isCompleted ? (
+                  <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
+                ) : (
+                  <UncheckedIcon
+                    sx={{ fontSize: 14, color: "rgba(255,255,255,0.25)" }}
+                  />
+                )}
+              </Box>
+
+              {/* Task description */}
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: "0.68rem",
+                  lineHeight: 1.35,
+                  color: isActive
+                    ? "rgba(255,255,255,0.9)"
+                    : "rgba(255,255,255,0.6)",
+                  fontWeight: isActive ? 500 : 400,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  textDecoration: isCompleted ? "line-through" : "none",
+                  textDecorationColor: "rgba(255,255,255,0.3)",
+                }}
+              >
+                {task.description}
+              </Typography>
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+});
+
+const LiveAgentScreenshot: React.FC<{
+  sessionId: string;
+  projectId?: string;
+  onClick?: () => void;
+}> = React.memo(({ sessionId, projectId, onClick }) => {
+  return (
+    <Box
+      onClick={(e) => {
+        e.stopPropagation(); // Prevent card click
+        if (onClick) onClick();
+      }}
+      sx={{
+        mt: 1.5,
+        mb: 0.5,
+        mx: -1, // Extend slightly beyond content using negative margins
+        width: "calc(100% + 16px)", // Compensate for negative margins
+        position: "relative",
+        borderRadius: 1.5,
+        overflow: "hidden",
+        border: "1px solid",
+        borderColor: "rgba(0, 0, 0, 0.08)",
+        aspectRatio: "16 / 9", // 16:9 aspect ratio based on card width
+        cursor: "pointer",
+        transition: "all 0.15s ease",
+        "&:hover": {
+          borderColor: "primary.main",
+          boxShadow: "0 0 0 1px rgba(33, 150, 243, 0.3)",
+        },
+      }}
+    >
+      <Box sx={{ position: "relative", height: "100%" }}>
+        <ExternalAgentDesktopViewer sessionId={sessionId} mode="screenshot" />
+      </Box>
+      <Box
+        sx={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background:
+            "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%)",
+          color: "white",
+          py: 0.75,
+          px: 1.5,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "flex-end",
+          pointerEvents: "none",
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{ fontWeight: 500, fontSize: "0.65rem", opacity: 0.8 }}
+        >
+          Click to view
+        </Typography>
+      </Box>
+    </Box>
+  );
+});
+
+export default function TaskCard({
+  task,
+  index,
+  columns,
+  onStartPlanning,
+  onArchiveTask,
+  onTaskClick,
+  onReviewDocs,
+  projectId,
+  focusStartPlanning = false,
+  isArchiving = false,
+  hasExternalRepo = false,
+  showMetrics = true,
+  hideCloneOption = false,
+}: TaskCardProps) {
+  const [isStartingPlanning, setIsStartingPlanning] = useState(false);
+  const [showCloneDialog, setShowCloneDialog] = useState(false);
+  const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
+  const approveImplementationMutation = useApproveImplementation(task.id!);
+  const stopAgentMutation = useStopAgent(task.id!);
+  const updateSpecTask = useUpdateSpecTask();
+  const deleteSpecTask = useDeleteSpecTask();
+
+  // Fetch checklist progress for active tasks (planning/implementation)
+  const showProgress =
+    task.phase === "planning" || task.phase === "implementation";
+  const { data: progressData } = useTaskProgress(task.id, {
+    enabled: showProgress,
+    refetchInterval: 5000, // Refresh every 5 seconds for live updates
+  });
+
+  // Check agent activity status using backend-tracked work state
+  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
+    task.agent_work_state,
+    showProgress && !!task.planning_session_id,
+  );
+
+  const runningDuration = useRunningDuration(
+    task.started_at,
+    task.status === "implementation",
+  );
+
+  // Check if planning column is full
+  const planningColumn = columns.find((col) => col.id === "planning");
+  const isPlanningFull =
+    planningColumn && planningColumn.limit
+      ? planningColumn.tasks.length >= planningColumn.limit
+      : false;
+
+  const isQueued =
+    task.status === "queued_implementation" ||
+    task.status === "queued_spec_generation" ||
+    task.status === "spec_approved";
+
+  const handleRemoveFromQueue = async () => {
+    if (!task.id) return;
+    setIsRemovingFromQueue(true);
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { status: TypesSpecTaskStatus.TaskStatusBacklog },
+      });
+    } finally {
+      setIsRemovingFromQueue(false);
+    }
+  };
+
+  // Get phase-based accent color for cards
+  const getPhaseAccent = (phase: string) => {
+    switch (phase) {
+      case "planning":
+        return "#f59e0b";
+      case "review":
+        return "#3b82f6";
+      case "implementation":
+        return "#10b981";
+      case "pull_request":
+        return "#8b5cf6"; // Purple for PR
+      case "completed":
+        return "#6b7280";
+      default:
+        return "#e5e7eb";
+    }
+  };
+
+  const accentColor = getPhaseAccent(task.phase);
+  const isArchived = task.archived ?? false;
+
+  // Handle card click - always open task detail view (session viewer)
+  const handleCardClick = () => {
+    // Mark attention dot as seen when user clicks to view the task
+    markAsSeen();
+    if (onTaskClick) {
+      onTaskClick(task);
+    }
+  };
+
+  return (
+    <Card
+      onClick={handleCardClick}
+      sx={{
+        mb: 1.5,
+        backgroundColor: isArchived
+          ? "rgba(156, 163, 175, 0.08)"
+          : "background.paper",
+        cursor: isArchiving ? "default" : "pointer",
+        border: isArchived ? "1px dashed" : "1px solid",
+        borderColor: isArchived
+          ? "rgba(156, 163, 175, 0.4)"
+          : "rgba(0, 0, 0, 0.08)",
+        borderLeft: `3px ${isArchived ? "dashed" : "solid"} ${isArchived ? "rgba(156, 163, 175, 0.5)" : accentColor}`,
+        boxShadow: "none",
+        transition: "all 0.15s ease-in-out",
+        opacity: isArchiving ? 0.5 : isArchived ? 0.7 : 1,
+        pointerEvents: isArchiving ? "none" : "auto",
+        position: "relative",
+        "&:hover": {
+          borderColor: isArchived
+            ? "rgba(156, 163, 175, 0.5)"
+            : "rgba(0, 0, 0, 0.12)",
+          backgroundColor: isArchived
+            ? "rgba(156, 163, 175, 0.12)"
+            : "rgba(0, 0, 0, 0.01)",
+        },
+      }}
+    >
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        {/* Task name */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            mb: 1,
+          }}
+        >
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 500,
+              flex: 1,
+              lineHeight: 1.4,
+              color: "text.primary",
+            }}
+          >
+            {task.name}
+          </Typography>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuAnchorEl(e.currentTarget);
+            }}
+            sx={{
+              width: 24,
+              height: 24,
+              color: "text.secondary",
+              ml: 0.5,
+              "&:hover": {
+                color: "text.primary",
+                backgroundColor: "rgba(0, 0, 0, 0.04)",
+              },
+            }}
+          >
+            <EllipsisVertical size={16} />
+          </IconButton>
+          <Menu
+            anchorEl={menuAnchorEl}
+            open={Boolean(menuAnchorEl)}
+            onClose={(e: React.SyntheticEvent) => {
+              e.stopPropagation?.();
+              setMenuAnchorEl(null);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+            slotProps={{
+              paper: {
+                sx: {
+                  minWidth: 160,
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                  "& .MuiMenuItem-root": {
+                    py: 0.75,
+                    minHeight: "unset",
+                  },
+                  "& .MuiListItemIcon-root": {
+                    minWidth: 28,
+                  },
+                  "& .MuiListItemText-primary": {
+                    fontSize: "0.8rem",
+                  },
+                },
+              },
+            }}
+          >
+            {task.design_docs_pushed_at && onReviewDocs && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  onReviewDocs(task);
+                }}
+              >
+                <ListItemIcon>
+                  <SpecIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
+                <ListItemText>Review Spec</ListItemText>
+              </MenuItem>
+            )}
+            {task.clone_group_id && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  setShowCloneBatchProgress(true);
+                }}
+              >
+                <ListItemIcon>
+                  <BatchIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
+                <ListItemText>Batch Progress</ListItemText>
+              </MenuItem>
+            )}
+            {isQueued && (
+              <MenuItem
+                disabled={isRemovingFromQueue}
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  handleRemoveFromQueue();
+                }}
+              >
+                <ListItemIcon>
+                  <RemoveFromQueueIcon sx={{ fontSize: 16 }} />
+                </ListItemIcon>
+                <ListItemText>
+                  {isRemovingFromQueue ? "Removing..." : "Remove from queue"}
+                </ListItemText>
+              </MenuItem>
+            )}
+            {!hideCloneOption && task.design_docs_pushed_at && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  setShowCloneDialog(true);
+                }}
+              >
+                <ListItemIcon>
+                  <Wand2 size={16} />
+                </ListItemIcon>
+                <ListItemText>Clone to projects</ListItemText>
+              </MenuItem>
+            )}
+            <MenuItem
+              disabled={isArchiving}
+              onClick={(e) => {
+                setMenuAnchorEl(null);
+                if (onArchiveTask) {
+                  onArchiveTask(task, !task.archived, e.shiftKey);
+                }
+              }}
+            >
+              <ListItemIcon>
+                {isArchiving ? (
+                  <CircularProgress size={16} />
+                ) : task.archived ? (
+                  <UnarchiveIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <ArchiveIcon sx={{ fontSize: 16 }} />
+                )}
+              </ListItemIcon>
+              <ListItemText>
+                {isArchiving
+                  ? "Archiving..."
+                  : task.archived
+                    ? "Restore"
+                    : "Archive"}
+              </ListItemText>
+            </MenuItem>
+            {task.archived && (
+              <MenuItem
+                disabled={deleteSpecTask.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  if (task.id) {
+                    deleteSpecTask.mutate(task.id);
+                  }
+                }}
+              >
+                <ListItemIcon>
+                  <DeleteIcon sx={{ fontSize: 16, color: "error.main" }} />
+                </ListItemIcon>
+                <ListItemText sx={{ color: "error.main" }}>
+                  {deleteSpecTask.isPending ? "Deleting..." : "Delete"}
+                </ListItemText>
+              </MenuItem>
+            )}
+          </Menu>
+        </Box>
+
+        {/* Status row */}
+        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            {isActive &&
+            task.planning_session_id &&
+            (task.phase === "planning" || task.phase === "implementation") ? (
+              <Tooltip title="Agent is working">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    backgroundColor: "#22c55e",
+                    animation: `${activePulse} 1.5s ease-in-out infinite`,
+                  }}
+                />
+              </Tooltip>
+            ) : needsAttention &&
+              task.planning_session_id &&
+              (task.phase === "planning" || task.phase === "implementation") ? (
+              <Tooltip title="Agent finished - click card to dismiss">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    backgroundColor: "#f59e0b",
+                  }}
+                />
+              </Tooltip>
+            ) : (
+              <CircleIcon
+                sx={{
+                  fontSize: 8,
+                  color:
+                    task.phase === "planning"
+                      ? "#f59e0b"
+                      : task.phase === "review"
+                        ? "#3b82f6"
+                        : task.phase === "implementation"
+                          ? "#10b981"
+                          : task.phase === "pull_request"
+                            ? "#8b5cf6"
+                            : task.phase === "completed"
+                              ? "#6b7280"
+                              : "#9ca3af",
+                }}
+              />
+            )}
+            <Typography
+              variant="caption"
+              sx={{
+                fontSize: "0.7rem",
+                color: "text.secondary",
+                fontWeight: 500,
+              }}
+            >
+              {task.phase === "backlog"
+                ? "Backlog"
+                : task.phase === "planning"
+                  ? "Planning"
+                  : task.phase === "review"
+                    ? "Review"
+                    : task.phase === "implementation"
+                      ? "In Progress"
+                      : task.phase === "pull_request"
+                        ? "Pull Request"
+                        : "Merged"}
+            </Typography>
+            {runningDuration && (
+              <Typography
+                variant="caption"
+                sx={{ fontSize: "0.7rem", color: "text.secondary" }}
+              >
+                • {runningDuration}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
+        {showMetrics &&
+          (task.phase === "planning" ||
+            task.phase === "review" ||
+            task.phase === "implementation" ||
+            task.phase === "pull_request") && (
+            <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+          )}
+
+        {/* Gorgeous checklist progress for active tasks */}
+        {progressData?.checklist && progressData.checklist.total_tasks > 0 && (
+          <TaskProgressDisplay
+            checklist={progressData.checklist as ChecklistProgress}
+            phaseColor={accentColor}
+          />
+        )}
+
+        {/* Live screenshot for active sessions - click opens desktop viewer */}
+        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {task.planning_session_id &&
+          task.phase !== "completed" &&
+          !task.merged_to_main && (
+            <LiveAgentScreenshot
+              sessionId={task.planning_session_id}
+              projectId={projectId}
+              onClick={() => onTaskClick?.(task)}
+            />
+          )}
+
+        {/* Backlog phase */}
+        {task.phase === "backlog" && (
+          <Box sx={{ mt: 1.5 }}>
+            {task.metadata?.error && (
+              <Box
+                sx={{
+                  mb: 1,
+                  px: 1.5,
+                  py: 1,
+                  backgroundColor: "rgba(239, 68, 68, 0.08)",
+                  borderRadius: 1,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
+                >
+                  ⚠ {task.metadata.error as string}
+                </Typography>
+              </Box>
+            )}
+            <SpecTaskActionButtons
+              task={{
+                id: task.id,
+                status: "backlog",
+                just_do_it_mode: task.just_do_it_mode,
+                archived: task.archived,
+                metadata: task.metadata,
+              }}
+              variant="stacked"
+              onStartPlanning={async () => {
+                if (onStartPlanning) {
+                  setIsStartingPlanning(true);
+                  try {
+                    await onStartPlanning(task);
+                  } finally {
+                    setIsStartingPlanning(false);
+                  }
+                }
+              }}
+              isStartingPlanning={isStartingPlanning}
+              isQueued={task.planningStatus === "queued"}
+              isPlanningFull={isPlanningFull}
+              planningLimit={planningColumn?.limit}
+            />
+            {isPlanningFull && (
+              <Typography
+                variant="caption"
+                sx={{
+                  mt: 0.75,
+                  display: "block",
+                  textAlign: "center",
+                  color: "#ef4444",
+                  fontSize: "0.7rem",
+                }}
+              >
+                Planning column at capacity ({planningColumn?.limit})
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Review phase - only show button if design docs have been pushed */}
+        {task.phase === "review" &&
+          task.design_docs_pushed_at &&
+          onReviewDocs && (
+            <SpecTaskActionButtons
+              task={{
+                id: task.id,
+                status: "spec_review",
+                design_docs_pushed_at: task.design_docs_pushed_at,
+                archived: task.archived,
+              }}
+              variant="stacked"
+              onReviewSpec={() => onReviewDocs(task)}
+              isQueued={task.status === "spec_approved"}
+            />
+          )}
+
+        {/* Implementation phase */}
+        {task.status === "implementation" && (
+          <SpecTaskActionButtons
+            task={{
+              id: task.id,
+              status: "implementation",
+              base_branch: task.base_branch,
+              branch_name: task.branch_name,
+              archived: task.archived,
+            }}
+            variant="stacked"
+            onReject={(shiftKey) => {
+              if (onArchiveTask) {
+                onArchiveTask(task, true, shiftKey);
+              }
+            }}
+            hasExternalRepo={hasExternalRepo}
+            isArchiving={isArchiving}
+          />
+        )}
+
+        {/* Implementation review phase */}
+        {task.status === "implementation_review" && (
+          <Box
+            sx={{ mt: 1.5, display: "flex", flexDirection: "column", gap: 1 }}
+          >
+            <Tooltip
+              title={isArchived ? "Task is archived" : ""}
+              placement="top"
+            >
+              <span style={{ width: "100%", display: "block" }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<ViewIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log("[TaskCard] Review Implementation clicked", {
+                      onTaskClick: !!onTaskClick,
+                      taskId: task.id,
+                    });
+                    if (onTaskClick) onTaskClick(task);
+                  }}
+                  disabled={isArchived}
+                  fullWidth
+                >
+                  Review Implementation
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip
+              title={isArchived ? "Task is archived" : ""}
+              placement="top"
+            >
+              <span style={{ width: "100%", display: "block" }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={
+                    approveImplementationMutation.isPending ? (
+                      <CircularProgress size={14} color="inherit" />
+                    ) : (
+                      <ApproveIcon />
+                    )
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    approveImplementationMutation.mutate();
+                  }}
+                  disabled={
+                    isArchived || approveImplementationMutation.isPending
+                  }
+                  fullWidth
+                >
+                  {approveImplementationMutation.isPending
+                    ? "Approving..."
+                    : "Approve Implementation"}
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip
+              title={isArchived ? "Task is archived" : ""}
+              placement="top"
+            >
+              <span style={{ width: "100%", display: "block" }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={
+                    stopAgentMutation.isPending ? (
+                      <CircularProgress size={14} color="inherit" />
+                    ) : (
+                      <StopIcon />
+                    )
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stopAgentMutation.mutate();
+                  }}
+                  disabled={isArchived || stopAgentMutation.isPending}
+                  fullWidth
+                >
+                  {stopAgentMutation.isPending ? "Stopping..." : "Stop Agent"}
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
+        )}
+
+        {/* Pull Request phase - awaiting merge in external repo */}
+        {task.phase === "pull_request" && (
+          <Box sx={{ mt: 1.5 }}>
+            {task.pull_request_url ? (
+              <>
+                <Box sx={{ mb: 1 }}>
+                  <SpecTaskActionButtons
+                    task={{
+                      id: task.id,
+                      status: "pull_request",
+                      pull_request_url: task.pull_request_url,
+                      archived: task.archived,
+                    }}
+                    variant="stacked"
+                  />
+                </Box>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: "text.secondary",
+                    fontStyle: "italic",
+                    display: "block",
+                    textAlign: "center",
+                  }}
+                >
+                  Address review comments with agent.
+                  <br />
+                  Moves to Merged when PR closes.
+                </Typography>
+              </>
+            ) : (
+              (() => {
+                // Calculate seconds since approval
+                const approvedAt = task.implementation_approved_at
+                  ? new Date(task.implementation_approved_at).getTime()
+                  : 0;
+                const secondsSinceApproval = approvedAt
+                  ? (Date.now() - approvedAt) / 1000
+                  : 0;
+                const isWaitingTooLong = secondsSinceApproval > 30;
+
+                return isWaitingTooLong ? (
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontSize: "0.7rem", display: "block" }}
+                    >
+                      Agent hasn't pushed feature branch yet. Please check if
+                      the agent is having trouble.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 1,
+                    }}
+                  >
+                    <CircularProgress size={20} />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: "0.7rem",
+                        color: "text.secondary",
+                        fontStyle: "italic",
+                        textAlign: "center",
+                      }}
+                    >
+                      Waiting for agent to push branch to create PR...
+                    </Typography>
+                  </Box>
+                );
+              })()
+            )}
+          </Box>
+        )}
+
+        {/* Completed tasks */}
+        {(task.status === "done" || task.phase === "completed") &&
+          task.merged_to_main && (
+            <Box sx={{ mt: 1.5 }}>
+              <Alert severity="success" sx={{ py: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  Task finished
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: "0.7rem",
+                    display: "block",
+                    color: "text.secondary",
+                  }}
+                >
+                  Merged to default branch
+                </Typography>
+              </Alert>
+            </Box>
+          )}
+      </CardContent>
+
+      {/* Task Number Badge */}
+      {task.task_number && task.task_number > 0 && (
+        <Typography
+          variant="caption"
+          sx={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            fontSize: "0.65rem",
+            color: "text.disabled",
+            fontFamily: "monospace",
+            opacity: 0.7,
+          }}
+        >
+          #{String(task.task_number).padStart(6, "0")}
+        </Typography>
+      )}
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={task.id}
+        taskName={task.name}
+        sourceProjectId={projectId || ""}
+      />
+
+      {/* Clone Batch Progress Dialog */}
+      {task.clone_group_id && (
+        <Dialog
+          open={showCloneBatchProgress}
+          onClose={() => setShowCloneBatchProgress(false)}
+          maxWidth="md"
+          fullWidth
+          onClick={(e) => e.stopPropagation()}
+          sx={{ "& .MuiDialog-paper": { zIndex: 1300 } }}
+        >
+          <DialogTitle
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            Clone Batch Progress
+            <IconButton
+              size="small"
+              onClick={() => setShowCloneBatchProgress(false)}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent onClick={(e) => e.stopPropagation()}>
+            <CloneGroupProgressFull
+              groupId={task.clone_group_id}
+              onTaskClick={(taskId, projectId) => {
+                setShowCloneBatchProgress(false);
+                if (onTaskClick) {
+                  onTaskClick({ ...task, id: taskId });
+                }
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+    </Card>
+  );
+}

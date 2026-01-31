@@ -2,9 +2,6 @@ import React, { FC, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import Accordion from '@mui/material/Accordion';
-import AccordionSummary from '@mui/material/AccordionSummary';
-import AccordionDetails from '@mui/material/AccordionDetails';
 import IconButton from '@mui/material/IconButton';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
@@ -230,10 +227,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
             >
               {knowledgeHelpers.localUploadProgress ? (
                 <Box sx={{ 
-                  border: '1px solid rgba(255, 255, 255, 0.2)', 
-                  borderRadius: '8px', 
+                  border: '1px solid', 
+                  borderColor: 'divider',
+                  borderRadius: 1, 
                   padding: 3, 
-                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
                   width: '100%', 
                   marginBottom: 2,
                   position: 'relative',
@@ -245,7 +242,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                     alignItems: 'center', 
                     mb: 2
                   }}>
-                    <Typography variant="h6" fontWeight="500" color="common.white">
+                    <Typography variant="h6" fontWeight="500">
                       Uploading {knowledgeHelpers.uploadingFileCount} {knowledgeHelpers.uploadingFileCount === 1 ? 'File' : 'Files'}
                     </Typography>
                     
@@ -264,10 +261,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   </Box>
                   
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="body1" color="common.white" fontWeight="medium">
+                    <Typography variant="body1" fontWeight="medium">
                       {knowledgeHelpers.localUploadProgress.percent}% Complete
                     </Typography>
-                    <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
+                    <Typography variant="body2" color="text.secondary">
                       {prettyBytes(knowledgeHelpers.localUploadProgress.uploadedBytes)} of {prettyBytes(knowledgeHelpers.localUploadProgress.totalBytes)}
                     </Typography>
                   </Box>
@@ -293,20 +290,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   <Grid container spacing={2}>
                     <Grid item xs={6}>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                        <Typography variant="caption" color="text.secondary">
                           ESTIMATED TIME REMAINING
                         </Typography>
-                        <Typography variant="body2" color="common.white" fontWeight="medium">
+                        <Typography variant="body2" fontWeight="medium">
                           {knowledgeHelpers.uploadEta || "Calculating..."}
                         </Typography>
                       </Box>
                     </Grid>
                     <Grid item xs={6}>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                        <Typography variant="caption" color="text.secondary">
                           UPLOAD SPEED
                         </Typography>
-                        <Typography variant="body2" color="common.white" fontWeight="medium">
+                        <Typography variant="body2" fontWeight="medium">
                           {knowledgeHelpers.currentSpeed ? formatSpeed(knowledgeHelpers.currentSpeed) : "Calculating..."}
                         </Typography>
                       </Box>
@@ -538,23 +535,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
       {knowledgeHelpers.knowledge.map((knowledge, index) => {
         const serverKnowledge = knowledgeHelpers.serverKnowledge.find((k: IKnowledgeSource) => k.id === knowledge.id) || knowledge
         const isTextSource = !!knowledge.source.text;
+        const isExpanded = knowledgeHelpers.expanded === `panel${knowledge.id}`;
         
         return (
-          <Accordion
+          <Box
             key={index}
-            expanded={knowledgeHelpers.expanded === `panel${knowledge.id}`}
-            onChange={() => {
-              if(knowledgeHelpers.expanded === `panel${knowledge.id}`) {
-                knowledgeHelpers.setExpanded('')
-              } else {
-                knowledgeHelpers.setExpanded(`panel${knowledge.id}`)
-              }              
+            sx={{ 
+              mb: 2, 
+              p: 2, 
+              borderRadius: 1, 
+              border: '1px solid', 
+              borderColor: 'divider' 
             }}
           >
-            <AccordionSummary 
-              expandIcon={<ExpandMoreIcon />}
-              sx={{ display: 'flex', alignItems: 'center' }}
-            >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: isExpanded ? 2 : 0 }}>
               <Box sx={{ flexGrow: 1 }}>
                 <Typography component="div" sx={{ display: 'flex', alignItems: 'center' }}>
                   Knowledge Source ({getSourcePreview(knowledge)})
@@ -579,75 +573,96 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   </Typography>
                 )}
               </Box>
-              {knowledge.source.web && !isTextSource && (
-                <Tooltip title="View crawled URLs">
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                {knowledge.source.web && !isTextSource && (
+                  <Tooltip title="View crawled URLs">
+                    <span>
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedKnowledge(serverKnowledge);
+                          setUrlDialogOpen(true);
+                        }}
+                        disabled={disabled || !knowledge}
+                        sx={{ mr: 1 }}
+                      >
+                        <LinkIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+                {!isTextSource && (
+                  <Tooltip title="Refresh knowledge and reindex data">
+                    <span>
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          knowledgeHelpers.handleRefreshKnowledge(knowledge.id)
+                        }}
+                        disabled={disabled}
+                        sx={{ mr: 1 }}
+                      >
+                        <RefreshIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+                {serverKnowledge && serverKnowledge.state === 'preparing' && !isTextSource && (
+                  <Tooltip title="Complete preparation and start indexing">
+                    <span>
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)
+                        }}
+                        disabled={disabled}
+                        sx={{ mr: 1 }}
+                        color="warning"
+                      >
+                        <PlayArrowIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+                <Tooltip title="Delete this knowledge source">
                   <span>
                     <IconButton
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedKnowledge(serverKnowledge);
-                        setUrlDialogOpen(true);
-                      }}
-                      disabled={disabled || !knowledge}
-                      sx={{ mr: 1 }}
-                    >
-                      <LinkIcon />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              )}
-              {!isTextSource && (
-                <Tooltip title="Refresh knowledge and reindex data">
-                  <span>
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        knowledgeHelpers.handleRefreshKnowledge(knowledge.id)
+                        knowledgeHelpers.handleDeleteSource(knowledge.id)
                       }}
                       disabled={disabled}
                       sx={{ mr: 1 }}
                     >
-                      <RefreshIcon />
+                      <DeleteIcon />
                     </IconButton>
                   </span>
                 </Tooltip>
-              )}
-              {serverKnowledge && serverKnowledge.state === 'preparing' && !isTextSource && (
-                <Tooltip title="Complete preparation and start indexing">
-                  <span>
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)
-                      }}
-                      disabled={disabled}
-                      sx={{ mr: 1 }}
-                      color="warning"
-                    >
-                      <PlayArrowIcon />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              )}
-              <Tooltip title="Delete this knowledge source">
-                <span>
+                <Tooltip title={isExpanded ? "Collapse" : "Expand"}>
                   <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      knowledgeHelpers.handleDeleteSource(knowledge.id)
+                    onClick={() => {
+                      if(knowledgeHelpers.expanded === `panel${knowledge.id}`) {
+                        knowledgeHelpers.setExpanded('')
+                      } else {
+                        knowledgeHelpers.setExpanded(`panel${knowledge.id}`)
+                      }              
                     }}
-                    disabled={disabled}
-                    sx={{ mr: 1 }}
+                    sx={{ 
+                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s ease-in-out'
+                    }}
                   >
-                    <DeleteIcon />
+                    <ExpandMoreIcon />
                   </IconButton>
-                </span>
-              </Tooltip>
-            </AccordionSummary>
-            <AccordionDetails>
-              {renderSourceInput(knowledge)}
-            </AccordionDetails>
-          </Accordion>
+                </Tooltip>
+              </Box>
+            </Box>
+            {isExpanded && (
+              <Box>
+                {renderSourceInput(knowledge)}
+              </Box>
+            )}
+          </Box>
         );
       })}
       <Button

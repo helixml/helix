@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
@@ -15,6 +15,7 @@ interface NewInferenceParams {
   image?: string;
   image_filename?: string;
   appId?: string;
+  projectId?: string;
   assistantId?: string;
   interactionId?: string;
   provider?: string;
@@ -22,6 +23,9 @@ interface NewInferenceParams {
   sessionId?: string;
   orgId?: string;
   attachedImages?: File[];
+  agentType?: IAgentType;
+  externalAgentConfig?: any;
+  interrupt?: boolean; // If true, interrupt current agent work; if false/undefined, queue after current work
 }
 
 interface StreamingContextType {
@@ -53,6 +57,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const messageBufferRef = useRef<Map<string, string[]>>(new Map());
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
+  const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Clear stepInfos when setting a new session
   const clearSessionData = useCallback((sessionId: string | null) => {
@@ -159,7 +164,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       }
 
       // Get current session data to compare interaction counts
-      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as TypesSession | undefined;
+      // NOTE: React Query cache stores { data: TypesSession } (Axios response format)
+      const cachedResponse = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as { data?: TypesSession } | undefined;
+      const currentSessionData = cachedResponse?.data;
       if (currentSessionData && currentSessionData.interactions) {
         const currentInteractionCount = currentSessionData.interactions.length;
         // Reject updates with fewer interactions than current (stale updates)
@@ -171,9 +178,21 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
       if (!lastInteraction) return;
-      
+
+      // CRITICAL: Update React Query cache directly with session data from WebSocket
+      // This prevents the race condition where:
+      // 1. WebSocket sends session_update with state=complete
+      // 2. isLive becomes false, InteractionLiveStream stops rendering
+      // 3. Interaction component renders with OLD cached data (before refetch completes)
+      // By updating cache immediately, the Interaction component gets fresh data
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        { data: parsedData.session }  // Wrap in { data: ... } to match Axios response format
+      );
+
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state
+      // CRITICAL: Include response_message for external agent streaming (WebSocket-based, not SSE)
       if (lastInteraction.id) {
         requestAnimationFrame(() => {
           setCurrentResponses(prev => {
@@ -182,11 +201,60 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               ...current,
               id: lastInteraction.id,
               state: lastInteraction.state,
-              // Copy any other important fields from the interaction
-              prompt_message: lastInteraction.prompt_message || current.prompt_message
+              // Copy all important fields from the interaction
+              prompt_message: lastInteraction.prompt_message || current.prompt_message,
+              response_message: lastInteraction.response_message || current.response_message,
             };
-            
+
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+            return newMap;
+          });
+        });
+      }
+    }
+
+    // OPTIMIZED: Handle single interaction updates (reduces O(n) to O(1) updates)
+    // This is used for streaming updates from external agents (Zed) where we only
+    // need to update a single interaction, not replace the entire session
+    if (parsedData.type === "interaction_update" && parsedData.interaction) {
+      const updatedInteraction = parsedData.interaction;
+
+      // Surgically update just this interaction in the React Query cache
+      queryClient.setQueryData(
+        GET_SESSION_QUERY_KEY(currentSessionId),
+        (oldData: { data?: TypesSession } | undefined) => {
+          if (!oldData?.data) return oldData;
+
+          const session = oldData.data;
+          const interactions = [...(session.interactions || [])];
+
+          // Find and update the specific interaction
+          const idx = interactions.findIndex(i => i.id === updatedInteraction.id);
+          if (idx >= 0) {
+            interactions[idx] = updatedInteraction;
+          } else {
+            // New interaction - append it
+            interactions.push(updatedInteraction);
+          }
+
+          return { data: { ...session, interactions } };
+        }
+      );
+
+      // Also update currentResponses for live streaming display
+      if (updatedInteraction.id) {
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updated: Partial<TypesInteraction> = {
+              ...current,
+              id: updatedInteraction.id,
+              state: updatedInteraction.state,
+              prompt_message: updatedInteraction.prompt_message || current.prompt_message,
+              response_message: updatedInteraction.response_message || current.response_message,
+            };
+
+            const newMap = new Map(prev).set(currentSessionId, updated);
             return newMap;
           });
         });
@@ -209,16 +277,20 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       handleWebsocketEvent(parsedData);
 
       if (parsedData.step_info && parsedData.step_info.type === "thinking") {
-      // Don't reload on thinking info events as we will get a lot of them
+        // Don't reload on thinking info events as we will get a lot of them
         return
-      }      
+      }
 
-      // Invalidate the session query
-      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
-      queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
-      
-      // Reload all sessions to refresh the name in the sidebar
-      invalidateSessionsQuery(queryClient)
+      // Use debounced invalidation to prevent excessive re-renders
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+      }
+      invalidateTimerRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
+        invalidateSessionsQuery(queryClient);
+        invalidateTimerRef.current = null;
+      }, 500);
     };
 
     rws.addEventListener('message', messageHandler);
@@ -226,8 +298,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     return () => {
       rws.removeEventListener('message', messageHandler);
       rws.close();
+      // Clear any pending invalidation timer
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+      }
     };
-  }, [account.token, currentSessionId, handleWebsocketEvent]);
+  }, [account.token, currentSessionId, handleWebsocketEvent, queryClient]);
 
   const NewInference = async ({
     regenerate = false,
@@ -235,6 +312,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     message,
     messages,
     appId = '',
+    projectId = '',
     assistantId = '',    
     provider = '',
     modelName = '',    
@@ -244,6 +322,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     image = undefined,
     image_filename = undefined,
     attachedImages = [],
+    agentType = 'helix_basic',
+    externalAgentConfig = undefined,
+    interrupt = true, // Default to interrupt for backwards compatibility
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -305,18 +386,30 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       parts: currentContentParts,
     };
 
+    // Serialize external agent config to ensure no React elements are included
+    const sanitizedExternalAgentConfig = externalAgentConfig ? {
+      workspace_dir: externalAgentConfig.workspace_dir,
+      project_path: externalAgentConfig.project_path,
+      env_vars: externalAgentConfig.env_vars,
+      auto_connect_rdp: externalAgentConfig.auto_connect_rdp,
+    } : undefined;
+
     // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
       regenerate: regenerate,
       type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
+      project_id: projectId,
       organization_id: orgId,
       assistant_id: assistantId,
       interaction_id: interactionId,
       provider: provider,
-      model: modelName,      
+      model: modelName,
       session_id: sessionId,
+      agent_type: agentType,
+      external_agent_config: sanitizedExternalAgentConfig,
+      interrupt: interrupt,
       messages: [
         {
           role: 'user',
@@ -329,6 +422,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     if (messages && messages.length > 0) {
       sessionChatRequest.messages = messages;
     }
+
+    console.log('📡 Sending session chat request:', {
+      url: '/api/v1/sessions/chat',
+      payload: sessionChatRequest,
+      modelName: sessionChatRequest.model,
+      agentType: sessionChatRequest.agent_type,
+      externalAgentConfig: sessionChatRequest.external_agent_config
+    });
 
     try {
       const response = await fetch('/api/v1/sessions/chat', {
@@ -368,16 +469,19 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           }
 
           for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            if (line.startsWith('data: ')) {
-              const data = line.slice(5);              
-              
-              if (data.trim() === '[DONE]') {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              const data = trimmedLine.slice(6); // 'data: ' = 6 chars
+
+              // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
+              if (data.trim() === '[DONE]' || data === '[DONE]') {
+                console.log('[SSE] Received [DONE] marker - completing stream');
 
                 // Invalidate the session query
                 queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
-                
+
                 if (sessionData?.id) {
                   // Final flush of any remaining content
                   flushMessageBuffer(sessionData.id);

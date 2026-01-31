@@ -39,7 +39,7 @@ When using the knowledge query tool:
 
 Remember: Your goal is to provide accurate, well-sourced information while maintaining clarity and relevance to the user's needs.`
 
-func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge) agent.Skill {
+func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentIDs []string) agent.Skill {
 	return agent.Skill{
 		Name:         "Knowledge_" + agent.SanitizeToolName(knowledge.Name),
 		Description:  fmt.Sprintf("Contains expert knowledge on topics: '%s'", knowledge.Description),
@@ -50,6 +50,7 @@ func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge) agent.Skil
 				description: "Contains expert knowledge on topics: '" + knowledge.Description + "'",
 				ragClient:   ragClient,
 				knowledge:   knowledge,
+				documentIDs: documentIDs,
 			}},
 	}
 }
@@ -59,6 +60,7 @@ type KnowledgeQueryTool struct {
 	description string
 	ragClient   rag.RAG
 	knowledge   *types.Knowledge
+	documentIDs []string // Filter by document IDs
 }
 
 var _ agent.Tool = &KnowledgeQueryTool{}
@@ -117,7 +119,7 @@ func (t *KnowledgeQueryTool) Execute(ctx context.Context, _ agent.Meta, args map
 		DistanceThreshold: t.knowledge.RAGSettings.Threshold,
 		DistanceFunction:  t.knowledge.RAGSettings.DistanceFunction,
 		MaxResults:        t.knowledge.RAGSettings.ResultsCount,
-		DocumentIDList:    []string{},
+		DocumentIDList:    t.documentIDs,
 	})
 	if err != nil {
 		return "", fmt.Errorf("error querying RAG for knowledge %s: %w", t.knowledge.ID, err)

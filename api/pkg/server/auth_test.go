@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/go-oidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
@@ -36,11 +36,12 @@ const (
 
 type AuthSuite struct {
 	suite.Suite
-	ctrl       *gomock.Controller
-	authCtx    context.Context
-	server     *HelixAPIServer
-	oidcClient *auth.MockOIDC
-	store      *store.MockStore
+	ctrl          *gomock.Controller
+	authCtx       context.Context
+	server        *HelixAPIServer
+	oidcClient    *auth.MockOIDC
+	authenticator *auth.MockAuthenticator
+	store         *store.MockStore
 }
 
 func TestAuthSuite(t *testing.T) {
@@ -54,17 +55,23 @@ func (suite *AuthSuite) SetupTest() {
 	suite.store = store.NewMockStore(ctrl)
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.URL = testServerURL
+	cfg.Auth.Provider = types.AuthProviderOIDC
 	suite.oidcClient = auth.NewMockOIDC(ctrl)
+	suite.authenticator = auth.NewMockAuthenticator(ctrl)
 	suite.server = &HelixAPIServer{
-		Cfg:        cfg,
-		oidcClient: suite.oidcClient,
-		Store:      suite.store,
+		Cfg:           cfg,
+		oidcClient:    suite.oidcClient,
+		authenticator: suite.authenticator,
+		Store:         suite.store,
 	}
 }
 
 // Helper functions
 func (suite *AuthSuite) createTestRequest(method, path string, body []byte) *http.Request {
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	// Set the Host header to match testServerURL (localhost:8080)
+	// This is needed for redirect_uri validation which compares against r.Host
+	req.Host = "localhost:8080"
 	return req.WithContext(suite.authCtx)
 }
 
@@ -103,6 +110,7 @@ func (suite *AuthSuite) createMockUser() *types.User {
 
 func (suite *AuthSuite) createMockUserInfo() *auth.UserInfo {
 	return &auth.UserInfo{
+		Subject:    "user123",
 		Email:      testEmail,
 		Name:       testName,
 		GivenName:  "Test",
@@ -112,6 +120,7 @@ func (suite *AuthSuite) createMockUserInfo() *auth.UserInfo {
 
 func (suite *AuthSuite) createMockUserUpdate() *auth.UserInfo {
 	return &auth.UserInfo{
+		Subject:    "user123",
 		Email:      newEmail,
 		Name:       newName,
 		GivenName:  "Test",
@@ -176,15 +185,20 @@ func (suite *AuthSuite) TestLogin() {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "empty web server url",
+			name:   "empty web server url works with host validation",
 			method: "POST",
 			body: types.LoginRequest{
 				RedirectURI: testServerURL + "/callback",
 			},
 			setupMocks: func() {
+				// WebServer.URL is no longer used for redirect validation
+				// Instead, redirect_uri host is validated against request host
 				suite.server.Cfg.WebServer.URL = ""
+				suite.oidcClient.EXPECT().
+					GetAuthURL(gomock.Any(), gomock.Any()).
+					Return("http://mock-auth-url")
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusFound,
 		},
 		{
 			name:   "empty redirect uri",
@@ -459,10 +473,8 @@ func (suite *AuthSuite) TestUser() {
 				return req
 			},
 			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
 				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil)
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(user, nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -480,75 +492,28 @@ func (suite *AuthSuite) TestUser() {
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "get userinfo failure",
+			name: "validate token failure",
 			setupRequest: func() *http.Request {
 				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
 				suite.addCookie(req, "access_token", testAccessToken)
 				return req
 			},
 			setupMocks: func() {
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("get userinfo failure"))
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("validate token failure"))
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
 		{
-			name: "get user failure",
+			name: "validate token unauthorized",
 			setupRequest: func() *http.Request {
 				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
 				suite.addCookie(req, "access_token", testAccessToken)
 				return req
 			},
 			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("get user failure"))
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("401 unauthorized"))
 			},
-			expectedStatus: http.StatusInternalServerError,
-		},
-		{
-			name: "new user",
-			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
-				suite.addCookie(req, "access_token", testAccessToken)
-				return req
-			},
-			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
-				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, nil)
-				suite.store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(user, nil)
-			},
-			expectedStatus: http.StatusOK,
-			checkResponse: func(rec *httptest.ResponseRecorder) {
-				var response types.UserResponse
-				err := json.NewDecoder(rec.Body).Decode(&response)
-				suite.NoError(err)
-				suite.Equal(testEmail, response.Email)
-			},
-		},
-		{
-			name: "updated user info",
-			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
-				suite.addCookie(req, "access_token", testAccessToken)
-				return req
-			},
-			setupMocks: func() {
-				userInfo := suite.createMockUserUpdate()
-				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil)
-				suite.store.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(user, nil)
-			},
-			expectedStatus: http.StatusOK,
-			checkResponse: func(rec *httptest.ResponseRecorder) {
-				var response types.UserResponse
-				err := json.NewDecoder(rec.Body).Decode(&response)
-				suite.NoError(err)
-				suite.Equal(newEmail, response.Email)
-				suite.Equal(newName, response.Name)
-			},
+			expectedStatus: http.StatusUnauthorized,
 		},
 	}
 
@@ -594,7 +559,10 @@ func (suite *AuthSuite) TestLogout() {
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				res := rec.Result()
 				defer res.Body.Close()
-				suite.Equal("http://auth-provider/logout", rec.Header().Get("Location"))
+				// The logout handler appends post_logout_redirect_uri and client_id query params
+				// WebServer.URL is "http://localhost:8080" and ClientID is empty in test config
+				expectedURL := "http://auth-provider/logout?post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A8080&client_id="
+				suite.Equal(expectedURL, rec.Header().Get("Location"))
 				cookies := res.Cookies()
 				for _, cookie := range cookies {
 					suite.Equal(-1, cookie.MaxAge, "Cookie should be deleted")
@@ -617,6 +585,49 @@ func (suite *AuthSuite) TestLogout() {
 				return suite.createTestRequest("OPTIONS", "/api/v1/auth/logout", nil)
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Logout without end_session_endpoint (Google-like providers)",
+			setupRequest: func() *http.Request {
+				return suite.createTestRequest("POST", "/api/v1/auth/logout", nil)
+			},
+			setupMocks: func() {
+				// Google and some other providers don't have an end_session_endpoint
+				// The new code gracefully handles this by redirecting to post_logout_redirect_uri
+				suite.oidcClient.EXPECT().
+					GetLogoutURL().
+					Return("", errors.New("no end_session_endpoint"))
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				res := rec.Result()
+				defer res.Body.Close()
+				// Should redirect to the post-logout URL (WebServer.URL)
+				suite.Equal(testServerURL, rec.Header().Get("Location"))
+				// Verify cookies are still deleted
+				cookies := res.Cookies()
+				for _, cookie := range cookies {
+					suite.Equal(-1, cookie.MaxAge, "Cookie should be deleted")
+					suite.Empty(cookie.Value, "Cookie value should be empty")
+				}
+			},
+		},
+		{
+			name: "Logout with empty logout URL",
+			setupRequest: func() *http.Request {
+				return suite.createTestRequest("POST", "/api/v1/auth/logout", nil)
+			},
+			setupMocks: func() {
+				// Provider returns empty URL instead of error
+				suite.oidcClient.EXPECT().
+					GetLogoutURL().
+					Return("", nil)
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				// Should redirect to the post-logout URL (WebServer.URL)
+				suite.Equal(testServerURL, rec.Header().Get("Location"))
+			},
 		},
 	}
 
@@ -655,9 +666,10 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
+				// Uses OIDC client since test suite is configured with AuthProviderOIDC
 				suite.oidcClient.EXPECT().
-					VerifyAccessToken(gomock.Any(), "valid-token").
-					Return(nil)
+					ValidateUserToken(gomock.Any(), "valid-token").
+					Return(&types.User{ID: "user123"}, nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -675,9 +687,10 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
+				// Uses OIDC client since test suite is configured with AuthProviderOIDC
 				suite.oidcClient.EXPECT().
-					VerifyAccessToken(gomock.Any(), "invalid-token").
-					Return(errors.New("invalid token"))
+					ValidateUserToken(gomock.Any(), "invalid-token").
+					Return(nil, errors.New("invalid token"))
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -816,6 +829,151 @@ func (suite *AuthSuite) TestRefresh() {
 
 			if tc.checkResponse != nil {
 				tc.checkResponse(rec)
+			}
+		})
+	}
+}
+
+// TestNewCookieManager_SecureCookiesAutoDetection tests that secure cookies
+// are automatically enabled/disabled based on the SERVER_URL protocol.
+// This ensures Safari compatibility (Safari rejects Secure cookies over HTTP)
+// while maintaining security for HTTPS deployments.
+func TestNewCookieManager_SecureCookiesAutoDetection(t *testing.T) {
+	tests := []struct {
+		name        string
+		serverURL   string
+		wantSecure  bool
+		description string
+	}{
+		{
+			name:        "HTTPS production URL enables secure cookies",
+			serverURL:   "https://app.helix.ml",
+			wantSecure:  true,
+			description: "Production HTTPS deployments should use secure cookies",
+		},
+		{
+			name:        "HTTPS with port enables secure cookies",
+			serverURL:   "https://localhost:8443",
+			wantSecure:  true,
+			description: "HTTPS with explicit port should still use secure cookies",
+		},
+		{
+			name:        "HTTPS subdomain enables secure cookies",
+			serverURL:   "https://staging.helix.ml:443",
+			wantSecure:  true,
+			description: "HTTPS subdomains should use secure cookies",
+		},
+		{
+			name:        "HTTP localhost disables secure cookies",
+			serverURL:   "http://localhost:8080",
+			wantSecure:  false,
+			description: "Local dev HTTP should not use secure cookies (Safari compatibility)",
+		},
+		{
+			name:        "HTTP test deployment disables secure cookies",
+			serverURL:   "http://test.example.com:8080",
+			wantSecure:  false,
+			description: "HTTP test deployments should work without secure cookies",
+		},
+		{
+			name:        "HTTP IP address disables secure cookies",
+			serverURL:   "http://192.168.1.100:8080",
+			wantSecure:  false,
+			description: "HTTP with IP address should not use secure cookies",
+		},
+		{
+			name:        "Empty URL defaults to non-secure",
+			serverURL:   "",
+			wantSecure:  false,
+			description: "Empty URL should default to non-secure for safety",
+		},
+		{
+			name:        "URL without scheme defaults to non-secure",
+			serverURL:   "localhost:8080",
+			wantSecure:  false,
+			description: "URLs without scheme should default to non-secure",
+		},
+		{
+			name:        "Uppercase HTTPS not matched (case sensitive)",
+			serverURL:   "HTTPS://example.com",
+			wantSecure:  false,
+			description: "URL scheme matching is case-sensitive per RFC",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.ServerConfig{}
+			cfg.WebServer.URL = tt.serverURL
+
+			cm := NewCookieManager(cfg)
+
+			if cm.SecureCookies != tt.wantSecure {
+				t.Errorf("NewCookieManager() SecureCookies = %v, want %v. %s",
+					cm.SecureCookies, tt.wantSecure, tt.description)
+			}
+		})
+	}
+}
+
+// TestNewCookieManager_ExplicitOverride tests that OIDC_SECURE_COOKIES=true
+// forces secure cookies regardless of SERVER_URL protocol.
+func TestNewCookieManager_ExplicitOverride(t *testing.T) {
+	tests := []struct {
+		name              string
+		serverURL         string
+		secureCookiesCfg  bool
+		wantSecure        bool
+		description       string
+	}{
+		{
+			name:             "Override forces secure cookies on HTTP localhost",
+			serverURL:        "http://localhost:8080",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true should force secure cookies even on HTTP",
+		},
+		{
+			name:             "Override forces secure cookies on HTTP remote",
+			serverURL:        "http://example.com",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true should force secure cookies for HTTPS proxy scenarios",
+		},
+		{
+			name:             "No override uses auto-detect for HTTP",
+			serverURL:        "http://localhost:8080",
+			secureCookiesCfg: false,
+			wantSecure:       false,
+			description:      "OIDC_SECURE_COOKIES=false (default) should auto-detect from SERVER_URL",
+		},
+		{
+			name:             "No override uses auto-detect for HTTPS",
+			serverURL:        "https://app.helix.ml",
+			secureCookiesCfg: false,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=false with HTTPS URL should still use secure cookies",
+		},
+		{
+			name:             "Override on HTTPS is redundant but works",
+			serverURL:        "https://app.helix.ml",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true on HTTPS is redundant but should work",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.ServerConfig{}
+			cfg.WebServer.URL = tt.serverURL
+			cfg.Auth.OIDC.SecureCookies = tt.secureCookiesCfg
+
+			cm := NewCookieManager(cfg)
+
+			if cm.SecureCookies != tt.wantSecure {
+				t.Errorf("NewCookieManager() SecureCookies = %v, want %v. %s",
+					cm.SecureCookies, tt.wantSecure, tt.description)
 			}
 		})
 	}

@@ -26,9 +26,7 @@ type Slot struct {
 	IntendedRuntime        types.Runtime
 	RuntimeArgs            map[string]any // Runtime-specific arguments
 	MemoryEstimationMeta   map[string]any // Metadata about memory estimation for tooltips
-	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
-	activeRequests         int64          // Number of concurrent active requests (atomic)
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
@@ -91,7 +89,6 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		IntendedRuntime:        params.Runtime,
 		RuntimeArgs:            params.RuntimeArgs,
 		MemoryEstimationMeta:   params.MemoryEstimationMeta,
-		Active:                 false,
 		Ready:                  false,
 		GPUIndex:               params.GPUIndex,
 		GPUIndices:             params.GPUIndices,
@@ -285,6 +282,46 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				return 0
 			}()).
 			Msg("🔍 TRACING: Final runtimeParams.NumParallel being passed to NewOllamaRuntime")
+
+		// Set up crash callback to handle unexpected Ollama crashes (e.g., CUDA errors)
+		runtimeParams.OnCrash = func(stderr string) {
+			log.Error().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Str("stderr_preview", func() string {
+					// Limit stderr to last 500 characters for logging
+					if len(stderr) > 500 {
+						return "..." + stderr[len(stderr)-500:]
+					}
+					return stderr
+				}()).
+				Msg("Ollama process crashed, cleaning up slot")
+
+			// Clean up this slot since the runtime crashed
+			// This will be called from the cmd.Wait() goroutine, so we need to do this asynchronously
+			go func() {
+				if err := s.Delete(); err != nil {
+					log.Error().
+						Err(err).
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Msg("Failed to delete slot after Ollama crash")
+				} else {
+					log.Info().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Msg("Successfully cleaned up slot after Ollama crash")
+
+					// Remove the slot from the server's slot map
+					if s.apiServer != nil && s.apiServer.slots != nil {
+						s.apiServer.slots.Delete(s.ID)
+						log.Info().
+							Str("slot_id", s.ID.String()).
+							Msg("Removed crashed slot from server slot map")
+					}
+				}
+			}()
+		}
 
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
@@ -543,7 +580,6 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Str("model", s.Model).
 			Str("slot_id", s.ID.String()).
 			Msg("skipping model verification for VLLM runtime")
-		s.Active = true
 		// Warm up the model
 		log.Debug().
 			Str("model", s.Model).
@@ -558,7 +594,6 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Msg("Failed to warm up vLLM model")
 			return
 		}
-		s.Active = false
 		s.Ready = true
 		log.Info().
 			Str("model", s.Model).
@@ -588,13 +623,11 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		return
 	}
 
-	s.Active = true
 	// Warm up the model
 	err = s.runningRuntime.Warm(ctx, s.Model)
 	if err != nil {
 		return
 	}
-	s.Active = false
 	s.Ready = true
 	return
 }

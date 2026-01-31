@@ -87,11 +87,11 @@ func (s *HelixAPIServer) contextMenuHandler(_ http.ResponseWriter, r *http.Reque
 
 	// Build the final menu structure
 	data := []types.ContextMenuAction{}
-	for k, v := range filteredKnowlegeSources {
+	for k, label := range filteredKnowlegeSources {
 		data = append(data, types.ContextMenuAction{
 			ActionLabel: "filter",
-			Label:       v,
-			Value:       rag.BuildFilterAction(k),
+			Label:       label,
+			Value:       rag.BuildFilterAction(label, k),
 		})
 	}
 

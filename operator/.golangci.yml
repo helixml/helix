@@ -1,23 +1,10 @@
+version: "2"
+
 run:
-  timeout: 5m
   allow-parallel-runners: true
 
-issues:
-  # don't skip warning about doc comments
-  # don't exclude the default set of lint
-  exclude-use-default: false
-  # restore some of the defaults
-  # (fill in the rest as needed)
-  exclude-rules:
-    - path: "api/*"
-      linters:
-        - lll
-    - path: "internal/*"
-      linters:
-        - dupl
-        - lll
 linters:
-  disable-all: true
+  default: none
   enable:
     - dupl
     - errcheck
@@ -25,9 +12,6 @@ linters:
     - ginkgolinter
     - goconst
     - gocyclo
-    - gofmt
-    - goimports
-    - gosimple
     - govet
     - ineffassign
     - lll
@@ -36,12 +20,40 @@ linters:
     - prealloc
     - revive
     - staticcheck
-    - typecheck
     - unconvert
     - unparam
     - unused
+  exclusions:
+    rules:
+      - path: "api/*"
+        linters:
+          - lll
+      - path: "internal/*"
+        linters:
+          - dupl
+          - lll
+      # Dot imports are standard for ginkgo/gomega in k8s operator tests
+      - path: "test/"
+        linters:
+          - revive
+          - staticcheck
+      - path: "_test\\.go"
+        linters:
+          - revive
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 linters-settings:
   revive:
     rules:
       - name: comment-spacings
+      # Disable dot-imports rule - standard for ginkgo/gomega
+      - name: dot-imports
+        disabled: true
+      # Disable var-naming for test utils package
+      - name: var-naming
+        disabled: true

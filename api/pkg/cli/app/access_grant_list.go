@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/client"
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func init() {
@@ -41,23 +42,7 @@ var listAccessGrantsCmd = &cobra.Command{
 			return fmt.Errorf("failed to list access grants: %w", err)
 		}
 
-		table := tablewriter.NewWriter(cmd.OutOrStdout())
-
-		header := []string{"ID", "Created", "Team ID", "User"}
-
-		table.SetHeader(header)
-
-		table.SetAutoWrapText(false)
-		table.SetAutoFormatHeaders(true)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator("")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-		table.SetBorder(false)
-		table.SetTablePadding(" ")
-		table.SetNoWhiteSpace(false)
+		table := cli.NewSimpleTable(cmd.OutOrStdout(), []string{"ID", "Created", "Team ID", "User"})
 
 		for _, grant := range grants {
 			row := []string{
@@ -67,10 +52,10 @@ var listAccessGrantsCmd = &cobra.Command{
 				grant.User.Email,
 			}
 
-			table.Append(row)
+			cli.AppendRow(table, row)
 		}
 
-		table.Render()
+		cli.RenderTable(table)
 		return nil
 	},
 }

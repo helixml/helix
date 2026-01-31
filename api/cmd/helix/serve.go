@@ -12,14 +12,15 @@ import (
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
 
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
@@ -33,6 +34,7 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -214,7 +216,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	postgresStore, err := store.NewPostgresStore(cfg.Store)
+	ps, err := pubsub.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create pubsub provider: %w", err)
+	}
+
+	postgresStore, err := store.NewPostgresStore(cfg.Store, ps)
 	if err != nil {
 		return err
 	}
@@ -239,27 +246,21 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		log.Error().Err(err).Msg("failed to reset running interactions")
 	}
 
-	ps, err := pubsub.New(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create pubsub provider: %w", err)
-	}
-
 	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
 
-	var keycloakAuthenticator auth.Authenticator
-	if cfg.Keycloak.KeycloakEnabled {
-		authenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, postgresStore)
-		if err != nil {
-			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
-		}
-		keycloakAuthenticator = authenticator
-	}
-
-	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
+	notifier, err := notification.New(&cfg.Notifications, postgresStore)
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
+	}
+
+	// HelixAuthenticator handles user management for all auth modes.
+	// For OIDC mode, the actual authentication is handled by oidcClient in the server,
+	// while HelixAuthenticator handles API key lookups and user database operations.
+	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
+	if err != nil {
+		return fmt.Errorf("failed to create helix authenticator: %v", err)
 	}
 
 	janitor := janitor.NewJanitor(cfg.Janitor)
@@ -268,11 +269,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	if cfg.GPTScript.TestFaster.URL != "" {
-		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
-	}
-	log.Info().Msg("using runner based GPTScript executor")
-	gse := gptscript.NewExecutor(cfg, ps)
+	// External agent executor not used - following GPTScript pattern with WebSocket + PubSub
+	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")
+	var gse external_agent.Executor // nil executor - communication via WebSocket + PubSub
 
 	var extractor extract.Extractor
 
@@ -420,27 +419,40 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		BaseURL: cfg.Search.SearXNGBaseURL,
 	})
 
+	gitRepositoryService := services.NewGitRepositoryService(
+		postgresStore,
+		cfg.FileStore.LocalFSPath,
+		cfg.WebServer.URL,
+		"Helix System",
+		"system@helix.ml",
+	)
+
 	controllerOptions := controller.Options{
-		Config:            cfg,
-		Store:             postgresStore,
-		PubSub:            ps,
-		RAG:               ragClient,
-		Extractor:         extractor,
-		GPTScriptExecutor: gse,
-		Filestore:         fs,
-		Janitor:           janitor,
-		Notifier:          notifier,
-		ProviderManager:   providerManager,
-		Scheduler:         scheduler,
-		RunnerController:  runnerController,
-		Browser:           browserPool,
-		SearchProvider:    searchProvider,
+		Config:                cfg,
+		Store:                 postgresStore,
+		PubSub:                ps,
+		RAG:                   ragClient,
+		Extractor:             extractor,
+		ExternalAgentExecutor: gse, // Using external agent executor
+		Filestore:             fs,
+		Janitor:               janitor,
+		Notifier:              notifier,
+		ProviderManager:       providerManager,
+		Scheduler:             scheduler,
+		RunnerController:      runnerController,
+		Browser:               browserPool,
+		SearchProvider:        searchProvider,
+		GitRepositoryService:  gitRepositoryService,
 	}
 
 	// Create the OAuth manager
-	oauthManager := oauth.NewManager(postgresStore)
-	if err := oauthManager.LoadProviders(ctx); err != nil {
+	oauthManager := oauth.NewManager(postgresStore, cfg.Tools.TLSSkipVerify)
+	err = oauthManager.LoadProviders(ctx)
+	if err != nil {
 		log.Error().Err(err).Msg("failed to load oauth providers")
+	} else {
+		// Start the OAuth manager
+		oauthManager.Start(ctx)
 	}
 
 	// Update controller options with the OAuth manager
@@ -456,7 +468,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager)
 	if err != nil {
 		return err
 	}
@@ -490,7 +502,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		log.Error().Err(err).Msg("failed to create avatars directory, app avatars will not be saved")
 	}
 
-	// avatarsBucket, err := blob.OpenBucket(ctx, cfg.FileStore.AvatarsPath)
 	avatarsBucket, err := fileblob.OpenBucket(cfg.FileStore.AvatarsPath, &fileblob.Options{
 		NoTempDir: true,
 	})
@@ -498,15 +509,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	anthropicProxy := anthropic.New(cfg, postgresStore, dynamicInfoProvider, logStores...)
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
 		ps,
-		gse,
 		providerManager,
 		dynamicInfoProvider,
 		helixInference,
-		keycloakAuthenticator,
+		authenticator,
 		stripe,
 		appController,
 		janitor,
@@ -516,10 +528,14 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		oauthManager,
 		avatarsBucket,
 		trigger,
+		anthropicProxy,
+		gitRepositoryService,
 	)
 	if err != nil {
 		return err
 	}
+
+	// Sandbox health monitoring is handled by the Hydra executor
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 

@@ -1,0 +1,35 @@
+{{- if .Values.persistence.dockerStorage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-docker
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.dockerStorage.accessModes | nindent 4 }}
+  {{- if .Values.persistence.dockerStorage.storageClassName }}
+  storageClassName: {{ .Values.persistence.dockerStorage.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.dockerStorage.size }}
+{{- end }}
+---
+{{- if .Values.persistence.sandboxConfig.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-config
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.sandboxConfig.accessModes | nindent 4 }}
+  {{- if .Values.persistence.sandboxConfig.storageClassName }}
+  storageClassName: {{ .Values.persistence.sandboxConfig.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.sandboxConfig.size }}
+{{- end }}

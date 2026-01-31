@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm/clause"
 )
 
@@ -109,14 +110,41 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 
 	db := s.gdb.WithContext(ctx)
 
-	err := db.Clauses(clause.OnConflict{
+	// CRITICAL: Use Save() which works with composite PK when struct has both fields populated
+	// The original OnConflict clause ensures upsert behavior
+	result := db.Clauses(clause.OnConflict{
 		UpdateAll: true,
-	}).Save(&interaction).Error
-	if err != nil {
-		return nil, err
+	}).Save(&interaction)
+
+	if result.Error != nil {
+		log.Error().
+			Err(result.Error).
+			Str("interaction_id", interaction.ID).
+			Int("generation_id", interaction.GenerationID).
+			Msg("❌ [STORE] UpdateInteraction failed")
+		return nil, result.Error
 	}
 
+	log.Info().
+		Str("interaction_id", interaction.ID).
+		Int("generation_id", interaction.GenerationID).
+		Int64("rows_affected", result.RowsAffected).
+		Int("response_length", len(interaction.ResponseMessage)).
+		Msg("✅ [STORE] UpdateInteraction completed")
+
 	return interaction, nil
+}
+
+// UpdateInteractionSummary updates just the summary field of an interaction
+func (s *PostgresStore) UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error {
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ?", interactionID).
+		Updates(map[string]interface{}{
+			"summary":            summary,
+			"summary_updated_at": now,
+		}).Error
 }
 
 func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID string) error {
@@ -167,6 +195,10 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 
 	if query.Order == "" {
 		query.Order = "id ASC"
+	}
+
+	if query.Feedback != "" {
+		q = q.Where("feedback = ?", query.Feedback)
 	}
 
 	totalCount := int64(0)

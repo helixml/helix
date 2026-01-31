@@ -1,13 +1,17 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // getUserDetails godoc
@@ -167,4 +171,156 @@ func (apiServer *HelixAPIServer) getUserTokenUsage(rw http.ResponseWriter, r *ht
 		IsProTier:       isProTier,
 		UsagePercentage: float64(monthlyTokens) / float64(limit) * 100,
 	}, http.StatusOK)
+}
+
+// getUserGuidelines godoc
+// @Summary Get user guidelines
+// @Description Get the current user's personal workspace guidelines
+// @Tags Users
+// @Produce json
+// @Success 200 {object} types.UserGuidelinesResponse
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/guidelines [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserGuidelines(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			// Return empty guidelines for users without a meta record
+			writeResponse(rw, &types.UserGuidelinesResponse{
+				Guidelines:        "",
+				GuidelinesVersion: 0,
+			}, http.StatusOK)
+			return
+		}
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+		http.Error(rw, "Failed to get user guidelines", http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, &types.UserGuidelinesResponse{
+		Guidelines:          userMeta.Guidelines,
+		GuidelinesVersion:   userMeta.GuidelinesVersion,
+		GuidelinesUpdatedAt: userMeta.GuidelinesUpdatedAt,
+		GuidelinesUpdatedBy: userMeta.GuidelinesUpdatedBy,
+	}, http.StatusOK)
+}
+
+// updateUserGuidelines godoc
+// @Summary Update user guidelines
+// @Description Update the current user's personal workspace guidelines
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param request body types.UpdateUserGuidelinesRequest true "Guidelines update request"
+// @Success 200 {object} types.UserGuidelinesResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/guidelines [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateUserGuidelines(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req types.UpdateUserGuidelinesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get or create user meta
+	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			// Create a new user meta record
+			userMeta = &types.UserMeta{
+				ID: user.ID,
+			}
+		} else {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+			http.Error(rw, "Failed to update user guidelines", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Save current version to history before updating
+	if userMeta.Guidelines != "" && userMeta.Guidelines != req.Guidelines {
+		history := &types.GuidelinesHistory{
+			ID:         system.GenerateUUID(),
+			UserID:     user.ID,
+			Version:    userMeta.GuidelinesVersion,
+			Guidelines: userMeta.Guidelines,
+			UpdatedBy:  userMeta.GuidelinesUpdatedBy,
+			UpdatedAt:  userMeta.GuidelinesUpdatedAt,
+		}
+		if err := apiServer.Store.CreateGuidelinesHistory(r.Context(), history); err != nil {
+			log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to save guidelines history")
+		}
+	}
+
+	// Update guidelines
+	userMeta.Guidelines = req.Guidelines
+	userMeta.GuidelinesVersion++
+	userMeta.GuidelinesUpdatedAt = time.Now()
+	userMeta.GuidelinesUpdatedBy = user.ID
+
+	// Save the updated user meta
+	updatedMeta, err := apiServer.Store.EnsureUserMeta(r.Context(), *userMeta)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to update user meta")
+		http.Error(rw, "Failed to update user guidelines", http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, &types.UserGuidelinesResponse{
+		Guidelines:          updatedMeta.Guidelines,
+		GuidelinesVersion:   updatedMeta.GuidelinesVersion,
+		GuidelinesUpdatedAt: updatedMeta.GuidelinesUpdatedAt,
+		GuidelinesUpdatedBy: updatedMeta.GuidelinesUpdatedBy,
+	}, http.StatusOK)
+}
+
+// getUserGuidelinesHistory godoc
+// @Summary Get user guidelines history
+// @Description Get the version history of the current user's personal workspace guidelines
+// @Tags Users
+// @Produce json
+// @Success 200 {array} types.GuidelinesHistory
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/guidelines-history [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserGuidelinesHistory(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	history, err := apiServer.Store.ListGuidelinesHistory(r.Context(), "", "", user.ID)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user guidelines history")
+		http.Error(rw, "Failed to get guidelines history", http.StatusInternalServerError)
+		return
+	}
+
+	// Populate user display names and emails
+	for _, entry := range history {
+		if entry.UpdatedBy != "" {
+			if u, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: entry.UpdatedBy}); err == nil && u != nil {
+				entry.UpdatedByName = u.FullName
+				entry.UpdatedByEmail = u.Email
+			}
+		}
+	}
+
+	writeResponse(rw, history, http.StatusOK)
 }

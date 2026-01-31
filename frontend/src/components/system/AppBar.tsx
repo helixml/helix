@@ -4,7 +4,7 @@ import Toolbar from '@mui/material/Toolbar'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 
-import MenuIcon from '@mui/icons-material/Menu'
+import { Menu } from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -50,18 +50,20 @@ const AppBar: React.FC<{
           flexDirection: 'row',
           alignItems: 'center',
           width: '100%',
+          maxWidth: '100%',
           backgroundColor: lightTheme.backgroundColor,
           padding: 0,
           margin: 0,
+          minWidth: 0,
           '&.MuiToolbar-root': {
             px,
           },
         }}
       >
-        <Row>
+        <Row sx={{ minWidth: 0 }}>
           {
             !isBigScreen && onOpenDrawer && (
-              <Cell>
+              <Cell sx={{ flexShrink: 0 }}>
                 <IconButton
                   color="inherit"
                   aria-label="open drawer"
@@ -71,14 +73,14 @@ const AppBar: React.FC<{
                     mr: 1,
                   }}
                 >
-                  <MenuIcon />
+                  <Menu size={24} />
                 </IconButton>
               </Cell>
             )
           }
           {
             title && (
-              <Cell>
+              <Cell sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
                 <Typography
                   className="inferenceTitle"
                   component="h1"
@@ -88,7 +90,7 @@ const AppBar: React.FC<{
                   sx={{
                       flexGrow: 1,
                       color: 'text.primary',
-                      fontWeight: 'bold', 
+                      fontWeight: 'bold',
                   }}
                 >
                   { title }
@@ -96,7 +98,7 @@ const AppBar: React.FC<{
               </Cell>
             )
           }
-          <Cell grow end>
+          <Cell grow end sx={{ minWidth: 0, flexShrink: 0 }}>
             {
               children
             }

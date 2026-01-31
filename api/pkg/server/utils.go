@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -96,4 +97,9 @@ func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessi
 	filePath = strings.TrimPrefix(filePath, userPath)
 
 	return filePath, ownerContext, nil
+}
+
+// getEncryptionKey retrieves the encryption key from environment or generates a default one
+func (apiServer *HelixAPIServer) getEncryptionKey() ([]byte, error) {
+	return crypto.GetEncryptionKey()
 }

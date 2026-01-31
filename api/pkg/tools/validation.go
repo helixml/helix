@@ -7,8 +7,12 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (c *ChainStrategy) ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
@@ -65,23 +69,8 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
-func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Planner, strict bool) error {
+func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, mcpClientGetter mcp.ClientGetter, strict bool) error {
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-
-		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
-			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
-		}
-
-		if tool.Config.GPTScript.Script != "" && tool.Config.GPTScript.ScriptURL != "" {
-			return system.NewHTTPError400("only one of script or script URL is allowed for GPTScript tools")
-		}
-
-		// OK
-		if tool.Description == "" && strict {
-			return system.NewHTTPError400("description is required for GPTScript tools, make as descriptive as possible")
-		}
-
 	case types.ToolTypeAPI:
 		// Validate the API
 		if tool.Config.API == nil {
@@ -100,7 +89,7 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		tool.Config.API.Schema = strings.TrimSpace(tool.Config.API.Schema)
 		tool.Config.API.URL = strings.TrimSpace(tool.Config.API.URL)
 
-		if assistant.AgentMode && tool.Config.API.SystemPrompt == "" {
+		if assistant.IsAgentMode() && tool.Config.API.SystemPrompt == "" {
 			return system.NewHTTPError400("system prompt is required for API tools when using the agent mode")
 		}
 
@@ -134,6 +123,17 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		if tool.Config.Zapier.APIKey == "" {
 			return system.NewHTTPError400("API key is required for Zapier tools")
 		}
+	case types.ToolTypeProjectManager:
+		// Check if the project ID is specified whether it exists
+		if tool.Config.ProjectManager == nil {
+			return system.NewHTTPError400("Project Manager config is required for Project Manager tools")
+		}
+
+		if tool.Config.ProjectManager.ProjectID != "" {
+			// TODO: implement
+		}
+
+		// Check if the project exists
 	case types.ToolTypeAzureDevOps:
 		if tool.Config.AzureDevOps == nil {
 			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")
@@ -147,6 +147,44 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		// if tool.Config.AzureDevOps.PersonalAccessToken == "" {
 		// 	return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
 		// }
+	case types.ToolTypeMCP:
+		if tool.Config.MCP == nil {
+			return system.NewHTTPError400("MCP config is required for MCP tools")
+		}
+
+		if tool.Config.MCP.URL == "" {
+			return system.NewHTTPError400("URL is required for MCP tools")
+		}
+
+		// Get MCP config from assistant
+		mcpConfig := &types.AssistantMCP{
+			Name:          tool.Config.MCP.Name,
+			URL:           tool.Config.MCP.URL,
+			Transport:     tool.Config.MCP.Transport,
+			Headers:       tool.Config.MCP.Headers,
+			OAuthProvider: tool.Config.MCP.OAuthProvider,
+			OAuthScopes:   tool.Config.MCP.OAuthScopes,
+		}
+
+		// Attempt to initialize the MCP client
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpClientGetter, agent.Meta{UserID: userID}, oauthManager, mcpConfig)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("url", mcpConfig.URL).
+				Str("name", mcpConfig.Name).
+				Str("user_id", userID).
+				Msg("failed to initialize MCP client, might not work during runtime")
+		} else {
+			// Find assistant mcp tool with the same name and update the tools
+			for idx, mcp := range assistant.MCPs {
+				if mcp.Name == mcpConfig.Name {
+					assistant.MCPs[idx].Tools = resp.Tools
+					break
+				}
+			}
+			tool.Config.MCP.Tools = resp.Tools
+		}
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed

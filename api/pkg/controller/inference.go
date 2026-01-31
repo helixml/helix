@@ -13,11 +13,13 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -47,6 +49,34 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 // Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+	if user.Deactivated {
+		return nil, nil, fmt.Errorf("user is deactivated")
+	}
+
+	if user.SB {
+		if c.Options.Config.SBMessage != "" {
+			return &openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Content: c.Options.Config.SBMessage,
+						},
+					},
+				},
+			}, &req, nil
+		}
+
+		return &openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{
+				{
+					Message: openai.ChatCompletionMessage{
+						Content: "",
+					},
+				},
+			},
+		}, &req, nil
+	}
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
@@ -67,7 +97,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
@@ -82,7 +112,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
-	if assistant.AgentMode {
+	if assistant.IsAgentMode() {
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
@@ -113,12 +143,22 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
 	}
 
-	if assistant.Model != "" {
-		req.Model = assistant.Model
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
 
 		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
 		if err != nil {
@@ -176,6 +216,40 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
+	if user.Deactivated {
+		return nil, nil, fmt.Errorf("user is deactivated")
+	}
+
+	if user.SB {
+		msg := c.Options.Config.SBMessage
+
+		stream, writer, err := transport.NewOpenAIStreamingAdapter(req)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create openai streaming adapter: %w", err)
+		}
+
+		go func() {
+			defer writer.Close()
+			_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{Content: msg},
+					},
+				},
+			})
+			_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						FinishReason: openai.FinishReasonStop,
+					},
+				},
+			})
+		}()
+
+		return stream, &req, nil
+
+	}
+
 	req.Stream = true
 
 	if opts == nil {
@@ -208,7 +282,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
@@ -223,7 +297,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
-	if assistant.AgentMode {
+	if assistant.IsAgentMode() {
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentStream(ctx, &runAgentRequest{
@@ -254,12 +328,22 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
 	}
 
-	if assistant.Model != "" {
-		req.Model = assistant.Model
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
 
 		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
 		if err != nil {
@@ -786,7 +870,13 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 		return app, nil
 	}
 
-	return enrichAppWithSecrets(app, filteredSecrets)
+	// Decrypt secrets before using them
+	decryptedSecrets, err := decryptSecrets(filteredSecrets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt secrets: %w", err)
+	}
+
+	return enrichAppWithSecrets(app, decryptedSecrets)
 }
 
 func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, error) {
@@ -813,6 +903,36 @@ func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, 
 	}
 
 	return &enrichedApp, nil
+}
+
+// decryptSecrets decrypts all secret values using the encryption key
+func decryptSecrets(secrets []*types.Secret) ([]*types.Secret, error) {
+	encryptionKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get encryption key: %w", err)
+	}
+
+	decrypted := make([]*types.Secret, len(secrets))
+	for i, secret := range secrets {
+		// Create a copy to avoid modifying the original
+		decryptedSecret := *secret
+
+		// The value is stored as encrypted base64 string in the []byte field
+		if len(secret.Value) > 0 {
+			decryptedValue, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
+			if err != nil {
+				log.Warn().Err(err).Str("secret_name", secret.Name).Msg("Failed to decrypt secret, using raw value")
+				// If decryption fails, use the raw value (for backwards compatibility during migration)
+				decryptedSecret.Value = secret.Value
+			} else {
+				decryptedSecret.Value = decryptedValue
+			}
+		}
+
+		decrypted[i] = &decryptedSecret
+	}
+
+	return decrypted, nil
 }
 
 func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
@@ -1498,49 +1618,63 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 			}
 
 			if key != "" {
-				// Handle app session path prefix
-				if session.ParentApp != "" {
-					// For app sessions, we need the full filestore path for the document
-					// Check if we already have a full path
-					if !strings.HasPrefix(key, c.Options.Config.Controller.FilePrefixGlobal) &&
-						!strings.HasPrefix(key, "apps/") {
-						// Construct the full path using app prefix
-						appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, session.ParentApp)
+				// Check if the key is an external URL (e.g., SharePoint, web sources)
+				// External URLs should be stored directly without path manipulation
+				isExternalURL := strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://")
 
-						// First check if the source already has a path structure (could be from a knowledge path)
-						// If it's a simple filename, join it with the app prefix
-						// If it already has path components, preserve them
-						var fullPath string
-						if strings.Contains(key, "/") {
-							// This already has a path structure, so keep it intact under the app prefix
-							fullPath = filepath.Join(appPrefix, key)
-						} else {
-							// Simple filename, put it directly in the app prefix
-							fullPath = filepath.Join(appPrefix, key)
-						}
-
-						log.Debug().
-							Str("session_id", session.ID).
-							Str("app_id", session.ParentApp).
-							Str("original_key", key).
-							Str("full_path", fullPath).
-							Msg("constructing full filestore path for app document ID")
-						key = fullPath
-					}
-				}
-
-				// If the result has metadata with source_url, also store it directly
-				if result.Metadata != nil && result.Metadata["source_url"] != "" {
-					// Use the source_url as a key directly to allow frontend to find it
+				if isExternalURL {
+					// Store external URLs directly - they're clickable links, not filestore paths
 					log.Debug().
 						Str("session_id", session.ID).
 						Str("document_id", result.DocumentID).
-						Str("source_url", result.Metadata["source_url"]).
-						Msg("adding source_url mapping for document ID")
-					session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
-				} else {
-					// Store the document ID mapping
+						Str("external_url", key).
+						Msg("storing external URL directly as document ID key")
 					session.Metadata.DocumentIDs[key] = result.DocumentID
+				} else {
+					// Handle app session path prefix for filestore paths
+					if session.ParentApp != "" {
+						// For app sessions, we need the full filestore path for the document
+						// Check if we already have a full path
+						if !strings.HasPrefix(key, c.Options.Config.Controller.FilePrefixGlobal) &&
+							!strings.HasPrefix(key, "apps/") {
+							// Construct the full path using app prefix
+							appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, session.ParentApp)
+
+							// First check if the source already has a path structure (could be from a knowledge path)
+							// If it's a simple filename, join it with the app prefix
+							// If it already has path components, preserve them
+							var fullPath string
+							if strings.Contains(key, "/") {
+								// This already has a path structure, so keep it intact under the app prefix
+								fullPath = filepath.Join(appPrefix, key)
+							} else {
+								// Simple filename, put it directly in the app prefix
+								fullPath = filepath.Join(appPrefix, key)
+							}
+
+							log.Debug().
+								Str("session_id", session.ID).
+								Str("app_id", session.ParentApp).
+								Str("original_key", key).
+								Str("full_path", fullPath).
+								Msg("constructing full filestore path for app document ID")
+							key = fullPath
+						}
+					}
+
+					// If the result has metadata with source_url, also store it directly
+					if result.Metadata != nil && result.Metadata["source_url"] != "" {
+						// Use the source_url as a key directly to allow frontend to find it
+						log.Debug().
+							Str("session_id", session.ID).
+							Str("document_id", result.DocumentID).
+							Str("source_url", result.Metadata["source_url"]).
+							Msg("adding source_url mapping for document ID")
+						session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
+					} else {
+						// Store the document ID mapping
+						session.Metadata.DocumentIDs[key] = result.DocumentID
+					}
 				}
 			}
 		}

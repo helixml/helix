@@ -15,6 +15,10 @@ dependencies = [
     "pymupdf>=1.25.4",
     "python-multipart>=0.0.20",
     "requests-unixsocket>=0.4.1",
+    # CPU-only PyTorch - must be listed before unstructured to override its GPU torch dep
+    # Pin to specific versions that have CPU wheels for Linux x86_64
+    "torch==2.9.1+cpu",
+    "torchvision==0.24.1+cpu",
     "unstructured-fileconverter-haystack==0.4.2",
     "unstructured[all-docs]>=0.17.2",
     "uvicorn>=0.34.0",
@@ -27,3 +31,18 @@ dev = [
     "ruff>=0.11.1",
     "docker>=7.1.0",
 ]
+
+# Use CPU-only PyTorch - haystack doesn't need GPU support
+# This saves ~3GB of NVIDIA CUDA libraries
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+# Ensure we resolve for Linux x86_64 (the Docker build environment)
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

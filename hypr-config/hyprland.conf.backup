@@ -1,0 +1,141 @@
+# Clean Hyprland configuration for headless VNC with GPU acceleration
+
+# Monitor configuration 
+monitor = HEADLESS-2,2360x1640@120,0x0,1
+
+# NVIDIA GPU environment variables
+env = NVIDIA_VISIBLE_DEVICES,all
+env = NVIDIA_DRIVER_CAPABILITIES,all
+env = GBM_BACKEND,nvidia-drm
+env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+
+# Wayland renderer settings
+env = WLR_NO_HARDWARE_CURSORS,1
+env = WLR_DRM_NO_ATOMIC,1
+env = WLR_RENDERER,gles2
+env = WLR_BACKENDS,headless
+
+# OpenGL acceleration
+env = LIBGL_ALWAYS_SOFTWARE,0
+env = EGL_PLATFORM,drm
+
+# General settings
+general {
+    gaps_in = 4
+    gaps_out = 8
+    border_size = 2
+    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+    col.inactive_border = rgba(595959aa)
+    layout = dwindle
+    allow_tearing = false
+}
+
+# Decoration settings
+decoration {
+    rounding = 8
+    
+    blur {
+        enabled = true
+        size = 3
+        passes = 1
+    }
+
+    drop_shadow = true
+    shadow_range = 4
+    shadow_render_power = 3
+    col.shadow = rgba(1a1a1aee)
+}
+
+# Animations
+animations {
+    enabled = true
+    bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+    animation = windows, 1, 7, myBezier
+    animation = windowsOut, 1, 7, default, popin 80%
+    animation = border, 1, 10, default
+    animation = borderangle, 1, 8, default
+    animation = fade, 1, 7, default
+    animation = workspaces, 1, 6, default
+}
+
+# Layout settings
+dwindle {
+    pseudotile = true
+    preserve_split = true
+}
+
+master {
+    new_is_master = true
+}
+
+# Input settings
+input {
+    kb_layout = us
+    follow_mouse = 1
+    touchpad {
+        natural_scroll = false
+    }
+    sensitivity = 0
+}
+
+# Cursor settings (important for VNC)
+cursor {
+    no_hardware_cursors = true
+    enable_hyprcursor = false
+}
+
+# Misc settings
+misc {
+    force_default_wallpaper = 0
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    vfr = true
+}
+
+# Window rules
+windowrule = float, ^(kitty)$
+windowrule = float, ^(ghostty)$
+
+# Basic keybinds
+$mainMod = SUPER
+
+bind = $mainMod, Q, exec, kitty
+bind = $mainMod, C, killactive,
+bind = $mainMod, M, exit,
+bind = $mainMod, E, exec, dolphin
+bind = $mainMod, V, togglefloating,
+bind = $mainMod, R, exec, wofi --show drun
+bind = $mainMod, P, pseudo,
+bind = $mainMod, J, togglesplit,
+
+# Move focus with mainMod + arrow keys
+bind = $mainMod, left, movefocus, l
+bind = $mainMod, right, movefocus, r
+bind = $mainMod, up, movefocus, u
+bind = $mainMod, down, movefocus, d
+
+# Switch workspaces with mainMod + [0-9]
+bind = $mainMod, 1, workspace, 1
+bind = $mainMod, 2, workspace, 2
+bind = $mainMod, 3, workspace, 3
+bind = $mainMod, 4, workspace, 4
+bind = $mainMod, 5, workspace, 5
+
+# Move active window to a workspace with mainMod + SHIFT + [0-9]
+bind = $mainMod SHIFT, 1, movetoworkspace, 1
+bind = $mainMod SHIFT, 2, movetoworkspace, 2
+bind = $mainMod SHIFT, 3, movetoworkspace, 3
+bind = $mainMod SHIFT, 4, movetoworkspace, 4
+bind = $mainMod SHIFT, 5, movetoworkspace, 5
+
+# Scroll through existing workspaces with mainMod + scroll
+bind = $mainMod, mouse_down, workspace, e+1
+bind = $mainMod, mouse_up, workspace, e-1
+
+# Move/resize windows with mainMod + LMB/RMB and dragging
+bindm = $mainMod, mouse:272, movewindow
+bindm = $mainMod, mouse:273, resizewindow
+
+# Auto-start applications
+exec-once = /install-ghostty.sh
+exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'

@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -168,8 +169,6 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-		return c.RunGPTScriptAction(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
@@ -274,14 +273,15 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 					Str("tool_name", tool.Name).
 					Msg("Failed to get app for OAuth tokens in stream")
 			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
-				// Get token for this specific provider
-				token, err := manager.GetTokenForApp(ctx, app.Owner, tool.Config.API.OAuthProvider)
+				// Get token for this specific provider with required scopes
+				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
 				if err != nil {
 					log.Warn().
 						Err(err).
 						Str("app_id", appID).
 						Str("user_id", app.Owner).
 						Str("provider", tool.Config.API.OAuthProvider).
+						Strs("required_scopes", tool.Config.API.OAuthScopes).
 						Str("session_id", sessionID).
 						Str("tool_name", tool.Name).
 						Msg("Failed to get OAuth token for tool in stream")
@@ -319,8 +319,6 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runAPIActionStream(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
@@ -351,39 +349,6 @@ func (c *ChainStrategy) runAPIActionStream(ctx context.Context, client oai.Clien
 }
 
 func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*http.Response, error) {
-	// Log the tool's OAuth configuration
-	if tool != nil && tool.ToolType == types.ToolTypeAPI && tool.Config.API != nil {
-		// Try to get app ID from context for debugging
-		appID, ok := oai.GetContextAppID(ctx)
-
-		log.Info().
-			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Str("tool_name", tool.Name).
-			Str("action", action).
-			Str("api_url", tool.Config.API.URL).
-			Str("oauth_provider", tool.Config.API.OAuthProvider).
-			Strs("oauth_scopes", tool.Config.API.OAuthScopes).
-			Bool("has_headers", tool.Config.API.Headers != nil).
-			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
-			Bool("has_app_id_in_context", ok).
-			Str("app_id_from_context", appID).
-			Int("header_count", func() int {
-				if tool.Config.API.Headers != nil {
-					return len(tool.Config.API.Headers)
-				}
-				return 0
-			}()).
-			Msg("callAPI called for API tool")
-
-		// Detailed tool configuration tracing
-		log.Debug().
-			Str("tool_id", tool.ID).
-			Str("tool_name", tool.Name).
-			Interface("tool_config_api", tool.Config.API).
-			Msg("Complete tool configuration")
-	}
-
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -400,64 +365,6 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 
 	if !found {
 		return nil, fmt.Errorf("action %s is not found in the tool %s", action, tool.Name)
-	}
-
-	// Debug logging for all API tools
-	if tool.Config.API != nil {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Str("tool", tool.Name).
-			Str("action", action).
-			Str("provider", tool.Config.API.OAuthProvider).
-			Str("api_url", tool.Config.API.URL).
-			Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
-			Bool("has_headers", tool.Config.API.Headers != nil).
-			Int("header_count", len(tool.Config.API.Headers)).
-			Msg("callAPI called for API tool")
-
-		// Detailed header inspection
-		if tool.Config.API.Headers != nil {
-			// Log all headers except sensitive ones
-			headerKeys := make([]string, 0, len(tool.Config.API.Headers))
-			for key := range tool.Config.API.Headers {
-				headerKeys = append(headerKeys, key)
-			}
-
-			log.Info().
-				Str("session_id", sessionID).
-				Strs("header_keys", headerKeys).
-				Msg("API tool headers")
-
-			// Check specifically for Authorization header
-			authHeader := tool.Config.API.Headers["Authorization"]
-			if authHeader != "" {
-				prefix := authHeader
-				if len(authHeader) > 15 {
-					prefix = authHeader[:15] + "..."
-				}
-
-				log.Info().
-					Str("session_id", sessionID).
-					Str("auth_header_prefix", prefix).
-					Str("auth_header_type", strings.Split(authHeader, " ")[0]).
-					Msg("API tool has Authorization header in callAPI")
-			} else { // Inspect OAuth provider - is it correctly configured?
-				log.Info().
-					Str("session_id", sessionID).
-					Str("oauth_provider", tool.Config.API.OAuthProvider).
-					Strs("oauth_scopes", tool.Config.API.OAuthScopes).
-					Bool("has_oauth_provider", tool.Config.API.OAuthProvider != "").
-					Msg("OAuth provider info for tool")
-			}
-		} else {
-
-			// Headers map is nil, let's examine the tool config
-			log.Info().
-				Interface("tool_config_api", tool.Config.API).
-				Str("oauth_provider", tool.Config.API.OAuthProvider).
-				Msg("API tool configuration details")
-		}
 	}
 
 	started := time.Now()
@@ -494,88 +401,41 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		Timeout: 120 * time.Second,
 	}
 
-	// Log outgoing request headers
-	log.Debug().
-		Str("url", req.URL.String()).
-		Str("method", req.Method).
-		Interface("headers", req.Header).
-		Bool("has_auth_header", req.Header.Get("Authorization") != "").
-		Str("auth_header", func() string {
-			if auth := req.Header.Get("Authorization"); auth != "" {
-				if strings.HasPrefix(auth, "Bearer ") && len(auth) > 15 {
-					// Mask the token
-					return auth[:15] + "..."
-				}
-				return auth
-			}
-			return "none"
-		}()).
-		Msg("Outgoing API request headers")
-
-	// Log complete request details for API debugging
-	var requestBody string
-	if req.Body != nil {
-		if bodyBytes, err := io.ReadAll(req.Body); err == nil {
-			requestBody = string(bodyBytes)
-			// Restore the request body for the actual request
-			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		}
+	if c.cfg.Tools.TLSSkipVerify {
+		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
+		// then add InsecureSkipVerify
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
 	}
-
-	log.Info().
-		Str("tool", tool.Name).
-		Str("action", action).
-		Str("method", req.Method).
-		Str("url", req.URL.String()).
-		Interface("headers", req.Header).
-		Str("request_body", requestBody).
-		Bool("has_request_body", requestBody != "").
-		Msg("Complete API request details")
-
-	// Log before making the HTTP request
-	log.Info().
-		Str("tool", tool.Name).
-		Str("action", action).
-		Str("url", req.URL.String()).
-		Str("host", req.URL.Host).
-		Str("scheme", req.URL.Scheme).
-		Str("path", req.URL.Path).
-		Str("query", req.URL.RawQuery).
-		Msg("Making HTTP request...")
-
-	// Add more detailed network debugging
-	log.Info().
-		Str("tool", tool.Name).
-		Str("timeout", "120s").
-		Str("user_agent", req.Header.Get("User-Agent")).
-		Interface("request_headers", req.Header).
-		Msg("HTTP client configuration")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		// Log the HTTP error for debugging
-		log.Error().
-			Err(err).
-			Str("tool", tool.Name).
-			Str("action", action).
-			Str("method", req.Method).
-			Str("url", req.URL.String()).
-			Str("host", req.URL.Host).
-			Str("error_type", fmt.Sprintf("%T", err)).
-			Dur("time_taken", time.Since(started)).
-			Msg("HTTP request failed")
+		errStr := err.Error()
+		// Check for TLS certificate errors - these are common in enterprise environments
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("tool", tool.Name).
+				Str("action", action).
+				Str("url", req.URL.String()).
+				Bool("tls_skip_verify_configured", c.cfg.Tools.TLSSkipVerify).
+				Msg("API TOOL TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+		} else {
+			// Log the HTTP error for debugging
+			log.Error().
+				Err(err).
+				Str("tool", tool.Name).
+				Str("action", action).
+				Str("method", req.Method).
+				Str("url", req.URL.String()).
+				Str("host", req.URL.Host).
+				Str("error_type", fmt.Sprintf("%T", err)).
+				Dur("time_taken", time.Since(started)).
+				Msg("HTTP request failed")
+		}
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
-
-	// Log immediately after getting response
-	log.Info().
-		Str("tool", tool.Name).
-		Str("action", action).
-		Str("url", req.URL.String()).
-		Int("status_code", resp.StatusCode).
-		Str("status", resp.Status).
-		Dur("time_taken", time.Since(started)).
-		Msg("HTTP response received")
 
 	// Always log response details for all API requests (success or failure)
 	// Read response body for logging but keep a copy
@@ -591,29 +451,6 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		// Return the response even if we can't read the body
 		return resp, nil
 	}
-
-	// Log comprehensive response details (for both success and error responses)
-	log.Info().
-		Str("tool", tool.Name).
-		Str("action", action).
-		Str("method", req.Method).
-		Str("url", req.URL.String()).
-		Int("status_code", resp.StatusCode).
-		Str("status", resp.Status).
-		Interface("response_headers", resp.Header).
-		Str("response_body", string(bodyBytes)).
-		Int("response_body_length", len(bodyBytes)).
-		Bool("is_success", resp.StatusCode >= 200 && resp.StatusCode < 300).
-		Msg("Complete API response details")
-
-	// Log response details at Info level for test visibility
-	log.Info().
-		Str("tool", tool.Name).
-		Str("action", action).
-		Int("status_code", resp.StatusCode).
-		Str("status", resp.Status).
-		Str("response_body", string(bodyBytes)).
-		Msg("API response details")
 
 	// Restore the response body for further processing
 	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
@@ -648,11 +485,6 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		req.Parameters = make(map[string]interface{})
 	}
 
-	log.Info().
-		Str("tool", req.Tool.Name).
-		Str("action", req.Action).
-		Msg("API request parameters prepared")
-
 	// Process OAuth tokens if provided
 	if len(req.OAuthTokens) > 0 {
 		// Extract token keys for logging
@@ -661,18 +493,9 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 			tokenKeys = append(tokenKeys, key)
 		}
 
-		log.Debug().
-			Int("count", len(req.OAuthTokens)).
-			Strs("token_keys", tokenKeys).
-			Msg("Adding OAuth tokens to API request")
-
 		// Only proceed if the tool has OAuth provider configured
 		if req.Tool.Config.API != nil && req.Tool.Config.API.OAuthProvider != "" {
 			toolProviderName := req.Tool.Config.API.OAuthProvider
-
-			log.Debug().
-				Str("tool_provider_name", toolProviderName).
-				Msg("Tool has OAuth provider configured")
 
 			// Log all available tokens for debugging
 			for key := range req.OAuthTokens {
@@ -701,24 +524,11 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 					bearerToken := fmt.Sprintf("Bearer %s", token)
 					req.Tool.Config.API.Headers[authHeaderKey] = bearerToken
-					log.Debug().
-						Str("provider", toolProviderName).
-						Str("auth_header", authHeaderKey).
-						Str("token_type", "Bearer").
-						Str("token_prefix", bearerToken[:12]+"...").
-						Bool("headers_map_exists", req.Tool.Config.API.Headers != nil).
-						Int("headers_count", len(req.Tool.Config.API.Headers)).
-						Msg("Added matching OAuth token to API request headers")
-				} else {
-					log.Debug().
-						Str("provider", toolProviderName).
-						Str("existing_header", req.Tool.Config.API.Headers[authHeaderKey]).
-						Msg("Authentication header already exists, not overriding")
 				}
 			} else {
 				// This is important - if we don't find a token with the exact provider name
 				// Try a case-insensitive match as a fallback
-				var matchFound bool
+
 				for tokenKey, tokenValue := range req.OAuthTokens {
 					if strings.EqualFold(tokenKey, toolProviderName) {
 						log.Debug().
@@ -734,29 +544,12 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 							req.Tool.Config.API.Headers = make(map[string]string)
 						}
 						req.Tool.Config.API.Headers[authHeaderKey] = fmt.Sprintf("Bearer %s", tokenValue)
-						matchFound = true
+
 						break
 					}
 				}
-
-				if !matchFound {
-					log.Warn().
-						Str("tool_provider", toolProviderName).
-						Strs("available_tokens", tokenKeys).
-						Msg("No matching OAuth token found for provider")
-				}
-			}
-		} else {
-			if req.Tool.Config.API == nil {
-				log.Warn().Msg("Tool has no API configuration")
-			} else {
-				log.Debug().
-					Str("provider", req.Tool.Config.API.OAuthProvider).
-					Msg("Tool has no OAuth provider configured, skipping token injection")
 			}
 		}
-	} else {
-		log.Warn().Msg("No OAuth tokens provided with request")
 	}
 
 	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)

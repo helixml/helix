@@ -10,6 +10,8 @@ import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
 import { LineChart } from '@mui/x-charts';
 
+import { Copy, Edit, Trash } from 'lucide-react'
+
 import SimpleTable from '../widgets/SimpleTable'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -38,16 +40,21 @@ import {
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
 
+// Import DuplicateDialog
+import DuplicateDialog from '../app/DuplicateDialog'
+
 const AppsDataGrid: FC<React.PropsWithChildren<{
   authenticated: boolean,
   data: IApp[],
   onEdit: (app: IApp) => void,
   onDelete: (app: IApp) => void,
+  orgId: string,
 }>> = ({
   authenticated,
   data,
   onEdit,
   onDelete,
+  orgId,
 }) => {
 
   const api = useApi()
@@ -58,6 +65,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [currentApp, setCurrentApp] = useState<IApp | null>(null);
+
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicatingApp, setDuplicatingApp] = useState<IApp | null>(null);
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, app: any) => {
     setAnchorEl(event.currentTarget);
@@ -81,6 +91,17 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       onDelete(currentApp);
     }
     handleMenuClose();
+  };
+
+  const handleDuplicate = (app: IApp) => {
+    setDuplicatingApp(app);
+    setDuplicateDialogOpen(true);
+    handleMenuClose();
+  };
+
+  const handleDuplicateDialogClose = () => {
+    setDuplicateDialogOpen(false);
+    setDuplicatingApp(null);
   };
 
   // Handle navigation to app details with skills tab
@@ -191,6 +212,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
       const creator = app.user?.full_name || app.user?.username || app.user?.email || 'Unknown'
 
+      const description = app.config.helix?.description || ''
+
       const baseRow = {
         id: app.id,
         _data: app,
@@ -200,23 +223,37 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
             </Cell>
             <Cell grow>
-              <Typography variant="body1">                
-                <a
-                  style={{
-                    textDecoration: 'none',
-                    fontWeight: 'bold',
-                    color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                  }}
-                  href="#"
-                  onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
-                  }}
-                >
-                  { getAppName(app) }
-                </a>
-              </Typography>
+              <Box>
+                <Typography variant="body1">                
+                  <a
+                    style={{
+                      textDecoration: 'none',
+                      fontWeight: 'bold',
+                      color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                    }}
+                    href="#"
+                    onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
+                    }}
+                  >
+                    { getAppName(app) }
+                  </a>
+                </Typography>
+                {description && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: theme.palette.text.secondary,
+                      display: 'block',
+                      mt: 0.25,
+                    }}
+                  >
+                    {description}
+                  </Typography>
+                )}
+              </Box>
             </Cell>
           </Row>
         ),
@@ -398,13 +435,31 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}        
       >
-        <MenuItem onClick={handleEdit}>          
+        <MenuItem onClick={handleEdit}>
+          <Edit size={16} style={{
+            marginRight: 5,
+          }} /> 
           Edit
         </MenuItem>
+        <MenuItem onClick={() => handleDuplicate(currentApp as IApp)}>
+          <Copy size={16} style={{
+            marginRight: 5,
+          }} />
+          Duplicate
+        </MenuItem>
         <MenuItem onClick={handleDelete}>          
+          <Trash size={16} style={{
+            marginRight: 5,
+          }} />
           Delete
         </MenuItem>
       </Menu>
+      <DuplicateDialog
+        open={duplicateDialogOpen}
+        onClose={handleDuplicateDialogClose}
+        app={duplicatingApp}
+        orgId={orgId}
+      />
     </>
   )
 }

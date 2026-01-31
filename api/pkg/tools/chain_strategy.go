@@ -73,11 +73,3 @@ func (c *ChainStrategy) getUserIDFromSessionID(ctx context.Context, sessionID st
 	return app.Owner, nil
 }
 
-// GetTokenForApp retrieves an OAuth token for a user and provider name
-func (c *ChainStrategy) GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error) {
-	if c.oauthManager == nil {
-		return "", fmt.Errorf("OAuth manager not available")
-	}
-
-	return c.oauthManager.GetTokenForApp(ctx, userID, providerName)
-}

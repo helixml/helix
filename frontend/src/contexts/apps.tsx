@@ -4,10 +4,11 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 
 import {
+  IAgentType,
   IApp,
   IAppUpdate,
   IKnowledgeSource,
-  SESSION_TYPE_TEXT,  
+  SESSION_TYPE_TEXT,
 } from '../types'
 
 // Apps context interface that mirrors the return value of the useApps hook
@@ -26,6 +27,83 @@ export interface IAppsQuery {
   org_id?: string,
 }
 
+// Code agent runtime options for zed_external agents
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code'
+
+// Display names for code agent runtimes (maintainable for future additions)
+export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
+  'zed_agent': 'Zed Agent',
+  'qwen_code': 'Qwen Code',
+}
+
+// Generate a nice display name from a model ID
+export function getModelDisplayName(modelId: string): string {
+  // Known model patterns with nice names (case-insensitive)
+  const modelPatterns: [RegExp, string][] = [
+    // Anthropic Claude models
+    [/claude-opus-4-5/i, 'Opus 4.5'],
+    [/claude-sonnet-4-5/i, 'Sonnet 4.5'],
+    [/claude-haiku-4-5/i, 'Haiku 4.5'],
+    [/claude-opus-4/i, 'Opus 4'],
+    [/claude-sonnet-4/i, 'Sonnet 4'],
+    [/claude-haiku-4/i, 'Haiku 4'],
+    [/claude-3-5-sonnet/i, 'Sonnet 3.5'],
+    [/claude-3-5-haiku/i, 'Haiku 3.5'],
+    [/claude-3-opus/i, 'Opus 3'],
+    [/claude-3-sonnet/i, 'Sonnet 3'],
+    [/claude-3-haiku/i, 'Haiku 3'],
+    // OpenAI models
+    [/gpt-5\.1/i, 'GPT-5.1'],
+    [/gpt-5/i, 'GPT-5'],
+    [/gpt-4\.5/i, 'GPT-4.5'],
+    [/gpt-4o-mini/i, 'GPT-4o Mini'],
+    [/gpt-4o/i, 'GPT-4o'],
+    [/gpt-4-turbo/i, 'GPT-4 Turbo'],
+    [/gpt-4/i, 'GPT-4'],
+    [/o4-mini/i, 'o4-mini'],
+    [/o3-mini/i, 'o3-mini'],
+    [/o3/i, 'o3'],
+    [/o1-preview/i, 'o1 Preview'],
+    [/o1-mini/i, 'o1-mini'],
+    [/o1/i, 'o1'],
+    // Google Gemini models
+    [/gemini-3-pro/i, 'Gemini 3 Pro'],
+    [/gemini-2\.5-pro/i, 'Gemini 2.5 Pro'],
+    [/gemini-2\.5-flash/i, 'Gemini 2.5 Flash'],
+    [/gemini-2\.0-flash/i, 'Gemini 2.0 Flash'],
+    // Zhipu GLM models
+    [/glm-4\.6/i, 'GLM 4.6'],
+    [/glm-4\.5/i, 'GLM 4.5'],
+    // Qwen models (order matters - more specific first)
+    [/qwen3-coder-480b/i, 'Qwen 3 Coder 480B'],
+    [/qwen3-coder-30b/i, 'Qwen 3 Coder 30B'],
+    [/qwen3-coder/i, 'Qwen 3 Coder'],
+    [/qwen3-235b/i, 'Qwen 3 235B'],
+    [/qwen2\.5-72b/i, 'Qwen 2.5 72B'],
+    [/qwen2\.5-7b/i, 'Qwen 2.5 7B'],
+    // Llama models
+    [/llama-4-scout/i, 'Llama 4 Scout'],
+    [/llama-4-maverick/i, 'Llama 4 Maverick'],
+  ]
+
+  for (const [pattern, displayName] of modelPatterns) {
+    if (pattern.test(modelId)) {
+      return displayName
+    }
+  }
+
+  // Fallback: return the model ID as-is
+  return modelId
+}
+
+// Generate an agent name from model and runtime
+export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
+  if (!modelId) return '-'  // Show dash when model not yet selected
+  const modelName = getModelDisplayName(modelId)
+  const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
+  return `${modelName} in ${runtimeName}`
+}
+
 // Add new interface for agent creation parameters
 export interface ICreateAgentParams {
   name: string;
@@ -34,18 +112,26 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
-  // Models and providers
+  agentType?: IAgentType; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
+
+  // Code agent runtime for zed_external agents
+  codeAgentRuntime?: CodeAgentRuntime;
+
+  // Default model for basic chat mode (non-agent mode)
+  model?: string;
+
+  // Models and providers for agent mode
   reasoningModelProvider: string;
   reasoningModel: string;
   reasoningModelEffort: string;
 
   generationModelProvider: string;
   generationModel: string;
-  
+
   smallReasoningModelProvider: string;
   smallReasoningModel: string;
   smallReasoningModelEffort: string;
-  
+
   smallGenerationModelProvider: string;
   smallGenerationModel: string;
 }
@@ -83,10 +169,11 @@ export const useAppsContext = (): IAppsContext => {
    }
 
   const loadApps = useCallback(async () => {
-    if (!orgLoaded) return
-    
-    // Determine the organization_id parameter value
-    let organizationIdParam = account.organizationTools.organization?.id || ''
+    if (!orgLoaded) {
+      return
+    }
+
+    const organizationIdParam = account.organizationTools.organization?.id || ''
 
     const result = await api.get<IApp[]>(`/api/v1/apps`, {
       params: {
@@ -111,8 +198,8 @@ export const useAppsContext = (): IAppsContext => {
 
   const createAgent = useCallback(async (params: ICreateAgentParams): Promise<IApp | undefined> => {
     try {
-      // Get the first available model
-      const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : '';
+      // Use the model from params, or fall back to generation_model if not provided
+      const effectiveModel = params.model || params.generationModel || '';
 
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
         organization_id: account.organizationTools.organization?.id || '',
@@ -123,10 +210,13 @@ export const useAppsContext = (): IAppsContext => {
             description: params.description || '',
             avatar: params.avatar || '',
             image: params.image || '',
+            default_agent_type: params.agentType || 'helix_basic',
             assistants: [{
               name: params.name,
               description: '',
-              agent_mode: true,
+              agent_mode: false,
+              agent_type: params.agentType || 'helix_basic',
+              code_agent_runtime: params.codeAgentRuntime || 'zed_agent',
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,
@@ -139,7 +229,7 @@ export const useAppsContext = (): IAppsContext => {
               small_generation_model: params.smallGenerationModel,
               avatar: '',
               image: '',
-              model: defaultModel,
+              model: effectiveModel,
               type: SESSION_TYPE_TEXT,
               system_prompt: params.systemPrompt || '',
               apis: [],
@@ -175,7 +265,6 @@ export const useAppsContext = (): IAppsContext => {
   }, [
     api,
     loadApps,
-    account.models,
     account.organizationTools.organization,
   ])
 
@@ -215,7 +304,9 @@ export const useAppsContext = (): IAppsContext => {
 
   // Load initial data when user is available (just like in the sessions context)
   useEffect(() => {
-    if(!account.user) return
+    if(!account.user) {
+      return
+    }
     loadApps()
   }, [
     account.user,

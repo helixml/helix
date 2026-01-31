@@ -1,7 +1,6 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import TextField from '@mui/material/TextField';
 import Link from '@mui/material/Link';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -9,7 +8,7 @@ import Tooltip from '@mui/material/Tooltip';
 import DownloadIcon from '@mui/icons-material/Download';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
-import JsonWindowLink from '../widgets/JsonWindowLink';
+import MonacoEditor from '../widgets/MonacoEditor';
 import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
 
@@ -66,24 +65,36 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{mb: 1}}>
-        Configuration File
+        Agent Spec
       </Typography>
-      <TextField
-        error={showErrors && !schema}
-        value={schema}
-        onChange={(e) => setSchema(e.target.value)}
-        disabled={true}
-        fullWidth
-        multiline
-        rows={10}
-        id="app-schema"
-        name="app-schema"
-        label="AISpec YAML for Agent"
-        helperText={showErrors && !schema ? "Please enter a schema" : ""}
-        InputProps={{
-          style: { fontFamily: 'monospace' }
-        }}
-      />
+      <Box sx={{ mb: 1 }}>
+        {showErrors && !schema && (
+          <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mb: 1 }}>
+            Please enter a schema
+          </Typography>
+        )}
+        <MonacoEditor
+          value={schema}
+          onChange={setSchema}
+          language="yaml"
+          readOnly={true}
+          autoHeight={true}
+          minHeight={200}
+          maxHeight={600}
+          theme="helix-dark"
+          options={{
+            fontSize: 14,
+            lineNumbers: 'on',
+            folding: true,
+            lineDecorationsWidth: 0,
+            lineNumbersMinChars: 3,
+            scrollBeyondLastLine: false,
+            minimap: { enabled: false },
+            wordWrap: 'on',
+            wrappingIndent: 'indent',
+          }}
+        />
+      </Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, mt: 2 }}>
         <Button
           startIcon={<DownloadIcon />}
@@ -93,13 +104,6 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         >
           Download {yamlFilename}
         </Button>
-        <JsonWindowLink
-          sx={{textDecoration: 'underline'}}
-          data={schema}
-          withFancyRenderingControls={false}
-        >
-          expand
-        </JsonWindowLink>
       </Box>
       <Typography variant="subtitle1" sx={{ mt: 4 }}>
         CLI Access

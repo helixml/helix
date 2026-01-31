@@ -13,8 +13,9 @@ import Typography from '@mui/material/Typography'
 import AltRouteIcon from '@mui/icons-material/AltRoute'
 import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
+import HubIcon from '@mui/icons-material/Hub'
 import * as Icons from '@mui/icons-material'
-import { Cog } from 'lucide-react'
+import { Cog, Brain } from 'lucide-react'
 
 // Add spinning animation
 const spin = keyframes`
@@ -128,6 +129,12 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     // If this is SVG image, render it
     if (step.icon && step.icon.startsWith('http')) {
       return <img src={step.icon} alt={step.name} style={{ width: 20, height: 20 }} />
+    }
+    if (step.name && step.name.startsWith('mcp_')) {
+      return <HubIcon sx={{ fontSize: 20 }} />    
+    }
+    if (step.name && step.name === 'Memory') {
+      return <Brain size={20} />    
     }
     // If it's one of the few support MaterialUI icons, use them
     switch (step.icon) {

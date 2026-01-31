@@ -29,7 +29,7 @@ const LowCreditsDisplay: React.FC = () => {
   const isOrgContext = Boolean(orgId)
   
   // Fetch appropriate wallet based on context
-  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(orgId)
+  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(orgId, !isLoadingServerConfig && serverConfig?.billing_enabled)
 
   // Check if dialog was dismissed
   useEffect(() => {

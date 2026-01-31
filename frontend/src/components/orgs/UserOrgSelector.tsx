@@ -4,16 +4,14 @@ import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import Popover from '@mui/material/Popover'
+import Portal from '@mui/material/Portal'
 import DialogContent from '@mui/material/DialogContent'
 import Button from '@mui/material/Button'
 
 import {
-  Home,
   Bot,
   Clock,
   Server,
-  User,
-  Users,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -24,8 +22,13 @@ import {
   LogIn,
   FileText,
   HelpCircle,
+  Activity,
+  GitBranch,
+  FileQuestionMark,
+  MessageCircle,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
+import { Hive } from '@mui/icons-material'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -35,7 +38,10 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
+import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
+import LoginRegisterDialog from './LoginRegisterDialog'
+import { TypesAuthProvider } from '../../api/api'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -54,22 +60,13 @@ const pulse = keyframes`
   50% {
     transform: scale(1.02);
   }
-  100% {
-    transform: scale(1);
-  }
 `
 
 const ShimmerButton = styled(Button)(({ theme }) => ({
-  background: `linear-gradient(
-    90deg, 
-    ${theme.palette.secondary.dark} 0%,
-    ${theme.palette.secondary.main} 20%,
-    ${theme.palette.secondary.light} 50%,
-    ${theme.palette.secondary.main} 80%,
-    ${theme.palette.secondary.dark} 100%
-  )`,
+  background: `linear-gradient(90deg, ${theme.palette.secondary.dark} 0%, ${theme.palette.secondary.main} 20%, ${theme.palette.secondary.light} 50%, ${theme.palette.secondary.main} 80%, ${theme.palette.secondary.dark} 100%)`,
   backgroundSize: '200% auto',
   animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
+  animationPlayState: 'paused',
   transition: 'all 0.3s ease-in-out',
   boxShadow: '0 0 15px rgba(0, 229, 255, 0.3)',
   fontWeight: 'bold',
@@ -80,7 +77,7 @@ const ShimmerButton = styled(Button)(({ theme }) => ({
     transform: 'scale(1.05)',
     boxShadow: '0 0 25px rgba(0, 229, 255, 0.6)',
     backgroundSize: '200% auto',
-    animation: `${shimmer} 1s linear infinite`,
+    animationPlayState: 'paused',
   },
 }))
 
@@ -107,7 +104,7 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
     <Box
       onClick={onClick}
       sx={{
-        mt: 1,              
+        mt: 1,
         width: AVATAR_SIZE + 8,
         height: AVATAR_SIZE + 8,
         display: 'flex',
@@ -155,11 +152,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [compactExpanded, setCompactExpanded] = useState(false)
   const [menuItemsExpanded, setMenuItemsExpanded] = useState(false)
 
-
+  const { data: config } = useGetConfig()
 
   // Use consistent width for user menu - always use the sidebar width (wider option)
   const menuWidth = isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth
@@ -210,16 +208,22 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [sidebarVisible, compactExpanded, menuItemsExpanded])
 
 
-  
+
   // Get the current organization from the URL or context
   const defaultOrgName = `${account.user?.name} (Personal)`
   const currentOrg = account.organizationTools.organization
   const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
 
-  const isActive = (path: string) => {
+  const isActive = (path: string | string[]) => {
     const routeName = router.name
-    return routeName === path || routeName === 'org_' + path    
+    const paths = Array.isArray(path) ? path : [path]
+    return paths.some(p =>
+      routeName === p ||
+      routeName === 'org_' + p ||
+      routeName.startsWith(p + '-') ||
+      routeName.startsWith('org_' + p + '-')
+    )
   }
 
   const listOrgs = useMemo(() => {
@@ -295,15 +299,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     setDialogOpen(true)
   }
 
-  const handleHomeClick = () => {
+  const handleProjectsClick = () => {
     const isDefault = currentOrgSlug === 'default'
-    const routeName = isDefault ? 'home' : 'org_home'
+    const routeName = isDefault ? 'projects' : 'org_projects'
     const useParams = isDefault ? {} : { org_id: currentOrgSlug }
     router.navigate(routeName, useParams)
   }
 
   const postNavigateTo = () => {
-    account.setMobileMenuOpen(false)    
+    account.setMobileMenuOpen(false)
   }
 
   const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
@@ -312,7 +316,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // If moving from a non-org page to an org page
       if (router.meta.menu !== 'orgs') {
         const currentResourceType = router.params.resource_type || 'chat'
-        
+
         // Store pending animation to be picked up by the orgs menu when it mounts
         localStorage.setItem('pending_animation', JSON.stringify({
           from: currentResourceType,
@@ -320,7 +324,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           direction: 'right',
           isOrgSwitch: true
         }))
-        
+
         // Navigate immediately without waiting
         account.orgNavigate(path, params)
         postNavigateTo()
@@ -330,7 +334,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // If moving from an org page to a non-org page
       if (router.meta.menu === 'orgs') {
         const currentResourceType = router.params.resource_type || 'chat'
-        
+
         // Store pending animation to be picked up when the destination menu mounts
         localStorage.setItem('pending_animation', JSON.stringify({
           from: 'orgs',
@@ -338,7 +342,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           direction: 'left',
           isOrgSwitch: true
         }))
-        
+
         // Navigate immediately without waiting
         account.orgNavigate(path, params)
         postNavigateTo()
@@ -355,18 +359,32 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Home size={NAV_BUTTON_SIZE} />,
-        tooltip: "Go to home",
-        isActive: isActive('home'),
-        onClick: handleHomeClick,
-        label: "Home",
+        icon: <Hive sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        tooltip: "View swarm",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: handleProjectsClick,
+        label: "Swarm",
+      },
+      {
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive('chat'),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
       },
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
-        isActive: isActive('apps'),
+        isActive: isActive(['apps', 'app']),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
+      },
+      {
+        icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
+        tooltip: "View Q&A",
+        isActive: isActive('qa'),
+        onClick: () => orgNavigateTo('qa'),
+        label: "Q&A",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
@@ -375,16 +393,27 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
-      {
+      // TODO: re-enable once we have the files editor working
+      // {
+      //   icon: <FileText size={NAV_BUTTON_SIZE} />,
+      //   tooltip: "View files",
+      //   isActive: isActive('files'),
+      //   onClick: () => orgNavigateTo('files'),
+      //   label: "Files",
+      // },
+    ]
+
+    // Only show Providers menu item if providers management is enabled
+    // Admins manage inference providers via the admin panel, not here
+    if (account.serverConfig.providers_management_enabled) {
+      baseButtons.push({
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
         isActive: isActive('providers'),
         onClick: () => orgNavigateTo('providers'),
         label: "Providers",
-      },
-    ]
-
-
+      })
+    }
 
     // Add org-specific buttons if we're in an org context
     if (currentOrgSlug !== 'default') {
@@ -400,16 +429,45 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
     const tiles = []
-    
+
+    // Wait for auth context to initialize before showing user-specific content
+    // This prevents "?" flash during hot reload while auth state is loading
+    if (!account.initialized) {
+      return (
+        <Box
+          sx={{
+            position: 'relative',
+            width: AVATAR_SIZE,
+            height: AVATAR_SIZE,
+            cursor: 'pointer',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              bgcolor: 'grey.800',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+              border: '2px solid #4A5568',
+            }}
+          />
+        </Box>
+      )
+    }
+
     // Determine which organization/context is currently active
     const isPersonalActive = currentOrgSlug === 'default'
     const currentOrgData = listOrgs.find(org => org.name === currentOrgSlug)
-    
+
     if (isPersonalActive) {
       // Personal context is active - show personal tile prominently
       tiles.push(
@@ -436,7 +494,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           {account.user?.name?.charAt(0).toUpperCase() || '?'}
         </Box>
       )
-      
+
       // Show first few org tiles in background
       for (let i = 0; i < Math.min(listOrgs.length, 2); i++) {
         const org = listOrgs[i]
@@ -492,7 +550,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           {(currentOrgData.display_name || currentOrgData.name || '?').charAt(0).toUpperCase()}
         </Box>
       )
-      
+
       // Show personal tile in background
       tiles.push(
         <Box
@@ -519,7 +577,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           {account.user?.name?.charAt(0).toUpperCase() || '?'}
         </Box>
       )
-      
+
       // Show other org tiles in background (exclude current org)
       const otherOrgs = listOrgs.filter(org => org.name !== currentOrgSlug)
       for (let i = 0; i < Math.min(otherOrgs.length, 1); i++) {
@@ -576,10 +634,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Render the clickable avatar/icon - only in compact mode
   const renderAvatar = () => {
     const isCompact = !sidebarVisible
-    
+
     // Only render avatar when in compact mode
     if (!isCompact) return null
-    
+
     return (
       <Box
         data-compact-user-menu
@@ -607,16 +665,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           },
         }}
       >
-        <img 
-          src="/img/logo.png" 
-          alt="Helix" 
+        <img
+          src="/img/logo.png"
+          alt="Helix"
           loading="eager"
-          style={{ 
-            width: '28px', 
-            height: '28px', 
+          style={{
+            width: '28px',
+            height: '28px',
             objectFit: 'contain',
             display: 'block'
-          }} 
+          }}
         />
       </Box>
     )
@@ -693,7 +751,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       <Box
         data-compact-user-menu
         sx={{
-          position: 'fixed',
+          position: 'absolute',
           left: 0,
           bottom: 0,
           width: menuWidth,
@@ -740,12 +798,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 },
               }}
             >
-              <SettingsIcon 
-                sx={{ 
+              <SettingsIcon
+                sx={{
                   fontSize: '16px',
-                  marginRight: '10px', 
-                  color: isActive('dashboard') ? lightTheme.textColor : lightTheme.textColorFaded 
-                }} 
+                  marginRight: '10px',
+                  color: isActive('dashboard') ? lightTheme.textColor : lightTheme.textColorFaded
+                }}
               />
               <Typography
                 variant="body2"
@@ -790,12 +848,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 },
               }}
             >
-              <UserCircle 
-                size={16} 
-                style={{ 
-                  marginRight: '10px', 
-                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColorFaded 
-                }} 
+              <UserCircle
+                size={16}
+                style={{
+                  marginRight: '10px',
+                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColorFaded
+                }}
               />
               <Typography
                 variant="body2"
@@ -840,12 +898,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 },
               }}
             >
-              <Link 
-                size={16} 
-                style={{ 
-                  marginRight: '10px', 
-                  color: isActive('oauth-connections') ? lightTheme.textColor : lightTheme.textColorFaded 
-                }} 
+              <Link
+                size={16}
+                style={{
+                  marginRight: '10px',
+                  color: isActive('oauth-connections') ? lightTheme.textColor : lightTheme.textColorFaded
+                }}
               />
               <Typography
                 variant="body2"
@@ -917,7 +975,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               <Box
                 component="img"
                 src="/img/logo.png"
-                alt="Helix" 
+                alt="Helix"
                 loading="eager"
                 sx={{
                   height: 30,
@@ -943,13 +1001,17 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               endIcon={<LogIn size={20} />}
               onClick={(e) => {
                 e.stopPropagation()
-                account.onLogin()
+                if (config?.auth_provider === TypesAuthProvider.AuthProviderRegular) {
+                  setLoginDialogOpen(true)
+                } else {
+                  account.onLogin()
+                }
               }}
             >
               Login / Register
             </ShimmerButton>
           )}
-          
+
           {/* Expand/collapse indicator - show when sidebar is visible regardless of login status */}
           {sidebarVisible && (
             <Box sx={{ ml: !account.user ? 3 : 0 }}>
@@ -1021,16 +1083,38 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     // Show floating menu: always when sidebar open, or when toggled in compact mode
     const showFloatingMenu = !isCompact || compactExpanded
 
+    // In compact mode, we need to use a Portal to escape the overflow-hidden drawer
+    // This is necessary because:
+    // 1. MUI Drawer uses CSS transforms (breaks position: fixed in Safari)
+    // 2. The drawer has overflowX: hidden which clips position: absolute elements
+    // 3. Portal renders the menu at document.body level, escaping both constraints
+    const floatingMenuContent = (
+      <Box sx={{
+        opacity: showFloatingMenu ? 1 : 0,
+        pointerEvents: showFloatingMenu ? 'auto' : 'none',
+        // In compact mode with Portal, use fixed positioning since we're outside the drawer
+        ...(isCompact && {
+          position: 'fixed',
+          left: 0,
+          bottom: 0,
+          zIndex: 9999,
+        }),
+      }}>
+        {renderFloatingMenu()}
+      </Box>
+    )
+
     return (
       <>
         {renderAvatar()}
-        {/* Always render the floating menu but hide with opacity and pointer-events to prevent image reloading */}
-        <Box sx={{ 
-          opacity: showFloatingMenu ? 1 : 0,
-          pointerEvents: showFloatingMenu ? 'auto' : 'none',
-        }}>
-          {renderFloatingMenu()}
-        </Box>
+        {/* In compact mode, use Portal to escape overflow-hidden drawer container */}
+        {isCompact ? (
+          <Portal>
+            {floatingMenuContent}
+          </Portal>
+        ) : (
+          floatingMenuContent
+        )}
       </>
     )
   }
@@ -1060,7 +1144,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         >
           <Tooltip title="Switch organization" placement="right">
             {renderCollapsedIcon()}
-          </Tooltip>              
+          </Tooltip>
 
           {/* Render navigation buttons */}
           {navigationButtons.map((button, index) => (
@@ -1231,8 +1315,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           </Box>
         </DialogContent>
       </Popover>
+
+      <LoginRegisterDialog
+        open={loginDialogOpen}
+        onClose={() => setLoginDialogOpen(false)}
+      />
     </>
   )
 }
 
-export default UserOrgSelector 
+export default UserOrgSelector

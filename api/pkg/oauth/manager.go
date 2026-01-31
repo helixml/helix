@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,23 +40,66 @@ func (e *ScopeError) Error() string {
 
 // Manager handles OAuth provider registrations and connections
 type Manager struct {
-	store     store.Store
-	providers map[string]Provider
-	mutex     sync.RWMutex
+	store         store.Store
+	providers     map[string]Provider
+	mutex         sync.RWMutex
+	tlsSkipVerify bool
 }
 
 // NewManager creates a new OAuth manager
-func NewManager(store store.Store) *Manager {
+func NewManager(store store.Store, tlsSkipVerify bool) *Manager {
 	return &Manager{
-		store:     store,
-		providers: make(map[string]Provider),
+		store:         store,
+		providers:     make(map[string]Provider),
+		tlsSkipVerify: tlsSkipVerify,
 	}
 }
 
-// LoadProviders loads all enabled OAuth providers from the database
-func (m *Manager) LoadProviders(ctx context.Context) error {
-	log.Info().Msg("Loading OAuth providers")
+// TODO: sync provider configuration periodically
+// Start starts the OAuth manager. Which:
+// Reloads configuration every 10 seconds
+// Refetches tokens for all connections every 1 minute
+func (m *Manager) Start(ctx context.Context) error {
 
+	err := m.LoadProviders(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load OAuth providers")
+	}
+
+	err = m.RefreshExpiredTokens(ctx, 5*time.Minute)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to refresh expired tokens")
+	}
+
+	go func() {
+		// Creating two tickers for each of the tasks, we don't
+		// want to run them at the same time
+		providerTicker := time.NewTicker(10 * time.Second)
+		tokenTicker := time.NewTicker(1 * time.Minute)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-providerTicker.C:
+				err := m.LoadProviders(ctx)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to load OAuth providers")
+				}
+			case <-tokenTicker.C:
+				err := m.RefreshExpiredTokens(ctx, 5*time.Minute)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to refresh expired tokens")
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
+// LoadProviders loads all enabled OAuth providers from the database.
+func (m *Manager) LoadProviders(ctx context.Context) error {
 	// Load all enabled providers
 	providers, err := m.store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
 		Enabled: true,
@@ -63,22 +107,6 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list OAuth providers from database")
 		return fmt.Errorf("failed to list providers: %w", err)
-	}
-
-	log.Info().Int("total_providers", len(providers)).Msg("Found enabled providers in database")
-
-	// Log detailed provider information
-	for _, config := range providers {
-		log.Info().
-			Str("provider_id", config.ID).
-			Str("provider_name", config.Name).
-			Str("provider_type", string(config.Type)).
-			Bool("provider_enabled", config.Enabled).
-			Str("client_id", config.ClientID).
-			Str("client_secret_prefix", config.ClientSecret[:4]+"...").
-			Str("callback_url", config.CallbackURL).
-			Strs("scopes", config.Scopes).
-			Msg("Found enabled provider in database")
 	}
 
 	// Initialize providers
@@ -90,21 +118,11 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		}
 	}
 
-	// Get all provider IDs for logging
-	var providerIDs []string
-	for id := range m.providers {
-		providerIDs = append(providerIDs, id)
-	}
-	log.Info().Int("count", len(providers)).Strs("provider_ids", providerIDs).Msg("Loaded OAuth providers")
 	return nil
 }
 
 // InitProvider initializes an OAuth provider
 func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider) error {
-	log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
-		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
-		Msg("Initializing OAuth provider")
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -117,9 +135,6 @@ func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider)
 
 	// Store with exact case from database
 	m.providers[config.ID] = provider
-	log.Info().Str("provider_name", config.Name).Str("provider_id", config.ID).
-		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
-		Msg("Initialized OAuth provider")
 	return nil
 }
 
@@ -343,8 +358,10 @@ func (m *Manager) RegisterProvider(ctx context.Context, providerID string) (Prov
 }
 
 // StartOAuthFlow initiates the OAuth flow for a provider
-func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL string) (string, error) {
-	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Msg("Initiating OAuth flow")
+// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
+// scopes is optional - if provided, these scopes are requested instead of the provider's default scopes
+func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL, metadata string, scopes []string) (string, error) {
+	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Strs("scopes", scopes).Msg("Initiating OAuth flow")
 
 	provider, err := m.GetProvider(providerID)
 	if err != nil {
@@ -354,7 +371,7 @@ func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redire
 
 	log.Debug().Str("provider_id", providerID).Str("provider_name", provider.GetName()).Str("user_id", userID).Msg("Found provider, getting authorization URL")
 
-	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL)
+	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL, metadata, scopes)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", userID).Msg("Failed to generate authorization URL")
 		return "", err
@@ -539,15 +556,31 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 	}
 
 	// Make a request to the GitHub API to list the user's repositories
+	// Create HTTP client with optional TLS skip verify for enterprise environments
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+	}
+	if m.tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client.Transport = transport
+	}
+
+	// Determine the API URL - use provider's AuthURL for GitHub Enterprise detection
+	// AuthURL format: https://github.example.com/login/oauth/authorize
+	apiURL := "https://api.github.com/user/repos?sort=updated&per_page=10"
+	if connection.Provider.AuthURL != "" && !strings.Contains(connection.Provider.AuthURL, "github.com") {
+		// GitHub Enterprise - extract base URL and construct API URL
+		baseURL := strings.TrimSuffix(connection.Provider.AuthURL, "/login/oauth/authorize")
+		apiURL = baseURL + "/api/v3/user/repos?sort=updated&per_page=10"
 	}
 
 	// Create the request
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://api.github.com/user/repos?sort=updated&per_page=10",
+		apiURL,
 		nil,
 	)
 	if err != nil {
@@ -589,36 +622,6 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 		"repos_count": len(repos),
 		"repos":       repos,
 	}, nil
-}
-
-// GetTokenForApp retrieves an OAuth token for a specific user's connection to a provider
-// This is used during app execution to inject OAuth tokens
-func (m *Manager) GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error) {
-	provider, err := m.GetProviderByName(ctx, providerName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
-	}
-
-	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
-		UserID:     userID,
-		ProviderID: provider.ID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to list user connections: %w", err)
-	}
-
-	for _, connection := range connections {
-		// Refresh the token if needed
-		if err := m.RefreshConnection(ctx, connection); err != nil {
-			log.Warn().Err(err).Str("connection_id", connection.ID).Msg("Failed to refresh token, trying next connection")
-			continue
-		}
-
-		// Found a valid connection with a refreshed token
-		return connection.AccessToken, nil
-	}
-
-	return "", fmt.Errorf("no active connection found for provider %s", providerName)
 }
 
 // GetTokenForTool retrieves an OAuth token for a tool's OAuth provider and required scopes

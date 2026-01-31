@@ -194,6 +194,7 @@ func (s *PostgresStore) GetOAuthConnectionByUserAndProvider(ctx context.Context,
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
+		Preload("Provider").
 		Where("user_id = ? AND provider_id = ? AND deleted_at IS NULL", userID, providerID).
 		First(&connection).Error
 
@@ -260,11 +261,11 @@ func (s *PostgresStore) ListOAuthConnections(ctx context.Context, query *ListOAu
 }
 
 // GetOAuthConnectionsNearExpiry gets connections that are about to expire
-func (s *PostgresStore) GetOAuthConnectionsNearExpiry(ctx context.Context, threshold time.Time) ([]*types.OAuthConnection, error) {
+func (s *PostgresStore) GetOAuthConnectionsNearExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.OAuthConnection, error) {
 	var connections []*types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
-		Where("expires_at > ? AND expires_at <= ?", time.Now(), threshold).
+		Where("expires_at <= ?", expiresBefore).
 		Find(&connections).Error
 
 	if err != nil {

@@ -4,12 +4,15 @@ import Typography from '@mui/material/Typography'
 import ApiIcon from '@mui/icons-material/Api'
 import DnsIcon from '@mui/icons-material/Dns'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import LinkIcon from '@mui/icons-material/Link'
 import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import SettingsIcon from '@mui/icons-material/Settings'
+import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
+import { UsersIcon } from 'lucide-react'
 
 const AdminPanelSidebar: FC = () => {
   const router = useRouter()
@@ -51,11 +54,25 @@ const AdminPanelSidebar: FC = () => {
           onClick: () => handleNavigationClick('oauth_providers')
         },
         {
+          id: 'service_connections',
+          label: 'Service Connections',
+          icon: <LinkIcon />,
+          isActive: currentTab === 'service_connections',
+          onClick: () => handleNavigationClick('service_connections')
+        },
+        {
           id: 'runners',
           label: 'GPU Runners',
           icon: <DirectionsRunIcon />,
           isActive: currentTab === 'runners',
           onClick: () => handleNavigationClick('runners')
+        },
+        {
+          id: 'agent_sandboxes',
+          label: 'Agent Sandboxes',
+          icon: <DeveloperBoardIcon />,
+          isActive: currentTab === 'agent_sandboxes',
+          onClick: () => handleNavigationClick('agent_sandboxes')
         }
       ]
     },
@@ -75,6 +92,18 @@ const AdminPanelSidebar: FC = () => {
           icon: <SettingsIcon />,
           isActive: currentTab === 'system_settings',
           onClick: () => handleNavigationClick('system_settings')
+        }
+      ]
+    },
+    {
+      title: 'User Management',
+      items: [        
+        {
+          id: 'users',
+          label: 'Users',
+          icon: <UsersIcon />,
+          isActive: currentTab === 'users',
+          onClick: () => handleNavigationClick('users')
         }
       ]
     }

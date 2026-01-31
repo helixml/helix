@@ -206,11 +206,12 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         const getSimpleModelName = (fullName: string) => {
             if (!fullName || fullName === "unknown") return "Unknown";
 
-            // Extract key parts: NVIDIA H100, RTX 4090, etc.
+            // Extract key parts: H100, RTX 4090, RX 7900 XTX, etc. (vendor-neutral)
             const name = fullName
-                .replace(/^NVIDIA\s+/, "")
-                .replace(/\s+PCIe.*$/, "")
-                .replace(/\s+SXM.*$/, "");
+                .replace(/^(NVIDIA|AMD|Intel)\s+/, "")  // Remove vendor prefix
+                .replace(/^Radeon\s+/, "")               // Remove "Radeon" prefix for AMD
+                .replace(/\s+PCIe.*$/, "")               // Remove PCIe details
+                .replace(/\s+SXM.*$/, "");               // Remove SXM details
             return name.length > 12 ? name.substring(0, 12) + "..." : name;
         };
 
@@ -246,7 +247,7 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
                             GPU {gpu.index}
                         </Typography>
                         <Tooltip
-                            title={`${gpu.model_name || "Unknown GPU"} • Driver: ${gpu.driver_version || "unknown"} • CUDA: ${gpu.cuda_version || "unknown"}`}
+                            title={`${gpu.model_name || "Unknown GPU"} • Driver: ${gpu.driver_version || "unknown"} • SDK: ${gpu.sdk_version || "unknown"}`}
                         >
                             <Typography
                                 variant="caption"

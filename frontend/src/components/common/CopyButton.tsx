@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { IconButton, Tooltip, useTheme, Box } from '@mui/material';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import CheckIcon from '@mui/icons-material/Check';
+import { Copy, Check } from 'lucide-react';
 
 interface CopyButtonProps {
   content: string;
@@ -70,7 +69,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
             ...sx
           }}
         >
-          {copied ? <CheckIcon fontSize={size} /> : <ContentCopyIcon fontSize={size} />}
+          {copied ? <Check size={size === 'small' ? 16 : size === 'medium' ? 20 : 24} /> : <Copy size={size === 'small' ? 16 : size === 'medium' ? 20 : 24} />}
         </IconButton>
       </Tooltip>
     </Box>

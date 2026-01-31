@@ -357,8 +357,8 @@ func (pt *ProcessTracker) findModelProcesses() ([]int, error) {
 	// Find all VLLM and Ollama processes
 	// Pattern 1: Direct VLLM processes
 	vllmRegex := regexp.MustCompile(`(?i)(vllm|python.*vllm|uvicorn.*vllm)`)
-	// Pattern 2: VLLM worker processes (multiprocessing children)
-	vllmWorkerRegex := regexp.MustCompile(`(?i)(/workspace/vllm/venv/bin/python)`)
+	// Pattern 2: VLLM worker processes (multiprocessing children) - matches both CUDA and ROCm venvs
+	vllmWorkerRegex := regexp.MustCompile(`(?i)(/workspace/vllm(-cuda|-rocm)?/venv/bin/python)`)
 	// Pattern 3: Ollama processes
 	ollamaRegex := regexp.MustCompile(`(?i)(/usr/bin/ollama|ollama\s+(serve|runner))`)
 

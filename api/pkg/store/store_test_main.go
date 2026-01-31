@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 )
@@ -27,8 +28,15 @@ func GetTestDB() *PostgresStore {
 			return
 		}
 
+		ps, err := pubsub.NewInMemoryNats()
+		if err != nil {
+			testDBErr = err
+			log.Fatal().Err(err).Msg("failed to create in-memory pubsub")
+			return
+		}
+
 		// Create a single database connection for all tests
-		testDB, err = NewPostgresStore(storeCfg)
+		testDB, err = NewPostgresStore(storeCfg, ps)
 		if err != nil {
 			testDBErr = err
 			log.Fatal().Err(err).Msg("failed to create test database connection")

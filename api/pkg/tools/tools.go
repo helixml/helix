@@ -11,7 +11,6 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -30,7 +29,6 @@ type Planner interface {
 
 	// Low level methods for Model Context Protocol (MCP)
 	RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...Option) (*types.RunAPIActionResponse, error)
-	// TODO: GPTScript, Zapier.
 }
 
 // Static check
@@ -46,13 +44,12 @@ type ChainStrategy struct {
 
 	apiClient                 openai.Client // Default API client is none is passed through the options
 	httpClient                *http.Client
-	gptScriptExecutor         gptscript.Executor
 	isActionableTemplate      string
 	isActionableHistoryLength int
 	wg                        sync.WaitGroup
 }
 
-func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExecutor gptscript.Executor, client openai.Client) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, store store.Store, client openai.Client) (*ChainStrategy, error) {
 	isActionableTemplate, err := getIsActionablePromptTemplate(cfg)
 	if err != nil {
 		log.Err(err).Msg("failed to get actionable template, falling back to default")
@@ -60,12 +57,12 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 		isActionableTemplate = isInformativeOrActionablePrompt
 	}
 
-	retryClient := system.NewRetryClient(3)
+	retryClient := system.NewRetryClient(3, cfg.Tools.TLSSkipVerify)
+
 	return &ChainStrategy{
 		cfg:                       cfg,
 		store:                     store,
 		apiClient:                 client,
-		gptScriptExecutor:         gptScriptExecutor,
 		httpClient:                retryClient.StandardClient(),
 		isActionableTemplate:      isActionableTemplate,
 		isActionableHistoryLength: cfg.Tools.IsActionableHistoryLength,

@@ -14,7 +14,6 @@ const (
 	SessionPrefix              = "ses_"
 	InteractionPrefix          = "int_"
 	AppPrefix                  = "app_"
-	GptScriptRunnerTaskPrefix  = "gst_"
 	RequestPrefix              = "req_"
 	DataEntityPrefix           = "dent_"
 	LLMCallPrefix              = "llmc_"
@@ -37,6 +36,12 @@ const (
 	WalletPrefix               = "wal_"
 	TransactionPrefix          = "txn_"
 	TopUpPrefix                = "top_"
+	MemoryPrefix               = "mem_"
+	QuestionSetPrefix          = "qs_"
+	QuestionSetExecutionPrefix = "qsex_"
+	SpecTaskPrefix             = "spt_"
+	ProjectPrefix              = "prj_"
+	CloneGroupPrefix           = "clg_"
 )
 
 func GenerateUUID() string {
@@ -73,10 +78,6 @@ func GenerateAppID() string {
 
 func GenerateDataEntityID() string {
 	return fmt.Sprintf("%s%s", DataEntityPrefix, newID())
-}
-
-func GenerateGptScriptTaskID() string {
-	return fmt.Sprintf("%s%s", GptScriptRunnerTaskPrefix, newID())
 }
 
 func GenerateRequestID() string {
@@ -117,6 +118,10 @@ func GenerateRoleID() string {
 
 func GenerateAccessGrantID() string {
 	return fmt.Sprintf("%s%s", AccessGrantPrefix, newID())
+}
+
+func GenerateProjectID() string {
+	return fmt.Sprintf("%s%s", ProjectPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge
@@ -164,4 +169,24 @@ func GenerateTransactionID() string {
 
 func GenerateTopUpID() string {
 	return fmt.Sprintf("%s%s", TopUpPrefix, newID())
+}
+
+func GenerateMemoryID() string {
+	return fmt.Sprintf("%s%s", MemoryPrefix, newID())
+}
+
+func GenerateQuestionSetID() string {
+	return fmt.Sprintf("%s%s", QuestionSetPrefix, newID())
+}
+
+func GenerateQuestionSetExecutionID() string {
+	return fmt.Sprintf("%s%s", QuestionSetExecutionPrefix, newID())
+}
+
+func GenerateSpecTaskID() string {
+	return fmt.Sprintf("%s%s", SpecTaskPrefix, newID())
+}
+
+func GenerateCloneGroupID() string {
+	return fmt.Sprintf("%s%s", CloneGroupPrefix, newID())
 }

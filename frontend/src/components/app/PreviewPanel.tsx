@@ -69,6 +69,10 @@ interface PreviewPanelProps {
   app?: IApp;
   activeAssistantID?: string;
   onSessionUpdate?: (session: TypesSession) => void;
+  hideSearchMode?: boolean;
+  noBackground?: boolean;
+  fullWidth?: boolean;
+  hideHeader?: boolean;
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -91,6 +95,10 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   app,
   activeAssistantID = '0',
   onSessionUpdate,
+  hideSearchMode = false,
+  noBackground = false,
+  fullWidth = false,
+  hideHeader = false,
 }) => {
   const textFieldRef = useRef<HTMLTextAreaElement>();
   const scrollableRef = useRef<HTMLDivElement>(null);
@@ -102,6 +110,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const { NewInference, setCurrentSessionId } = useStreaming();
   const [isStreaming, setIsStreaming] = useState(false);
   const router = useRouterContext();
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({});
   // const [showSession, setShowSession] = useState(false);
 
   const activeAssistant = app && getAssistant(app, activeAssistantID);
@@ -185,6 +194,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const handleInference = useCallback(async () => {
     if (!inputValue.trim()) return;
 
+    let actualPrompt = inputValue;
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     if (session && session.id) {
       // Continue existing session
       setIsInternalLoading(true);
@@ -194,12 +208,13 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           parts: [
             {
               type: "text", 
-              text: inputValue,
+              text: actualPrompt,
             }
           ],
         };
 
         setInputValue('');
+        setFilterMap({});
         
         const updatedSession = await NewInference({
           message: '',
@@ -234,7 +249,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       // Show Session component after first message
       // setShowSession(true);
     }
-  }, [inputValue, session, NewInference, appId, activeAssistantID, onInference, onSessionUpdate, snackbar, setInputValue]);
+  }, [inputValue, session, NewInference, appId, activeAssistantID, onInference, onSessionUpdate, snackbar, setInputValue, filterMap]);
 
   // Add effect to update URL when session is created
   useEffect(() => {
@@ -343,18 +358,20 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           pr: 2,          
         }}
       >
-        <FormControlLabel
-          control={
-            <Switch
-              checked={isSearchMode}
-              onChange={handleSearchModeChange}
-              color="primary"
-              size="small"
-            />
-          }
-          label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-          sx={{ color: 'white', margin: 0, alignItems: 'center', display: 'flex' }}
-        />
+        {!hideSearchMode && (
+          <FormControlLabel
+            control={
+              <Switch
+                checked={isSearchMode}
+                onChange={handleSearchModeChange}
+                color="primary"
+                size="small"
+              />
+            }
+            label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+            sx={{ color: 'white', margin: 0, alignItems: 'center', display: 'flex' }}
+          />
+        )}
         {session && !isSearchMode && (
           <Tooltip title="Start new conversation">
             <IconButton 
@@ -376,23 +393,24 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   );
 
   return (
-    <Grid item xs={12} md={6}
+    <Grid item xs={12} md={fullWidth ? 12 : 6}
       sx={{
         position: 'relative',
-        backgroundImage: !app ? `url(${image || '/img/app-editor-swirl.webp'})` : 'none',
+        backgroundImage: noBackground ? 'none' : (!app ? `url(${image || '/img/app-editor-swirl.webp'})` : 'none'),
         backgroundPosition: 'top',
         backgroundRepeat: 'no-repeat',
         backgroundSize: image ? 'cover' : 'auto',
         display: 'flex',
         flexDirection: 'column',
-        borderRight: '1px solid #303047',
-        borderBottom: '1px solid #303047',
+        borderRight: noBackground ? 'none' : '1px solid #303047',
+        borderBottom: noBackground ? 'none' : '1px solid #303047',
         overflow: 'hidden',
-        borderTopRightRadius: 8,
-        borderBottomRightRadius: 8,
+        borderTopRightRadius: noBackground ? 0 : 8,
+        borderBottomRightRadius: noBackground ? 0 : 8,
+        width: fullWidth ? '100%' : undefined,
       }}
     >
-      {!app && image && (
+      {!noBackground && !app && image && (
         <Box
           sx={{
             position: 'absolute',
@@ -407,30 +425,32 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       )}
       
       {/* Header */}
-      {app ? inferenceHeader : (
+      {!hideHeader && (app ? inferenceHeader : (
         <Box
           sx={{
             p: 0,
             display: 'flex',            
             justifyContent: 'space-between',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: noBackground ? 'transparent' : 'rgba(0, 0, 0, 0.5)',
             position: 'relative',
             zIndex: 10,
           }}
         >         
-          <FormControlLabel
-            sx={{ color: 'white', ml: 2, mt: 2 }}
-            control={
-              <Switch
-                checked={isSearchMode}
-                onChange={handleSearchModeChange}
-                color="primary"
-                size="small"
-              />
-            }
-            label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-            
-          />
+          {!hideSearchMode && (
+            <FormControlLabel
+              sx={{ color: 'white', ml: 2, mt: 2 }}
+              control={
+                <Switch
+                  checked={isSearchMode}
+                  onChange={handleSearchModeChange}
+                  color="primary"
+                  size="small"
+                />
+              }
+              label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+              
+            />
+          )}
           {session && !isSearchMode && (
             <Tooltip title="Start new conversation">
               <IconButton 
@@ -450,7 +470,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             </Tooltip>
           )}
         </Box>
-      )}
+      ))}
 
       {/* Scrollable Results Area */}
       <Box
@@ -462,7 +482,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           minHeight: 0,
           overflowY: isStreaming ? 'hidden' : 'auto',
           transition: 'overflow-y 0.3s ease',
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backgroundColor: noBackground ? 'transparent' : 'rgba(0, 0, 0, 0.5)',
           display: 'flex',
           flexDirection: 'column',
           // Custom scrollbar styling
@@ -499,7 +519,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             />
           </Box>
         ) : (
-          <Container maxWidth="lg" sx={{ py: 2, width: '100%' }}>
+          <Container maxWidth={fullWidth ? false : "lg"} sx={{ py: 2, width: '100%', px: fullWidth ? 2 : undefined }}>
             {isSearchMode ? (
               hasKnowledgeSources ? (
                 searchResults && searchResults.length > 0 ? (
@@ -563,16 +583,16 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             flexGrow: 0,
             position: 'relative',
             zIndex: 2,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',            
+            backgroundColor: noBackground ? 'transparent' : 'rgba(0, 0, 0, 0.5)',            
           }}
         >
-          <Container maxWidth="lg">
+          <Container maxWidth={fullWidth ? false : "lg"} sx={{ px: fullWidth ? 2 : undefined }}>
             <Box sx={{ py: 2 }}>
               <Row>
                 <Cell flexGrow={1}>
                   <Box
                     sx={{
-                      margin: '0 auto',
+                      margin: fullWidth ? 0 : '0 auto',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 2,
@@ -622,6 +642,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                           onInference={handleInference}
                           attachedImages={attachedImages}
                           onAttachedImagesChange={setAttachedImages}
+                          filterMap={filterMap}
+                          onFilterMapUpdate={setFilterMap}
                         />
                       </Box>
                     </>
@@ -643,8 +665,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             flexGrow: 0,
             position: 'relative',
             zIndex: 2,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            backgroundColor: noBackground ? 'transparent' : 'rgba(0, 0, 0, 0.5)',
+            borderTop: noBackground ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
           }}
         >
           <Box

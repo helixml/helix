@@ -81,23 +81,33 @@ pgvector:
     selector: {}
     dataSource: {}
 
-gptscript:
-  enabled: true
-  image:
-    repository: registry.helixml.tech/helix/gptscript-runner
-  replicas: 2
-  concurrency: 20
-  maxTasks: 0
-
 controlplane:
   logLevel: "INFO"
   runnerToken: ""
   runnerTokenExistingSecret: ""
   runnerTokenExistingSecretKey: ""
+  # Encryption key for secrets at rest (SSH keys, PATs, etc.)
+  # 64-character hex string (32 bytes for AES-256-GCM)
+  # Generate with: openssl rand -hex 32
+  encryptionKey: ""
+  encryptionKeyExistingSecret: ""
+  encryptionKeyExistingSecretKey: ""
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""
+  # Used for sending emails like password reset, agent notifications, etc.
+  smtp:
+    enabled: false
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: ""
+  # Can be regular (inbuilt auth), keycloak (external auth) or oidc (external auth)
+  authProvider: "regular"
   keycloak:
+    enabled: false
     url: ""
     frontendUrl: ""
     user: ""
@@ -108,6 +118,8 @@ controlplane:
   admin:
     userSource: "env"
     userIds: "all"
+  # AI Providers management - controls if users can add their own AI provider API keys
+  providersManagementEnabled: true
   sidecar:
     enabled: false
     name: sidecar
@@ -119,7 +131,7 @@ controlplane:
     args:
       - 'echo "Hello World"'
   haystack:
-    enabled: true
+    enabled: false
     image:
       repository: registry.helixml.tech/helix/haystack
     embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
@@ -152,6 +164,9 @@ controlplane:
     existingSecret: ""
     existingSecretTokenKey: ""
   extraEnv: []
+  kodit: {}
+    # baseURL: # Defaults to http://{{ .Release.Name }}-kodit:8080
+    # gitURL: # Defaults to http://{{ .Release.Name }}:80
 
 imagePullSecrets: []
 nameOverride: ""
@@ -167,6 +182,8 @@ podAnnotations: {}
 podLabels: {}
 
 podSecurityContext: {}
+
+terminationGracePeriodSeconds: 30
 
 securityContext: {}
 
@@ -226,6 +243,11 @@ affinity: {}
 
 postgresql:
   enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "latest"
+    pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
     username: helix
@@ -250,3 +272,68 @@ postgresql:
     existingSecretDatabaseKey: ""
     existingSecretPasswordKey: ""
     annotations: {}
+
+# Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix
+kodit:
+  enabled: true
+
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.23"
+    pullPolicy: IfNotPresent
+
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "kodit-password"
+    database: "kodit"
+    # Option: Use existing secret for all auth credentials
+    existingSecret: ""
+    usernameKey: "" # defaults to "username"
+    passwordKey: "" # defaults to "password"
+    databaseKey: "" # defaults to "database"
+
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  enrichment:
+    # Base URL for enrichment API (defaults to Helix controlplane)
+    baseUrl: "" # Defaults to http://<fullname>:80/v1
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+    # API key for enrichment endpoint
+    apiKey: ""
+    # Option: Use existing secret for API key (recommended - use runner token secret)
+    existingSecret: ""
+    existingSecretKey: "" # defaults to "api-token"
+
+  # Persistence for kodit data
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
+
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: "10Gi"
+      storageClass: ""
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      existingClaim: ""
+      selector: {}
+      dataSource: {}

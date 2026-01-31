@@ -1,7 +1,5 @@
-import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import IconButton from '@mui/material/IconButton'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
@@ -34,6 +32,8 @@ const InferenceTextField: FC<{
   appId: string,
   attachedImages?: File[],
   onAttachedImagesChange?: (files: File[]) => void,
+  filterMap?: Record<string, string>,
+  onFilterMapUpdate?: (filterMap: Record<string, string>) => void,
 }> = ({
   type,
   value,
@@ -47,6 +47,8 @@ const InferenceTextField: FC<{
   appId,
   attachedImages = [],
   onAttachedImagesChange,
+  filterMap: externalFilterMap,
+  onFilterMapUpdate,
 }) => {
     const lightTheme = useLightTheme()
     const theme = useTheme()
@@ -55,6 +57,7 @@ const InferenceTextField: FC<{
     const imageInputRef = useRef<HTMLInputElement>(null)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
     const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+    const [internalFilterMap, setInternalFilterMap] = useState<Record<string, string>>({})
 
     const handleKeyDown = useEnterPress({
       value,
@@ -66,8 +69,55 @@ const InferenceTextField: FC<{
       onUpdate(event.target.value)
     }
 
+    const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const textarea = e.target
+      onUpdate(textarea.value)
+      
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto'
+      
+      // Calculate new height based on content
+      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
+      const maxLines = 5
+      const maxHeight = lineHeight * maxLines
+      
+      // Set height to scrollHeight, but cap at maxHeight
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+      textarea.style.height = `${newHeight}px`
+    }
+
     const handleInsertText = (text: string) => {
-      onUpdate(value + text)
+      const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+      const match = text.match(filterRegex);
+      
+      if (match) {
+        const fullPath = match[1];
+        const filename = fullPath.split('/').pop() || fullPath;
+        const displayText = `@${filename}`;
+        
+        const newFilterMap = {
+          ...internalFilterMap,
+          [displayText]: text
+        };
+        setInternalFilterMap(newFilterMap);
+        
+        if (onFilterMapUpdate) {
+          onFilterMapUpdate(newFilterMap);
+        }
+        
+        // Find the last @ in the text and replace it with the display text
+        const lastAtIndex = value.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          // Replace from @ to the end with the display text
+          const newValue = value.substring(0, lastAtIndex) + displayText;
+          onUpdate(newValue);
+        } else {
+          // Fallback: just append if @ not found
+          onUpdate(value + displayText);
+        }
+      } else {
+        onUpdate(value + text);
+      }
     }
 
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,6 +146,12 @@ const InferenceTextField: FC<{
       focus,
     ])
 
+    useEffect(() => {
+      if (!value && textFieldRef.current) {
+        textFieldRef.current.style.height = 'auto'
+      }
+    }, [value])
+
     return (
       <>
         <ContextMenuModal
@@ -105,7 +161,7 @@ const InferenceTextField: FC<{
         />
         <Box
           sx={{
-            width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+            width: '95%',
             margin: '0 auto',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             borderRadius: '12px',
@@ -122,7 +178,7 @@ const InferenceTextField: FC<{
             <textarea
               ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
               value={value}
-              onChange={e => onUpdate(e.target.value)}
+              onChange={handleTextareaChange}
               onKeyDown={handleKeyDown as any}
               rows={1}
               style={{
@@ -135,6 +191,8 @@ const InferenceTextField: FC<{
                 outline: 'none',
                 fontFamily: 'inherit',
                 fontSize: 'inherit',
+                lineHeight: '1.5',
+                overflowY: 'auto',
               }}
               placeholder={usePromptLabel}
               disabled={disabled}
@@ -181,7 +239,7 @@ const InferenceTextField: FC<{
             </Box>
             <Tooltip title="Send Prompt" placement="top">
               <Box
-                onClick={onInference}
+                onClick={() => onInference()}
                 sx={{
                   width: 32,
                   height: 32,

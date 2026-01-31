@@ -25,7 +25,15 @@ interface UseContextMenuOptions {
     onInsertText?: (text: string) => void;
 }
 
-// Hook to manage context menu state and functionality
+// Hook to manage context menu state and functionality.
+//
+// How It Works:
+// 1. When a filter is selected, the code parses @filter([DOC_NAME:nvidia-10-k/nvidia-form-10-k.pdf][DOC_ID:b257cbb961])
+// 2. Extracts the filename nvidia-form-10-k.pdf from the path
+// 3. Displays @nvidia-form-10-k.pdf in the textarea
+// 4. Stores the mapping @nvidia-form-10-k.pdf → full filter command
+// 5. When sending, replaces all @filename occurrences with their full filter commands
+// 6. Clears the filter map after sending
 export const useContextMenu = ({
     appId,
     textAreaRef,
@@ -47,40 +55,61 @@ export const useContextMenu = ({
     const getCursorPosition = useCallback((): ContextMenuPosition => {
         if (textAreaRef?.current) {
             const textarea = textAreaRef.current;
-
-            // Get cursor position in textarea
+            const rect = textarea.getBoundingClientRect();
             const cursorPosition = textarea.selectionEnd || 0;
-
-            // Create a range to get the positioning
             const textBeforeCursor = textarea.value.substring(0, cursorPosition);
 
-            // Create a temporary element to measure position
+            // Create a mirror div to calculate cursor position
+            const div = document.createElement('div');
+            const computedStyle = window.getComputedStyle(textarea);
+            
+            // Copy all relevant styles from textarea to div
+            const stylesToCopy = [
+                'font-family', 'font-size', 'font-weight', 'font-style',
+                'letter-spacing', 'text-transform', 'word-spacing', 'text-indent',
+                'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+                'box-sizing', 'width', 'line-height'
+            ];
+            
+            stylesToCopy.forEach(style => {
+                div.style[style as any] = computedStyle[style as any];
+            });
+            
+            div.style.position = 'absolute';
+            div.style.visibility = 'hidden';
+            div.style.whiteSpace = 'pre-wrap';
+            div.style.wordWrap = 'break-word';
+            div.style.overflow = 'hidden';
+            div.style.top = '0';
+            div.style.left = '0';
+
+            // Add the text before cursor
+            div.textContent = textBeforeCursor;
+
+            // Add a span at the cursor position to measure its coordinates
             const span = document.createElement('span');
-            span.textContent = textBeforeCursor;
-            span.style.position = 'absolute';
-            span.style.visibility = 'hidden';
-            span.style.whiteSpace = 'pre-wrap';
-            span.style.wordWrap = 'break-word';
-            span.style.font = window.getComputedStyle(textarea).font;
-            span.style.width = window.getComputedStyle(textarea).width;
+            span.textContent = '|';
+            div.appendChild(span);
 
-            document.body.appendChild(span);
+            document.body.appendChild(div);
 
-            // Calculate position
-            const rect = textarea.getBoundingClientRect();
-            const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
+            // Get the span's position
+            const spanRect = span.getBoundingClientRect();
+            const divRect = div.getBoundingClientRect();
 
-            // Count newlines for vertical position
-            const lines = textBeforeCursor.split('\n').length - 1;
+            document.body.removeChild(div);
 
-            document.body.removeChild(span);
+            // Calculate absolute position considering scroll
+            const top = rect.top + (spanRect.top - divRect.top) - textarea.scrollTop + 25;
+            const left = rect.left + (spanRect.left - divRect.left) - textarea.scrollLeft;
 
             return {
-                top: rect.top + lines * lineHeight + 20, // Add some offset
-                left: rect.left + span.offsetWidth % rect.width
+                top: Math.max(0, top),
+                left: Math.max(0, left)
             };
         } else {
-            // Falback to getting mouse position
+            // Fallback to getting mouse position
             return {
                 top: coordsRef.current.y,
                 left: coordsRef.current.x
@@ -176,9 +205,27 @@ export const useContextMenu = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!appId) return;
             if (!isOpen && e.key === '@') {
-                e.preventDefault();
-                e.stopPropagation();
-                openContextMenu();
+                // Only trigger if the focused element is the textarea we're listening to
+                if (textAreaRef?.current && document.activeElement === textAreaRef.current) {
+                    const textarea = textAreaRef.current;
+                    const cursorPosition = textarea.selectionEnd || 0;
+                    const textBeforeCursor = textarea.value.substring(0, cursorPosition);
+                    
+                    // Check if @ is at the start or preceded by whitespace
+                    const isAtStart = textBeforeCursor.length === 0;
+                    const isPrecededByWhitespace = textBeforeCursor.length > 0 && /\s$/.test(textBeforeCursor);
+                    
+                    if (!isAtStart && !isPrecededByWhitespace) {
+                        // Don't trigger the menu - let the @ be typed normally
+                        return;
+                    }
+                    
+                    // Don't prevent default - let the @ be inserted
+                    // We'll open the menu after the @ is in the textarea
+                    setTimeout(() => {
+                        openContextMenu();
+                    }, 0);
+                }
             }
         };
 
@@ -189,7 +236,7 @@ export const useContextMenu = ({
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
         };
-    }, [isOpen, results, selectedIndex, openContextMenu, closeContextMenu, appId]);
+    }, [isOpen, results, selectedIndex, openContextMenu, closeContextMenu, appId, textAreaRef]);
 
     // Handle special control keys to navigate the menu
     const handleInputKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -280,6 +327,8 @@ export const useContextMenu = ({
                 onClose={closeContextMenu}
                 anchorReference="anchorPosition"
                 anchorPosition={{ top: position.top, left: position.left }}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
                 ref={menuRef}
                 // Keep the menu mounted when open to prevent flickering
                 keepMounted={false}

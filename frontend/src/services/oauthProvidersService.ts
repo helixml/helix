@@ -108,7 +108,7 @@ export function useDeleteOAuthConnection() {
 
 export function useRefreshOAuthConnection() {
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -120,5 +120,23 @@ export function useRefreshOAuthConnection() {
       queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
       queryClient.invalidateQueries({ queryKey: oauthConnectionQueryKey(id) })
     }
+  });
+}
+
+// Repository listing from OAuth connections
+export const oauthConnectionRepositoriesQueryKey = (id: string) => ["oauth-connection-repositories", id];
+
+export function useListOAuthConnectionRepositories(connectionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: oauthConnectionRepositoriesQueryKey(connectionId),
+    queryFn: async () => {
+      const result = await apiClient.v1OauthConnectionsRepositoriesDetail(connectionId)
+      return result.data
+    },
+    enabled: !!connectionId,
+    staleTime: 60 * 1000, // 1 minute
   });
 }

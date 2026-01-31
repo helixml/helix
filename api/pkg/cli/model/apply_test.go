@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,4 +133,29 @@ func TestValidKinds(t *testing.T) {
 		}
 		assert.False(t, isValid, "Kind %s should be invalid", invalidKind)
 	})
+}
+
+func TestParseModelConfigFile_VLLMWithRuntimeArgs(t *testing.T) {
+	yamlContent := `apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+  name: qwen-3-coder-30b-a3b-instruct
+spec:
+  id: Qwen/Qwen3-Coder-30B-A3B-Instruct
+  type: chat
+  runtime: vllm
+  memory: 39000000000
+  runtime_args:
+    args:
+      - "--trust-remote-code"
+      - "--max-model-len"
+      - "32768"
+`
+
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.yml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(yamlContent), 0644))
+
+	_, err := parseModelConfigFile(tmpFile)
+	require.NoError(t, err)
 }

@@ -13,13 +13,13 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -46,7 +46,7 @@ type BaseOAuthTestSuite struct {
 	store          store.Store
 	oauth          *oauth.Manager
 	client         *client.HelixClient
-	keycloak       *auth.KeycloakAuthenticator
+	authenticator  auth.Authenticator
 	helixAPIServer *server.HelixAPIServer
 
 	// Server configuration
@@ -122,13 +122,18 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	storeConfig.Schema = fmt.Sprintf("test_oauth_%s", suite.testID)
 	suite.logger.Info().Str("schema", storeConfig.Schema).Msg("Using unique database schema for test isolation")
 
-	suite.store, err = store.NewPostgresStore(storeConfig)
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		return fmt.Errorf("failed to create in-memory pubsub: %w", err)
+	}
+
+	suite.store, err = store.NewPostgresStore(storeConfig, ps)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}
 
 	// Initialize OAuth manager
-	suite.oauth = oauth.NewManager(suite.store)
+	suite.oauth = oauth.NewManager(suite.store, cfg.Tools.TLSSkipVerify)
 
 	// Initialize server dependencies
 	err = suite.setupServerDependencies(cfg, webServerHost)
@@ -155,7 +160,7 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	}
 
 	suite.serverURL = cfg.WebServer.URL
-	suite.client, err = client.NewClient(suite.serverURL, apiKey)
+	suite.client, err = client.NewClient(suite.serverURL, apiKey, cfg.Tools.TLSSkipVerify)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -206,7 +211,6 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	extractorMock := extract.NewMockExtractor(ctrl)
 	ragMock := rag.NewMockRAG(ctrl)
 	notifierMock := notification.NewMockNotifier(ctrl)
-	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
 
 	// Create PubSub
 	ps, err := pubsub.New(&config.ServerConfig{
@@ -265,27 +269,17 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		return fmt.Errorf("failed to create controller: %w", err)
 	}
 
-	// Create Keycloak authenticator
-	keycloakConfig := cfg.Keycloak
-	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		keycloakConfig.KeycloakURL = keycloakURL
-		keycloakConfig.KeycloakFrontEndURL = keycloakURL
-	} else {
-		keycloakConfig.KeycloakURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-		keycloakConfig.KeycloakFrontEndURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-	}
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
+	// Create authenticator
+	authenticator, err := auth.NewHelixAuthenticator(&cfg, suite.store, "test-secret", nil)
 	if err != nil {
-		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
+		return fmt.Errorf("failed to create authenticator: %w", err)
 	}
-	suite.keycloak = keycloakAuthenticator
-
-	// Update config with Keycloak settings
-	cfg.Keycloak = keycloakConfig
+	suite.authenticator = authenticator
 
 	// Create trigger manager
 	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, notifierMock, controller)
+
+	anthropicProxy := anthropic.New(&cfg, suite.store, modelInfoProvider, nil)
 
 	// Create the API server
 	avatarsBucket := memblob.OpenBucket(nil)
@@ -293,11 +287,10 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		&cfg,
 		suite.store,
 		ps,
-		gptScriptExecutor,
 		providerManager,
 		modelInfoProvider,
 		nil,
-		keycloakAuthenticator,
+		authenticator,
 		nil,
 		controller,
 		janitor.NewJanitor(config.Janitor{}),
@@ -307,6 +300,8 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		suite.oauth,
 		avatarsBucket,
 		triggerManager,
+		anthropicProxy,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
@@ -364,18 +359,11 @@ func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
 		Admin:    false,
 	}
 
-	// Create user in Keycloak first
-	createdUser, err := suite.keycloak.CreateKeycloakUser(suite.ctx, user)
+	// Generate user ID and create user
+	user.ID = system.GenerateUUID()
+	createdUser, err := suite.authenticator.CreateUser(suite.ctx, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create user in Keycloak: %w", err)
-	}
-
-	user.ID = createdUser.ID
-
-	// Create user in database
-	createdUser, err = suite.store.CreateUser(suite.ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user in database: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	return createdUser, nil
@@ -512,11 +500,13 @@ func (suite *BaseOAuthTestSuite) CleanupExistingOAuthData() error {
 }
 
 // StartOAuthFlow starts OAuth flow using OAuth manager directly
-func (suite *BaseOAuthTestSuite) StartOAuthFlow(providerID, callbackURL string) (string, string, error) {
-	suite.logger.Info().Msg("Starting OAuth flow via OAuth manager")
+// scopes should be provided - they are no longer read from provider config
+func (suite *BaseOAuthTestSuite) StartOAuthFlow(providerID, callbackURL string, scopes []string) (string, string, error) {
+	suite.logger.Info().Strs("scopes", scopes).Msg("Starting OAuth flow via OAuth manager")
 
 	// Call OAuth manager directly instead of making HTTP request
-	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL)
+	// Scopes must be provided by caller (loaded from skill YAML or test config)
+	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL, "", scopes)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start OAuth flow: %w", err)
 	}

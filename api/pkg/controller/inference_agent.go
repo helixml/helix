@@ -8,9 +8,14 @@ import (
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/agent/skill/memory"
+	"github.com/helixml/helix/api/pkg/agent/skill/project"
+	"github.com/helixml/helix/api/pkg/agent/skill/repository"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -49,7 +54,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Str("interaction_id", vals.InteractionID).
 		Msg("Running agent")
 
-	mem := agent.NewDefaultMemory()
+	// Default memory uses Postgres to load and persist memories
+	mem := agent.NewDefaultMemory(req.Assistant.Memory, c.Options.Store)
 
 	// Assemble clients and providers
 
@@ -116,17 +122,28 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	var skills []agent.Skill
 
+	if req.Assistant.Memory {
+		skills = append(skills, memory.NewAddMemorySkill(c.Options.Store))
+	}
+
+	lastUserMessage := getLastMessage(req.Request)
+
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
+
 		if assistantTool.ToolType == types.ToolTypeAPI {
 			// Use direct API skills instead of the skill context runner approach
 			// This allows the main agent to orchestrate API calls with other tools (Calculator, Currency_Exchange_Rates)
-			apiSkills := skill.NewDirectAPICallingSkills(c.ToolsPlanner, assistantTool)
+			apiSkills := skill.NewDirectAPICallingSkills(c.ToolsPlanner, c.Options.OAuthManager, assistantTool)
 			skills = append(skills, apiSkills...)
 		}
 
+		if assistantTool.ToolType == types.ToolTypeMCP {
+			skills = append(skills, mcp.NewDirectMCPClientSkills(c.Options.MCPClientGetter, c.Options.OAuthManager, assistantTool)...)
+		}
+
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache, c.Options.Config.Tools.TLSSkipVerify))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {
@@ -141,12 +158,18 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider, c.Options.Browser))
 		}
 
+		if assistantTool.ToolType == types.ToolTypeProjectManager {
+			skills = append(skills, project.NewHelixProjectsSkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store))
+			skills = append(skills, repository.NewHelixRepositorySkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store, c.gitRepositoryService))
+		}
+
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {
 			// TODO: add support for granular skill selection
 			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
+
 	}
 
 	// Get assistant knowledge
@@ -158,19 +181,32 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		return nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
 	}
 
+	log.Info().
+		Str("app_id", appID).
+		Int("knowledge_count", len(knowledges)).
+		Msg("Listed knowledges for app")
+
 	knowledgeMemory := agent.NewMemoryBlock()
+
+	// Only get from the last message the filter. If users want to filter by specific document they just
+	// need to filter again
+	filterActions := rag.ParseFilterActions(lastUserMessage)
+	var filterDocumentIDs []string
+	for _, filterAction := range filterActions {
+		filterDocumentIDs = append(filterDocumentIDs, rag.ParseDocID(filterAction))
+	}
 
 	for _, knowledge := range knowledges {
 		switch {
-		// Filestore and Web are presented to the agents as a tool that
+		// Filestore, Web, and SharePoint are presented to the agents as a tool that
 		// can be used to search for knowledge
-		case knowledge.Source.Filestore != nil, knowledge.Source.Web != nil:
+		case knowledge.Source.Filestore != nil, knowledge.Source.Web != nil, knowledge.Source.SharePoint != nil:
 			ragClient, err := c.GetRagClient(ctx, knowledge)
 			if err != nil {
 				log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
 				return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
 			}
-			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge))
+			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge, filterDocumentIDs))
 		case knowledge.Source.Text != nil:
 			// knowledgeBlocks = append(knowledgeBlocks, *knowledge.Source.Text)
 
@@ -218,7 +254,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}, req.Options.Conversational)
 
 	// Get user message, could be in the part or content
-	session.In(getLastMessage(req.Request))
+	session.In(lastUserMessage)
 
 	return session, nil
 }

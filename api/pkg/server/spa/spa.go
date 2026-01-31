@@ -30,32 +30,32 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set cache headers based on path:
+	// - index.html and SPA fallback: never cache (ensures fresh deploys work)
+	// - /assets/* with hashed filenames: cache forever (content-addressed)
+	setCacheHeaders := func(isIndexHTML bool) {
+		if isIndexHTML {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
+			// Vite hashes asset filenames, so they can be cached indefinitely
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+	}
+
 	if f, err := s.fileSystem.Open(path); err == nil {
 		if err = f.Close(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		
-		// Set cache headers based on file type
-		if strings.HasSuffix(path, ".html") {
-			// HTML files should not be cached to ensure fresh content loads
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			w.Header().Set("Pragma", "no-cache")
-			w.Header().Set("Expires", "0")
-		} else if strings.Contains(path, "-") && (strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".woff") || strings.HasSuffix(path, ".woff2") || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") || strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".gif") || strings.HasSuffix(path, ".svg")) {
-			// Hashed assets can be cached for a long time since they have content-based names
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			// Other static assets get moderate caching
-			w.Header().Set("Cache-Control", "public, max-age=3600")
-		}
-		
+		// Serving actual file - check if it's index.html
+		isIndex := r.URL.Path == "/" || r.URL.Path == "/index.html"
+		setCacheHeaders(isIndex)
 		s.fileServer.ServeHTTP(w, r)
 	} else if os.IsNotExist(err) {
-		// When serving the fallback index.html for SPA routes, don't cache it
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
+		// SPA fallback - serving index.html for client-side routing
+		setCacheHeaders(true)
 		r.URL.Path = ""
 		s.fileServer.ServeHTTP(w, r)
 		return

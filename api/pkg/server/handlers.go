@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -99,6 +100,24 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 	}
 	session.Interactions = interactions
 
+	// Check if the external agent (sandbox container) is actually running
+	// If not running, update status to "stopped"
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if err != nil {
+				// External agent not running - mark as stopped
+				session.Metadata.ExternalAgentStatus = "stopped"
+			} else {
+				// External agent is running
+				session.Metadata.ExternalAgentStatus = "running"
+			}
+		} else {
+			// No external agent executor available - assume stopped
+			session.Metadata.ExternalAgentStatus = "stopped"
+		}
+	}
+
 	return session, nil
 }
 
@@ -109,7 +128,11 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Param   page            query    int     false  "Page number"
 // @Param   page_size       query    int     false  "Page size"
 // @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   question_set_id query    string  false  "Question set ID"
+// @Param   question_set_execution_id query    string  false  "Question set execution ID"
+// @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
+// @Param   project_id      query    string  false  "Project ID"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -118,7 +141,11 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	user := getRequestUser(req)
 
 	query := store.ListSessionsQuery{
-		Search: req.URL.Query().Get("search"),
+		Search:                 req.URL.Query().Get("search"),
+		QuestionSetID:          req.URL.Query().Get("question_set_id"),
+		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
+		AppID:                  req.URL.Query().Get("app_id"),
+		ProjectID:              req.URL.Query().Get("project_id"),
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -237,6 +264,8 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
@@ -253,6 +282,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		ProvidersManagementEnabled:             apiServer.Cfg.ProvidersManagementEnabled,
 	}
 
 	return config, nil
@@ -302,10 +332,29 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
+// filestoreConfig godoc
+// @Summary Get filestore configuration
+// @Description Get the filestore configuration including user prefix and available folders
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Success 200 {object} filestore.Config
+// @Router /api/v1/filestore/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.Config, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
+// filestoreList godoc
+// @Summary List filestore items
+// @Description List files and folders in the specified path. Supports both user and app-scoped paths
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string false "Path to list (e.g., 'documents', 'apps/app_id/folder')"
+// @Success 200 {array} filestore.Item
+// @Router /api/v1/filestore/list [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -345,6 +394,16 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
+// filestoreGet godoc
+// @Summary Get filestore item
+// @Description Get information about a specific file or folder in the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/get [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -376,6 +435,16 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
+// filestoreCreateFolder godoc
+// @Summary Create filestore folder
+// @Description Create a new folder in the filestore at the specified path
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   request body object{path=string} true "Request body with folder path"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/folder [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	var request struct {
 		Path string `json:"path"`
@@ -412,6 +481,17 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
+// filestoreRename godoc
+// @Summary Rename filestore item
+// @Description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Current path of the file or folder"
+// @Param   new_path query string true "New path for the file or folder"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/rename [put]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 	newPath := req.URL.Query().Get("new_path")
@@ -458,6 +538,16 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
+// filestoreDelete godoc
+// @Summary Delete filestore item
+// @Description Delete a file or folder from the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder to delete"
+// @Success 200 {object} object{path=string} "Path of the deleted item"
+// @Router /api/v1/filestore/delete [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 
@@ -491,6 +581,17 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	return path, err
 }
 
+// filestoreUpload godoc
+// @Summary Upload files to filestore
+// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Tags    filestore
+// @Accept  multipart/form-data
+// @Produce json
+// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   files formData file true "Files to upload (multipart form data)"
+// @Success 200 {object} object{success=bool} "Upload success status"
+// @Router /api/v1/filestore/upload [post]
+// @Security BearerAuth
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
@@ -499,15 +600,18 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
 			return false, fmt.Errorf("invalid app path format: %s", err)
 		}
 
 		// Check app filestore access for app-scoped paths
 		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("error checking app filestore access")
 			return false, err
 		}
 		if !hasAccess {
+			log.Error().Str("path", path).Msg("access denied to app filestore path")
 			return false, fmt.Errorf("access denied to app filestore path: %s", path)
 		}
 
@@ -515,6 +619,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		err = req.ParseMultipartForm(10 << 20)
 		if err != nil {
 			return false, err
+		}
+
+		if len(req.MultipartForm.File["files"]) == 0 {
+			return false, fmt.Errorf("no files to upload")
 		}
 
 		files := req.MultipartForm.File["files"]
@@ -528,6 +636,12 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			// Extract the relative path within the app
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Strip filename from path if it contains the filename to prevent duplication
+			if strings.HasSuffix(relativePath, fileHeader.Filename) {
+				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
+				relativePath = strings.TrimSuffix(relativePath, "/")
+			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
@@ -545,6 +659,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		return false, err
 	}
 
+	if len(req.MultipartForm.File["files"]) == 0 {
+		return false, fmt.Errorf("no files to upload")
+	}
+
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
@@ -552,7 +670,15 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
+
+		// Strip filename from path if it contains the filename to prevent duplication
+		uploadPath := path
+		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
+			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
+			uploadPath = strings.TrimSuffix(uploadPath, "/")
+		}
+
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -739,24 +865,11 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 }
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
-	auth := apiServer.authMiddleware
-
-	switch auth.cfg.adminUserSrc {
-	case config.AdminSrcTypeEnv:
-		user := getRequestUser(req)
-		return auth.isUserAdmin(user.ID)
-	case config.AdminSrcTypeJWT:
-		token := getRequestToken(req)
-		if token == "" {
-			return false
-		}
-		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
-		if err != nil {
-			return false
-		}
-		return user.Admin
+	user := getRequestUser(req)
+	if user.ID == "" {
+		return false
 	}
-	return false
+	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
 // dashboard godoc
@@ -774,6 +887,298 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	}
 
 	return data, nil
+}
+
+// usersList godoc
+// @Summary List users with pagination and filtering
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param page query int false "Page number (default: 1)"
+// @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
+// @Param username query string false "Filter by username (partial match)"
+// @Param admin query bool false "Filter by admin status"
+// @Param type query string false "Filter by user type"
+// @Param token_type query string false "Filter by token type"
+// @Success 200 {object} types.PaginatedUsersList
+// @Router /api/v1/users [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Request) (*types.PaginatedUsersList, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	// Only admins can list users
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can list users")
+	}
+
+	// Parse query parameters
+	page := 1
+	if p := req.URL.Query().Get("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	perPage := 50
+	if pp := req.URL.Query().Get("per_page"); pp != "" {
+		if parsedPerPage, err := strconv.Atoi(pp); err == nil && parsedPerPage > 0 {
+			perPage = parsedPerPage
+		}
+	}
+
+	// Build query
+	query := &store.ListUsersQuery{
+		Page:    page,
+		PerPage: perPage,
+		Order:   "created_at DESC",
+	}
+
+	// Add filters
+	if email := req.URL.Query().Get("email"); email != "" {
+		query.Email = email
+	}
+	if username := req.URL.Query().Get("username"); username != "" {
+		query.Username = username
+	}
+	if admin := req.URL.Query().Get("admin"); admin != "" {
+		if adminBool, err := strconv.ParseBool(admin); err == nil {
+			query.Admin = adminBool
+		}
+	}
+	if userType := req.URL.Query().Get("type"); userType != "" {
+		query.Type = types.OwnerType(userType)
+	}
+	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
+		query.TokenType = types.TokenType(tokenType)
+	}
+
+	// Get users from store
+	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply ADMIN_USER_IDS logic to compute effective admin status
+	// This ensures the list reflects both database admin field and env var overrides
+	adminUserIDs := apiServer.Cfg.WebServer.AdminUserIDs
+	for i := range users {
+		// Check if user is in ADMIN_USER_IDS list
+		for _, adminID := range adminUserIDs {
+			if adminID == config.AdminAllUsers {
+				users[i].Admin = true
+				break
+			}
+			if adminID == users[i].ID {
+				users[i].Admin = true
+				break
+			}
+		}
+	}
+
+	// Calculate total pages
+	totalPages := int((totalCount + int64(perPage) - 1) / int64(perPage))
+
+	// Create response
+	response := &types.PaginatedUsersList{
+		Users:      users,
+		Page:       page,
+		PageSize:   perPage,
+		TotalCount: totalCount,
+		TotalPages: totalPages,
+	}
+
+	return response, nil
+}
+
+// createUser godoc
+// @Summary Create a new user (Admin only)
+// @Description Create a new user with the specified details. Only admins can create users.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param request body types.AdminCreateUserRequest true "User creation request"
+// @Success 200 {object} types.User
+// @Router /api/v1/users [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can create users")
+	}
+
+	var request types.AdminCreateUserRequest
+
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.Email == "" {
+		return nil, system.NewHTTPError400("email is required")
+	}
+
+	if request.Password == "" {
+		return nil, system.NewHTTPError400("password is required")
+	}
+
+	existingUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+		Email: request.Email,
+	})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, system.NewHTTPError500("failed to check if user exists: " + err.Error())
+	}
+	if existingUser != nil {
+		return nil, system.NewHTTPError400("email is already taken")
+	}
+
+	userID := system.GenerateUserID()
+	newUser := &types.User{
+		ID:           userID,
+		Email:        request.Email,
+		FullName:     request.FullName,
+		Username:     request.Email,
+		Password:     request.Password,
+		Admin:        request.Admin,
+		Type:         types.OwnerTypeUser,
+		AuthProvider: types.AuthProviderRegular,
+		CreatedAt:    time.Now(),
+	}
+
+	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create user: " + err.Error())
+	}
+
+	return createdUser, nil
+}
+
+// adminResetPassword godoc
+// @Summary Reset a user's password (Admin only)
+// @Description Reset the password for any user. Only admins can use this endpoint.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param id path string true "User ID"
+// @Param request body types.AdminResetPasswordRequest true "New password"
+// @Success 200 {object} types.User
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id}/password [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can reset user passwords")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	var request types.AdminResetPasswordRequest
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.NewPassword == "" {
+		return nil, system.NewHTTPError400("new password is required")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Update the password using the authenticator
+	err = apiServer.authenticator.UpdatePassword(ctx, targetUserID, request.NewPassword)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("target_user_id", targetUserID).
+		Str("target_user_email", targetUser.Email).
+		Msg("admin reset user password")
+
+	// Return the updated user (without password hash)
+	updatedUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get updated user: " + err.Error())
+	}
+
+	return updatedUser, nil
+}
+
+// adminDeleteUser godoc
+// @Summary Delete a user (Admin only)
+// @Description Permanently delete a user and all associated data. Only admins can use this endpoint.
+// @Tags    users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} map[string]string "Success message"
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *http.Request) (map[string]string, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can delete users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	// Prevent admin from deleting themselves
+	if targetUserID == adminUser.ID {
+		return nil, system.NewHTTPError400("cannot delete your own account")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Delete the user
+	err = apiServer.Store.DeleteUser(ctx, targetUserID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to delete user: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("deleted_user_id", targetUserID).
+		Str("deleted_user_email", targetUser.Email).
+		Msg("admin deleted user")
+
+	return map[string]string{
+		"message": "user deleted successfully",
+		"user_id": targetUserID,
+	}, nil
 }
 
 // getSchedulerHeartbeats godoc

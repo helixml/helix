@@ -64,7 +64,7 @@ func (suite *OAuthTestSuite) SetupTest() {
 		AnyTimes()
 
 	// Now that we've setup store expectations, create the manager
-	suite.manager = NewManager(suite.store)
+	suite.manager = NewManager(suite.store, false)
 }
 
 // TestGetTokenForTool tests getting a token for a tool with OAuth provider
@@ -142,54 +142,6 @@ func (suite *OAuthTestSuite) TestGetTokenForTool() {
 	// If implementation changes to return ScopeError directly, this test needs adjustment
 }
 
-// TestGetTokenForApp tests getting a token for an app with OAuth provider
-func (suite *OAuthTestSuite) TestGetTokenForApp() {
-	// Create a test user
-	userID := "test-user-id"
-
-	// Create a GitHub connection for the user
-	githubConnection := &types.OAuthConnection{
-		ID:           "github-conn-id",
-		UserID:       userID,
-		ProviderID:   "github-provider-id",
-		AccessToken:  "github-access-token",
-		RefreshToken: "github-refresh-token",
-		Scopes:       []string{"repo", "read:user"},
-		ExpiresAt:    time.Now().Add(time.Hour * 24), // Set expiry in the future to avoid refresh
-		Provider: types.OAuthProvider{
-			ID:          "github-provider-id",
-			Name:        "GitHub",
-			Type:        types.OAuthProviderTypeGitHub,
-			UserInfoURL: "https://api.github.com/user",
-		},
-	}
-
-	// Setup expectations
-	suite.store.EXPECT().
-		ListOAuthProviders(gomock.Any(), &store.ListOAuthProvidersQuery{
-			Enabled: true,
-		}).
-		Return([]*types.OAuthProvider{&githubConnection.Provider}, nil).
-		AnyTimes()
-
-	suite.store.EXPECT().
-		ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{
-			UserID:     userID,
-			ProviderID: githubConnection.ProviderID,
-		}).
-		Return([]*types.OAuthConnection{githubConnection}, nil).
-		AnyTimes()
-
-	// Test getting GitHub token
-	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, "GitHub")
-	suite.NoError(err)
-	suite.Equal(githubConnection.AccessToken, token)
-
-	// Test getting token for non-existent provider
-	_, err = suite.manager.GetTokenForApp(suite.ctx, userID, "nonexistent")
-	suite.Error(err)
-}
-
 // TestIntegrationWithTools tests the integration between OAuth tokens and API tools
 func (suite *OAuthTestSuite) TestIntegrationWithTools() {
 	userID := "test-user-id"
@@ -227,8 +179,8 @@ func (suite *OAuthTestSuite) TestIntegrationWithTools() {
 		Return([]*types.OAuthConnection{githubConnection}, nil).
 		AnyTimes()
 
-	// Get token for the GitHub provider
-	token, err := suite.manager.GetTokenForApp(suite.ctx, userID, "GitHub")
+	// Get token for the GitHub provider with required scopes
+	token, err := suite.manager.GetTokenForTool(suite.ctx, userID, "GitHub", []string{"repo"})
 	suite.NoError(err)
 	suite.Equal(githubConnection.AccessToken, token)
 

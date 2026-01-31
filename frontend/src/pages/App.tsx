@@ -32,6 +32,7 @@ import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
+import MemoriesManagement from '../components/app/MemoriesManagement'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -167,6 +168,17 @@ const App: FC = () => {
                             navigate={navigate}
                           />
                         )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'memories' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <MemoriesManagement 
+                          appId={appTools.id} 
+                          memory={appTools.flatApp?.memory || false}
+                          onMemoryChange={(value) => appTools.saveFlatApp({ memory: value })}
+                          readOnly={appTools.isReadOnly}
+                        />
                       </Box>
                     </Grid>
                   ) : tabValue === 'developers' ? (

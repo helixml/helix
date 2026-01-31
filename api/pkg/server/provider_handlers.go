@@ -68,6 +68,53 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	user := getRequestUser(r)
 
+	// If providers management is disabled and user is not admin, only return global providers
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		// Return only global providers
+		globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
+		if err != nil {
+			log.Err(err).Msg("error listing providers")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var providerEndpoints []*types.ProviderEndpoint
+		for _, provider := range globalProviderEndpoints {
+			var baseURL string
+			switch provider {
+			case types.ProviderOpenAI:
+				baseURL = s.Cfg.Providers.OpenAI.BaseURL
+			case types.ProviderTogetherAI:
+				baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+			case types.ProviderVLLM:
+				baseURL = s.Cfg.Providers.VLLM.BaseURL
+			case types.ProviderHelix:
+				baseURL = "internal"
+			}
+
+			providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
+				ID:             "-",
+				Name:           string(provider),
+				Description:    "",
+				BaseURL:        baseURL,
+				EndpointType:   types.ProviderEndpointTypeGlobal,
+				Owner:          string(types.OwnerTypeSystem),
+				APIKey:         "",
+				BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
+			})
+		}
+
+		// Set default
+		for idx := range providerEndpoints {
+			if providerEndpoints[idx].Name == s.Cfg.Inference.Provider {
+				providerEndpoints[idx].Default = true
+			}
+		}
+
+		writeResponse(rw, providerEndpoints, http.StatusOK)
+		return
+	}
+
 	if orgID != "" {
 		// Check if user has access to view teams
 		_, err := s.authorizeOrgMember(r.Context(), user, orgID)
@@ -130,7 +177,18 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Build a set of existing provider names to avoid duplicates
+	existingProviderNames := make(map[string]bool)
+	for _, ep := range providerEndpoints {
+		existingProviderNames[ep.Name] = true
+	}
+
 	for _, provider := range globalProviderEndpoints {
+		// Skip if this provider already exists in the database
+		if existingProviderNames[string(provider)] {
+			continue
+		}
+
 		var baseURL string
 		switch provider {
 		case types.ProviderOpenAI:
@@ -151,7 +209,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			EndpointType:   types.ProviderEndpointTypeGlobal,
 			Owner:          string(types.OwnerTypeSystem),
 			APIKey:         "",
-			BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+			BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
 		})
 	}
 
@@ -305,6 +363,12 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	isAdmin := s.isAdmin(r)
 
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !isAdmin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
+
 	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
@@ -394,6 +458,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
 
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
+
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
@@ -447,6 +517,24 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	// Preserve ID and ownership information
+	// Update name if provided and different from existing
+	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
+		newName := strings.TrimSpace(updatedEndpoint.Name)
+		// Check for duplicate names with other providers
+		existingProviders, err := s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
+		if err != nil {
+			log.Err(err).Msg("error listing providers for name validation")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, provider := range existingProviders {
+			if string(provider) == newName {
+				http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", newName), http.StatusBadRequest)
+				return
+			}
+		}
+		existingEndpoint.Name = newName
+	}
 	existingEndpoint.Description = updatedEndpoint.Description
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
@@ -500,6 +588,12 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 	ctx := r.Context()
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
 
 	// Get existing endpoint
 	existingEndpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
@@ -562,6 +656,12 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
 
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
@@ -627,6 +727,12 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
 
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
@@ -710,4 +816,116 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 
 	// Otherwise, it's not visible
 	return false, nil
+}
+
+// StartModelCacheRefresh starts a background goroutine that periodically refreshes
+// the model cache for all providers. This ensures that the cache is populated even
+// for API-only clients that don't use the UI (which triggers cache population via
+// the /api/v1/provider-endpoints?with_models=true endpoint).
+//
+// The refresh runs:
+// 1. Immediately on startup
+// 2. Then periodically based on ModelsCacheTTL (default 1 minute)
+//
+// This is important for handling:
+// - HuggingFace model IDs like "Qwen/Qwen3-Coder" that could be incorrectly parsed
+//   as provider prefixes if the cache is empty
+// - Providers that were down at startup and later come back up
+// - New models added to providers
+func (s *HelixAPIServer) StartModelCacheRefresh(ctx context.Context) {
+	// Use ModelsCacheTTL as the refresh interval, with a minimum of 30 seconds
+	refreshInterval := s.Cfg.WebServer.ModelsCacheTTL
+	if refreshInterval < 30*time.Second {
+		refreshInterval = 30 * time.Second
+	}
+
+	log.Info().
+		Dur("refresh_interval", refreshInterval).
+		Msg("starting background model cache refresh")
+
+	// Run initial refresh immediately
+	go func() {
+		s.refreshAllProviderModels(ctx)
+
+		// Then run periodically
+		ticker := time.NewTicker(refreshInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("stopping background model cache refresh")
+				return
+			case <-ticker.C:
+				s.refreshAllProviderModels(ctx)
+			}
+		}
+	}()
+}
+
+// refreshAllProviderModels fetches and caches model lists from all accessible providers.
+// This includes both global providers from env vars and database-stored providers.
+// Errors are logged but don't stop the refresh process for other providers.
+func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
+	startTime := time.Now()
+	var successCount, errorCount int
+
+	// First refresh global providers from env vars (these use "system" as owner)
+	globalProviders, err := s.providerManager.ListProviders(ctx, "")
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list global providers for cache refresh")
+	} else {
+		for _, provider := range globalProviders {
+			endpoint := &types.ProviderEndpoint{
+				Name:  string(provider),
+				Owner: string(types.OwnerTypeSystem),
+			}
+
+			// Skip helix provider - it uses the internal scheduler, not external models
+			if provider == types.ProviderHelix {
+				continue
+			}
+
+			_, err := s.getProviderModels(ctx, endpoint)
+			if err != nil {
+				log.Debug().
+					Err(err).
+					Str("provider", string(provider)).
+					Msg("failed to refresh models for global provider (provider may be down)")
+				errorCount++
+			} else {
+				successCount++
+			}
+		}
+	}
+
+	// Then refresh database-stored providers (both user and global from DB)
+	// We need to refresh for "system" owner to cover dynamic providers from env vars
+	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      string(types.OwnerTypeSystem),
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list database providers for cache refresh")
+	} else {
+		for _, provider := range dbProviders {
+			_, err := s.getProviderModels(ctx, provider)
+			if err != nil {
+				log.Debug().
+					Err(err).
+					Str("provider", provider.Name).
+					Str("owner", provider.Owner).
+					Msg("failed to refresh models for database provider (provider may be down)")
+				errorCount++
+			} else {
+				successCount++
+			}
+		}
+	}
+
+	log.Info().
+		Int("success_count", successCount).
+		Int("error_count", errorCount).
+		Dur("duration", time.Since(startTime)).
+		Msg("completed model cache refresh")
 }

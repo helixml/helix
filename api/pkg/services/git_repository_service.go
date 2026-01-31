@@ -1,0 +1,2582 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	giteagit "code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/git/gitcmd"
+	"code.gitea.io/gitea/modules/setting"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
+)
+
+var gitCmdInitialized bool
+var gitCmdInitMu sync.Mutex
+
+// initGitCmd initializes gitea's gitcmd module once.
+// The gitHomePath is used as HOME for git commands (where .gitconfig is stored).
+// This is separate from where the actual git repositories are stored.
+func initGitCmd(gitHomePath string) error {
+	gitCmdInitMu.Lock()
+	defer gitCmdInitMu.Unlock()
+
+	if gitCmdInitialized {
+		return nil
+	}
+
+	// Set the git home path for gitea's setting module.
+	// This is where git will store its global config (not where repos are stored).
+	// Must be set BEFORE calling any gitcmd functions that use HomeDir().
+	setting.Git.HomePath = gitHomePath
+	log.Info().Str("home_path", gitHomePath).Msg("Set gitea git home path")
+
+	// Find and set the git executable path
+	if err := gitcmd.SetExecutablePath(""); err != nil {
+		return fmt.Errorf("failed to find git executable: %w", err)
+	}
+
+	gitCmdInitialized = true
+	log.Info().Msg("Initialized gitea gitcmd module")
+	return nil
+}
+
+// GitRepositoryService manages git repositories hosted on the Helix server
+// Uses the filestore mount for persistent storage of git repositories
+type GitRepositoryService struct {
+	store           store.Store
+	filestoreBase   string        // Base path for filestore (e.g., "/tmp/helix/filestore")
+	gitRepoBase     string        // Base path for git repositories within filestore
+	serverBaseURL   string        // Base URL for git server (e.g., "http://api:8080")
+	koditGitURL     string        // URL Kodit uses to access git server (e.g., "http://api:8080" in Docker)
+	gitUserName     string        // Default git user name
+	gitUserEmail    string        // Default git user email
+	enableGitServer bool          // Whether to enable git server functionality
+	testMode        bool          // Test mode for unit tests
+	koditService    *KoditService // Optional Kodit service for code intelligence
+
+	// Per-repository locks to serialize git operations and prevent race conditions.
+	// All compound operations (read+sync, write+push, receive-pack+push) must hold
+	// the lock for the entire duration to prevent concurrent syncs from overwriting
+	// commits between receive-pack and upstream push.
+	repoLocks map[string]*sync.Mutex
+	locksMu   sync.Mutex // protects repoLocks map
+}
+
+// NewGitRepositoryService creates a new git repository service
+func NewGitRepositoryService(
+	store store.Store,
+	filestoreBase string,
+	serverBaseURL string,
+	gitUserName string,
+	gitUserEmail string,
+) *GitRepositoryService {
+	gitRepoBase := filepath.Join(filestoreBase, "git-repositories")
+
+	// Ensure the git-repositories directory exists
+	if err := os.MkdirAll(gitRepoBase, 0755); err != nil {
+		log.Error().Err(err).Str("path", gitRepoBase).Msg("Failed to create git-repositories directory")
+	}
+
+	return &GitRepositoryService{
+		store:           store,
+		filestoreBase:   filestoreBase,
+		gitRepoBase:     gitRepoBase,
+		serverBaseURL:   strings.TrimSuffix(serverBaseURL, "/"),
+		gitUserName:     gitUserName,
+		gitUserEmail:    gitUserEmail,
+		enableGitServer: true,
+		testMode:        false,
+		repoLocks:       make(map[string]*sync.Mutex),
+	}
+}
+
+// GetRepoLock returns the mutex for a specific repository.
+// Used by GitHTTPServer to serialize push operations with other git operations.
+func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+
+	lock, ok := s.repoLocks[repoID]
+	if !ok {
+		lock = &sync.Mutex{}
+		s.repoLocks[repoID] = lock
+	}
+	return lock
+}
+
+// WithRepoLock executes a function while holding the repository lock.
+// This serializes all git operations on the same repository to prevent
+// race conditions between concurrent syncs and pushes.
+func (s *GitRepositoryService) WithRepoLock(repoID string, fn func() error) error {
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
+}
+
+// SetTestMode enables or disables test mode
+func (s *GitRepositoryService) SetTestMode(enabled bool) {
+	s.testMode = enabled
+}
+
+// SetKoditService sets the Kodit service for code intelligence
+func (s *GitRepositoryService) SetKoditService(koditService *KoditService) {
+	s.koditService = koditService
+}
+
+// SetKoditGitURL sets the URL that Kodit uses to access the git server
+// This may differ from serverBaseURL in containerized environments
+func (s *GitRepositoryService) SetKoditGitURL(url string) {
+	s.koditGitURL = strings.TrimSuffix(url, "/")
+}
+
+// GetGitHomePath returns the path where git stores its global config (.gitconfig).
+// This is separate from where git repositories are stored.
+func (s *GitRepositoryService) GetGitHomePath() string {
+	return filepath.Join(s.filestoreBase, "git-home")
+}
+
+// Initialize creates the git repository base directory and sets up git server
+func (s *GitRepositoryService) Initialize(ctx context.Context) error {
+	// Create git repositories base directory
+	err := os.MkdirAll(s.gitRepoBase, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create git repositories directory: %w", err)
+	}
+
+	// Create git home directory for git global config (.gitconfig)
+	// This is used by gitea's gitcmd module as the HOME for git commands
+	gitHomePath := s.GetGitHomePath()
+	err = os.MkdirAll(gitHomePath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create git home directory: %w", err)
+	}
+
+	// Initialize gitea's gitcmd module BEFORE any git commands are used.
+	// This must happen before recoverIncompletePushes() which uses gitcmd.
+	if err := initGitCmd(gitHomePath); err != nil {
+		return fmt.Errorf("failed to initialize gitcmd: %w", err)
+	}
+
+	// Install/update pre-receive hooks on all existing repositories.
+	// This ensures force-push protection for helix-specs is always active,
+	// even for repos created before this feature was added.
+	if err := InstallPreReceiveHooksForAllRepos(s.gitRepoBase); err != nil {
+		log.Warn().Err(err).Msg("Failed to install pre-receive hooks on existing repos")
+	} else {
+		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
+	}
+
+	// Recover incomplete pushes from before a crash.
+	// If we crashed between receive-pack and upstream push, the commit is in the
+	// middle repo but not upstream. Push any such commits now to prevent data loss.
+	s.recoverIncompletePushes(ctx)
+
+	log.Info().
+		Str("git_repo_base", s.gitRepoBase).
+		Str("git_home", gitHomePath).
+		Str("server_base_url", s.serverBaseURL).
+		Msg("Initialized git repository service")
+
+	return nil
+}
+
+// recoverIncompletePushes checks all external repos for commits that are in the
+// middle repo but not pushed to upstream. This can happen if we crash between
+// receive-pack completing and the upstream push completing.
+func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	// List all repos from database
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list repos for crash recovery")
+		return
+	}
+
+	recoveredCount := 0
+	for _, repo := range repos {
+		// Only check external repos
+		if repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check if repo directory exists
+		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Check for unpushed commits on each branch
+		branches, err := s.listLocalBranches(ctx, repo.LocalPath)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list branches for recovery check")
+			continue
+		}
+
+		for _, branch := range branches {
+			ahead, err := s.isBranchAheadOfRemote(ctx, repo.LocalPath, branch)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Str("branch", branch).Msg("Failed to check if branch is ahead")
+				continue
+			}
+
+			if ahead {
+				log.Info().
+					Str("repo_id", repo.ID).
+					Str("branch", branch).
+					Msg("Found unpushed commits from before crash - pushing to upstream")
+
+				// Acquire lock and push
+				if err := s.WithRepoLock(repo.ID, func() error {
+					return s.PushBranchToRemote(ctx, repo.ID, branch, false)
+				}); err != nil {
+					log.Error().Err(err).
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Failed to recover unpushed commits")
+				} else {
+					recoveredCount++
+					log.Info().
+						Str("repo_id", repo.ID).
+						Str("branch", branch).
+						Msg("Successfully recovered unpushed commits")
+				}
+			}
+		}
+	}
+
+	if recoveredCount > 0 {
+		log.Info().Int("count", recoveredCount).Msg("Recovered incomplete pushes from before crash")
+	}
+}
+
+// listLocalBranches returns all local branch names in a repository
+func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath string) ([]string, error) {
+	stdout, _, err := gitcmd.NewCommand("for-each-ref").
+		AddArguments("--format=%(refname:short)").
+		AddDynamicArguments("refs/heads/").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return nil, err
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// isBranchAheadOfRemote checks if a local branch has commits not in the remote
+func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Check if remote tracking ref exists
+	remoteRef := "refs/remotes/origin/" + branch
+	_, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments(remoteRef).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		// Remote ref doesn't exist - could be a new branch, check if local has commits
+		return false, nil
+	}
+
+	// Count commits in local that aren't in remote
+	// git rev-list origin/branch..branch --count
+	stdout, _, err := gitcmd.NewCommand("rev-list").
+		AddArguments("--count").
+		AddDynamicArguments("origin/"+branch+".."+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return false, err
+	}
+
+	count := strings.TrimSpace(stdout)
+	return count != "0", nil
+}
+
+// CreateRepository creates a new git repository
+func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	// Enable Kodit indexing by default for all new repositories
+	// This provides code intelligence (MCP server for snippets/architecture) out of the box
+	// Note: Since KoditIndexing is a bool (not *bool), we can't distinguish "explicitly false" from "unset"
+	// If users want to disable it, they can update the repo after creation via the update API
+	request.KoditIndexing = true
+
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+		if request.AzureDevOps.PersonalAccessToken == "" {
+			return nil, fmt.Errorf("azure devops personal access token not provided")
+		}
+	}
+
+	// Check for duplicate repository name for this owner and auto-increment if needed
+	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		OrganizationID: request.OrganizationID,
+		OwnerID:        request.OwnerID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+
+	// Build a set of existing names for quick lookup
+	existingNames := make(map[string]bool)
+	for _, repo := range existingRepos {
+		if repo.OwnerID == request.OwnerID {
+			existingNames[repo.Name] = true
+		}
+	}
+
+	// Auto-increment name if it already exists (e.g., repo -> repo-2 -> repo-3)
+	request.Name = GetUniqueRepoName(request.Name, existingNames)
+
+	// Generate repository ID
+	repoID := s.generateRepositoryID(request.RepoType, request.Name)
+
+	// Resolve organization ID
+	orgID := request.OrganizationID
+	if orgID == "" {
+		// If attached to a project, use project's organization
+		if request.ProjectID != "" {
+			project, err := s.store.GetProject(ctx, request.ProjectID)
+			if err == nil && project.OrganizationID != "" {
+				orgID = project.OrganizationID
+			}
+		}
+
+		// If still no org, get owner's first organization
+		if orgID == "" {
+			memberships, err := s.store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+				UserID: request.OwnerID,
+			})
+			if err == nil && len(memberships) > 0 {
+				orgID = memberships[0].OrganizationID
+			}
+		}
+	}
+
+	// Set default branch if not specified
+	// For external repos, leave empty - it will be detected from remote HEAD after clone
+	// For local repos, default to "main"
+	defaultBranch := request.DefaultBranch
+	if defaultBranch == "" && request.ExternalURL == "" {
+		defaultBranch = "main"
+	}
+
+	// Create repository path
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+	isExternal := request.ExternalURL != ""
+
+	// Create repository object
+	gitRepo := &types.GitRepository{
+		ID:                repoID,
+		Name:              request.Name,
+		Description:       request.Description,
+		OwnerID:           request.OwnerID,
+		OrganizationID:    orgID,
+		ProjectID:         request.ProjectID,
+		RepoType:          request.RepoType,
+		Status:            types.GitRepositoryStatusActive,
+		CloneURL:          s.generateCloneURL(repoID),
+		IsExternal:        isExternal,
+		ExternalURL:       request.ExternalURL,
+		ExternalType:      request.ExternalType,
+		Username:          request.Username,
+		Password:          request.Password,
+		LocalPath:         repoPath,
+		DefaultBranch:     defaultBranch,
+		LastActivity:      time.Now(),
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		Metadata:          request.Metadata,
+		AzureDevOps:       request.AzureDevOps,
+		KoditIndexing:     request.KoditIndexing,
+		OAuthConnectionID: request.OAuthConnectionID,
+	}
+
+	if gitRepo.ExternalURL == "" {
+		// Validate creator credentials for commits
+		if request.CreatorName == "" || request.CreatorEmail == "" {
+			return nil, fmt.Errorf("creator name and email are required for repository creation")
+		}
+
+		// Initialize git repository as bare
+		// ALL filestore repos are bare - agents and API server push to them
+		initialFiles := request.InitialFiles
+		// If no initial files provided, create a default README so the repo has an initial commit
+		if len(initialFiles) == 0 {
+			initialFiles = map[string]string{
+				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
+			}
+		}
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true, request.CreatorName, request.CreatorEmail)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
+		}
+	} else {
+		// For external repos: clone synchronously BEFORE creating DB record
+		// This ensures the repo exists in Helix before Kodit tries to index it
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
+			Msg("Cloning external repository using native git...")
+
+		// Build authenticated URL for clone
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+		// Use native git clone via gitea/git module
+		err = giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to clone external repository: %w", err)
+		}
+
+		// Open cloned repo to get metadata
+		repo, err := giteagit.OpenRepository(ctx, repoPath)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to open cloned repository for metadata")
+		} else {
+			defer repo.Close()
+
+			// Detect default branch from HEAD
+			defaultBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+			if err == nil && defaultBranch != "" {
+				gitRepo.DefaultBranch = defaultBranch
+				log.Info().
+					Str("repo_id", repoID).
+					Str("default_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from external repository")
+			}
+
+			// Populate branches list
+			branches, _, err := repo.GetBranchNames(0, 0)
+			if err == nil {
+				gitRepo.Branches = branches
+			}
+		}
+
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Successfully cloned external repository")
+	}
+
+	// Store repository metadata (if store supports it)
+	err = s.store.CreateGitRepository(ctx, gitRepo)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to store repository metadata in database")
+		return nil, err
+	}
+
+	// If a project was specified, also create junction table entry
+	// (AttachRepositoryToProject writes to both junction table and legacy project_id column)
+	if request.ProjectID != "" {
+		if err := s.store.AttachRepositoryToProject(ctx, request.ProjectID, gitRepo.ID); err != nil {
+			log.Warn().Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("project_id", request.ProjectID).
+				Msg("Failed to attach repository to project via junction table")
+			// Don't fail the request - repo was created, junction is secondary
+		}
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Str("repo_path", repoPath).
+		Str("repo_type", string(gitRepo.RepoType)).
+		Str("external_url", gitRepo.ExternalURL).
+		Msg("Created git repository")
+
+	// Register with Kodit if kodit_indexing is enabled
+	if s.koditService != nil && request.KoditIndexing {
+		// Determine the clone URL for Kodit
+		// ALL repos (both external and local) should use Helix's git server URL with API key auth
+		// External repos are already cloned synchronously above, so Kodit can access via internal URL
+		var koditCloneURL string
+		if request.KoditAPIKey == "" {
+			log.Warn().
+				Str("repo_id", repoID).
+				Bool("is_external", isExternal).
+				Msg("Cannot register repository with Kodit without API key - user must authenticate with API key")
+		} else {
+			// Build authenticated URL: http://api:APIKEY@host/git/repo_id
+			koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
+		}
+
+		// Only register if we have a valid URL
+		if koditCloneURL != "" {
+			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
+			go func() {
+				koditResp, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("repo_id", repoID).
+						Msg("Failed to register repository with Kodit")
+					return
+				}
+
+				if koditResp != nil {
+					// Store Kodit repository ID in metadata for future reference
+					if gitRepo.Metadata == nil {
+						gitRepo.Metadata = make(map[string]interface{})
+					}
+					gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.Id
+
+					// Update repository metadata with Kodit ID
+					if err := s.store.UpdateGitRepository(context.Background(), gitRepo); err != nil {
+						log.Warn().
+							Err(err).
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.Id).
+							Msg("Failed to update repository with Kodit ID")
+					} else {
+						log.Info().
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.Id).
+							Bool("is_local", !isExternal).
+							Msg("Registered repository with Kodit for code intelligence")
+					}
+				}
+			}()
+		}
+	}
+
+	return gitRepo, nil
+}
+
+// CloneRepositoryAsync starts an async clone for an external repository that's already in the database.
+// The repository should have Status=cloning when this is called.
+// On success, updates status to active. On failure, updates status to error with CloneError.
+func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository) {
+	if gitRepo.ExternalURL == "" {
+		log.Error().Str("repo_id", gitRepo.ID).Msg("CloneRepositoryAsync called for non-external repo")
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+
+		// Update progress to show we're starting
+		gitRepo.CloneProgress = &types.CloneProgress{
+			Phase:     "starting",
+			StartedAt: time.Now(),
+		}
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update clone progress")
+		}
+
+		// Determine repo path
+		repoPath := gitRepo.LocalPath
+		if repoPath == "" {
+			repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Str("repo_path", repoPath).
+			Msg("Starting async clone using native git")
+
+		// Build authenticated URL for clone
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+		// Use native git clone via gitea/git module
+		// Note: gitea's Clone doesn't support progress callback, but native git is much faster
+		cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs
+		})
+		if cloneErr != nil {
+			// Clone failed - update status to error
+			gitRepo.Status = types.GitRepositoryStatusError
+			gitRepo.CloneError = cloneErr.Error()
+			gitRepo.CloneProgress = nil
+			if updateErr := s.store.UpdateGitRepository(ctx, gitRepo); updateErr != nil {
+				log.Error().Err(updateErr).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to error")
+			}
+			log.Error().Err(cloneErr).Str("repo_id", gitRepo.ID).Msg("Async clone failed")
+			return
+		}
+
+		// Open cloned repo to get metadata
+		repo, err := giteagit.OpenRepository(ctx, repoPath)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to open cloned repository for metadata")
+		} else {
+			defer repo.Close()
+
+			// Detect default branch from HEAD
+			defaultBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+			if err == nil && defaultBranch != "" {
+				gitRepo.DefaultBranch = defaultBranch
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("default_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from external repository")
+			}
+
+			// Populate branches list
+			branches, _, err := repo.GetBranchNames(0, 0)
+			if err == nil {
+				gitRepo.Branches = branches
+			}
+		}
+
+		// Update status to active, set local path, clear progress
+		gitRepo.Status = types.GitRepositoryStatusActive
+		gitRepo.LocalPath = repoPath
+		gitRepo.CloneProgress = nil
+		gitRepo.CloneError = ""
+		gitRepo.UpdatedAt = time.Now()
+
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Error().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to update repo status to active after clone")
+			return
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Async clone completed successfully")
+
+		// Register with Kodit if enabled (non-blocking)
+		// Note: This requires an API key which we don't have in the async context
+		// Kodit registration will happen when user accesses the repo
+	}()
+}
+
+// GetRepository retrieves repository information by ID
+func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
+	// Try to get metadata from store first (has correct LocalPath for all repo types)
+
+	storedRepo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
+	}
+
+	// Make a defensive copy to avoid race conditions when updateRepositoryFromGit
+	// mutates fields like Branches, LastActivity, etc.
+	gitRepo := *storedRepo
+	// Deep copy the Branches slice to avoid shared backing array
+	if storedRepo.Branches != nil {
+		gitRepo.Branches = make([]string, len(storedRepo.Branches))
+		copy(gitRepo.Branches, storedRepo.Branches)
+	}
+
+	// Got from database - verify the LocalPath exists if this is not external
+	if gitRepo.ExternalURL == "" {
+		if gitRepo.LocalPath != "" {
+			if _, err := os.Stat(gitRepo.LocalPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+		} else {
+			// No LocalPath in DB - try default path
+			repoPath := filepath.Join(s.gitRepoBase, repoID)
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+			gitRepo.LocalPath = repoPath
+		}
+	}
+
+	// Update with current git information (clones external repos if needed, detects default branch)
+	err = s.updateRepositoryFromGit(ctx, &gitRepo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
+	}
+
+	return &gitRepo, nil
+}
+
+// GetExternalRepoStatus returns the status of the local repo compared to the external remote.
+// Uses gitea/git module for native git operations.
+func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID string, branchName string) (*types.ExternalStatus, error) {
+	status := &types.ExternalStatus{}
+
+	gitRepo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if !gitRepo.IsExternal {
+		return nil, fmt.Errorf("repository is not external")
+	}
+
+	if branchName == "" {
+		branchName = gitRepo.DefaultBranch
+	}
+	if branchName == "" {
+		return nil, fmt.Errorf("no branch specified and repository has no default branch set")
+	}
+
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent fetch operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Get local branch commit
+	localCommit, err := GetBranchCommitID(ctx, gitRepo.LocalPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local branch reference: %w", err)
+	}
+
+	// Build authenticated URL for fetch
+	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+	// Fetch from remote to update remote-tracking ref
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
+	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		Remote:   fetchURL,
+		RefSpecs: []string{refSpec},
+		Force:    true,
+		Timeout:  2 * time.Minute,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch from remote: %w", err)
+	}
+
+	// Get remote tracking commit
+	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get remote branch reference: %w", err)
+	}
+
+	if localCommit == remoteCommit {
+		return status, nil
+	}
+
+	// Get divergence using the helper
+	ahead, behind, err := GetDivergence(ctx, gitRepo.LocalPath, "refs/heads/"+branchName, "refs/remotes/origin/"+branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count commits diff: %w", err)
+	}
+
+	status.CommitsAhead = ahead
+	status.CommitsBehind = behind
+
+	return status, nil
+}
+
+// UpdateRepository updates an existing repository's metadata
+// koditAPIKey is optional - only needed when enabling KoditIndexing for local (non-external) repos
+func (s *GitRepositoryService) UpdateRepository(
+	ctx context.Context,
+	repoID string,
+	request *types.GitRepositoryUpdateRequest,
+	koditAPIKey string,
+) (*types.GitRepository, error) {
+
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+	}
+
+	// Get existing repository
+	existing, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	// Update fields if provided
+	if request.Name != "" {
+		existing.Name = request.Name
+	}
+	if request.Description != "" {
+		existing.Description = request.Description
+	}
+	if request.DefaultBranch != "" {
+		existing.DefaultBranch = request.DefaultBranch
+	}
+	if request.Metadata != nil {
+		// Merge metadata
+		if existing.Metadata == nil {
+			existing.Metadata = make(map[string]interface{})
+		}
+		for k, v := range request.Metadata {
+			existing.Metadata[k] = v
+		}
+	}
+
+	if string(request.ExternalType) != "" {
+		existing.ExternalType = request.ExternalType
+	}
+	if request.ExternalURL != "" {
+		existing.ExternalURL = request.ExternalURL
+	}
+	if request.Username != "" {
+		existing.Username = request.Username
+	}
+	if request.Password != "" {
+		existing.Password = request.Password
+	}
+	if request.AzureDevOps != nil {
+		existing.AzureDevOps = request.AzureDevOps
+	}
+
+	// Check if we're enabling Kodit indexing (must check before modifying existing)
+	shouldRegisterKodit := s.koditService != nil &&
+		request.KoditIndexing != nil &&
+		*request.KoditIndexing &&
+		!existing.KoditIndexing
+
+	// Handle KoditIndexing update
+	if request.KoditIndexing != nil {
+		existing.KoditIndexing = *request.KoditIndexing
+	}
+
+	existing.UpdatedAt = time.Now()
+
+	// Update in store
+	err = s.store.UpdateGitRepository(ctx, existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
+	}
+
+	// Register with Kodit if indexing was just enabled
+	if shouldRegisterKodit {
+		// Always use the internal URL - Kodit clones through Helix's git server
+		// GetRepository was called earlier, so external repos are already cloned to disk
+		if koditAPIKey == "" {
+			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
+		}
+		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
+
+		koditResp, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
+		}
+
+		if koditResp != nil {
+			// Store Kodit repository ID in metadata
+			if existing.Metadata == nil {
+				existing.Metadata = make(map[string]interface{})
+			}
+			existing.Metadata["kodit_repo_id"] = koditResp.Data.Id
+
+			if err := s.store.UpdateGitRepository(ctx, existing); err != nil {
+				return nil, fmt.Errorf("failed to update repository with Kodit ID: %w", err)
+			}
+
+			log.Info().
+				Str("repo_id", repoID).
+				Str("kodit_repo_id", koditResp.Data.Id).
+				Bool("is_local", !existing.IsExternal).
+				Msg("Registered repository with Kodit for code intelligence")
+		}
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Str("name", existing.Name).
+		Bool("kodit_indexing", existing.KoditIndexing).
+		Msg("updated git repository")
+
+	return existing, nil
+}
+
+// DeleteRepository deletes a repository
+func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID string) error {
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+	// Delete repository directory
+	if err := os.RemoveAll(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+		// Continue to delete metadata even if filesystem deletion fails
+	}
+
+	err := s.store.DeleteGitRepository(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository metadata")
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Msg("deleted git repository")
+
+	return nil
+}
+
+// incrementRepositoryName intelligently increments a repository name suffix
+// Examples: "repo" -> "repo-2", "repo-2" -> "repo-3", "repo-5" -> "repo-6"
+func incrementRepositoryName(name string) string {
+	// Check if name ends with -<number>
+	re := regexp.MustCompile(`^(.+)-(\d+)$`)
+	matches := re.FindStringSubmatch(name)
+
+	if len(matches) == 3 {
+		// Name has a numeric suffix, increment it
+		baseName := matches[1]
+		currentNum, _ := strconv.Atoi(matches[2])
+		return fmt.Sprintf("%s-%d", baseName, currentNum+1)
+	}
+
+	// No numeric suffix, add -2
+	return fmt.Sprintf("%s-2", name)
+}
+
+// GetUniqueRepoName returns a unique repository name by appending -2, -3, etc. if needed.
+// The existingNames map is updated with the returned name marked as used.
+// Examples: "helix" -> "helix", "helix" (if exists) -> "helix-2", etc.
+func GetUniqueRepoName(baseName string, existingNames map[string]bool) string {
+	name := baseName
+	suffix := 2
+	for existingNames[name] {
+		name = fmt.Sprintf("%s-%d", baseName, suffix)
+		suffix++
+	}
+	existingNames[name] = true
+	return name
+}
+
+// CreateSampleRepository creates a sample/demo repository
+// Automatically handles name conflicts by appending -2, -3, -4, etc.
+func (s *GitRepositoryService) CreateSampleRepository(
+	ctx context.Context,
+	request *types.CreateSampleRepositoryRequest,
+) (*types.GitRepository, error) {
+	// Get sample files based on type
+	initialFiles := s.getSampleProjectFiles(request.SampleType)
+
+	// Try creating with incremented names if there's a conflict
+	maxRetries := 100
+	currentName := request.Name
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		createReq := &types.GitRepositoryCreateRequest{
+			Name:           currentName,
+			Description:    request.Description,
+			RepoType:       types.GitRepositoryTypeCode,
+			OwnerID:        request.OwnerID,
+			OrganizationID: request.OrganizationID,
+			InitialFiles:   initialFiles,
+			DefaultBranch:  "main",
+			Metadata: map[string]interface{}{
+				"sample_type":  request.SampleType,
+				"created_from": "sample",
+			},
+			KoditIndexing: request.KoditIndexing,
+			CreatorName:   request.CreatorName,
+			CreatorEmail:  request.CreatorEmail,
+		}
+
+		repo, err := s.CreateRepository(ctx, createReq)
+		if err == nil {
+			// Success!
+			if currentName != request.Name {
+				log.Info().
+					Str("original_name", request.Name).
+					Str("final_name", currentName).
+					Msg("Created sample repository with auto-incremented name")
+			}
+			return repo, nil
+		}
+
+		// Check if error is due to name conflict
+		if !strings.Contains(err.Error(), "already exists") {
+			// Different error, return it
+			return nil, err
+		}
+
+		// Name conflict, try next increment
+		currentName = incrementRepositoryName(currentName)
+		log.Debug().
+			Str("next_name", currentName).
+			Int("attempt", attempt+1).
+			Msg("Repository name conflict, trying incremented name")
+	}
+
+	return nil, fmt.Errorf("failed to create repository after %d attempts (name conflicts)", maxRetries)
+}
+
+// GetCloneCommand returns the git clone command for a repository
+func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) string {
+	cloneURL := s.generateCloneURL(repoID)
+	if targetDir == "" {
+		return fmt.Sprintf("git clone %s", cloneURL)
+	}
+	return fmt.Sprintf("git clone %s %s", cloneURL, targetDir)
+}
+
+// generateRepositoryID generates a unique repository ID
+func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
+	// Sanitize name for filesystem
+	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
+	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
+
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf("%s-%s-%d", repoType, sanitizedName, timestamp)
+}
+
+// generateCloneURL generates the clone URL for a repository
+func (s *GitRepositoryService) generateCloneURL(repoID string) string {
+	// Use HTTP URLs for network access by Zed agents
+	// Format: http://api-server/git/{repo_id}
+	return fmt.Sprintf("%s/git/%s", s.serverBaseURL, repoID)
+}
+
+// BuildAuthenticatedCloneURL builds a clone URL with embedded API key authentication
+// Uses koditGitURL (configurable) as the base URL for Kodit to access the git server
+// Input: repoID: repo-123, apiKey: hl-xxxxx
+// Output: http://api:hl-xxxxx@api:8080/git/repo-123 (when koditGitURL is http://api:8080)
+func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string) string {
+	// Use configured koditGitURL, falling back to serverBaseURL if not set
+	baseURL := s.koditGitURL
+	if baseURL == "" {
+		baseURL = s.serverBaseURL
+	}
+
+	// Build URL with embedded credentials: http://api:APIKEY@host/git/repo_id
+	return strings.Replace(baseURL, "://", fmt.Sprintf("://api:%s@", apiKey), 1) + "/git/" + repoID
+}
+
+// initializeGitRepository initializes a new git repository with initial files
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+//
+// Uses native git via gitea's wrappers for reliable operations.
+func (s *GitRepositoryService) initializeGitRepository(
+	repoPath string,
+	defaultBranch string,
+	repoName string,
+	initialFiles map[string]string,
+	isBare bool,
+	userName string,
+	userEmail string,
+) error {
+	ctx := context.Background()
+
+	if userName == "" || userEmail == "" {
+		return fmt.Errorf("userName and userEmail are required for commits")
+	}
+
+	// Create repository directory
+	err := os.MkdirAll(repoPath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create repository directory: %w", err)
+	}
+
+	// For bare repos with initial files, we need to create a temp clone, commit files, then push
+	if isBare && len(initialFiles) > 0 {
+		// Initialize bare repository using gitea's wrapper
+		if err := giteagit.InitRepository(ctx, repoPath, true, "sha1"); err != nil {
+			return fmt.Errorf("failed to initialize bare git repository: %w", err)
+		}
+
+		// Set HEAD to default branch
+		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
+			log.Warn().Err(err).Str("default_branch", defaultBranch).Msg("Failed to set HEAD in bare repo")
+		}
+
+		// Create temporary working directory to add initial files
+		tempClone, err := os.MkdirTemp("", "helix-git-init-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+		defer os.RemoveAll(tempClone)
+
+		// Initialize a new non-bare repo in the temp directory
+		if err := giteagit.InitRepository(ctx, tempClone, false, "sha1"); err != nil {
+			return fmt.Errorf("failed to initialize temp repository: %w", err)
+		}
+
+		// Ensure we have at least one file
+		if len(initialFiles) == 0 {
+			initialFiles = map[string]string{
+				"README.md": fmt.Sprintf("# %s\n", repoName),
+			}
+		}
+
+		// Write initial files to temp clone
+		for filePath, content := range initialFiles {
+			fullPath := filepath.Join(tempClone, filePath)
+			dir := filepath.Dir(fullPath)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", filePath, err)
+			}
+		}
+
+		// Add all files using gitea's wrapper
+		if err := giteagit.AddChanges(ctx, tempClone, true); err != nil {
+			return fmt.Errorf("failed to add files: %w", err)
+		}
+
+		// Commit using gitea's wrapper
+		if err := giteagit.CommitChanges(ctx, tempClone, giteagit.CommitChangesOptions{
+			Committer: &giteagit.Signature{
+				Name:  userName,
+				Email: userEmail,
+				When:  time.Now(),
+			},
+			Author: &giteagit.Signature{
+				Name:  userName,
+				Email: userEmail,
+				When:  time.Now(),
+			},
+			Message: "Initial commit",
+		}); err != nil {
+			return fmt.Errorf("failed to commit: %w", err)
+		}
+
+		// Rename branch if needed (native git init creates 'master' by default)
+		currentBranch, err := GetHEADBranch(ctx, tempClone)
+		if err == nil && currentBranch == "master" && defaultBranch == "main" {
+			if err := GitRenameBranch(ctx, tempClone, "master", "main"); err != nil {
+				log.Warn().Err(err).Msg("Failed to rename master to main in temp clone")
+			} else {
+				log.Info().Msg("Renamed temp clone branch from master to main")
+			}
+		}
+
+		// Add the bare repo as a remote and push
+		if err := AddRemote(ctx, tempClone, "origin", repoPath); err != nil {
+			return fmt.Errorf("failed to add remote: %w", err)
+		}
+
+		// Push to bare repo using gitea's Push
+		refspec := fmt.Sprintf("+refs/heads/%s:refs/heads/%s", defaultBranch, defaultBranch)
+		if err := giteagit.Push(ctx, tempClone, giteagit.PushOptions{
+			Remote: "origin",
+			Branch: refspec,
+		}); err != nil {
+			return fmt.Errorf("failed to push to bare repo: %w", err)
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
+		log.Info().
+			Str("repo_path", repoPath).
+			Str("default_branch", defaultBranch).
+			Msg("Created bare git repository with initial files")
+
+		return nil
+	}
+
+	// For non-bare repos or bare repos without initial files
+	if err := giteagit.InitRepository(ctx, repoPath, isBare, "sha1"); err != nil {
+		return fmt.Errorf("failed to initialize git repository: %w", err)
+	}
+
+	// If bare repo with no initial files, just set HEAD
+	if isBare {
+		if err := SetHEAD(ctx, repoPath, defaultBranch); err != nil {
+			log.Warn().Err(err).Msg("Failed to set HEAD to default branch")
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
+		log.Info().
+			Str("repo_path", repoPath).
+			Str("default_branch", defaultBranch).
+			Msg("Created empty bare git repository (accepts pushes from agents)")
+		return nil
+	}
+
+	// Ensure we have at least one file to commit (can't create empty commits)
+	if len(initialFiles) == 0 {
+		initialFiles = map[string]string{
+			"README.md": fmt.Sprintf("# %s\n", repoName),
+		}
+	}
+
+	// Write initial files
+	for filePath, content := range initialFiles {
+		fullPath := filepath.Join(repoPath, filePath)
+		dir := filepath.Dir(fullPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", filePath, err)
+		}
+	}
+
+	// Add all files using gitea's wrapper
+	if err := giteagit.AddChanges(ctx, repoPath, true); err != nil {
+		return fmt.Errorf("failed to add files to git: %w", err)
+	}
+
+	// Commit using gitea's wrapper
+	if err := giteagit.CommitChanges(ctx, repoPath, giteagit.CommitChangesOptions{
+		Committer: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Author: &giteagit.Signature{
+			Name:  userName,
+			Email: userEmail,
+			When:  time.Now(),
+		},
+		Message: "Initial commit",
+	}); err != nil {
+		return fmt.Errorf("failed to create initial commit: %w", err)
+	}
+
+	// Rename branch if needed (native git init creates 'master' by default)
+	currentBranch, err := GetHEADBranch(ctx, repoPath)
+	if err == nil && currentBranch == "master" && defaultBranch == "main" {
+		if err := GitRenameBranch(ctx, repoPath, "master", "main"); err != nil {
+			log.Warn().Err(err).Msg("Failed to rename master to main")
+		} else {
+			log.Info().Msg("Renamed default branch from master to main")
+		}
+	}
+
+	return nil
+}
+
+// updateRepositoryFromGit updates repository info from git metadata
+// For external repositories, this clones them as BARE repositories to allow
+// receiving pushes from agents. The actual working copy is created on-demand
+// when needed for operations like CreateOrUpdateFileContents.
+//
+// IMPORTANT: This clones ALL branches from the external repo and detects the
+// default branch from HEAD (preserving 'master' if that's what the remote uses).
+// If the default branch is detected/changed, it persists the change to the database.
+func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
+	repoPath := gitRepo.LocalPath
+
+	// Check if repo exists locally
+	repoExists := false
+	if _, err := os.Stat(repoPath); err == nil {
+		repoExists = true
+	}
+
+	// For external repos, clone if not exists
+	if gitRepo.ExternalURL != "" && !repoExists {
+		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+		err := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
+			Bare:   true,
+			Mirror: true, // Clone ALL branches, tags, and refs - not just the default branch
+		})
+		if err != nil {
+			return fmt.Errorf("failed to clone git repository: %w", err)
+		}
+
+		// Install pre-receive hook to protect helix-specs from force push
+		if err := InstallPreReceiveHook(repoPath); err != nil {
+			log.Warn().Err(err).Str("repo_path", repoPath).Msg("Failed to install pre-receive hook")
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", gitRepo.ExternalURL).
+			Msg("Cloned external repository as bare repo")
+	}
+
+	// Open the repository
+	repo, err := giteagit.OpenRepository(ctx, repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+	defer repo.Close()
+
+	// Detect default branch from HEAD if not already set
+	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
+	defaultBranchChanged := false
+	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
+		detectedBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
+		if err == nil && detectedBranch != "" {
+			if gitRepo.DefaultBranch != detectedBranch {
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("detected_branch", detectedBranch).
+					Str("previous_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from repository HEAD")
+				gitRepo.DefaultBranch = detectedBranch
+				defaultBranchChanged = true
+			}
+		} else if err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Could not detect default branch from HEAD")
+		}
+	}
+
+	// List all branches using gitea/git
+	branches, _, err := repo.GetBranchNames(0, 0)
+	if err == nil {
+		gitRepo.Branches = branches
+	}
+
+	gitRepo.LastActivity = time.Now()
+	gitRepo.UpdatedAt = time.Now()
+
+	// Persist changes to database if default branch was detected/changed
+	// This ensures the detected default branch from external repos is saved
+	if defaultBranchChanged {
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Failed to persist detected default branch to database")
+			// Don't fail - the in-memory value is correct
+		}
+	}
+
+	return nil
+}
+
+// getSampleProjectFiles returns sample files based on project type
+func (s *GitRepositoryService) getSampleProjectFiles(sampleType string) map[string]string {
+	files := make(map[string]string)
+
+	switch sampleType {
+	case "empty":
+		files["README.md"] = fmt.Sprintf("# %s\n\nAn empty project repository ready for development.\n\n## Getting Started\n\nThis repository was created as an empty project. Add your code and documentation as needed.\n", sampleType)
+		// Just basic structure - no framework-specific files
+		return files
+
+	case "nodejs-todo":
+		files["README.md"] = "# Node.js Todo App\n\nA simple todo application built with Node.js and Express.\n"
+		files["package.json"] = `{
+  "name": "nodejs-todo-app",
+  "version": "1.0.0",
+  "description": "A simple todo application",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.0",
+    "jest": "^28.0.0"
+  }
+}`
+		files["src/index.js"] = `const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Simple todos array
+let todos = [];
+
+// Routes
+app.get('/api/todos', (req, res) => {
+  res.json(todos);
+});
+
+app.post('/api/todos', (req, res) => {
+  const todo = {
+    id: Date.now(),
+    text: req.body.text,
+    completed: false
+  };
+  todos.push(todo);
+  res.status(201).json(todo);
+});
+
+app.listen(PORT, () => {
+  console.log('Server running on port ' + PORT);
+});
+`
+
+	case "python-api":
+		files["README.md"] = "# Python API Service\n\nA FastAPI microservice with PostgreSQL.\n"
+		files["requirements.txt"] = `fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+pydantic==2.5.0
+`
+		files["app/main.py"] = `from fastapi import FastAPI
+from app.routers import items
+
+app = FastAPI(title="Python API Service")
+
+app.include_router(items.router, prefix="/api/v1")
+
+@app.get("/")
+async def root():
+    return {"message": "Python API Service"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+`
+		files["app/__init__.py"] = ""
+		files["app/routers/__init__.py"] = ""
+		files["app/routers/items.py"] = `from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/items")
+async def get_items():
+    return {"items": []}
+
+@router.post("/items")
+async def create_item(item: dict):
+    return {"message": "Item created", "item": item}
+`
+
+	case "react-dashboard":
+		files["README.md"] = "# React Dashboard\n\nA modern admin dashboard built with React and Material-UI.\n"
+		files["package.json"] = `{
+  "name": "react-dashboard",
+  "version": "1.0.0",
+  "description": "A modern admin dashboard",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@mui/material": "^5.14.0",
+    "@mui/icons-material": "^5.14.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test"
+  }
+}`
+		files["src/App.js"] = `import React from 'react';
+import { AppBar, Toolbar, Typography, Container, Grid, Paper } from '@mui/material';
+
+function App() {
+  return (
+    <div>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6">
+            React Dashboard
+          </Typography>
+        </Toolbar>
+      </AppBar>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h4">Welcome to React Dashboard</Typography>
+              <Typography variant="body1">
+                This is a sample dashboard application.
+              </Typography>
+            </Paper>
+          </Grid>
+        </Grid>
+      </Container>
+    </div>
+  );
+}
+
+export default App;
+`
+		files["public/index.html"] = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>React Dashboard</title>
+</head>
+<body>
+    <div id="root"></div>
+</body>
+</html>
+`
+
+	case "linkedin-outreach":
+		files["README.md"] = "# LinkedIn Outreach Campaign\n\nMulti-session campaign to reach out to 100 prospects using Helix LinkedIn integration.\n"
+		files["campaign/README.md"] = `# LinkedIn Outreach Campaign
+
+## Campaign Overview
+Goal: Reach out to 100 qualified prospects using Helix LinkedIn skill integration
+
+## Multi-Session Strategy
+- **Session A**: Prospect research and list building
+- **Session B**: Message personalization and outreach
+- **Session C**: Follow-up tracking and relationship management
+- **Session D**: Campaign analysis and optimization
+
+## Campaign Structure
+- Target: 100 prospects in AI/ML industry
+- Personalized messaging based on profile analysis
+- Multi-touch follow-up sequence
+- Conversion tracking and analysis
+`
+		files["campaign/prospect-criteria.md"] = `# Prospect Criteria
+
+## Ideal Customer Profile
+- **Industry**: AI/ML, Software Development, Tech Startups
+- **Role**: CTO, VP Engineering, AI Lead, Technical Founder
+- **Company Size**: 10-500 employees
+- **Location**: Global (English-speaking)
+- **Activity**: Active on LinkedIn, posts about AI/ML
+
+## Qualification Criteria
+- Has engineering team (5+ developers)
+- Shows interest in AI/automation tools
+- Posts about development challenges
+- Engages with technical content
+
+## Exclusion Criteria
+- Competitors or similar companies
+- Non-technical decision makers only
+- Inactive LinkedIn profiles (no posts in 6 months)
+- Already contacted in previous campaigns
+`
+		files["campaign/message-templates.md"] = `# Message Templates
+
+## Initial Outreach Message
+Hi [First Name],
+
+I noticed your recent post about [specific topic from their profile]. Your insights on [specific detail] really resonated with me.
+
+I'm reaching out because we've built something that might interest you - Helix is an AI development platform that helps engineering teams like yours accelerate development with AI-powered coding assistants.
+
+What caught my attention about your work is [personalized observation based on their posts/company].
+
+Would you be open to a brief conversation about how teams like yours are using AI to enhance their development workflows?
+
+Best regards,
+[Your name]
+
+## Follow-up Message 1 (1 week later)
+Hi [First Name],
+
+I hope you don't mind the follow-up. I shared some insights about AI-powered development workflows that might be relevant to [their company/challenges].
+
+I noticed [specific recent activity or post], which aligns with what we're seeing across the industry.
+
+Would a quick 15-minute call work to discuss how other teams are solving [specific challenge they've mentioned]?
+
+## Follow-up Message 2 (2 weeks later)
+[Personalized based on new activity/posts]
+`
+		files["campaign/tracking-template.md"] = `# Campaign Tracking
+
+## Prospect Status Tracking
+| Name | Company | Role | Outreach Date | Status | Response | Next Action |
+|------|---------|------|---------------|--------|----------|-------------|
+| | | | | pending | | |
+
+## Response Categories
+- **Interested**: Wants to learn more / schedule call
+- **Not Now**: Interested but timing not right
+- **Not Relevant**: Not a good fit
+- **No Response**: No reply after 3 touches
+- **Connected**: Accepted invitation, ready for outreach
+
+## Campaign Metrics
+- **Total Prospects**: 100
+- **Messages Sent**: 0
+- **Responses Received**: 0
+- **Positive Responses**: 0
+- **Meetings Scheduled**: 0
+- **Response Rate**: 0%
+- **Conversion Rate**: 0%
+`
+
+	case "helix-blog-posts":
+		files["README.md"] = "# Helix Technical Blog Posts\n\nWrite 10 technical blog posts about the Helix system by analyzing the actual codebase.\n"
+		files["blog-project/README.md"] = `# Helix Blog Post Project
+
+## Project Overview
+Write 10 comprehensive blog posts about different aspects of the Helix AI development platform by analyzing the actual codebase.
+
+## Multi-Session Strategy
+- **Session A**: Repository analysis and content planning
+- **Session B**: Technical deep-dive posts (architecture, APIs)
+- **Session C**: User-focused posts (tutorials, use cases)
+- **Session D**: Advanced topics and future roadmap
+
+## Blog Post Topics
+1. "Getting Started with Helix: Your First AI Assistant"
+2. "Understanding Helix Architecture: From API to Models"
+3. "Building Custom Skills: Extending Helix with APIs"
+4. "Multi-Model Orchestration in Helix"
+5. "Helix Security: Authentication and Access Control"
+6. "Scaling Helix: Deployment and Operations"
+7. "Advanced Helix: Custom Agents and Workflows"
+8. "Helix vs. Other AI Platforms: Technical Comparison"
+9. "Contributing to Helix: Developer Guide"
+10. "The Future of Helix: Roadmap and Vision"
+
+## Content Strategy
+- Technical accuracy through code analysis
+- Practical examples and tutorials
+- Screenshots and diagrams
+- Code samples from actual implementation
+- User journey and use case focus
+`
+		files["blog-project/helix-repo-analysis.md"] = `# Helix Repository Analysis Plan
+
+## Repository Information
+- **Source**: https://github.com/helixml/helix
+- **Clone Strategy**: Use Zed agent git access for live code analysis
+- **Update Frequency**: Re-clone periodically to capture latest changes
+
+## Code Analysis Approach
+
+### 1. Architecture Analysis
+- Main entry points: cmd/, main.go
+- API structure: api/pkg/
+- Frontend: frontend/src/
+- Documentation: docs/, README.md
+
+### 2. Key Components to Analyze
+- **Session Management**: api/pkg/controller/
+- **Model Integration**: api/pkg/model/
+- **Skills System**: api/pkg/agent/skill/
+- **Authentication**: api/pkg/auth/
+- **Storage**: api/pkg/store/
+- **WebSocket**: api/pkg/pubsub/
+
+### 3. Content Generation Strategy
+- Extract code examples for blog posts
+- Understand data flows and interactions
+- Identify key features and capabilities
+- Generate practical tutorials from actual usage patterns
+
+## Git Commands for Zed Agent
+` + "```bash" + `
+# Clone Helix repository
+git clone https://github.com/helixml/helix.git /workspace/helix-analysis
+cd /workspace/helix-analysis
+
+# Analyze codebase structure
+find . -name "*.go" | head -20
+find . -name "*.ts" -o -name "*.tsx" | head -20
+cat README.md
+cat docs/*.md
+
+# Understand main components
+ls -la api/pkg/
+ls -la frontend/src/
+cat main.go
+` + "```" + `
+`
+		files["blog-project/post-templates/"] = ""
+		files["blog-project/post-templates/technical-post-template.md"] = `# [Blog Post Title]
+
+*Part [X] of the Helix Technical Series*
+
+## Introduction
+[Brief introduction explaining what this post covers and why it matters]
+
+## Overview
+[High-level explanation of the topic]
+
+## Technical Deep Dive
+
+### Architecture
+[Explain the architecture with references to actual code]
+
+### Implementation Details
+[Code examples from the actual Helix repository]
+
+` + "```go" + `
+// Example from helix/api/pkg/[component]/[file].go
+[actual code snippet with explanation]
+` + "```" + `
+
+### Key Features
+[Highlight important features and capabilities]
+
+## Practical Examples
+
+### Basic Usage
+[Step-by-step tutorial with real examples]
+
+### Advanced Usage
+[More complex scenarios and configurations]
+
+## Best Practices
+[Recommendations based on codebase analysis]
+
+## Troubleshooting
+[Common issues and solutions based on code understanding]
+
+## Conclusion
+[Summary and next steps]
+
+## Related Resources
+- [Link to relevant documentation]
+- [Link to code examples]
+- [Link to other blog posts in series]
+
+---
+*This post was generated by analyzing the Helix codebase at [commit hash] on [date]*
+`
+		files["blog-project/content-calendar.md"] = `# Blog Post Content Calendar
+
+## Publishing Schedule
+| Post # | Title | Focus Area | Target Date | Status | Session |
+|--------|-------|------------|-------------|--------|---------|
+| 1 | Getting Started with Helix | User Tutorial | Week 1 | Planned | Session C |
+| 2 | Helix Architecture Deep Dive | Technical | Week 1 | Planned | Session B |
+| 3 | Building Custom Skills | Developer Guide | Week 2 | Planned | Session B |
+| 4 | Multi-Model Orchestration | Technical | Week 2 | Planned | Session B |
+| 5 | Authentication & Security | Technical | Week 3 | Planned | Session B |
+| 6 | Deployment & Operations | DevOps | Week 3 | Planned | Session D |
+| 7 | Advanced Workflows | Advanced | Week 4 | Planned | Session D |
+| 8 | Platform Comparison | Business | Week 4 | Planned | Session C |
+| 9 | Contributing Guide | Community | Week 5 | Planned | Session C |
+| 10 | Future Roadmap | Vision | Week 5 | Planned | Session D |
+
+## Content Distribution
+- **Technical Posts (40%)**: Architecture, APIs, advanced features
+- **Tutorial Posts (30%)**: Getting started, how-to guides
+- **Business Posts (20%)**: Use cases, comparisons, ROI
+- **Community Posts (10%)**: Contributing, roadmap, vision
+
+## Session Coordination
+- **Session A**: Repository analysis, research, planning
+- **Session B**: Technical deep-dive content creation
+- **Session C**: User-focused tutorials and guides
+- **Session D**: Advanced topics and strategic content
+`
+
+	case "jupyter-notebooks":
+		files["README.md"] = `# Jupyter Financial Analysis - Notebooks
+
+This repository contains Jupyter notebooks for financial data analysis.
+
+## Quick Start
+
+The agent can run notebooks using ipynb commands from the terminal:
+
+` + "```bash" + `
+# Execute notebook and save results in-place
+jupyter nbconvert --execute --to notebook --inplace portfolio_analysis.ipynb
+
+# Execute and export to HTML for viewing
+jupyter nbconvert --execute --to html portfolio_analysis.ipynb
+
+# View the HTML output in browser
+# The HTML file will be at portfolio_analysis.html
+` + "```" + `
+
+## Notebooks
+
+- **portfolio_analysis.ipynb**: Microsoft stock returns analysis with pyforest library
+
+## Related Repositories
+
+- **pyforest**: Python library for financial calculations (in separate repository)
+
+## Setup
+
+See AGENT_INSTRUCTIONS.md for setup and workflow details.
+`
+		files["AGENT_INSTRUCTIONS.md"] = `# Agent Instructions for Jupyter Workflow
+
+## Running Notebooks from Command Line
+
+You can execute Jupyter notebooks without opening the browser using these commands:
+
+` + "```bash" + `
+# Method 1: Execute and save results in the notebook
+jupyter nbconvert --execute --to notebook --inplace portfolio_analysis.ipynb
+
+# Method 2: Execute and generate HTML output
+jupyter nbconvert --execute --to html portfolio_analysis.ipynb
+
+# Method 3: Execute and show output in terminal
+jupyter nbconvert --execute --to notebook --stdout portfolio_analysis.ipynb | grep -A 10 "output"
+` + "```" + `
+
+## Viewing Results
+
+After running a notebook:
+1. The .ipynb file will contain cell outputs if you used --inplace
+2. The .html file can be viewed in a browser to see rendered results
+3. You can use the Bash tool to open the HTML: ` + "`open portfolio_analysis.html`" + ` (macOS) or ` + "`xdg-open portfolio_analysis.html`" + ` (Linux)
+
+## Iterative Development Workflow
+
+1. **Read the notebook**: Use the Read tool on the .ipynb file to see the code
+2. **Modify the notebook**: Use the Edit tool to change notebook cells
+3. **Run the notebook**: Use jupyter nbconvert to execute
+4. **Check results**: Read the updated .ipynb or generated .html
+5. **Iterate**: Repeat based on results
+
+## Working with PyForest Library
+
+The pyforest library is in a separate repository. To make changes:
+1. Navigate to the pyforest repository
+2. Edit files in pyforest/pyforest/ directory
+3. The library is installed with ` + "`pip install -e .`" + ` so changes are immediately available
+4. Restart Python kernel or re-import to pick up changes
+
+## Example Task Flow
+
+For "Add multiple tickers" task:
+1. Read portfolio_analysis.ipynb to understand current structure
+2. Edit the notebook to download multiple tickers
+3. Run: ` + "`jupyter nbconvert --execute --to html portfolio_analysis.ipynb`" + `
+4. Check portfolio_analysis.html to verify the new ticker data appears
+5. Commit changes to git
+`
+		files["requirements.txt"] = `jupyterlab==4.0.9
+pandas==2.1.4
+numpy==1.26.2
+matplotlib==3.8.2
+yfinance==0.2.33
+scipy==1.11.4
+seaborn==0.13.0
+`
+		// Notebook file
+		files["portfolio_analysis.ipynb"] = `{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Microsoft Portfolio Returns Analysis\n",
+    "\n",
+    "This notebook calculates portfolio returns for Microsoft (MSFT) over different date ranges.\n",
+    "\n",
+    "**Note**: This notebook uses the pyforest library from the separate pyforest repository."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import yfinance as yf\n",
+    "import matplotlib.pyplot as plt\n",
+    "from datetime import datetime, timedelta\n",
+    "\n",
+    "# Import pyforest library (install from ../pyforest with: pip install -e ../pyforest)\n",
+    "try:\n",
+    "    from pyforest import calculate_returns, calculate_cumulative_returns, calculate_sharpe_ratio\n",
+    "    print(\"PyForest library imported successfully\")\n",
+    "except ImportError:\n",
+    "    print(\"WARNING: PyForest library not found. Install with: pip install -e ../pyforest\")\n",
+    "    print(\"Falling back to basic pandas calculations\")\n",
+    "\n",
+    "# Set display options\n",
+    "pd.set_option('display.max_columns', None)\n",
+    "pd.set_option('display.width', None)\n",
+    "\n",
+    "print(\"Libraries imported successfully\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Download Microsoft stock data\n",
+    "ticker = 'MSFT'\n",
+    "print(f\"Downloading {ticker} data...\")\n",
+    "\n",
+    "# Get data for last 5 years\n",
+    "end_date = datetime.now()\n",
+    "start_date = end_date - timedelta(days=5*365)\n",
+    "\n",
+    "msft = yf.download(ticker, start=start_date, end=end_date, progress=False)\n",
+    "print(f\"Downloaded {len(msft)} days of data\")\n",
+    "msft.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Calculate returns using pyforest library if available, otherwise use pandas\n",
+    "try:\n",
+    "    msft['Daily_Return'] = calculate_returns(msft['Close'])\n",
+    "    msft['Cumulative_Return'] = calculate_cumulative_returns(msft['Daily_Return'])\n",
+    "    sharpe = calculate_sharpe_ratio(msft['Daily_Return'])\n",
+    "except NameError:\n",
+    "    # Fallback if pyforest not imported\n",
+    "    msft['Daily_Return'] = msft['Close'].pct_change()\n",
+    "    msft['Cumulative_Return'] = (1 + msft['Daily_Return']).cumprod() - 1\n",
+    "    sharpe = (msft['Daily_Return'].mean() / msft['Daily_Return'].std()) * np.sqrt(252)\n",
+    "\n",
+    "print(\"\\nReturn Statistics:\")\n",
+    "print(f\"Total Return: {msft['Cumulative_Return'].iloc[-1]:.2%}\")\n",
+    "print(f\"Average Daily Return: {msft['Daily_Return'].mean():.4%}\")\n",
+    "print(f\"Daily Return Std Dev: {msft['Daily_Return'].std():.4%}\")\n",
+    "print(f\"Sharpe Ratio (annualized): {sharpe:.2f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Analyze returns over different date ranges\n",
+    "date_ranges = [\n",
+    "    ('1 Month', 30),\n",
+    "    ('3 Months', 90),\n",
+    "    ('6 Months', 180),\n",
+    "    ('1 Year', 365),\n",
+    "    ('2 Years', 730),\n",
+    "    ('5 Years', 1825),\n",
+    "]\n",
+    "\n",
+    "results = []\n",
+    "for label, days in date_ranges:\n",
+    "    if len(msft) >= days:\n",
+    "        period_data = msft.iloc[-days:]\n",
+    "        total_return = (period_data['Close'].iloc[-1] / period_data['Close'].iloc[0] - 1)\n",
+    "        results.append({\n",
+    "            'Period': label,\n",
+    "            'Days': days,\n",
+    "            'Return': total_return,\n",
+    "            'Start_Price': period_data['Close'].iloc[0],\n",
+    "            'End_Price': period_data['Close'].iloc[-1],\n",
+    "        })\n",
+    "\n",
+    "returns_df = pd.DataFrame(results)\n",
+    "print(\"\\nReturns by Period:\")\n",
+    "print(returns_df.to_string(index=False))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Plot cumulative returns\n",
+    "plt.figure(figsize=(14, 7))\n",
+    "plt.plot(msft.index, msft['Cumulative_Return'] * 100, linewidth=2, color='#1f77b4')\n",
+    "plt.title(f'{ticker} Cumulative Returns Over Time', fontsize=16, fontweight='bold')\n",
+    "plt.xlabel('Date', fontsize=12)\n",
+    "plt.ylabel('Cumulative Return (%)', fontsize=12)\n",
+    "plt.grid(True, alpha=0.3)\n",
+    "plt.tight_layout()\n",
+    "plt.savefig('msft_returns.png', dpi=150, bbox_inches='tight')\n",
+    "plt.show()\n",
+    "\n",
+    "print(f\"\\nCurrent Price: ${msft['Close'].iloc[-1]:.2f}\")\n",
+    "print(f\"52-Week High: ${msft['Close'].iloc[-252:].max():.2f}\")\n",
+    "print(f\"52-Week Low: ${msft['Close'].iloc[-252:].min():.2f}\")\n",
+    "print(\"\\nChart saved to msft_returns.png\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}`
+
+	case "pyforest-library":
+		files["README.md"] = `# PyForest - Financial Analysis Library
+
+A Python library for financial data analysis and portfolio management.
+
+## Installation
+
+` + "```bash" + `
+pip install -e .
+` + "```" + `
+
+## Modules
+
+- **returns.py**: Return calculations (simple, log, cumulative, Sharpe ratio)
+- **portfolio.py**: Portfolio management and optimization
+- **indicators.py**: Technical indicators (to be implemented)
+
+## Usage
+
+` + "```python" + `
+from pyforest import calculate_returns, Portfolio
+
+# Calculate returns
+returns = calculate_returns(price_series)
+
+# Create portfolio
+portfolio = Portfolio(['MSFT', 'AAPL'], weights=[0.6, 0.4])
+` + "```" + `
+
+## Development
+
+This library is designed to be extended by the agent with new financial analysis functions.
+`
+		files["setup.py"] = `from setuptools import setup, find_packages
+
+setup(
+    name="pyforest",
+    version="0.1.0",
+    description="Financial analysis library for portfolio returns calculation",
+    packages=find_packages(),
+    install_requires=[
+        "pandas>=2.0.0",
+        "numpy>=1.24.0",
+    ],
+)
+`
+		files["pyforest/__init__.py"] = `"""
+PyForest - Financial Analysis Library
+"""
+
+from .returns import calculate_returns, calculate_cumulative_returns, calculate_sharpe_ratio
+from .portfolio import Portfolio, PortfolioOptimizer
+
+__version__ = "0.1.0"
+__all__ = [
+    "calculate_returns",
+    "calculate_cumulative_returns",
+    "calculate_sharpe_ratio",
+    "Portfolio",
+    "PortfolioOptimizer",
+]
+`
+		files["pyforest/returns.py"] = `"""
+Return calculation utilities for financial analysis
+"""
+
+import pandas as pd
+import numpy as np
+
+
+def calculate_returns(prices: pd.Series, method='simple') -> pd.Series:
+    """
+    Calculate returns from a price series.
+
+    Parameters:
+    -----------
+    prices : pd.Series
+        Time series of prices
+    method : str
+        'simple' for simple returns, 'log' for logarithmic returns
+
+    Returns:
+    --------
+    pd.Series
+        Series of returns
+    """
+    if method == 'simple':
+        return prices.pct_change()
+    elif method == 'log':
+        return np.log(prices / prices.shift(1))
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+
+def calculate_cumulative_returns(returns: pd.Series) -> pd.Series:
+    """
+    Calculate cumulative returns from a returns series.
+
+    Parameters:
+    -----------
+    returns : pd.Series
+        Series of period returns
+
+    Returns:
+    --------
+    pd.Series
+        Cumulative returns
+    """
+    return (1 + returns).cumprod() - 1
+
+
+def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.02, periods_per_year: int = 252) -> float:
+    """
+    Calculate annualized Sharpe ratio.
+
+    Parameters:
+    -----------
+    returns : pd.Series
+        Series of period returns
+    risk_free_rate : float
+        Annual risk-free rate (default 2%)
+    periods_per_year : int
+        Number of periods per year (252 for daily trading days)
+
+    Returns:
+    --------
+    float
+        Annualized Sharpe ratio
+    """
+    excess_returns = returns - (risk_free_rate / periods_per_year)
+    return (excess_returns.mean() / excess_returns.std()) * np.sqrt(periods_per_year)
+
+
+def calculate_period_returns(df: pd.DataFrame, price_column: str = 'Close') -> pd.DataFrame:
+    """
+    Calculate returns over multiple standard periods.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with price data
+    price_column : str
+        Name of the price column
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with period returns
+    """
+    periods = [
+        ('1M', 21),
+        ('3M', 63),
+        ('6M', 126),
+        ('1Y', 252),
+        ('2Y', 504),
+        ('5Y', 1260),
+    ]
+
+    results = []
+    for label, days in periods:
+        if len(df) >= days:
+            period_data = df.iloc[-days:]
+            total_return = (period_data[price_column].iloc[-1] / period_data[price_column].iloc[0] - 1)
+            results.append({
+                'Period': label,
+                'Days': days,
+                'Return': total_return,
+                'Start_Price': period_data[price_column].iloc[0],
+                'End_Price': period_data[price_column].iloc[-1],
+            })
+
+    return pd.DataFrame(results)
+`
+		files["pyforest/portfolio.py"] = `"""
+Portfolio management and optimization utilities
+"""
+
+import pandas as pd
+import numpy as np
+from typing import List, Dict
+
+
+class Portfolio:
+    """
+    Portfolio class for managing multiple assets and calculating portfolio metrics.
+    """
+
+    def __init__(self, tickers: List[str], weights: List[float] = None):
+        """
+        Initialize portfolio with tickers and optional weights.
+
+        Parameters:
+        -----------
+        tickers : List[str]
+            List of ticker symbols
+        weights : List[float], optional
+            Portfolio weights (must sum to 1.0). If None, equal weights are used.
+        """
+        self.tickers = tickers
+
+        if weights is None:
+            self.weights = np.array([1.0 / len(tickers)] * len(tickers))
+        else:
+            self.weights = np.array(weights)
+            if not np.isclose(self.weights.sum(), 1.0):
+                raise ValueError("Weights must sum to 1.0")
+
+    def calculate_portfolio_returns(self, returns_df: pd.DataFrame) -> pd.Series:
+        """
+        Calculate portfolio returns from individual asset returns.
+
+        Parameters:
+        -----------
+        returns_df : pd.DataFrame
+            DataFrame with returns for each ticker (columns = tickers)
+
+        Returns:
+        --------
+        pd.Series
+            Portfolio returns time series
+        """
+        return (returns_df[self.tickers] * self.weights).sum(axis=1)
+
+    def calculate_metrics(self, returns: pd.Series, periods_per_year: int = 252) -> Dict:
+        """
+        Calculate portfolio performance metrics.
+
+        Returns:
+        --------
+        Dict with metrics: mean_return, volatility, sharpe_ratio, max_drawdown
+        """
+        metrics = {
+            'mean_return': returns.mean() * periods_per_year,
+            'volatility': returns.std() * np.sqrt(periods_per_year),
+            'sharpe_ratio': (returns.mean() / returns.std()) * np.sqrt(periods_per_year),
+        }
+
+        # Calculate maximum drawdown
+        cumulative = (1 + returns).cumprod()
+        running_max = cumulative.expanding().max()
+        drawdown = (cumulative - running_max) / running_max
+        metrics['max_drawdown'] = drawdown.min()
+
+        return metrics
+
+
+class PortfolioOptimizer:
+    """
+    Portfolio optimization using mean-variance optimization.
+    """
+
+    def __init__(self, returns_df: pd.DataFrame):
+        """
+        Initialize optimizer with historical returns data.
+
+        Parameters:
+        -----------
+        returns_df : pd.DataFrame
+            DataFrame with returns for each ticker
+        """
+        self.returns_df = returns_df
+        self.mean_returns = returns_df.mean()
+        self.cov_matrix = returns_df.cov()
+
+    def optimize_sharpe(self) -> Dict:
+        """
+        Find portfolio weights that maximize Sharpe ratio.
+
+        Returns:
+        --------
+        Dict with optimal weights and expected metrics
+        """
+        # Simple implementation - can be improved with scipy.optimize
+        # For now, return equal weights
+        n_assets = len(self.returns_df.columns)
+        weights = np.array([1.0 / n_assets] * n_assets)
+
+        return {
+            'weights': dict(zip(self.returns_df.columns, weights)),
+            'expected_return': np.dot(weights, self.mean_returns),
+            'expected_volatility': np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix, weights))),
+        }
+`
+
+	default:
+		// Generic project
+		files["README.md"] = fmt.Sprintf("# %s\n\nA sample project.\n", sampleType)
+		files["src/main.txt"] = "Main source file\n"
+	}
+
+	// Add common files
+	files[".gitignore"] = `# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Build outputs
+build/
+dist/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+`
+
+	return files
+}
+
+// ListBranches returns all branches in the repository
+// Uses native git for reliable operations.
+func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Use gitea's git module to list branches
+	gitRepo, err := giteagit.OpenRepository(ctx, repo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+	defer gitRepo.Close()
+
+	branches, _, err := gitRepo.GetBranchNames(0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list branches: %w", err)
+	}
+
+	return branches, nil
+}
+
+// PushPullRequest syncs with external repository using a temporary working copy.
+// Since Helix uses bare repositories (to accept remote pushes from agents),
+// this creates a temp clone from the external repo, pulls latest changes,
+// merges any local commits, pushes to external, and updates the local bare repo.
+//
+// Uses native git for reliable network operations.
+func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
+	gitRepo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if !gitRepo.IsExternal {
+		return fmt.Errorf("repository is not external, cannot push/pull")
+	}
+
+	if branchName == "" {
+		return fmt.Errorf("branch name is required")
+	}
+
+	// Acquire repo lock to serialize git operations on this repository.
+	// This prevents race conditions during concurrent pull/push operations.
+	lock := s.GetRepoLock(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Build authenticated URL for external repo
+	authURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+
+	wc, err := s.getExternalWorkingCopy(ctx, authURL, gitRepo.LocalPath, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to create working copy: %w", err)
+	}
+	defer wc.Cleanup()
+
+	if !force {
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("branch", branchName).
+			Msg("Pulling changes from external repository")
+
+		err = wc.Pull(ctx, authURL)
+		if err != nil {
+			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+		}
+	}
+
+	log.Info().
+		Str("repo_id", gitRepo.ID).
+		Str("branch", branchName).
+		Bool("force", force).
+		Msg("Pushing changes to external repository")
+
+	err = wc.PushToOrigin(ctx, branchName, force, authURL)
+	if err != nil {
+		return fmt.Errorf("failed to push changes to external: %w", err)
+	}
+
+	err = wc.PushToHelixBare(ctx, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to sync changes to local bare repo: %w", err)
+	}
+
+	log.Info().
+		Str("repo_id", gitRepo.ID).
+		Str("branch", branchName).
+		Msg("Successfully synced with external repository")
+
+	return nil
+}
+
+// CreateBranch creates a new branch in the repository
+// Uses native git for reliable operations.
+func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error {
+	repo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	if baseBranch == "" {
+		baseBranch = repo.DefaultBranch
+	}
+
+	// Get base branch commit ID
+	baseCommit, err := GetBranchCommitID(ctx, repo.LocalPath, baseBranch)
+	if err != nil {
+		// Try HEAD if base branch not found
+		baseCommit, err = GetHEADBranch(ctx, repo.LocalPath)
+		if err != nil {
+			return fmt.Errorf("failed to get base branch reference: %w", err)
+		}
+		// Get commit ID of HEAD branch
+		baseCommit, err = GetBranchCommitID(ctx, repo.LocalPath, baseCommit)
+		if err != nil {
+			return fmt.Errorf("failed to get HEAD commit: %w", err)
+		}
+	}
+
+	// Check if branch already exists
+	_, err = GetBranchCommitID(ctx, repo.LocalPath, branchName)
+	if err == nil {
+		// Branch already exists
+		log.Warn().
+			Str("branch", branchName).
+			Str("repo", repoID).
+			Msg("[GitRepo] Branch already exists")
+		return nil // Not an error - branch exists
+	}
+
+	// Create the new branch using the helper
+	err = CreateBranchFromRef(ctx, repo.LocalPath, branchName, baseCommit)
+	if err != nil {
+		return fmt.Errorf("failed to create branch: %w", err)
+	}
+
+	log.Info().
+		Str("branch", branchName).
+		Str("base_branch", baseBranch).
+		Str("repo", repoID).
+		Msg("[GitRepo] Created branch")
+
+	return nil
+}
+
+// buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
+// This is used by gitea/git module which expects credentials in the URL
+func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository) string {
+	if gitRepo.ExternalURL == "" {
+		return ""
+	}
+
+	// Get credentials based on repository type and OAuth connection
+	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	if password == "" {
+		return gitRepo.ExternalURL
+	}
+
+	// Build authenticated URL
+	authURL, err := BuildAuthenticatedURL(gitRepo.ExternalURL, username, password)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to build authenticated URL, using original")
+		return gitRepo.ExternalURL
+	}
+
+	return authURL
+}
+
+// getCredentialsForRepo returns username and password/token for a repository
+func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository) (username, password string) {
+	// First, check for OAuth connection
+	if gitRepo.OAuthConnectionID != "" {
+		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
+		if err == nil && conn.AccessToken != "" {
+			switch gitRepo.ExternalType {
+			case types.ExternalRepositoryTypeGitHub:
+				return "x-access-token", conn.AccessToken
+			case types.ExternalRepositoryTypeGitLab:
+				return "oauth2", conn.AccessToken
+			case types.ExternalRepositoryTypeADO:
+				return "oauth2", conn.AccessToken
+			default:
+				return "oauth2", conn.AccessToken
+			}
+		}
+	}
+
+	// Fall back to provider-specific PAT or username/password
+	switch gitRepo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		if gitRepo.AzureDevOps != nil && gitRepo.AzureDevOps.PersonalAccessToken != "" {
+			return "PAT", gitRepo.AzureDevOps.PersonalAccessToken
+		}
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return gitRepo.Username, gitRepo.Password
+		}
+	case types.ExternalRepositoryTypeGitHub:
+		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
+			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
+		}
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return gitRepo.Username, gitRepo.Password
+		}
+	case types.ExternalRepositoryTypeGitLab:
+		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
+			return "oauth2", gitRepo.GitLab.PersonalAccessToken
+		}
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return gitRepo.Username, gitRepo.Password
+		}
+	case types.ExternalRepositoryTypeBitbucket:
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return gitRepo.Username, gitRepo.Password
+		}
+	}
+
+	return "", ""
+}
+
+func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
+	// Strip credentials from the URL (e.g., https://user@host.com -> https://host.com)
+	repoURL := stripCredentialsFromURL(repo.ExternalURL)
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		return fmt.Sprintf("%s/pullrequest/%s", repoURL, pullRequestID)
+	case types.ExternalRepositoryTypeGitHub:
+		// Remove the suffix .git if it's there
+		repoURL = strings.TrimSuffix(repoURL, ".git")
+		return fmt.Sprintf("%s/pull/%s", repoURL, pullRequestID)
+	case types.ExternalRepositoryTypeGitLab:
+		return fmt.Sprintf("%s/merge_requests/%s", repoURL, pullRequestID)
+	case types.ExternalRepositoryTypeBitbucket:
+		return fmt.Sprintf("%s/pull-requests/%s", repoURL, pullRequestID)
+	}
+	return ""
+}
+
+// stripCredentialsFromURL removes username:password@ or username@ from a URL
+func stripCredentialsFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL // Return as-is if parsing fails
+	}
+	// Clear the user info (username/password)
+	parsed.User = nil
+	return parsed.String()
+}

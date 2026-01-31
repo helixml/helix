@@ -855,7 +855,6 @@ func (r *NATSRunnerClient) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 }
 
 func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
-	defer slot.Release() // Always decrement counter when function exits
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
 
@@ -897,7 +896,6 @@ func (r *NATSRunnerClient) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 }
 
 func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
-	defer slot.Release() // Always decrement counter when function exits
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
 
@@ -1118,7 +1116,6 @@ func (r *NATSRunnerClient) SubmitImageGenerationRequest(slot *Slot, session *typ
 }
 
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
-	defer slot.Release() // Always decrement counter when function exits
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
 	// userInteractions := data.FilterUserInteractions(session.Interactions)

@@ -52,7 +52,7 @@ const OrgBilling: FC = () => {
 
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   
-  const { data: wallet } = useGetWallet(orgId)
+  const { data: wallet } = useGetWallet(orgId, !isLoadingServerConfig && serverConfig?.billing_enabled)
   const { data: usage } = useGetOrgUsage(orgId || '', !!orgId)
   
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
@@ -122,7 +122,7 @@ const OrgBilling: FC = () => {
     return null
   }
 
-  const paymentsActive = serverConfig?.stripe_enabled
+  const paymentsActive = serverConfig?.stripe_enabled && serverConfig?.billing_enabled
   const colSize = paymentsActive ? 6 : 12
 
   // Check if user has admin permissions for this org

@@ -1,0 +1,145 @@
+package services
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/rs/zerolog/log"
+)
+
+// TaskProgressItem represents a single task in the progress checklist
+type TaskProgressItem struct {
+	Index       int                `json:"index"`
+	Description string             `json:"description"`
+	Status      TaskProgressStatus `json:"status"` // pending, in_progress, completed
+}
+
+// TaskProgressStatus represents the status of a task
+type TaskProgressStatus string
+
+const (
+	TaskProgressPending    TaskProgressStatus = "pending"
+	TaskProgressInProgress TaskProgressStatus = "in_progress"
+	TaskProgressCompleted  TaskProgressStatus = "completed"
+)
+
+// TaskProgress represents the overall progress of a SpecTask
+type TaskProgress struct {
+	Tasks          []TaskProgressItem `json:"tasks"`
+	TotalTasks     int                `json:"total_tasks"`
+	CompletedTasks int                `json:"completed_tasks"`
+	InProgressTask *TaskProgressItem  `json:"in_progress_task,omitempty"`
+	ProgressPct    int                `json:"progress_pct"` // 0-100
+}
+
+// ParseTaskProgress reads tasks.md from helix-specs branch and returns progress
+// repoPath is the path to the git repository
+// specTaskID is used to find the task directory (fallback for old tasks)
+// designDocPath is the new human-readable path (e.g., "2025-12-09_install-cowsay_1")
+func ParseTaskProgress(repoPath string, specTaskID string, designDocPath string) (*TaskProgress, error) {
+	// Find task directory in helix-specs branch
+	taskDir, err := findTaskDirectory(repoPath, specTaskID, designDocPath)
+	if err != nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("design_doc_path", designDocPath).Msg("Could not find task directory in helix-specs")
+		return nil, err
+	}
+
+	// Read tasks.md from helix-specs branch
+	tasksPath := fmt.Sprintf("%s/tasks.md", taskDir)
+	content, err := readFileFromBranch(repoPath, "helix-specs", tasksPath)
+	if err != nil {
+		log.Debug().Err(err).Str("path", tasksPath).Msg("Could not read tasks.md from helix-specs")
+		return nil, err
+	}
+
+	// Parse the task list
+	tasks := parseTaskList(content)
+
+	// Calculate progress
+	progress := &TaskProgress{
+		Tasks:      tasks,
+		TotalTasks: len(tasks),
+	}
+
+	for i := range tasks {
+		switch tasks[i].Status {
+		case TaskProgressCompleted:
+			progress.CompletedTasks++
+		case TaskProgressInProgress:
+			progress.InProgressTask = &tasks[i]
+		}
+	}
+
+	if progress.TotalTasks > 0 {
+		progress.ProgressPct = (progress.CompletedTasks * 100) / progress.TotalTasks
+	}
+
+	return progress, nil
+}
+
+// findTaskDirectory finds the task directory in helix-specs branch using go-git.
+// First tries to match by designDocPath (new format: "2025-12-09_install-cowsay_1")
+// Falls back to matching by specTaskID for backwards compatibility with old tasks
+func findTaskDirectory(repoPath string, specTaskID string, designDocPath string) (string, error) {
+	gitRepo, err := OpenGitRepo(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+	return gitRepo.FindTaskDirInBranch("helix-specs", designDocPath, specTaskID)
+}
+
+// readFileFromBranch reads a file from a specific git branch using go-git
+func readFileFromBranch(repoPath, branch, filePath string) (string, error) {
+	gitRepo, err := OpenGitRepo(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+	content, err := gitRepo.ReadFileFromBranch(branch, filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// parseTaskList parses markdown task list into TaskProgressItems
+func parseTaskList(content string) []TaskProgressItem {
+	lines := strings.Split(content, "\n")
+	tasks := []TaskProgressItem{}
+	taskIndex := 0
+
+	// Regex patterns for different task states
+	// Matches: - [ ] task, * [ ] task, - [x] task, - [~] task
+	pendingPattern := regexp.MustCompile(`^[-*]\s+\[\s\]\s+(.+)$`)
+	inProgressPattern := regexp.MustCompile(`^[-*]\s+\[~\]\s+(.+)$`)
+	completedPattern := regexp.MustCompile(`^[-*]\s+\[[xX]\]\s+(.+)$`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		var status TaskProgressStatus
+		var description string
+
+		if matches := pendingPattern.FindStringSubmatch(line); matches != nil {
+			status = TaskProgressPending
+			description = matches[1]
+		} else if matches := inProgressPattern.FindStringSubmatch(line); matches != nil {
+			status = TaskProgressInProgress
+			description = matches[1]
+		} else if matches := completedPattern.FindStringSubmatch(line); matches != nil {
+			status = TaskProgressCompleted
+			description = matches[1]
+		} else {
+			continue // Not a task line
+		}
+
+		tasks = append(tasks, TaskProgressItem{
+			Index:       taskIndex,
+			Description: description,
+			Status:      status,
+		})
+		taskIndex++
+	}
+
+	return tasks
+}

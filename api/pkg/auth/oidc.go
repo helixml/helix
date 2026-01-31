@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coreos/go-oidc"
-	"github.com/helixml/helix/api/pkg/config"
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
 var (
-	ErrInvalidConfig = errors.New("invalid config")
+	ErrInvalidConfig    = errors.New("invalid config")
+	ErrProviderNotReady = errors.New("OIDC provider not ready")
 )
 
 type OIDCClient struct {
@@ -22,17 +23,30 @@ type OIDCClient struct {
 	provider     *oidc.Provider
 	oauth2Config *oauth2.Config
 	adminConfig  *AdminConfig
+	store        store.Store
 }
+
+var _ OIDC = &OIDCClient{}
 
 type OIDCConfig struct {
 	ProviderURL  string
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
-	AdminUserIDs []string
-	AdminUserSrc config.AdminSrcType
+	AdminUserIDs []string // List of admin user IDs, or contains "all" for dev mode
 	Audience     string
 	Scopes       []string
+	Store        store.Store
+	// ExpectedIssuer allows the OIDC provider to return a different issuer than the ProviderURL.
+	// This is useful when the API connects to Keycloak via an internal URL (e.g., keycloak:8080)
+	// but Keycloak is configured with an external URL (e.g., localhost:8180) for browser access.
+	// If set, the OIDC client will accept tokens with this issuer even though discovery
+	// was done via ProviderURL.
+	ExpectedIssuer string
+	// TokenURL overrides the token endpoint from OIDC discovery.
+	// Useful when the API needs an internal URL for token exchange while discovery
+	// returns browser-accessible URLs.
+	TokenURL string
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -54,8 +68,8 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 		cfg: cfg,
 		adminConfig: &AdminConfig{
 			AdminUserIDs: cfg.AdminUserIDs,
-			AdminUserSrc: cfg.AdminUserSrc,
 		},
+		store: cfg.Store,
 	}
 
 	// Start a go routine to periodically check if the provider is available
@@ -87,9 +101,24 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 func (c *OIDCClient) getProvider() (*oidc.Provider, error) {
 	if c.provider == nil {
 		log.Trace().Str("provider_url", c.cfg.ProviderURL).Msg("Getting provider")
-		provider, err := oidc.NewProvider(context.Background(), c.cfg.ProviderURL)
+
+		// If ExpectedIssuer is set, use InsecureIssuerURLContext to allow the provider
+		// to return a different issuer than the discovery URL. This is needed when
+		// the API connects to Keycloak via an internal URL but Keycloak is configured
+		// with an external URL for browser access.
+		ctx := context.Background()
+		if c.cfg.ExpectedIssuer != "" {
+			log.Info().
+				Str("discovery_url", c.cfg.ProviderURL).
+				Str("expected_issuer", c.cfg.ExpectedIssuer).
+				Msg("Using InsecureIssuerURLContext to allow different issuer")
+			ctx = oidc.InsecureIssuerURLContext(ctx, c.cfg.ExpectedIssuer)
+		}
+
+		provider, err := oidc.NewProvider(ctx, c.cfg.ProviderURL)
 		if err != nil {
-			return nil, err
+			// Wrap error to indicate provider not ready (used to return 503 instead of 401)
+			return nil, fmt.Errorf("%w: %v", ErrProviderNotReady, err)
 		}
 		c.provider = provider
 	}
@@ -103,13 +132,28 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 			log.Error().Err(err).Msg("Failed to get provider")
 			return nil, err
 		}
-		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", provider.Endpoint()).Msg("Getting oauth2 config")
+		endpoint := provider.Endpoint()
+
+		// Override token URL for internal API access
+		// If TokenURL is set explicitly, use it (useful when discovery returns browser URLs
+		// but API needs internal URLs, e.g., Keycloak behind a proxy)
+		// IMPORTANT: Do NOT auto-derive Keycloak-style URLs - this breaks Google and other
+		// standard OIDC providers. Only override if explicitly configured.
+		if c.cfg.TokenURL != "" && c.cfg.TokenURL != endpoint.TokenURL {
+			log.Info().
+				Str("original_token_url", endpoint.TokenURL).
+				Str("override_token_url", c.cfg.TokenURL).
+				Msg("Overriding token endpoint URL with explicit OIDC_TOKEN_URL")
+			endpoint.TokenURL = c.cfg.TokenURL
+		}
+
+		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
 		c.oauth2Config = &oauth2.Config{
 			ClientID:     c.cfg.ClientID,
 			ClientSecret: c.cfg.ClientSecret,
 			RedirectURL:  c.cfg.RedirectURL,
 			Scopes:       c.cfg.Scopes,
-			Endpoint:     provider.Endpoint(),
+			Endpoint:     endpoint,
 		}
 	}
 	return c.oauth2Config, nil
@@ -122,18 +166,35 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce))
+	// Add prompt=select_account to force the account picker (useful for Google)
+	// This ensures users can choose which account to use instead of auto-selecting
+	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("prompt", "select_account"))
 }
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code).Msg("Exchanging code for token")
+	// Log truncated code for debugging (avoid logging full code for security)
+	codePreview := code
+	if len(code) > 20 {
+		codePreview = code[:20] + "..."
+	}
+	log.Info().Str("code", codePreview).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("code", code).Msg("Exchanged code for token")
-	return oauth2Config.Exchange(ctx, code)
+	log.Info().
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Str("client_id", oauth2Config.ClientID).
+		Str("token_endpoint", oauth2Config.Endpoint.TokenURL).
+		Msg("Token exchange config")
+	token, err := oauth2Config.Exchange(ctx, code)
+	if err != nil {
+		log.Error().Err(err).Str("redirect_url", oauth2Config.RedirectURL).Msg("Token exchange failed")
+		return nil, err
+	}
+	log.Info().Msg("Token exchange successful")
+	return token, nil
 }
 
 // VerifyIDToken verifies the ID token and returns the claims
@@ -217,34 +278,68 @@ func (c *OIDCClient) GetLogoutURL() (string, error) {
 }
 
 func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
-	provider, err := c.getProvider()
-	if err != nil {
-		return nil, err
-	}
-	verifier := provider.Verifier(&oidc.Config{
-		ClientID: c.cfg.Audience,
-	})
-	_, err = verifier.Verify(ctx, accessToken)
-	if err != nil {
-		return nil, fmt.Errorf("invalid access token: %w", err)
-	}
-
+	// Note: We intentionally don't verify the access token as a JWT here.
+	// The go-oidc Verifier is designed for ID tokens, not access tokens.
+	// Keycloak access tokens have different claims (aud="account" vs client_id).
+	// Instead, we validate the token by calling the userinfo endpoint - if the
+	// token is invalid or expired, that call will fail.
 	userInfo, err := c.GetUserInfo(ctx, accessToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid access token: %w", err)
+		return nil, fmt.Errorf("invalid access token (could not get user info): %w", err)
 	}
 
-	account := account{userInfo: userInfo}
+	// Try to get the user from the database by their OIDC subject ID
+	user, err := c.store.GetUser(ctx, &store.GetUserQuery{
+		ID: userInfo.Subject,
+	})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("invalid access token (database error): %w", err)
+	}
+
+	// Extract full name from userinfo
+	fullName := userInfo.Name
+	if fullName == "" && userInfo.GivenName != "" && userInfo.FamilyName != "" {
+		fullName = userInfo.GivenName + " " + userInfo.FamilyName
+	}
+	if fullName == "" {
+		fullName = userInfo.Email
+	}
+
+	// If user doesn't exist, create them (first login after OIDC registration)
+	if user == nil {
+		log.Info().
+			Str("subject", userInfo.Subject).
+			Str("email", userInfo.Email).
+			Msg("Creating new user from OIDC token")
+
+		user, err = c.store.CreateUser(ctx, &types.User{
+			ID:        userInfo.Subject,
+			Username:  userInfo.Subject,
+			Email:     userInfo.Email,
+			FullName:  fullName,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+	}
+
+	// Determine admin status:
+	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
+	// - Otherwise use the database admin field
+	isAdmin := c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
 
 	return &types.User{
-		ID:        userInfo.Subject,
-		Username:  userInfo.Subject,
-		Email:     userInfo.Email,
-		FullName:  userInfo.Name,
-		Token:     accessToken,
-		TokenType: types.TokenTypeOIDC,
-		Type:      types.OwnerTypeUser,
-		Admin:     account.isAdmin(c.adminConfig),
+		ID:          userInfo.Subject,
+		Username:    userInfo.Subject,
+		Email:       userInfo.Email,
+		FullName:    fullName,
+		Token:       accessToken,
+		TokenType:   types.TokenTypeOIDC,
+		Type:        types.OwnerTypeUser,
+		Admin:       isAdmin,
+		SB:          user.SB,
+		Deactivated: user.Deactivated,
 	}, nil
 }
 

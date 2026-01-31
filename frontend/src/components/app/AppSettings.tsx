@@ -20,38 +20,65 @@ import { styled } from '@mui/material/styles'
 
 import {
   IAppFlatState,
+  IAgentType,
+  IExternalAgentConfig,
+  AGENT_TYPE_HELIX_BASIC,
+  AGENT_TYPE_HELIX_AGENT,
+  AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
+
+
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
   // Tool use required, reasoning and tool calling, must be strong model for complex tasks
   reasoning: [
-    'o3-mini', 
-    'o4-mini', 
-    'Qwen/Qwen2.5-72B-Instruct-Turbo', 
-    'Qwen/Qwen3-235B-A22B-fp8-tput',    
+    'o3-mini',
+    'o4-mini',
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
   ],
   // Tool use required, planning next actions using skills
   generation: [
-    'gpt-4o', 
-    'gpt-4o-mini', 
-    'Qwen/Qwen3-235B-A22B-fp8-tput', 
-    'meta-llama/Llama-4-Scout-17B-16E-Instruct', 
+    'gpt-4o',
+    'gpt-4o-mini',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
+    'meta-llama/Llama-4-Scout-17B-16E-Instruct',
     'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'
   ],
-  // No tool use required but might be useful 
+  // No tool use required but might be useful
   smallReasoning: [
-    'o3-mini', 
-    'o4-mini', 
-    'gpt-4o-mini', 
-    'gpt-4o', 
-    'Qwen/Qwen2.5-72B-Instruct-Turbo',     
-    'Qwen/Qwen2.5-7B-Instruct-Turbo',     
+    'o3-mini',
+    'o4-mini',
+    'gpt-4o-mini',
+    'gpt-4o',
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+    'Qwen/Qwen2.5-7B-Instruct-Turbo',
   ],
   // No tool use required, can be any text generation model
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b'],
+  // Zed external agent - strong code generation models
+  zedExternal: [
+    // Anthropic
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5-20250929',
+    'claude-haiku-4-5-20251001',
+    // OpenAI
+    'openai/gpt-5.1-codex',
+    'openai/gpt-oss-120b',
+    // Google Gemini
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    // Zhipu GLM
+    'glm-4.6',
+    // Qwen (Coder + Large)
+    'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+    'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
+  ]
 };
 
 interface AppSettingsProps {
@@ -81,7 +108,7 @@ const useDebounce = (callback: Function, delay: number) => {
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
 
 // Define default values.
-// If you are updating these, also update 
+// If you are updating these, also update
 // 'func setAppDefaults(apps ...*types.App)' in api/pkg/store/store_apps.go
 const DEFAULT_VALUES = {
   system_prompt: DEFAULT_SYSTEM_PROMPT,
@@ -202,18 +229,29 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+
+  // Agent type settings
+  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+  const [external_agent_config, setExternalAgentConfig] = useState<IExternalAgentConfig>(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  // External agent display settings
+  const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
+  const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+  const [zoomLevel, setZoomLevel] = useState<number>(app.external_agent_config?.zoom_level || ((app.external_agent_config?.resolution === '5k' || app.external_agent_config?.resolution === '4k') ? 200 : 100))
+  const [refreshRate, setRefreshRate] = useState<number>(app.external_agent_config?.display_refresh_rate || 60)
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
-  
+
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
   const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
@@ -222,7 +260,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'none')
   const [temperature, setTemperature] = useState(app.temperature || DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p || 1)
-  
+
   // Track if component has been initialized
   const isInitialized = useRef(false)
 
@@ -235,19 +273,27 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
+      setDefaultAgentType(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+      setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
       setReasoningModelProvider(app.reasoning_model_provider || '')
-      
+
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
-      
+      setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      // External agent display settings
+      setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
+      setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+      setZoomLevel(app.external_agent_config?.zoom_level || (app.external_agent_config?.resolution === '4k' ? 200 : 100))
+      setRefreshRate(app.external_agent_config?.display_refresh_rate || 60)
+
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
-      
+
       setSmallGenerationModel(app.small_generation_model || '')
       setSmallGenerationModelProvider(app.small_generation_model_provider || '')
-      
+
       setProvider(app.provider || '')
       setContextLimit(app.context_limit || 0)
       setFrequencyPenalty(app.frequency_penalty || 0)
@@ -257,12 +303,12 @@ const AppSettings: FC<AppSettingsProps> = ({
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
       setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
-      
+
       // Mark as initialized
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
- 
+
   // Create debounced version of the update function
   const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
     const updatedApp: IAppFlatState = {
@@ -270,6 +316,8 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       agent_mode,
+      default_agent_type,
+      external_agent_config,
       reasoning_model,
       reasoning_model_provider,
       reasoning_model_effort,
@@ -291,13 +339,12 @@ const AppSettings: FC<AppSettingsProps> = ({
       system_prompt: field === 'system_prompt' ? value as string : system_prompt,
       max_iterations: field === 'maxIterations' ? value as number : max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }, 300)
 
   // Combine immediate state update with debounced API call
   const handleAdvancedChangeWithDebounce = (field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
-    console.log('handleAdvancedChangeWithDebounce', field, value)
     debouncedUpdate(field, value)
   }
 
@@ -308,12 +355,43 @@ const AppSettings: FC<AppSettingsProps> = ({
     } else if (field === 'agent_mode') {
       setAgentMode(value)
     }
-    
+
     // Create updated state and call onUpdate immediately for checkboxes
     const updatedApp: IAppFlatState = {
       ...app,
       global: field === 'global' ? value : global,
       agent_mode: field === 'agent_mode' ? value : agent_mode,
+      default_agent_type,
+      external_agent_config,
+      model,
+      provider,
+      context_limit: contextLimit,
+      frequency_penalty: frequencyPenalty,
+      max_tokens: maxTokens,
+      presence_penalty: presencePenalty,
+      reasoning_effort: reasoningEffort,
+      temperature: temperature,
+      top_p: topP,
+      max_iterations: max_iterations
+    }
+
+    onUpdate(updatedApp)
+  }
+
+  // Handle agent type changes
+  const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
+    setDefaultAgentType(agentType)
+
+    if (config !== undefined) {
+      setExternalAgentConfig(config)
+    }
+
+    const updatedApp: IAppFlatState = {
+      ...app,
+      global,
+      agent_mode,
+      default_agent_type: agentType,
+      external_agent_config: config !== undefined ? config : external_agent_config,
       model,
       provider,
       context_limit: contextLimit,
@@ -323,16 +401,17 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
+      system_prompt: system_prompt,
       max_iterations: max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
     setProvider(provider)
-    
+
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
       ...app,
@@ -348,7 +427,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       top_p: topP,
       max_iterations: max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }
 
@@ -482,7 +561,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          
+
         </Typography>
         <Box sx={{ mb: 3, mt: 1 }}>
           <ResizableTextarea
@@ -493,7 +572,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             }}
             disabled={readOnly}
             placeholder="What does this agent do? How does it behave? What should it avoid doing?"
-            style={{ 
+            style={{
               minHeight: '200px',
               resize: 'vertical'
             }}
@@ -502,31 +581,291 @@ const AppSettings: FC<AppSettingsProps> = ({
             What does this agent do? How does it behave? What should it avoid doing?
           </Typography>
         </Box>
+
+        {/* Agent Type Selection */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Type</Typography>
+        <AgentTypeSelector
+          value={default_agent_type}
+          onChange={handleAgentTypeChange}
+          externalAgentConfig={external_agent_config}
+          disabled={readOnly}
+          size="small"
+        />
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              Use a more sophisticated reasoning process with separate models for different tasks.
-            </Typography>
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={agent_mode}
-                onChange={(e) => handleCheckboxChange('agent_mode', e.target.checked)}
-                disabled={readOnly}
-              />
-            }
-            label="Agent Mode"
+      {/* Basic Agent Configuration - Model Selection Only */}
+      {default_agent_type === AGENT_TYPE_HELIX_BASIC && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Basic Agent Model</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose the model for simple conversational AI (no multi-turn tool use, useful for RAG).
+          </Typography>
+          <AdvancedModelPicker
+            recommendedModels={RECOMMENDED_MODELS.smallGeneration}
+            hint="Choose a fast, efficient model for simple conversations and RAG tasks."
+            selectedProvider={provider}
+            selectedModelId={model}
+            onSelectModel={(provider, modelId) => {
+              setModel(modelId);
+              setProvider(provider);
+              const updatedApp: IAppFlatState = {
+                ...app,
+                model: modelId,
+                provider: provider,
+              };
+              onUpdate(updatedApp);
+            }}
+            currentType="text"
+            displayMode="short"
           />
-        </Stack>
+        </Box>
+      )}
 
-        {agent_mode && (
+      {/* External Agent Configuration */}
+      {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
+        <Box sx={{ mb: 3 }}>
+          {/* Agent Runtime & Model - compact section */}
+          <Stack spacing={2} sx={{ mb: 3 }}>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Agent Runtime
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={code_agent_runtime}
+                  onChange={(e) => {
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                    setCodeAgentRuntime(newRuntime);
+                    onUpdate({ ...app, code_agent_runtime: newRuntime });
+                  }}
+                  disabled={readOnly}
+                  renderValue={(value) => value === 'zed_agent' ? 'Zed Agent' : 'Qwen Code'}
+                >
+                  <MenuItem value="zed_agent">
+                    <Box>
+                      <Typography variant="body2">Zed Agent</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Built-in, Anthropic & OpenAI compatible
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="qwen_code">
+                    <Box>
+                      <Typography variant="body2">Qwen Code</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Optimized for Qwen, including smaller models
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Model
+              </Typography>
+              <AdvancedModelPicker
+                recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                hint="Select the LLM for code generation"
+                selectedProvider={generation_model_provider}
+                selectedModelId={generation_model}
+                onSelectModel={(provider, modelId) => {
+                  setGenerationModel(modelId);
+                  setGenerationModelProvider(provider);
+                  onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+          </Stack>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Display Settings - side by side */}
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Display
+          </Typography>
+          <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <Select
+                value={resolution}
+                onChange={(e) => {
+                  const newResolution = e.target.value as '1080p' | '4k' | '5k';
+                  const oldResolution = resolution; // Track previous resolution
+                  setResolution(newResolution);
+                  // Zoom level logic:
+                  // - 1080p: always 100% (no HiDPI needed)
+                  // - 4k/5k from 1080p: auto-set to 200% if zoom was default 100%
+                  // - 4k/5k from 4k/5k: preserve current zoom (user may intentionally use 100% on large monitor)
+                  let newZoom: number;
+                  if (newResolution === '1080p') {
+                    newZoom = 100;
+                  } else if (oldResolution === '1080p' && zoomLevel === 100) {
+                    // Coming from 1080p with default zoom - auto-set 200% for better readability
+                    newZoom = 200;
+                  } else {
+                    // Already on 4k/5k or user set custom zoom - preserve their choice
+                    newZoom = zoomLevel;
+                  }
+                  setZoomLevel(newZoom);
+                  const updatedConfig = { ...external_agent_config, resolution: newResolution, zoom_level: newZoom };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => value === '1080p' ? '1080p' : value === '4k' ? '4K' : '5K'}
+              >
+                <MenuItem value="1080p">
+                  <Box>
+                    <Typography variant="body2">1080p (1920×1080)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Standard HD - works with all GPUs
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="4k">
+                  <Box>
+                    <Typography variant="body2">4K (3840×2160)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ultra HD - requires powerful GPU
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="5k">
+                  <Box>
+                    <Typography variant="body2">5K (5120×2880)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum - for the bold
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <Select
+                value={desktopType}
+                onChange={(e) => {
+                  const newDesktopType = e.target.value as 'ubuntu' | 'sway';
+                  setDesktopType(newDesktopType);
+                  const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu Desktop' : 'Sway'}
+              >
+                <MenuItem value="ubuntu">
+                  <Box>
+                    <Typography variant="body2">Ubuntu Desktop (25.10)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ubuntu GNOME desktop, user friendly and recommended
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="sway">
+                  <Box>
+                    <Typography variant="body2">Sway (Ubuntu 25.10)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      i3-compatible tiling WM, for advanced users
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <Select
+                value={refreshRate}
+                onChange={(e) => {
+                  const newRefreshRate = e.target.value as number;
+                  setRefreshRate(newRefreshRate);
+                  const updatedConfig = { ...external_agent_config, display_refresh_rate: newRefreshRate };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => `${value} fps`}
+              >
+                <MenuItem value={30}>
+                  <Box>
+                    <Typography variant="body2">30 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Low bandwidth
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value={60}>
+                  <Box>
+                    <Typography variant="body2">60 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Standard - recommended
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value={120}>
+                  <Box>
+                    <Typography variant="body2">120 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smooth - for ProMotion displays
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          {/* UI Zoom Setting */}
+          <Box sx={{ mb: 2, maxWidth: 300 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+              UI Zoom: {zoomLevel}%
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              {resolution === '1080p'
+                ? 'Increase zoom if text is too small on your display.'
+                : 'Higher resolutions require a powerful GPU. Increase zoom if text is too small.'}
+            </Typography>
+            <Slider
+                value={zoomLevel}
+                min={100}
+                max={300}
+                step={100}
+                size="small"
+                marks={[
+                  { value: 100, label: '100%' },
+                  { value: 200, label: '200%' },
+                  { value: 300, label: '300%' },
+                ]}
+                onChange={(_, value) => {
+                  const newZoom = value as number;
+                  setZoomLevel(newZoom);
+                  const updatedConfig = { ...external_agent_config, zoom_level: newZoom };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                sx={{
+                  ml: 1, // Prevent thumb from being clipped at 100%
+                  mr: 1, // Prevent thumb from being clipped at 300%
+                  width: 'calc(100% - 16px)',
+                  '& .MuiSlider-markLabel[data-index="0"]': {
+                    transform: 'translateX(0%)',
+                  },
+                  '& .MuiSlider-markLabel[data-index="2"]': {
+                    transform: 'translateX(-100%)',
+                  },
+                }}
+              />
+            </Box>
+        </Box>
+      )}
+
+        {/* Multi-Turn Agent Configuration */}
+        {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
-            
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
+
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -553,7 +892,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Tooltip 
+                  <Tooltip
                     title={getEffortTooltip(reasoning_model_effort)}
                     placement="top"
                     arrow
@@ -585,10 +924,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                           }),
                         }}
                       >
-                        <Typography 
-                          variant="caption" 
+                        <Typography
+                          variant="caption"
                           component="span"
-                          sx={{ 
+                          sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -619,13 +958,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       { value: 'medium', tooltip: 'Medium reasoning effort - balanced reasoning steps, good balance of speed and thoroughness' },
                       { value: 'high', tooltip: 'High reasoning effort - extensive reasoning steps, most thorough but may be slower' }
                     ].map(({ value, tooltip }) => (
-                      <Tooltip 
+                      <Tooltip
                         key={value}
                         title={tooltip}
                         placement="right"
                         arrow
                       >
-                        <MenuItem 
+                        <MenuItem
                           onClick={() => handleEffortSelect(value, true)}
                           selected={value === reasoning_model_effort}
                         >
@@ -694,7 +1033,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Tooltip 
+                  <Tooltip
                     title={getEffortTooltip(small_reasoning_model_effort)}
                     placement="top"
                     arrow
@@ -726,10 +1065,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                           }),
                         }}
                       >
-                        <Typography 
-                          variant="caption" 
+                        <Typography
+                          variant="caption"
                           component="span"
-                          sx={{ 
+                          sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -760,13 +1099,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       { value: 'medium', tooltip: 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness' },
                       { value: 'high', tooltip: 'High effort - extensive reasoning steps, most thorough but may be slower' }
                     ].map(({ value, tooltip }) => (
-                      <Tooltip 
+                      <Tooltip
                         key={value}
                         title={tooltip}
                         placement="right"
                         arrow
                       >
-                        <MenuItem 
+                        <MenuItem
                           onClick={() => handleEffortSelect(value, false)}
                           selected={value === small_reasoning_model_effort}
                         >
@@ -828,7 +1167,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
               <TextField
                 sx={{ mt: 1 }}
-                type="number"              
+                type="number"
                 value={max_iterations}
                 onChange={(e) => {
                   const value = parseInt(e.target.value) || DEFAULT_VALUES.max_iterations;
@@ -844,32 +1183,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         )}
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Box flexGrow={1}>
-            <AdvancedModelPicker
-              selectedProvider={provider}
-              selectedModelId={model}
-              onSelectModel={handleModelChange}
-              currentType="text"
-              displayMode="short"
-              disabled={agent_mode}
-            />
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={showAdvanced && !agent_mode}
-                onChange={(e) => setShowAdvanced(e.target.checked)}
-                disabled={readOnly || agent_mode}
-              />
-            }
-            label="Advanced Model Settings"
-          />
-        </Stack>
-      </Box>
-
-      {showAdvanced && !agent_mode && (
+      {showAdvanced && default_agent_type === AGENT_TYPE_HELIX_BASIC && (
         <Box sx={{ mb: 3 }}>
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
@@ -890,7 +1204,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
                 ))}
               </Select>
-            </FormControl>           
+            </FormControl>
           </Box>
 
           <Box sx={{ mb: 3 }}>
@@ -955,7 +1269,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
               <ResetLink field="presence_penalty" value={presencePenalty} onClick={() => handleReset('presence_penalty')} />
             </Stack>
-            <Typography variant="body2" color="text.secondary"> 
+            <Typography variant="body2" color="text.secondary">
               Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
@@ -976,14 +1290,14 @@ const AppSettings: FC<AppSettingsProps> = ({
               </Box>
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
-          </Box> 
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
               <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
               <ResetLink field="top_p" value={topP} onClick={() => handleReset('top_p')} />
             </Stack>
-            <Typography variant="body2" color="text.secondary"> 
+            <Typography variant="body2" color="text.secondary">
               Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
@@ -1017,13 +1331,13 @@ const AppSettings: FC<AppSettingsProps> = ({
 
             <TextField
               sx={{ mt: 1 }}
-              type="number"              
+              type="number"
               value={maxTokens}
               onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
               fullWidth
               disabled={readOnly}
             />
-          </Box>          
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
@@ -1033,8 +1347,8 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Typography variant="body2" color="text.secondary">
               Controls the effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
             </Typography>
-            <FormControl fullWidth sx={{ mt: 1 }}>              
-              <Select              
+            <FormControl fullWidth sx={{ mt: 1 }}>
+              <Select
                 value={reasoningEffort}
                 onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
                 disabled={readOnly}
@@ -1049,25 +1363,6 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
-      )}     
-               
-      {isAdmin && (
-        <Tooltip title="Make this app available to all users">
-          <FormGroup>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={global}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                    handleCheckboxChange('global', event.target.checked)
-                  }}
-                // Never disable global checkbox -- required for github apps and normal apps
-                />
-              }
-              label="Global?"
-            />
-          </FormGroup>
-        </Tooltip>
       )}
     </Box>
   )

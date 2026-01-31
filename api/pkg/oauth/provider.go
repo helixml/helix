@@ -17,7 +17,9 @@ type Provider interface {
 	GetType() types.OAuthProviderType
 
 	// OAuth flow
-	GetAuthorizationURL(ctx context.Context, userID, redirectURL string) (string, error)
+	// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
+	// scopes is optional - if provided, these scopes are requested instead of the provider's default scopes
+	GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string, scopes []string) (string, error)
 	CompleteAuthorization(ctx context.Context, userID, code string) (*types.OAuthConnection, error)
 
 	// Token management
@@ -41,7 +43,6 @@ type ProviderConfig struct {
 	ClientID        string
 	ClientSecret    string
 	RedirectURL     string
-	Scopes          []string
 	CallbackURL     string
 	AuthorizeURL    string
 	TokenURL        string
