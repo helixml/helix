@@ -5,10 +5,10 @@
 - [x] Run server to trigger GORM AutoMigrate (creates column automatically)
 
 ## Domain Management API
-- [ ] Add domain validation helper function (lowercase, no @, valid format)
-- [ ] Update `updateOrganization` handler to accept and validate `auto_join_domain`
-- [ ] Return 409 Conflict if domain already claimed by another org
-- [ ] Add store method `GetOrganizationByDomain(domain string)` for lookup
+- [~] Add domain validation helper function (lowercase, no @, valid format)
+- [~] Update `updateOrganization` handler to accept and validate `auto_join_domain`
+- [~] Return 409 Conflict if domain already claimed by another org
+- [~] Add store method `GetOrganizationByDomain(domain string)` for lookup
 
 ## Auto-Join Logic
 - [ ] In `api/pkg/auth/oidc.go:ValidateUserToken`, after user creation/lookup:
