@@ -93,6 +93,8 @@ steps:
     environment:
       # Disabled until tested with togetherai
       DISABLE_AGENT_TESTS: "true"
+      # Enable file-based migration locking to prevent race conditions
+      HELIX_TEST_MODE: "1"
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
@@ -149,6 +151,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
+      # Enable file-based migration locking to prevent race conditions
+      HELIX_TEST_MODE: "1"
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
@@ -361,6 +365,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
+      # Enable file-based migration locking to prevent race conditions
+      HELIX_TEST_MODE: "1"
       # Microsoft OAuth test credentials
       MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
         from_secret: microsoft_skill_test_oauth_client_id

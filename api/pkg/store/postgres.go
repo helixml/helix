@@ -6,8 +6,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres" // postgres query builder
@@ -93,6 +96,23 @@ type MigrationScript struct {
 	HasRun bool
 }
 
+// migrationMarkerPath returns the path to the migration marker file for a given schema.
+// The marker indicates that migrations have already been run for this schema.
+func migrationMarkerPath(schemaName string) string {
+	if schemaName == "" {
+		schemaName = "public"
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("helix-migration-done-%s", schemaName))
+}
+
+// migrationLockPath returns the path to the migration lock file for a given schema.
+func migrationLockPath(schemaName string) string {
+	if schemaName == "" {
+		schemaName = "public"
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("helix-migration-lock-%s", schemaName))
+}
+
 func (s *PostgresStore) autoMigrate() error {
 	// If schema is specified, check if it exists and if not - create it
 	if s.cfg.Schema != "" {
@@ -102,6 +122,59 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
+	// In test mode (HELIX_TEST_MODE=1), use file-based locking to serialize
+	// migrations across parallel test processes. This prevents "duplicate key"
+	// errors when multiple processes try to create ENUM types simultaneously.
+	if os.Getenv("HELIX_TEST_MODE") == "1" {
+		markerPath := migrationMarkerPath(s.cfg.Schema)
+
+		// Quick check: if marker exists, migrations already done
+		if _, err := os.Stat(markerPath); err == nil {
+			log.Debug().Str("schema", s.cfg.Schema).Msg("migrations already complete (marker exists)")
+			return nil
+		}
+
+		// Acquire file lock to serialize migrations
+		lockPath := migrationLockPath(s.cfg.Schema)
+		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			return fmt.Errorf("failed to open migration lock file: %w", err)
+		}
+		defer lockFile.Close()
+
+		// Acquire exclusive lock (blocks until available)
+		if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+			return fmt.Errorf("failed to acquire migration lock: %w", err)
+		}
+		defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+
+		// Double-check after acquiring lock
+		if _, err := os.Stat(markerPath); err == nil {
+			log.Debug().Str("schema", s.cfg.Schema).Msg("migrations already complete (marker exists after lock)")
+			return nil
+		}
+
+		log.Debug().Str("schema", s.cfg.Schema).Msg("running migrations with file lock")
+
+		// Run migrations, then create marker
+		if err := s.runMigrations(); err != nil {
+			return err
+		}
+
+		// Create marker file to signal completion
+		if err := os.WriteFile(markerPath, []byte("done"), 0600); err != nil {
+			log.Warn().Err(err).Msg("failed to create migration marker file")
+		}
+
+		return nil
+	}
+
+	// Normal mode: run migrations directly
+	return s.runMigrations()
+}
+
+// runMigrations performs the actual database migrations.
+func (s *PostgresStore) runMigrations() error {
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
 	err := s.MigrateUp()
