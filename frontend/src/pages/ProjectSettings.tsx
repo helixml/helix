@@ -158,7 +158,8 @@ const ProjectSettings: FC = () => {
     useStopProjectExploratorySession(projectId);
 
   // Create SpecTask mutation for "Fix Startup Script" feature
-  // Uses branch_mode: "existing" with helix-specs branch to push directly (no PR)
+  // Uses branch_mode: "new" to create a feature branch for code changes
+  // The helix-specs worktree is created separately for design docs and startup script edits
   const createSpecTaskMutation = useMutation({
     mutationFn: async (request: {
       prompt: string;
@@ -1576,11 +1577,10 @@ const ProjectSettings: FC = () => {
                     }
                     onClick={() =>
                       createSpecTaskMutation.mutate({
-                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
-                        // Push directly to helix-specs, no PR needed
-                        branch_mode: "existing",
-                        base_branch: "helix-specs",
-                        working_branch: "helix-specs",
+                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
+                        // Create a feature branch for any code changes, helix-specs worktree handles design docs
+                        branch_mode: "new",
+                        base_branch: "main",
                       })
                     }
                     disabled={createSpecTaskMutation.isPending}
