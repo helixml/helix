@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Database & Types
-- [ ] Add `AutoJoinDomain` field to `Organization` struct in `api/pkg/types/authz.go`
+- [~] Add `AutoJoinDomain` field to `Organization` struct in `api/pkg/types/authz.go`
 - [ ] Run server to trigger GORM AutoMigrate (creates column automatically)
 
 ## Domain Management API
