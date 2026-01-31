@@ -123,7 +123,7 @@ const client = new DroneClient(serverUrl, accessToken);
 // Tool: Get build info
 server.tool(
   "drone_build_info",
-  "Get information about a Drone CI build including status, stages, and steps. Use this first to find step numbers.",
+  "Get information about a Drone CI build including status, stages, and steps. ALWAYS call this first to see which steps failed, then use drone_fetch_logs to get logs for failing steps.",
   {
     repo_slug: z.string().describe("Repository slug (e.g., 'helixml/helix')"),
     build_number: z.number().describe("Build number"),
@@ -169,7 +169,12 @@ server.tool(
 // Tool: Fetch logs to file
 server.tool(
   "drone_fetch_logs",
-  "Fetch build step logs and save to a temp file. Returns file path and summary. Use drone_search_logs or drone_read_logs to navigate.",
+  `Fetch build step logs and save to a temp file. Returns file path, line count, and issue summary.
+
+IMPORTANT: CI logs can be very large (10,000+ lines). After fetching:
+- If <100 lines: You can read the entire file with drone_read_logs
+- If 100-1000 lines: Use drone_tail_logs to see the end, then drone_search_logs for 'FAIL:', 'panic:', 'error'
+- If >1000 lines: NEVER read the whole file. Use drone_search_logs to find failures, then drone_read_logs for specific line ranges around matches`,
   {
     repo_slug: z.string().describe("Repository slug (e.g., 'helixml/helix')"),
     build_number: z.number().describe("Build number"),
@@ -215,9 +220,22 @@ server.tool(
         summary += `No obvious failures detected.\n`;
       }
 
-      summary += `\n## Navigation\n`;
-      summary += `- \`drone_search_logs\` - Search for patterns (FAIL, panic, error)\n`;
-      summary += `- \`drone_read_logs\` - Read specific line ranges\n`;
+      // Provide guidance based on log size
+      summary += `\n## Recommended Approach\n`;
+      if (lineCount < 100) {
+        summary += `Log is small (${lineCount} lines). You can read the entire file:\n`;
+        summary += `\`drone_read_logs file_path="${filepath}" start_line=1 end_line=${lineCount}\`\n`;
+      } else if (lineCount < 1000) {
+        summary += `Log is medium-sized (${lineCount} lines). Recommended:\n`;
+        summary += `1. Check the end: \`drone_tail_logs file_path="${filepath}" lines=100\`\n`;
+        summary += `2. Search for failures: \`drone_search_logs file_path="${filepath}" pattern="FAIL:"\`\n`;
+      } else {
+        summary += `⚠️ Log is large (${lineCount} lines). Do NOT read the entire file.\n`;
+        summary += `1. Search for test failures: \`drone_search_logs file_path="${filepath}" pattern="--- FAIL:"\`\n`;
+        summary += `2. Search for panics: \`drone_search_logs file_path="${filepath}" pattern="panic:"\`\n`;
+        summary += `3. Check the end: \`drone_tail_logs file_path="${filepath}" lines=50\`\n`;
+        summary += `4. Use \`drone_read_logs\` to read specific line ranges around matches.\n`;
+      }
 
       return { content: [{ type: "text", text: summary }] };
     } catch (error) {
