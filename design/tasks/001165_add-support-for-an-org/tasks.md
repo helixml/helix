@@ -11,13 +11,13 @@
 - [x] Add store method `GetOrganizationByDomain(domain string)` for lookup
 
 ## Auto-Join Logic
-- [~] In `api/pkg/auth/oidc.go:ValidateUserToken`, after user creation/lookup:
+- [x] In `api/pkg/auth/oidc.go:ValidateUserToken`, after user creation/lookup:
   - Extract domain from email
   - Call `GetOrganizationByDomain`
   - If org found and user not member, create membership with `member` role
-- [ ] Only trigger auto-join for OIDC users with `email_verified` claim true
-- [ ] Skip auto-join entirely for Helix native auth users
-- [ ] Add logging for auto-join events (user ID, org ID, domain)
+- [x] Only trigger auto-join for OIDC users with `email_verified` claim true
+- [x] Skip auto-join entirely for Helix native auth users
+- [x] Add logging for auto-join events (user ID, org ID, domain)
 
 ## Admin Endpoint
 - [ ] Add `GET /api/v1/admin/organization-domains` endpoint
