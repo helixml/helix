@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"html"
 	"net/http"
 	"strings"
 
@@ -463,6 +462,101 @@ func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *
 	return connection, nil
 }
 
+// oauthErrorInfo contains sanitized error information for display to users
+type oauthErrorInfo struct {
+	Title   string
+	Message string
+	Color   string // Helix brand color for the error icon
+}
+
+// sanitizeOAuthError converts an error or error string into user-friendly display info.
+// This prevents leaking internal details like database errors, file paths, or stack traces.
+// The original error should be logged separately for debugging.
+func sanitizeOAuthError(errInput interface{}) oauthErrorInfo {
+	var errStr string
+	switch v := errInput.(type) {
+	case error:
+		errStr = v.Error()
+	case string:
+		errStr = v
+	default:
+		errStr = fmt.Sprintf("%v", v)
+	}
+
+	lowerErr := strings.ToLower(errStr)
+
+	// Check for "already connected" patterns - this is a warning, not an error
+	if strings.Contains(lowerErr, "duplicate key") ||
+		strings.Contains(lowerErr, "unique constraint") ||
+		strings.Contains(lowerErr, "already exists") {
+		return oauthErrorInfo{
+			Title:   "Already Connected",
+			Message: "You are already connected to this service. You can manage your connections in your account settings.",
+			Color:   "#EF2EC6", // Helix magenta for warnings
+		}
+	}
+
+	// Check for token/auth errors from the OAuth provider
+	if strings.Contains(lowerErr, "invalid_grant") ||
+		strings.Contains(lowerErr, "invalid_token") ||
+		strings.Contains(lowerErr, "token expired") {
+		return oauthErrorInfo{
+			Title:   "Authentication Expired",
+			Message: "Your authentication session has expired. Please try connecting again.",
+			Color:   "#FC3600", // Helix red
+		}
+	}
+
+	// Check for access denied
+	if strings.Contains(lowerErr, "access_denied") ||
+		strings.Contains(lowerErr, "unauthorized") ||
+		strings.Contains(lowerErr, "forbidden") {
+		return oauthErrorInfo{
+			Title:   "Access Denied",
+			Message: "Permission was denied. Please ensure you have granted the necessary permissions and try again.",
+			Color:   "#FC3600", // Helix red
+		}
+	}
+
+	// Check for network/connectivity issues
+	if strings.Contains(lowerErr, "connection refused") ||
+		strings.Contains(lowerErr, "no such host") ||
+		strings.Contains(lowerErr, "timeout") ||
+		strings.Contains(lowerErr, "network") {
+		return oauthErrorInfo{
+			Title:   "Connection Error",
+			Message: "Unable to connect to the authentication service. Please check your internet connection and try again.",
+			Color:   "#FC3600", // Helix red
+		}
+	}
+
+	// For OAuth provider error query params, they're already somewhat sanitized
+	// Common OAuth error codes: invalid_request, unauthorized_client, server_error, etc.
+	if strings.Contains(lowerErr, "invalid_request") {
+		return oauthErrorInfo{
+			Title:   "Invalid Request",
+			Message: "The authentication request was invalid. Please try again.",
+			Color:   "#FC3600", // Helix red
+		}
+	}
+
+	if strings.Contains(lowerErr, "server_error") ||
+		strings.Contains(lowerErr, "temporarily_unavailable") {
+		return oauthErrorInfo{
+			Title:   "Service Unavailable",
+			Message: "The authentication service is temporarily unavailable. Please try again later.",
+			Color:   "#FC3600", // Helix red
+		}
+	}
+
+	// Default: return a generic error message that doesn't expose internal details
+	return oauthErrorInfo{
+		Title:   "Authentication Error",
+		Message: "An error occurred during authentication. Please try again or contact support if the problem persists.",
+		Color:   "#FC3600", // Helix red
+	}
+}
+
 // handleOAuthCallback handles the OAuth callback
 func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Get the OAuth parameters from the query
@@ -474,17 +568,8 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 
 	// Check for errors
 	if errorMsg != "" {
-		// Create a user-friendly error page based on the error type
-		errorTitle := "Authentication Error"
-		errorMessage := fmt.Sprintf("%v", html.EscapeString(errorMsg))
-		errorColor := "#FC3600" // Helix red
-
-		// Check for specific error types
-		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
-			errorTitle = "Already Connected"
-			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
-			errorColor = "#EF2EC6" // Helix magenta for warnings
-		}
+		// Sanitize error to prevent leaking internal details
+		errInfo := sanitizeOAuthError(errorMsg)
 
 		htmlError := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
@@ -558,7 +643,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		}, '*');
 	</script>
 </body>
-</html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
@@ -595,17 +680,8 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 			Str("code", code).
 			Str("state", state).
 			Msg("OAuth callback failed")
-		// Create a user-friendly error page based on the error type
-		errorTitle := "Authentication Error"
-		errorMessage := fmt.Sprintf("%v", err)
-		errorColor := "#FC3600" // Helix red
-
-		// Check for specific error types
-		if strings.Contains(errorMessage, "duplicate key") || strings.Contains(errorMessage, "unique constraint") {
-			errorTitle = "Already Connected"
-			errorMessage = "You are already connected to this service. You can manage your connections in your account settings."
-			errorColor = "#EF2EC6" // Helix magenta for warnings
-		}
+		// Sanitize error to prevent leaking internal details
+		errInfo := sanitizeOAuthError(err)
 
 		htmlError := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
@@ -679,7 +755,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		}, '*');
 	</script>
 </body>
-</html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
+</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadRequest)
