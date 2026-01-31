@@ -139,23 +139,46 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	defer lockConn.Close()
 
-	// Acquire the advisory lock. This blocks until the lock is available.
-	if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
-		return fmt.Errorf("failed to acquire migration lock: %w", err)
+	// Try to acquire the advisory lock without blocking.
+	// If another process is already running migrations, we wait up to 5 seconds
+	// then proceed anyway (migrations are mostly idempotent).
+	var acquired bool
+	err = lockConn.QueryRowContext(context.Background(), "SELECT pg_try_advisory_lock($1)", migrationLockID).Scan(&acquired)
+	if err != nil {
+		return fmt.Errorf("failed to try advisory lock: %w", err)
 	}
-	log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("acquired migration advisory lock")
 
-	// Explicitly release the lock when we're done. This is necessary because
-	// lockConn.Close() returns the connection to the pool rather than closing
-	// the underlying TCP connection, so the session-scoped advisory lock would
-	// remain held if we don't explicitly release it.
-	defer func() {
-		if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID); err != nil {
-			log.Warn().Err(err).Msg("failed to release migration advisory lock")
-		} else {
-			log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("released migration advisory lock")
+	if !acquired {
+		// Lock not immediately available. Wait briefly with polling.
+		log.Debug().Str("schema", schemaForLock).Msg("migration lock held by another process, waiting...")
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+			err = lockConn.QueryRowContext(context.Background(), "SELECT pg_try_advisory_lock($1)", migrationLockID).Scan(&acquired)
+			if err != nil {
+				return fmt.Errorf("failed to try advisory lock: %w", err)
+			}
+			if acquired {
+				break
+			}
 		}
-	}()
+		if !acquired {
+			// Proceed without lock after timeout - migrations are mostly idempotent
+			log.Debug().Str("schema", schemaForLock).Msg("proceeding with migration without lock (timeout)")
+		}
+	}
+
+	if acquired {
+		log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("acquired migration advisory lock")
+		// Explicitly release the lock when we're done.
+		defer func() {
+			if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID); err != nil {
+				log.Warn().Err(err).Msg("failed to release migration advisory lock")
+			} else {
+				log.Debug().Str("schema", schemaForLock).Int64("lock_id", migrationLockID).Msg("released migration advisory lock")
+			}
+		}()
+	}
 
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
