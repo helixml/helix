@@ -341,22 +341,16 @@ gh pr checks PR_NUMBER
 
 ### Get build details and find failures:
 ```bash
-# Get step statuses for a build
+# Get step names and numbers for a build (use number in logs URL)
 curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
   "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER" | \
-  jq -r '.stages[0].steps[] | "\(.name): \(.status)"'
+  jq -r '.stages[0].steps[] | "\(.number) \(.name): \(.status)"'
 
-# Get logs for a specific step (step numbers: clone=1, unit-test=10, etc.)
+# Get logs for a failing step (replace STEP_NUMBER with number from above)
 curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
   "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER/logs/1/STEP_NUMBER" | \
   jq -r '.[].out' | grep -E "FAIL|Error|panic"
 ```
-
-### Common step numbers in the default stage:
-- 1: clone
-- 10: unit-test
-- 11: unit-test-nocgo
-- 12: api-integration-test
 
 ### After opening a PR:
 1. Push your changes
