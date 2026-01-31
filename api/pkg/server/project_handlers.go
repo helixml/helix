@@ -1834,6 +1834,29 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		}
 	}
 
+	// Update sessions to belong to the new organization
+	sessions, _, err := s.Store.ListSessions(r.Context(), store.ListSessionsQuery{
+		ProjectID: projectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list sessions for move")
+	} else {
+		for _, session := range sessions {
+			session.OrganizationID = req.OrganizationID
+			session.Updated = time.Now()
+			if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", session.ID).
+					Str("project_id", projectID).
+					Msg("failed to update session organization")
+			}
+		}
+		log.Info().
+			Int("session_count", len(sessions)).
+			Str("project_id", projectID).
+			Msg("updated sessions for project move")
+	}
+
 	// Log audit event
 	log.Info().
 		Str("user_id", user.ID).
