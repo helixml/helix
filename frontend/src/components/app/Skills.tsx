@@ -39,6 +39,9 @@ import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
+import DroneCiSkill from './DroneCiSkill';
+import GitHubMcpSkill from './GitHubMcpSkill';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
 import { TypesAssistantMCP } from '../../api/api';
@@ -82,6 +85,8 @@ const SKILL_TYPE_EMAIL = 'Email';
 const SKILL_TYPE_AZURE_DEVOPS = 'Azure DevOps';
 const SKILL_TYPE_MCP = 'MCP';
 const SKILL_TYPE_LOCAL_MCP = 'Local MCP';
+const SKILL_TYPE_DRONE_CI = 'Drone CI';
+const SKILL_TYPE_GITHUB_MCP = 'GitHub MCP';
 
 const SKILL_CATEGORY_CORE = 'Core';
 const SKILL_CATEGORY_LOCAL_MCP = 'Local MCP';
@@ -230,6 +235,44 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Azure DevOps',
       description: 'Enable the AI to interact with Azure DevOps.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'drone-ci',
+    icon: <RocketLaunchIcon sx={{ color: '#10B981' }} />,
+    name: 'Drone CI',
+    description: 'Enable the AI to check Drone CI build status, fetch logs, and navigate through CI failures efficiently. Logs are saved to files to avoid context overflow.',
+    type: SKILL_TYPE_DRONE_CI,
+    categories: [SKILL_CATEGORY_LOCAL_MCP],
+    skill: {
+      name: 'Drone CI',
+      description: 'Enable the AI to interact with Drone CI builds and logs.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'github-mcp',
+    icon: <GitHubIcon />,
+    name: 'GitHub',
+    description: 'Enable the AI to interact with GitHub repositories, issues, pull requests, code search, and more. Uses the official GitHub MCP server.',
+    type: SKILL_TYPE_GITHUB_MCP,
+    categories: [SKILL_CATEGORY_LOCAL_MCP, SKILL_CATEGORY_GITHUB],
+    skill: {
+      name: 'GitHub',
+      description: 'Enable the AI to interact with GitHub.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -641,7 +684,12 @@ const Skills: React.FC<SkillsProps> = ({
 
   // All skills are now shown to everyone
   const allSkills = useMemo(() => {
-    const skills = [...BASE_SKILLS, ...customApiSkills, ...backendSkills, ...mcpSkills, CUSTOM_API_SKILL, CUSTOM_MCP_SKILL];
+    // Filter out Local MCP category skills from BASE_SKILLS if not external agent
+    const baseSkillsFiltered = isExternalAgent
+      ? BASE_SKILLS
+      : BASE_SKILLS.filter(skill => !skill.categories?.includes(SKILL_CATEGORY_LOCAL_MCP));
+
+    const skills = [...baseSkillsFiltered, ...customApiSkills, ...backendSkills, ...mcpSkills, CUSTOM_API_SKILL, CUSTOM_MCP_SKILL];
     // Add local MCP skills and the "New Local MCP" tile only for external agents
     if (isExternalAgent) {
       skills.push(...localMcpSkills, CUSTOM_LOCAL_MCP_SKILL);
@@ -756,6 +804,14 @@ const Skills: React.FC<SkillsProps> = ({
     }
     if (skillName === 'Azure DevOps') {
       return app.azureDevOpsTool?.enabled ?? false;
+    }
+    if (skillName === 'Drone CI') {
+      // Check if Drone CI MCP is configured in mcpTools
+      return app.mcpTools?.some(mcp => mcp.name === 'Drone CI' && mcp.transport === 'stdio') ?? false;
+    }
+    if (skillName === 'GitHub') {
+      // Check if GitHub MCP is configured in mcpTools
+      return app.mcpTools?.some(mcp => mcp.name === 'GitHub' && mcp.transport === 'stdio') ?? false;
     }
     if (skillName === 'Project Manager') {
       return app.projectManagerTool?.enabled ?? false;
@@ -1055,6 +1111,42 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Azure DevOps')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Drone CI') {
+      return (
+        <DroneCiSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Drone CI')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'GitHub') {
+      return (
+        <GitHubMcpSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('GitHub')}
         />
       );
     }
