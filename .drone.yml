@@ -126,6 +126,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
+      # Reduce log noise in CI - suppress trace/debug logs that bloat output
+      LOG_LEVEL: "warn"
       # Disabled until tested with togetherai
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
@@ -186,6 +188,8 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     environment:
+      # Reduce log noise in CI - suppress trace/debug logs that bloat output
+      LOG_LEVEL: "warn"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
       OPENAI_API_KEY:
