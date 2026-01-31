@@ -109,3 +109,39 @@ Recommendation: Remove it. Current code uses `ses_*` prefixed session IDs direct
 3. Wait for agent reconnect
 4. Send new message, verify routing works
 5. Check logs for "Restored contextMappings" and new "Restored sessionToWaitingInteraction" messages
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`api/pkg/types/types.go`** - Added three fields to `SessionMetadata`:
+   - `WaitingInteractionID` - Interaction currently waiting for response
+   - `LastRequestID` - Most recent request_id for reconnect routing
+   - `RequestStartedAt` - Timestamp for stale detection
+
+2. **`api/pkg/server/session_handlers.go`** - In `streamFromExternalAgent`:
+   - Persist all three fields to database when setting in-memory mappings
+   - Uses non-fatal logging if persistence fails (to not break existing flow)
+
+3. **`api/pkg/server/websocket_external_agent_sync.go`**:
+   - In `handleExternalAgentSync`: Restore mappings from session metadata on reconnect
+   - Added stale request detection (>5 min threshold) - marks interaction as error and clears mappings
+   - In `handleMessageCompleted`: Clear both in-memory and persisted mappings when done
+   - Removed dead code for `externalAgentSessionMapping` and `externalAgentUserMapping`
+
+4. **`api/pkg/server/server.go`** - Removed unused fields from `HelixAPIServer` struct
+
+### Key Discoveries
+
+- **`externalAgentSessionMapping` was dead code** - Declared and initialized but never written to
+- **`externalAgentUserMapping` was also dead code** - Same issue, always fell back to "external-agent-user"
+- **Existing partial fix** - `contextMappings` was already being restored from `ZedThreadID` (line 332), but `sessionToWaitingInteraction` and `requestToSessionMapping` were not
+- **Stale threshold of 5 minutes** - Chosen because HTTP streaming requests timeout at 90s, so anything older than 5 min is definitely stale
+
+### Log Messages to Watch
+
+- `💾 [HELIX] Persisted session mappings for restart recovery` - Mappings saved to DB
+- `🔧 [HELIX] Restored sessionToWaitingInteraction from session metadata` - Mapping restored on reconnect
+- `🔧 [HELIX] Restored requestToSessionMapping from session metadata` - Mapping restored on reconnect
+- `⚠️ [HELIX] Detected stale waiting interaction on reconnect` - Old request detected and cleaned up
+- `🧹 [HELIX] Cleared session restart recovery metadata` - Cleanup on interaction complete
