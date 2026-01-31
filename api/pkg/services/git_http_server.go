@@ -994,14 +994,30 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return fmt.Errorf("failed to list PRs: %w", err)
 	}
 
+	// Check if this is the project's default repo. We only store PullRequestID for the
+	// default repo to prevent false merge detection. When PRs are created on secondary
+	// repos, storing their PR number would cause the orchestrator to check the wrong repo
+	// (it always uses project.DefaultRepoID), potentially matching an old merged PR.
+	isDefaultRepo := false
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err == nil && project != nil {
+		isDefaultRepo = (repo.ID == project.DefaultRepoID)
+	}
+
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
 		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
-			if task.PullRequestID != pr.ID {
+			// Only update task.PullRequestID for the default repo
+			if isDefaultRepo && task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
 				s.store.UpdateSpecTask(ctx, task)
 			}
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("repo_id", repo.ID).
+				Bool("is_default_repo", isDefaultRepo).
+				Msg("Found existing pull request")
 			return nil
 		}
 	}
@@ -1012,10 +1028,18 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
 
-	task.PullRequestID = prID
-	task.UpdatedAt = time.Now()
-	s.store.UpdateSpecTask(ctx, task)
-	log.Info().Str("pr_id", prID).Str("branch", branch).Msg("Created pull request")
+	// Only update task.PullRequestID for the default repo
+	if isDefaultRepo {
+		task.PullRequestID = prID
+		task.UpdatedAt = time.Now()
+		s.store.UpdateSpecTask(ctx, task)
+	}
+	log.Info().
+		Str("pr_id", prID).
+		Str("repo_id", repo.ID).
+		Bool("is_default_repo", isDefaultRepo).
+		Str("branch", branch).
+		Msg("Created pull request")
 	return nil
 }
 
