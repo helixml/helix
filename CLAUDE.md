@@ -322,6 +322,48 @@ echo $HELIX_API_KEY  # Should start with "hl-", NOT "oh-hallo-insecure-token"
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs and implementation plans go in `design/YYYY-MM-DD-name.md` (not `.claude/plans/`)
 
+## CI Build Checking (Drone)
+
+**ALWAYS check CI after pushing commits or opening PRs.** Drone credentials are in `.env`:
+- `DRONE_SERVER_URL=https://drone.lukemarsden.net`
+- `DRONE_ACCESS_TOKEN` - API token for Drone
+
+### Check CI status after pushing:
+```bash
+# Get recent builds for a branch
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=YOUR_BRANCH&limit=3" | \
+  jq -r '.[] | "\(.number): \(.status)"'
+
+# Check PR status via GitHub CLI
+gh pr checks PR_NUMBER
+```
+
+### Get build details and find failures:
+```bash
+# Get step statuses for a build
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER" | \
+  jq -r '.stages[0].steps[] | "\(.name): \(.status)"'
+
+# Get logs for a specific step (step numbers: clone=1, unit-test=10, etc.)
+curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
+  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD_NUMBER/logs/1/STEP_NUMBER" | \
+  jq -r '.[].out' | grep -E "FAIL|Error|panic"
+```
+
+### Common step numbers in the default stage:
+- 1: clone
+- 10: unit-test
+- 11: unit-test-nocgo
+- 12: api-integration-test
+
+### After opening a PR:
+1. Push your changes
+2. Check `gh pr checks PR_NUMBER` to see CI status
+3. If failing, use the Drone API to get build logs and debug
+4. Fix issues and push again
+
 ## Database Access
 
 The Helix database is PostgreSQL running in the `helix-postgres-1` container:

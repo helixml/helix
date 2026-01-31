@@ -54,8 +54,8 @@ func TestDefault_Crawl(t *testing.T) {
 	// FAQ or body text that frequently changes when docs are updated.
 	// These strings are core to the page's purpose and unlikely to change.
 	const (
-		appsText              = `helix apply` // CLI command - core to the agents workflow
-		privateDeploymentText = `Deploying the Control Plane`
+		appsText              = `helix apply`            // CLI command - core to the agents workflow
+		privateDeploymentText = `Installing Helix Quick` // Page title for private deployment quick start
 	)
 
 	var (
