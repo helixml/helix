@@ -145,3 +145,4 @@ User Login (OIDC)
 - The API client (`frontend/src/api/api.ts`) is auto-generated from swagger - run `./stack update_openapi` after changing Go types
 - The `email_verified` claim must be added to the UserInfo struct to properly parse the OIDC response
 - Helix native auth users are automatically excluded from auto-join since the code path is only in `auth/oidc.go`
+- **Do NOT use `uniqueIndex` on `AutoJoinDomain`** - PostgreSQL treats empty strings as unique values, so multiple orgs with no domain would conflict. Uniqueness is enforced in application code instead.
