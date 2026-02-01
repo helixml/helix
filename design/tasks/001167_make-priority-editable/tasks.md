@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Setup
-- [ ] Create `frontend/src/components/tasks/BacklogTableView.tsx` skeleton component
+- [~] Create `frontend/src/components/tasks/BacklogTableView.tsx` skeleton component
 - [ ] Create `frontend/src/components/tasks/BacklogFilterBar.tsx` skeleton component
 
 ## Backlog Expansion
