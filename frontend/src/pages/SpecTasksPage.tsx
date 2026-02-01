@@ -1535,9 +1535,11 @@ const SpecTasksPage: FC = () => {
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
                             Just Do It
                           </Typography>
-                          <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
-                            {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
-                          </Box>
+                          {!isMobile && (
+                            <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                              {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                            </Box>
+                          )}
                         </Box>
                         <Typography variant="caption" color="text.secondary">
                           Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
@@ -1590,14 +1592,16 @@ const SpecTasksPage: FC = () => {
                 },
               }}
               endIcon={
-                <Box component="span" sx={{
-                  fontSize: '0.75rem',
-                  opacity: 0.6,
-                  fontFamily: 'monospace',
-                  ml: 1,
-                }}>
-                  {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
-                </Box>
+                !isMobile ? (
+                  <Box component="span" sx={{
+                    fontSize: '0.75rem',
+                    opacity: 0.6,
+                    fontFamily: 'monospace',
+                    ml: 1,
+                  }}>
+                    {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                  </Box>
+                ) : undefined
               }
             >
               Create Task

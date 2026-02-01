@@ -515,11 +515,17 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     if (Math.abs(diff) > swipeThreshold) {
       if (diff > 0) {
-        // Swipe left - go to next column
-        setCurrentColumnIndex(prev => Math.min(prev + 1, columns.length - 1));
+        // Swipe left - go to next column (but not beyond last column)
+        setCurrentColumnIndex(prev => {
+          if (prev >= columns.length - 1) return prev; // Already at rightmost, do nothing
+          return prev + 1;
+        });
       } else {
-        // Swipe right - go to previous column
-        setCurrentColumnIndex(prev => Math.max(prev - 1, 0));
+        // Swipe right - go to previous column (but not beyond first column)
+        setCurrentColumnIndex(prev => {
+          if (prev <= 0) return prev; // Already at leftmost (backlog), do nothing
+          return prev - 1;
+        });
       }
     }
   }, [columns.length]);
