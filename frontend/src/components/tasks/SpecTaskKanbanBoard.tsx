@@ -343,12 +343,22 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const theme = useTheme();
   const api = useApi();
   const account = useAccount();
+  const router = useRouter();
 
   // Mobile detection
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  // Mobile column navigation state
-  const [currentColumnIndex, setCurrentColumnIndex] = useState(0);
+  // Mobile column navigation state - initialize from URL query param
+  const [currentColumnIndex, setCurrentColumnIndex] = useState(() => {
+    const columnParam = router.params.column;
+    if (columnParam) {
+      const parsed = parseInt(columnParam, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+    return 0;
+  });
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number>(0);
   const touchEndX = useRef<number>(0);
@@ -530,6 +540,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   }, [columns.length]);
 
+  // Track if initial scroll has been done
+  const initialScrollDoneRef = useRef(false);
+
   // Scroll to current column when index changes (mobile only)
   useEffect(() => {
     if (isMobile && scrollContainerRef.current) {
@@ -540,6 +553,59 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       });
     }
   }, [currentColumnIndex, isMobile]);
+
+  // Handle initial scroll on mount (needs delay for container to have dimensions)
+  useEffect(() => {
+    if (!isMobile || initialScrollDoneRef.current) return;
+
+    const initialColumn = parseInt(router.params.column || '0', 10);
+    if (initialColumn <= 0) {
+      initialScrollDoneRef.current = true;
+      return;
+    }
+
+    // Use a small timeout to ensure layout is complete before scrolling
+    const timeout = setTimeout(() => {
+      if (scrollContainerRef.current) {
+        const containerWidth = scrollContainerRef.current.clientWidth;
+        if (containerWidth > 0) {
+          scrollContainerRef.current.scrollTo({
+            left: initialColumn * containerWidth,
+            behavior: 'instant',
+          });
+          initialScrollDoneRef.current = true;
+        }
+      }
+    }, 50);
+    return () => clearTimeout(timeout);
+  }, [isMobile]); // Only run on mount and when isMobile changes
+
+  // Persist current column index in URL (mobile only)
+  useEffect(() => {
+    if (isMobile) {
+      router.mergeParams({ column: currentColumnIndex.toString() });
+    } else if (router.params.column) {
+      // Remove column param when on desktop
+      router.removeParams(['column']);
+    }
+  }, [currentColumnIndex, isMobile]);
+
+  // Sync column index from URL changes (browser back/forward)
+  useEffect(() => {
+    if (isMobile && router.params.column) {
+      const parsed = parseInt(router.params.column, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed < columns.length && parsed !== currentColumnIndex) {
+        setCurrentColumnIndex(parsed);
+      }
+    }
+  }, [router.params.column, isMobile, columns.length]);
+
+  // Clamp column index when columns change (e.g., showMerged toggled)
+  useEffect(() => {
+    if (currentColumnIndex >= columns.length && columns.length > 0) {
+      setCurrentColumnIndex(columns.length - 1);
+    }
+  }, [columns.length]);
 
   // Handle sidebar column click
   const handleColumnClick = useCallback((index: number) => {

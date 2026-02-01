@@ -17,6 +17,7 @@ import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
+import InstallPWA from '../components/system/InstallPWA'
 import DarkDialog from '../components/dialog/DarkDialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -387,6 +388,7 @@ const Layout: FC<{
         </Box>
         <Snackbar />
         <GlobalLoading />
+        <InstallPWA />
         {
           account.showLoginWindow && (
             config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
