@@ -263,18 +263,26 @@ export const useApi = () => {
   // we can just call useApi() from anywhere and we will get the token injected into the request
   // because the top level account context has called this
   const setToken = useCallback(function(token: string) {
-    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}    
-    
+    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}
+
     // Set token for OpenAPI client
     apiClientSingleton.setSecurityData({
       token: token,
-    });    
-    
+    });
+
     // Force a direct modification of the client instance's default headers as a fallback
     try {
-      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;      
+      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } catch (e) {
       console.error('Failed to set token directly on client instance:', e);
+    }
+
+    // Also set in localStorage for direct fetch() calls (e.g., filestoreService.ts)
+    // This ensures all API call paths have access to the current token
+    if (token) {
+      localStorage.setItem('token', token)
+    } else {
+      localStorage.removeItem('token')
     }
   }, [])
 
