@@ -100,3 +100,31 @@ User edits prompt or changes priority
 - Task update hook: `useUpdateSpecTask` from `services/specTaskService.ts`
 - Priority colors: `getPriorityColor()` in `SpecTaskDetailContent.tsx`
 - Column header styling: `DroppableColumn` in `SpecTaskKanbanBoard.tsx` lines 244-294
+
+## Implementation Notes
+
+### Files Created
+- `frontend/src/components/tasks/BacklogTableView.tsx` - Main table component (354 lines)
+- `frontend/src/components/tasks/BacklogFilterBar.tsx` - Filter bar component (133 lines)
+
+### Files Modified
+- `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` - Added:
+  - `backlogExpanded` state (line 467)
+  - `onHeaderClick` prop to `DroppableColumn` (lines 223, 237)
+  - Hover styling on backlog column header (lines 302-315)
+  - Conditional rendering: `BacklogTableView` when expanded vs `DroppableColumn` columns (lines 1196-1231)
+
+### Key Implementation Details
+
+1. **Snackbar hook**: This codebase uses a custom `useSnackbar` hook from `../../hooks/useSnackbar`, NOT `notistack`. The API is `snackbar.error("message")` instead of `enqueueSnackbar("message", { variant: "error" })`.
+
+2. **Filter state lives in BacklogTableView**: Simplified from original design - filter state (`search`, `priorityFilter`) is managed within `BacklogTableView` rather than lifted to `SpecTaskKanbanBoard`. This keeps the component self-contained.
+
+3. **Prompt update field**: Use `description` field in the update request, not `original_prompt`. The API accepts `description` for updating the task's prompt text.
+
+4. **Import already exists**: The `BacklogTableView` import was already added to `SpecTaskKanbanBoard.tsx` (line 68) - no need to add it.
+
+### Build/Test Commands
+```bash
+cd frontend && yarn test && yarn build
+```
