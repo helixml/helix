@@ -153,16 +153,22 @@ helix-sandbox (outer container)
 
 ### Verify Build
 
-```bash
-# Check desktop image versions
-cat sandbox-images/helix-sway.version
-cat sandbox-images/helix-ubuntu.version
+**IMPORTANT:** After running `./stack build-ubuntu` or `./stack build-sway`, ALWAYS verify the image is ready before testing:
 
-# Verify image is available in sandbox's dockerd
-docker compose exec -T sandbox docker images | grep helix-
+```bash
+# 1. Check version file matches what was built
+cat sandbox-images/helix-ubuntu.version   # Should show new version hash (e.g., "c8ed42")
+
+# 2. Verify image exists in sandbox with correct version
+docker compose exec -T sandbox-nvidia docker images helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version) --format "Tag: {{.Tag}}, Created: {{.CreatedAt}}"
+
+# 3. If image is missing, the build transfer failed - rebuild or manually pull:
+docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version)
 ```
 
-New sessions auto-pull from local registry. Version flow: build writes `.version` files → sandbox heartbeat reads them → API looks up version from heartbeat when starting sessions. Existing containers don't update.
+**Version flow:** build writes `.version` files → pushes to local registry → pulls into sandbox's dockerd → restarts heartbeat → API reads version from heartbeat when starting sessions.
+
+**Key point:** New sessions auto-pull from the sandbox's local dockerd. Existing containers keep their old image - you must start a NEW session to use the updated image.
 
 ## Code Patterns
 
