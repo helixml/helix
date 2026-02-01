@@ -712,6 +712,14 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
+		// was changed from "regular" to "oidc" and user still has old cookies
+		if looksLikeHelixJWT(accessToken) {
+			log.Warn().Msg("detected Helix JWT while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			http.Error(w, "Token format mismatch: please log in again", http.StatusUnauthorized)
+			return
+		}
 		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
 		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
@@ -832,7 +840,17 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	case types.AuthProviderRegular:
 		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
 	default:
-		// OIDC-based auth
+		// OIDC-based auth - first check for stale Helix JWTs
+		// This can happen when AUTH_PROVIDER was changed from "regular" to "oidc"
+		// and the user still has old cookies from regular auth
+		if looksLikeHelixJWT(accessToken) {
+			log.Warn().Msg("detected Helix JWT while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			writeResponse(w, types.AuthenticatedResponse{
+				Authenticated: false,
+			}, http.StatusOK)
+			return
+		}
 		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 	}
 	if err != nil {
@@ -901,6 +919,14 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		newRefreshToken = token
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
+		// was changed from "regular" to "oidc" and user still has old cookies
+		if looksLikeHelixJWT(refreshToken) {
+			log.Warn().Msg("detected Helix JWT as refresh token while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			http.Error(w, "Token format mismatch: please log in again", http.StatusUnauthorized)
+			return
+		}
 		token, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to refresh access_token")
