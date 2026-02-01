@@ -200,15 +200,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             // IMPORTANT: Only fall back to current values if the interaction ID matches
             // Otherwise we'd show stale content from a previous interaction
             const isSameInteraction = current.id === lastInteraction.id;
-            const updatedInteraction: Partial<TypesInteraction> = {
-              ...current,
-              id: lastInteraction.id,
-              state: lastInteraction.state,
-              // Copy all important fields from the interaction
-              // Only use fallback if it's the same interaction (streaming update)
-              prompt_message: lastInteraction.prompt_message || (isSameInteraction ? current.prompt_message : undefined),
-              response_message: lastInteraction.response_message || (isSameInteraction ? current.response_message : undefined),
-            };
+
+            // When it's a different interaction, start fresh - don't spread current
+            const updatedInteraction: Partial<TypesInteraction> = isSameInteraction
+              ? {
+                  ...current,
+                  id: lastInteraction.id,
+                  state: lastInteraction.state,
+                  prompt_message: lastInteraction.prompt_message || current.prompt_message,
+                  response_message: lastInteraction.response_message || current.response_message,
+                }
+              : {
+                  // New interaction - start with clean slate, only use server data
+                  id: lastInteraction.id,
+                  state: lastInteraction.state,
+                  prompt_message: lastInteraction.prompt_message,
+                  response_message: lastInteraction.response_message,
+                };
 
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
             return newMap;
@@ -253,13 +261,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             // IMPORTANT: Only fall back to current values if the interaction ID matches
             // Otherwise we'd show stale content from a previous interaction
             const isSameInteraction = current.id === updatedInteraction.id;
-            const updated: Partial<TypesInteraction> = {
-              ...current,
-              id: updatedInteraction.id,
-              state: updatedInteraction.state,
-              prompt_message: updatedInteraction.prompt_message || (isSameInteraction ? current.prompt_message : undefined),
-              response_message: updatedInteraction.response_message || (isSameInteraction ? current.response_message : undefined),
-            };
+
+            // When it's a different interaction, start fresh - don't spread current
+            const updated: Partial<TypesInteraction> = isSameInteraction
+              ? {
+                  ...current,
+                  id: updatedInteraction.id,
+                  state: updatedInteraction.state,
+                  prompt_message: updatedInteraction.prompt_message || current.prompt_message,
+                  response_message: updatedInteraction.response_message || current.response_message,
+                }
+              : {
+                  // New interaction - start with clean slate
+                  id: updatedInteraction.id,
+                  state: updatedInteraction.state,
+                  prompt_message: updatedInteraction.prompt_message,
+                  response_message: updatedInteraction.response_message,
+                };
 
             const newMap = new Map(prev).set(currentSessionId, updated);
             return newMap;
