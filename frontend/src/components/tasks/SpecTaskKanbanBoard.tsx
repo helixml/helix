@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -26,6 +26,7 @@ import {
   FormControl,
   InputLabel,
   Avatar,
+  useMediaQuery,
 } from '@mui/material';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -64,6 +65,7 @@ import useRouter from '../../hooks/useRouter';
 import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
+import MobileColumnSidebar, { getColumnAccent } from './MobileColumnSidebar';
 import {
   SpecTask,
   useSpecTasks,
@@ -72,6 +74,8 @@ import {
   useCreateSampleRepository,
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
+
+import { TypesWIPLimits } from '../../api/api';
 
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed';
@@ -164,16 +168,13 @@ interface SpecTaskKanbanBoardProps {
   onRefresh?: () => void;
   refreshing?: boolean;
   refreshTrigger?: number;
-  wipLimits?: {
-    planning: number;
-    review: number;
-    implementation: number;
-  };
+  wipLimits?: TypesWIPLimits;
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
+  hideCreateButton?: boolean; // Hide the "New Task" button (useful on mobile when button is in bottom nav)
 }
 
 const DroppableColumn: React.FC<{
@@ -214,23 +215,10 @@ const DroppableColumn: React.FC<{
     );
   };
 
-    // Column color mapping
-    const getColumnAccent = (id: string) => {
-      switch (id) {
-        case 'backlog': return { color: '#6b7280', bg: 'transparent' };
-        case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
-        case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
-        case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
-        case 'pull_request': return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.08)' }; // Purple for PR
-        case 'completed': return { color: '#6b7280', bg: 'transparent' };
-        default: return { color: '#6b7280', bg: 'transparent' };
-      }
-    };
-
     const accent = getColumnAccent(column.id);
 
     return (
-      <Box key={column.id} sx={{ width: 300, flexShrink: 0, height: '100%' }}>
+      <Box key={column.id} sx={{ width: '100%', height: '100%' }}>
         <Box sx={{
           height: '100%',
           display: 'flex',
@@ -350,10 +338,30 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
+  hideCreateButton = false,
 }) => {
   const theme = useTheme();
   const api = useApi();
-  const account = useAccount(); 
+  const account = useAccount();
+  const router = useRouter();
+
+  // Mobile detection
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
+  // Mobile column navigation state - initialize from URL query param
+  const [currentColumnIndex, setCurrentColumnIndex] = useState(() => {
+    const columnParam = router.params.column;
+    if (columnParam) {
+      const parsed = parseInt(columnParam, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+    return 0;
+  });
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef<number>(0);
+  const touchEndX = useRef<number>(0);
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -501,6 +509,108 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     return baseColumns;
   }, [tasks, theme, wipLimits, hasExternalRepo, showMergedProp]);
+
+  // Mobile swipe and scroll handling
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const swipeThreshold = 50;
+    const diff = touchStartX.current - touchEndX.current;
+
+    if (Math.abs(diff) > swipeThreshold) {
+      if (diff > 0) {
+        // Swipe left - go to next column (but not beyond last column)
+        setCurrentColumnIndex(prev => {
+          if (prev >= columns.length - 1) return prev; // Already at rightmost, do nothing
+          return prev + 1;
+        });
+      } else {
+        // Swipe right - go to previous column (but not beyond first column)
+        setCurrentColumnIndex(prev => {
+          if (prev <= 0) return prev; // Already at leftmost (backlog), do nothing
+          return prev - 1;
+        });
+      }
+    }
+  }, [columns.length]);
+
+  // Track if initial scroll has been done
+  const initialScrollDoneRef = useRef(false);
+
+  // Scroll to current column when index changes (mobile only)
+  useEffect(() => {
+    if (isMobile && scrollContainerRef.current) {
+      const containerWidth = scrollContainerRef.current.clientWidth;
+      scrollContainerRef.current.scrollTo({
+        left: currentColumnIndex * containerWidth,
+        behavior: 'smooth',
+      });
+    }
+  }, [currentColumnIndex, isMobile]);
+
+  // Handle initial scroll on mount (needs delay for container to have dimensions)
+  useEffect(() => {
+    if (!isMobile || initialScrollDoneRef.current) return;
+
+    const initialColumn = parseInt(router.params.column || '0', 10);
+    if (initialColumn <= 0) {
+      initialScrollDoneRef.current = true;
+      return;
+    }
+
+    // Use a small timeout to ensure layout is complete before scrolling
+    const timeout = setTimeout(() => {
+      if (scrollContainerRef.current) {
+        const containerWidth = scrollContainerRef.current.clientWidth;
+        if (containerWidth > 0) {
+          scrollContainerRef.current.scrollTo({
+            left: initialColumn * containerWidth,
+            behavior: 'instant',
+          });
+          initialScrollDoneRef.current = true;
+        }
+      }
+    }, 50);
+    return () => clearTimeout(timeout);
+  }, [isMobile]); // Only run on mount and when isMobile changes
+
+  // Persist current column index in URL (mobile only)
+  useEffect(() => {
+    if (isMobile) {
+      router.mergeParams({ column: currentColumnIndex.toString() });
+    } else if (router.params.column) {
+      // Remove column param when on desktop
+      router.removeParams(['column']);
+    }
+  }, [currentColumnIndex, isMobile]);
+
+  // Sync column index from URL changes (browser back/forward)
+  useEffect(() => {
+    if (isMobile && router.params.column) {
+      const parsed = parseInt(router.params.column, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed < columns.length && parsed !== currentColumnIndex) {
+        setCurrentColumnIndex(parsed);
+      }
+    }
+  }, [router.params.column, isMobile, columns.length]);
+
+  // Clamp column index when columns change (e.g., showMerged toggled)
+  useEffect(() => {
+    if (currentColumnIndex >= columns.length && columns.length > 0) {
+      setCurrentColumnIndex(columns.length - 1);
+    }
+  }, [columns.length]);
+
+  // Handle sidebar column click
+  const handleColumnClick = useCallback((index: number) => {
+    setCurrentColumnIndex(index);
+  }, []);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
@@ -889,8 +999,17 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Header - Linear style */}
-      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'rgba(0, 0, 0, 0.06)' }}>
+      {/* Header - Linear style (hidden on mobile) */}
+      <Box sx={{
+        flexShrink: 0,
+        display: isMobile ? 'none' : 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 3,
+        pb: 2,
+        borderBottom: '1px solid',
+        borderColor: 'rgba(0, 0, 0, 0.06)',
+      }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
@@ -900,7 +1019,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               <InfoIcon sx={{ fontSize: 16, color: 'text.secondary', cursor: 'help' }} />
             </Tooltip>
           </Box>
-          {onCreateTask && (
+          {onCreateTask && !hideCreateButton && (
             <Tooltip title="Press Enter">
               <Button
                 variant="contained"
@@ -930,47 +1049,84 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         </Alert>
       )}
 
-      {/* Kanban Board */}
-      <Box sx={{
-        flex: 1,
-        display: 'flex',
-        gap: 2,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        minHeight: 0,
-        pb: 2,
-        '&::-webkit-scrollbar': {
-          height: '8px',
-        },
-        '&::-webkit-scrollbar-track': {
-          background: 'rgba(0, 0, 0, 0.02)',
-          borderRadius: '4px',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: 'rgba(0, 0, 0, 0.1)',
-          borderRadius: '4px',
-          '&:hover': {
-            background: 'rgba(0, 0, 0, 0.15)',
-          },
-        },
-      }}>
-        {columns.map((column) => (
-          <DroppableColumn
-            key={column.id}
-            column={column}
+      {/* Kanban Board - with mobile sidebar */}
+      <Box sx={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
+        {/* Main columns container */}
+        <Box
+          ref={scrollContainerRef}
+          onTouchStart={isMobile ? handleTouchStart : undefined}
+          onTouchMove={isMobile ? handleTouchMove : undefined}
+          onTouchEnd={isMobile ? handleTouchEnd : undefined}
+          sx={{
+            flex: 1,
+            display: 'flex',
+            gap: isMobile ? 0 : 2,
+            overflowX: isMobile ? 'hidden' : 'auto',
+            overflowY: 'hidden',
+            minHeight: 0,
+            pb: 2,
+            // Mobile: full-width columns with scroll snap
+            ...(isMobile && {
+              scrollSnapType: 'x mandatory',
+              WebkitOverflowScrolling: 'touch',
+              pt: 1, // Add top spacing on mobile to separate from topbar
+            }),
+            '&::-webkit-scrollbar': {
+              height: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'rgba(0, 0, 0, 0.02)',
+              borderRadius: '4px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: 'rgba(0, 0, 0, 0.1)',
+              borderRadius: '4px',
+              '&:hover': {
+                background: 'rgba(0, 0, 0, 0.15)',
+              },
+            },
+          }}
+        >
+          {columns.map((column, index) => (
+            <Box
+              key={column.id}
+              sx={{
+                // Desktop: fixed width, Mobile: full width
+                width: isMobile ? '100%' : 300,
+                minWidth: isMobile ? '100%' : 300,
+                flexShrink: 0,
+                height: '100%',
+                scrollSnapAlign: isMobile ? 'start' : undefined,
+                // On mobile, add padding to account for sidebar
+                pr: isMobile ? '28px' : 0,
+              }}
+            >
+              <DroppableColumn
+                column={column}
+                columns={columns}
+                onStartPlanning={handleStartPlanning}
+                onArchiveTask={handleArchiveTask}
+                onTaskClick={onTaskClick}
+                onReviewDocs={handleReviewDocs}
+                projectId={projectId}
+                focusTaskId={focusTaskId}
+                archivingTaskId={archivingTaskId}
+                hasExternalRepo={hasExternalRepo}
+                showMetrics={showMetrics}
+                theme={theme}
+              />
+            </Box>
+          ))}
+        </Box>
+
+        {/* Mobile right sidebar for column navigation */}
+        {isMobile && (
+          <MobileColumnSidebar
             columns={columns}
-            onStartPlanning={handleStartPlanning}
-            onArchiveTask={handleArchiveTask}
-            onTaskClick={onTaskClick}
-            onReviewDocs={handleReviewDocs}
-            projectId={projectId}
-            focusTaskId={focusTaskId}
-            archivingTaskId={archivingTaskId}
-            hasExternalRepo={hasExternalRepo}
-            showMetrics={showMetrics}
-            theme={theme}
+            currentColumnIndex={currentColumnIndex}
+            onColumnClick={handleColumnClick}
           />
-        ))}
+        )}
       </Box>
 
       {/* Planning Dialog */}

@@ -17,6 +17,7 @@ import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
+import InstallPWA from '../components/system/InstallPWA'
 import DarkDialog from '../components/dialog/DarkDialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -387,6 +388,7 @@ const Layout: FC<{
         </Box>
         <Snackbar />
         <GlobalLoading />
+        <InstallPWA />
         {
           account.showLoginWindow && (
             config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
@@ -444,17 +446,17 @@ const Layout: FC<{
             <LicenseKeyPrompt /> :
             null
         }
-        {
+        {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
           )
-        }
+        */}
         {
           floatingModal.isVisible && account.admin && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }
-        {
+        {/* Floating runner state toggle button disabled
           account.admin && (
             <Box
               sx={{
@@ -469,8 +471,8 @@ const Layout: FC<{
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
                     const clickPosition = {
-                      x: rect.left - 340, // Position floating window to the left of button
-                      y: rect.top - 50    // Position slightly above the button
+                      x: rect.left - 340,
+                      y: rect.top - 50
                     }
                     floatingRunnerState.toggleFloatingRunnerState(clickPosition)
                   }}
@@ -498,7 +500,7 @@ const Layout: FC<{
               </Tooltip>
             </Box>
           )
-        }
+        */}
       </Box>
     </>
   )
