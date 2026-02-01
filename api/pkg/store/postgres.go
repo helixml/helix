@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -94,6 +95,14 @@ type MigrationScript struct {
 }
 
 func (s *PostgresStore) autoMigrate() error {
+	// Skip migrations for the public schema if HELIX_SKIP_AUTOMIGRATE is set.
+	// This is used in CI where migrations run in a separate step before parallel tests.
+	// We only skip for public schema - tests that create their own schemas still need migrations.
+	if os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (s.cfg.Schema == "" || s.cfg.Schema == "public") {
+		log.Debug().Msg("skipping automigrate for public schema (HELIX_SKIP_AUTOMIGRATE=1)")
+		return nil
+	}
+
 	// If schema is specified, check if it exists and if not - create it
 	if s.cfg.Schema != "" {
 		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
@@ -102,6 +111,11 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
+	return s.runMigrations()
+}
+
+// runMigrations performs the actual database migrations.
+func (s *PostgresStore) runMigrations() error {
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
 	err := s.MigrateUp()

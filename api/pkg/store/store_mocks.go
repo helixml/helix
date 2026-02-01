@@ -2334,6 +2334,21 @@ func (mr *MockStoreMockRecorder) GetOrganization(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganization", reflect.TypeOf((*MockStore)(nil).GetOrganization), ctx, q)
 }
 
+// GetOrganizationByDomain mocks base method.
+func (m *MockStore) GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrganizationByDomain", ctx, domain)
+	ret0, _ := ret[0].(*types.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrganizationByDomain indicates an expected call of GetOrganizationByDomain.
+func (mr *MockStoreMockRecorder) GetOrganizationByDomain(ctx, domain any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationByDomain", reflect.TypeOf((*MockStore)(nil).GetOrganizationByDomain), ctx, domain)
+}
+
 // GetOrganizationMembership mocks base method.
 func (m *MockStore) GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
 	m.ctrl.T.Helper()

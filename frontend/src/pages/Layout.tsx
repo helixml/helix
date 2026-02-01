@@ -410,7 +410,7 @@ const Layout: FC<{
                 </DialogTitle>
                 <DialogContent>
                   <Typography>
-                    We will keep what you've done here for you, so you may continue where you left off.
+                    Sign in to access all features.
                   </Typography>
                 </DialogContent>
                 <DialogActions>

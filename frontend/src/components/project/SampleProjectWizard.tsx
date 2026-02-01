@@ -39,19 +39,20 @@ import {
   TypesCheckSampleProjectAccessResponse,
   TypesRepositoryAccessCheck,
   TypesGitRepository,
-  ServerSampleProject,
+  ServerSimpleSampleProject,
 } from '../../api/api'
+import SkillConfigurationStep, { countConfigurableSkills, getConfigurableMcps } from './SkillConfigurationStep'
 
 interface SampleProjectWizardProps {
   open: boolean
   onClose: () => void
   onComplete: (projectId: string) => void
-  sampleProject: ServerSampleProject | null
+  sampleProject: ServerSimpleSampleProject | null
   organizationId?: string
   selectedAgentId?: string
 }
 
-type Step = 'github-check' | 'access-check' | 'fork-decision' | 'creating' | 'cloning'
+type Step = 'github-check' | 'access-check' | 'configure-skills' | 'creating' | 'cloning'
 
 const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   open,
@@ -78,6 +79,12 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
   const [projectId, setProjectId] = useState<string>('')
   const [cloningRepos, setCloningRepos] = useState<TypesGitRepository[]>([])
 
+  // Skill configuration state
+  const [currentSkillIndex, setCurrentSkillIndex] = useState(0)
+  const [configuredEnvVars, setConfiguredEnvVars] = useState<Record<string, Record<string, string>>>({})
+  const [oauthConsent, setOAuthConsent] = useState<Record<string, boolean>>({})
+  const [allOAuthConnections, setAllOAuthConnections] = useState<any[]>([])
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open && sampleProject) {
@@ -88,9 +95,17 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
       setRepoDecisions({})
       setProjectId('')
       setCloningRepos([])
+      setCurrentSkillIndex(0)
+      setConfiguredEnvVars({})
+      setOAuthConsent({})
       checkGitHubConnection()
     }
   }, [open, sampleProject?.id])
+
+  // Count skills that need configuration
+  const configurableSkillCount = countConfigurableSkills(sampleProject?.skills)
+  const configurableMcps = getConfigurableMcps(sampleProject?.skills)
+  const hasSkillsToConfig = configurableSkillCount > 0
 
   // Check for GitHub OAuth connection
   const checkGitHubConnection = async () => {
@@ -123,6 +138,7 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
       })
 
       setGitHubConnections(ghConnections)
+      setAllOAuthConnections(connections) // Store all connections for skill config
 
       if (ghConnections.length > 0) {
         setSelectedConnectionId(ghConnections[0].id)
@@ -231,6 +247,52 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         setCurrentStep('cloning')
         setIsLoading(false)
         // Repos will be fetched by the polling query
+      } else {
+        snackbar.success(`Project "${sampleProject.name}" created successfully!`)
+        onComplete(response.data.project_id || '')
+      }
+    } catch (err: any) {
+      console.error('Failed to create project:', err)
+      setError('Failed to create project: ' + (err.message || 'Unknown error'))
+      setIsLoading(false)
+    }
+  }
+
+  // Create the project with configured skills
+  const createProjectWithConfiguredSkills = async () => {
+    if (!sampleProject) return
+
+    setCurrentStep('creating')
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Fork repos if needed
+      const needsFork = Object.values(repoDecisions).some(d => d === 'fork')
+      if (needsFork) {
+        const forkSuccess = await forkRepositories()
+        if (!forkSuccess) {
+          setIsLoading(false)
+          return
+        }
+      }
+
+      // Create the project with configured skill env vars
+      const response = await apiClient.v1SampleProjectsSimpleForkCreate({
+        sample_project_id: sampleProject.id || '',
+        project_name: sampleProject.name || '',
+        organization_id: organizationId,
+        helix_app_id: selectedAgentId,
+        github_connection_id: selectedConnectionId,
+        repository_decisions: repoDecisions,
+        configured_skill_env_vars: configuredEnvVars,
+      })
+
+      // Check if repos are still cloning
+      if (response.data.cloning_in_progress) {
+        setProjectId(response.data.project_id || '')
+        setCurrentStep('cloning')
+        setIsLoading(false)
       } else {
         snackbar.success(`Project "${sampleProject.name}" created successfully!`)
         onComplete(response.data.project_id || '')
@@ -598,11 +660,12 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
         return 0
       case 'access-check':
         return 1
-      case 'fork-decision':
+      case 'configure-skills':
+        return hasSkillsToConfig ? 2 : 1
       case 'creating':
-        return 2
+        return hasSkillsToConfig ? 3 : 2
       case 'cloning':
-        return 3
+        return hasSkillsToConfig ? 4 : 3
       default:
         return 0
     }
@@ -643,6 +706,11 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
           <Step>
             <StepLabel>Check Access</StepLabel>
           </Step>
+          {hasSkillsToConfig && (
+            <Step>
+              <StepLabel>Configure Skills</StepLabel>
+            </Step>
+          )}
           <Step>
             <StepLabel>Create Project</StepLabel>
           </Step>
@@ -659,6 +727,31 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
 
         {currentStep === 'github-check' && renderGitHubCheckStep()}
         {currentStep === 'access-check' && renderAccessCheckStep()}
+        {currentStep === 'configure-skills' && sampleProject?.skills && (
+          <SkillConfigurationStep
+            skills={sampleProject.skills}
+            currentSkillIndex={currentSkillIndex}
+            totalSkills={configurableSkillCount}
+            configuredEnvVars={configuredEnvVars}
+            onEnvVarChange={(skillName, envVar, value) => {
+              setConfiguredEnvVars(prev => ({
+                ...prev,
+                [skillName]: {
+                  ...prev[skillName],
+                  [envVar]: value,
+                },
+              }))
+            }}
+            oauthConsent={oauthConsent}
+            onOAuthConsentChange={(skillName, consent) => {
+              setOAuthConsent(prev => ({
+                ...prev,
+                [skillName]: consent,
+              }))
+            }}
+            userOAuthConnections={allOAuthConnections}
+          />
+        )}
         {currentStep === 'creating' && renderCreatingStep()}
         {currentStep === 'cloning' && renderCloningStep()}
       </DialogContent>
@@ -668,16 +761,71 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
           Cancel
         </Button>
 
+        {/* Access check -> either Configure Skills or Create Project */}
         {currentStep === 'access-check' && (
           <Button
             variant="contained"
-            onClick={createProject}
+            onClick={() => {
+              if (hasSkillsToConfig) {
+                setCurrentStep('configure-skills')
+                setCurrentSkillIndex(0)
+              } else {
+                createProject()
+              }
+            }}
             disabled={isLoading}
           >
-            {Object.values(repoDecisions).some(d => d === 'fork')
-              ? 'Fork & Create Project'
-              : 'Create Project'}
+            {hasSkillsToConfig ? 'Next: Configure Skills' : (
+              Object.values(repoDecisions).some(d => d === 'fork')
+                ? 'Fork & Create Project'
+                : 'Create Project'
+            )}
           </Button>
+        )}
+
+        {/* Configure Skills navigation */}
+        {currentStep === 'configure-skills' && (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                if (currentSkillIndex > 0) {
+                  setCurrentSkillIndex(prev => prev - 1)
+                } else {
+                  setCurrentStep('access-check')
+                }
+              }}
+            >
+              Back
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                // Check if current skill requires OAuth consent
+                const currentMcp = configurableMcps[currentSkillIndex]
+                if (currentMcp?.oauth_provider && !oauthConsent[currentMcp.name || '']) {
+                  setError('Please accept the OAuth token sharing warning to continue')
+                  return
+                }
+
+                if (currentSkillIndex < configurableSkillCount - 1) {
+                  // Move to next skill
+                  setCurrentSkillIndex(prev => prev + 1)
+                  setError(null)
+                } else {
+                  // All skills configured, create project
+                  setError(null)
+                  createProjectWithConfiguredSkills()
+                }
+              }}
+            >
+              {currentSkillIndex < configurableSkillCount - 1
+                ? 'Next Skill'
+                : (Object.values(repoDecisions).some(d => d === 'fork')
+                    ? 'Fork & Create Project'
+                    : 'Create Project')}
+            </Button>
+          </Box>
         )}
       </DialogActions>
     </Dialog>

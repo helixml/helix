@@ -1495,14 +1495,26 @@ type AssistantZapier struct {
 }
 
 type AssistantMCP struct {
-	Name          string            `json:"name" yaml:"name"`
-	Description   string            `json:"description" yaml:"description"`
-	URL           string            `json:"url" yaml:"url"`
-	Transport     string            `json:"transport,omitempty" yaml:"transport,omitempty"` // "http" (default, Streamable HTTP) or "sse" (legacy SSE transport)
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+
+	// Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+	// For stdio transport, use Command/Args/Env fields instead of URL
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+
+	// HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set)
+	URL           string            `json:"url,omitempty" yaml:"url,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
 	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
-	Tools         []mcp.Tool        `json:"tools" yaml:"tools"`
+
+	// Stdio transport fields (used when Transport is "stdio")
+	// The MCP server runs as a subprocess inside the dev container
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"` // Executable to run (e.g., "npx", "sh")
+	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`       // Command arguments
+	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // Environment variables for the subprocess
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
 
 type AssistantAPI struct {
@@ -1536,6 +1548,20 @@ type AssistantAzureDevOps struct {
 	Enabled             bool   `json:"enabled" yaml:"enabled"`
 	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
+// AssistantSkills groups all skill-related configuration.
+// Used for project-level skills that overlay on top of agent skills.
+type AssistantSkills struct {
+	APIs           []AssistantAPI           `json:"apis,omitempty" yaml:"apis,omitempty"`
+	Zapier         []AssistantZapier        `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs           []AssistantMCP           `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	Browser        *AssistantBrowser        `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch      *AssistantWebSearch      `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Calculator     *AssistantCalculator     `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email          *AssistantEmail          `json:"email,omitempty" yaml:"email,omitempty"`
+	ProjectManager *AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+	AzureDevOps    *AssistantAzureDevOps    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 // apps are a collection of assistants
@@ -2935,6 +2961,11 @@ type ForkSimpleProjectRequest struct {
 	// Key: GitHub URL (e.g., "github.com/helixml/helix")
 	// Value: "use_original" (has write access) or "fork" (will fork)
 	RepositoryDecisions map[string]string `json:"repository_decisions,omitempty"`
+
+	// ConfiguredSkillEnvVars contains user-configured env vars for skills
+	// Outer key: skill name, Inner key: env var name, Value: user-provided value
+	// This allows users to configure skills (like API tokens) during project creation
+	ConfiguredSkillEnvVars map[string]map[string]string `json:"configured_skill_env_vars,omitempty"`
 }
 
 // ForkSimpleProjectResponse represents the fork response

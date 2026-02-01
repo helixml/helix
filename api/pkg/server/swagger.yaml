@@ -1121,6 +1121,15 @@ definitions:
       reason:
         type: string
     type: object
+  server.OrganizationDomainInfo:
+    properties:
+      auto_join_domain:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+    type: object
   server.PhaseProgress:
     properties:
       agent:
@@ -1406,6 +1415,12 @@ definitions:
         description: RequiresGitHubAuth indicates this sample project needs GitHub
           OAuth for push access
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: |-
+          Skills configures project-level skills that will be added when the project is created
+          These overlay on top of agent-level skills
       task_prompts:
         items:
           $ref: '#/definitions/server.SampleTaskPrompt'
@@ -1712,6 +1727,13 @@ definitions:
   types.AdminResetPasswordRequest:
     properties:
       new_password:
+        type: string
+    type: object
+  types.AffectedProjectInfo:
+    properties:
+      id:
+        type: string
+      name:
         type: string
     type: object
   types.AgentType:
@@ -2198,8 +2220,23 @@ definitions:
     type: object
   types.AssistantMCP:
     properties:
+      args:
+        description: Command arguments
+        items:
+          type: string
+        type: array
+      command:
+        description: |-
+          Stdio transport fields (used when Transport is "stdio")
+          The MCP server runs as a subprocess inside the dev container
+        type: string
       description:
         type: string
+      env:
+        additionalProperties:
+          type: string
+        description: Environment variables for the subprocess
+        type: object
       headers:
         additionalProperties:
           type: string
@@ -2219,9 +2256,13 @@ definitions:
           $ref: '#/definitions/mcp.Tool'
         type: array
       transport:
-        description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
+        description: |-
+          Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+          For stdio transport, use Command/Args/Env fields instead of URL
         type: string
       url:
+        description: HTTP/SSE transport fields (used when Transport is "http" or "sse",
+          or URL is set)
         type: string
     type: object
   types.AssistantProjectManager:
@@ -2230,6 +2271,33 @@ definitions:
         type: boolean
       project_id:
         type: string
+    type: object
+  types.AssistantSkills:
+    properties:
+      apis:
+        items:
+          $ref: '#/definitions/types.AssistantAPI'
+        type: array
+      azure_devops:
+        $ref: '#/definitions/types.AssistantAzureDevOps'
+      browser:
+        $ref: '#/definitions/types.AssistantBrowser'
+      calculator:
+        $ref: '#/definitions/types.AssistantCalculator'
+      email:
+        $ref: '#/definitions/types.AssistantEmail'
+      mcps:
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
+      project_manager:
+        $ref: '#/definitions/types.AssistantProjectManager'
+      web_search:
+        $ref: '#/definitions/types.AssistantWebSearch'
+      zapier:
+        items:
+          $ref: '#/definitions/types.AssistantZapier'
+        type: array
     type: object
   types.AssistantWebSearch:
     properties:
@@ -3283,6 +3351,16 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      configured_skill_env_vars:
+        additionalProperties:
+          additionalProperties:
+            type: string
+          type: object
+        description: |-
+          ConfiguredSkillEnvVars contains user-configured env vars for skills
+          Outer key: skill name, Inner key: env var name, Value: user-provided value
+          This allows users to configure skills (like API tokens) during project creation
+        type: object
       description:
         type: string
       fork_to_organization:
@@ -4571,6 +4649,11 @@ definitions:
         items:
           $ref: '#/definitions/types.MoveRepositoryPreviewItem'
         type: array
+      warnings:
+        description: Warnings about things that won't be moved automatically
+        items:
+          type: string
+        type: array
     type: object
   types.MoveProjectRequest:
     properties:
@@ -4579,6 +4662,11 @@ definitions:
     type: object
   types.MoveRepositoryPreviewItem:
     properties:
+      affected_projects:
+        description: Other projects that will lose this repo
+        items:
+          $ref: '#/definitions/types.AffectedProjectInfo'
+        type: array
       current_name:
         type: string
       has_conflict:
@@ -4844,6 +4932,10 @@ definitions:
     type: object
   types.Organization:
     properties:
+      auto_join_domain:
+        description: AutoJoinDomain - if set, users logging in via OIDC with this
+          email domain are automatically added as members
+        type: string
       created_at:
         type: string
       deleted_at:
@@ -5086,6 +5178,12 @@ definitions:
         type: string
       pull_request_reviews_enabled:
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: |-
+          Project-level skills - these overlay on top of agent skills
+          Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
@@ -5159,6 +5257,10 @@ definitions:
         type: string
       organization_id:
         type: string
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: Project-level skills
       startup_script:
         type: string
       technologies:
@@ -5202,6 +5304,10 @@ definitions:
       pull_request_reviews_enabled:
         description: Whether pull request reviews are enabled
         type: boolean
+      skills:
+        allOf:
+        - $ref: '#/definitions/types.AssistantSkills'
+        description: Project-level skills
       startup_script:
         type: string
       status:
@@ -8554,6 +8660,21 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/organization-domains:
+    get:
+      description: List all organizations that have auto-join domains configured
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OrganizationDomainInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization domains (admin only)
+      tags:
+      - organizations
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins

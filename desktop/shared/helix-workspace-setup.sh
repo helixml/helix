@@ -180,8 +180,13 @@ echo ""
 # =========================================
 if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     echo "========================================="
-    echo "Cloning project repositories..."
+    echo "Cloning project repositories (in parallel)..."
     echo "========================================="
+
+    # Arrays to track parallel clone jobs
+    declare -a CLONE_PIDS
+    declare -a CLONE_NAMES
+    declare -a CLONE_DIRS
 
     IFS=',' read -ra REPOS <<< "$HELIX_REPOSITORIES"
     for REPO_SPEC in "${REPOS[@]}"; do
@@ -210,26 +215,45 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
             continue
         fi
 
-        # Clone repository using clean URL (credentials from .git-credentials)
+        # Clone repository in background using clean URL (credentials from .git-credentials)
         GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
         GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
-        echo "    Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
+        echo "    Starting clone from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
         GIT_CLONE_URL="${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/${REPO_ID}"
 
-        if ! git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
-            echo ""
-            echo "    ❌ FAILED to clone $REPO_NAME"
-            echo ""
-            echo "    This could be caused by:"
-            echo "      - Invalid repository credentials"
-            echo "      - Repository doesn't exist"
-            echo "      - Network connectivity issues"
+        # Start clone in background
+        git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1 &
+        CLONE_PIDS+=($!)
+        CLONE_NAMES+=("$REPO_NAME")
+        CLONE_DIRS+=("$CLONE_DIR")
+    done
+
+    # Wait for all clones to complete and check results
+    if [ ${#CLONE_PIDS[@]} -gt 0 ]; then
+        echo ""
+        echo "  Waiting for ${#CLONE_PIDS[@]} clone(s) to complete..."
+        CLONE_FAILED=false
+        for i in "${!CLONE_PIDS[@]}"; do
+            if wait "${CLONE_PIDS[$i]}"; then
+                echo "    ✅ ${CLONE_NAMES[$i]} cloned successfully"
+            else
+                echo ""
+                echo "    ❌ FAILED to clone ${CLONE_NAMES[$i]}"
+                echo ""
+                echo "    This could be caused by:"
+                echo "      - Invalid repository credentials"
+                echo "      - Repository doesn't exist"
+                echo "      - Network connectivity issues"
+                CLONE_FAILED=true
+            fi
+        done
+
+        if [ "$CLONE_FAILED" = true ]; then
             echo ""
             echo "    The terminal will stay open so you can see this error."
             exit 1
         fi
-        echo "    ✅ Successfully cloned to $CLONE_DIR"
-    done
+    fi
 
     echo "========================================="
     echo ""
@@ -266,19 +290,27 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
         if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
             # Existing branch mode: checkout the working branch
             if [ -n "$HELIX_WORKING_BRANCH" ]; then
-                echo "  Mode: Continue existing branch"
-                echo "  Checking out branch: $HELIX_WORKING_BRANCH"
-
-                if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
-                    git checkout "$HELIX_WORKING_BRANCH" 2>&1
-                    echo "  Checked out existing local branch: $HELIX_WORKING_BRANCH"
-                elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
-                    git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
-                    echo "  Created tracking branch from origin: $HELIX_WORKING_BRANCH"
+                # Special case: helix-specs is reserved for the design docs worktree
+                # Never checkout helix-specs directly on the main repo - it has no code!
+                if [ "$HELIX_WORKING_BRANCH" = "helix-specs" ]; then
+                    echo "  Warning: helix-specs is reserved for design docs worktree"
+                    echo "  Keeping main repo on default branch (helix-specs worktree will be created later)"
+                    # Stay on current branch, don't checkout helix-specs
                 else
-                    echo "  Branch not found locally or remotely: $HELIX_WORKING_BRANCH"
-                    echo "  Available remote branches:"
-                    git branch -r | head -10
+                    echo "  Mode: Continue existing branch"
+                    echo "  Checking out branch: $HELIX_WORKING_BRANCH"
+
+                    if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
+                        git checkout "$HELIX_WORKING_BRANCH" 2>&1
+                        echo "  Checked out existing local branch: $HELIX_WORKING_BRANCH"
+                    elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
+                        git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
+                        echo "  Created tracking branch from origin: $HELIX_WORKING_BRANCH"
+                    else
+                        echo "  Branch not found locally or remotely: $HELIX_WORKING_BRANCH"
+                        echo "  Available remote branches:"
+                        git branch -r | head -10
+                    fi
                 fi
             else
                 echo "  Warning: Existing mode but HELIX_WORKING_BRANCH not set"

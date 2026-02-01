@@ -51,8 +51,11 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import HubIcon from "@mui/icons-material/Hub";
 
 import Page from "../components/system/Page";
+import Skills from "../components/app/Skills";
+import { TypesAssistantSkills, TypesProject } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import AccessManagement from "../components/app/AccessManagement";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
@@ -63,7 +66,7 @@ import {
   CodeAgentRuntime,
   generateAgentName,
 } from "../contexts/apps";
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -155,7 +158,8 @@ const ProjectSettings: FC = () => {
     useStopProjectExploratorySession(projectId);
 
   // Create SpecTask mutation for "Fix Startup Script" feature
-  // Uses branch_mode: "existing" with helix-specs branch to push directly (no PR)
+  // Uses branch_mode: "new" to create a feature branch for code changes
+  // The helix-specs worktree is created separately for design docs and startup script edits
   const createSpecTaskMutation = useMutation({
     mutationFn: async (request: {
       prompt: string;
@@ -219,8 +223,11 @@ const ProjectSettings: FC = () => {
       current_name: string;
       new_name?: string;
       has_conflict: boolean;
+      affected_projects?: Array<{ id: string; name: string }>;
     }>;
+    warnings?: string[];
   } | null>(null);
+  const [acceptSharedRepoWarning, setAcceptSharedRepoWarning] = useState(false);
   const [loadingMovePreview, setLoadingMovePreview] = useState(false);
 
   // Project secrets
@@ -228,6 +235,9 @@ const ProjectSettings: FC = () => {
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [showSecretValue, setShowSecretValue] = useState(false);
+
+  // Project skills
+  const [projectSkills, setProjectSkills] = useState<TypesAssistantSkills | undefined>(undefined);
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
@@ -286,13 +296,27 @@ const ProjectSettings: FC = () => {
         });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, organizationId) => {
       snackbar.success("Project moved to organization successfully");
       setMoveDialogOpen(false);
       setSelectedOrgToMove("");
       setMovePreview(null);
+      setAcceptSharedRepoWarning(false);
       // Invalidate project query to refresh data
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+      // Find the org to get its name (slug) for navigation
+      const targetOrg = account.organizationTools.organizations.find(
+        (org) => org.id === organizationId
+      );
+      if (targetOrg?.name) {
+        // Switch to the new org context and navigate to the project there
+        await account.organizationTools.loadOrganization(organizationId);
+        navigate("org_project-specs", {
+          org_id: targetOrg.name,
+          id: projectId,
+        });
+      }
     },
     onError: (err: any) => {
       const message = err?.response?.data?.error || "Failed to move project";
@@ -420,6 +444,9 @@ const ProjectSettings: FC = () => {
           implementation: projectWipLimits.implementation || 5,
         });
       }
+
+      // Load project skills
+      setProjectSkills(project.skills);
     }
   }, [project]);
 
@@ -671,6 +698,43 @@ const ProjectSettings: FC = () => {
     }
   };
 
+  // Adapter to convert project skills to IAppFlatState format for the Skills component
+  const skillsFlatState: IAppFlatState = useMemo(() => ({
+    // Map project skills to IAppFlatState fields
+    apiTools: projectSkills?.apis,
+    mcpTools: projectSkills?.mcps,
+    browserTool: projectSkills?.browser,
+    webSearchTool: projectSkills?.web_search,
+    calculatorTool: projectSkills?.calculator,
+    emailTool: projectSkills?.email,
+    projectManagerTool: projectSkills?.project_manager,
+    azureDevOpsTool: projectSkills?.azure_devops,
+    zapierTools: projectSkills?.zapier,
+    // Always use zed_external agent type for project skills
+    // This enables local MCP support in the Skills component
+    default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
+  }), [projectSkills]);
+
+  // Handler for skills updates from the Skills component
+  const handleSkillsUpdate = async (updates: IAppFlatState) => {
+    // Extract skill-related fields and convert back to AssistantSkills format
+    const newSkills: TypesAssistantSkills = {
+      apis: updates.apiTools,
+      mcps: updates.mcpTools,
+      browser: updates.browserTool,
+      web_search: updates.webSearchTool,
+      calculator: updates.calculatorTool,
+      email: updates.emailTool,
+      project_manager: updates.projectManagerTool,
+      azure_devops: updates.azureDevOpsTool,
+      zapier: updates.zapierTools,
+    };
+    setProjectSkills(newSkills);
+    await updateProjectMutation.mutateAsync({
+      skills: newSkills,
+    });
+  };
+
   if (isLoading) {
     return (
       <Page breadcrumbTitle="Loading..." orgBreadcrumbs={true}>
@@ -713,7 +777,7 @@ const ProjectSettings: FC = () => {
       params: { id: projectId },
     },
     {
-      title: "Workspace Settings",
+      title: "Project Settings",
     },
   ];
 
@@ -1268,6 +1332,25 @@ const ProjectSettings: FC = () => {
               )}
             </Paper>
 
+            {/* Project Skills */}
+            <Paper sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                <HubIcon sx={{ mr: 1, color: "#10B981" }} />
+                <Typography variant="h6">Skills</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Configure skills for this project. These overlay on top of agent-level skills.
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Skills
+                app={skillsFlatState}
+                onUpdate={handleSkillsUpdate}
+                hideHeader
+                defaultCategory="Core"
+                compactGrid
+              />
+            </Paper>
+
             {/* Project Guidelines */}
             <Paper sx={{ p: 3 }}>
               <Box
@@ -1511,11 +1594,10 @@ const ProjectSettings: FC = () => {
                     }
                     onClick={() =>
                       createSpecTaskMutation.mutate({
-                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
-                        // Push directly to helix-specs, no PR needed
-                        branch_mode: "existing",
-                        base_branch: "helix-specs",
-                        working_branch: "helix-specs",
+                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
+                        // Create a feature branch for any code changes, helix-specs worktree handles design docs
+                        branch_mode: "new",
+                        base_branch: "main",
                       })
                     }
                     disabled={createSpecTaskMutation.isPending}
@@ -1982,34 +2064,63 @@ const ProjectSettings: FC = () => {
                       Repositories ({movePreview.repositories.length})
                     </Typography>
                     {movePreview.repositories.map((repo) => (
-                      <Box
-                        key={repo.id}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                          py: 0.5,
-                        }}
-                      >
-                        <Typography variant="body2">
-                          {repo.current_name}
-                        </Typography>
-                        {repo.has_conflict && repo.new_name && (
-                          <>
-                            <ArrowForwardIcon
-                              fontSize="small"
-                              color="warning"
-                            />
-                            <Typography variant="body2" color="warning.main">
-                              {repo.new_name}
+                      <Box key={repo.id} sx={{ py: 0.5 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          <Typography variant="body2">
+                            {repo.current_name}
+                          </Typography>
+                          {repo.has_conflict && repo.new_name && (
+                            <>
+                              <ArrowForwardIcon
+                                fontSize="small"
+                                color="warning"
+                              />
+                              <Typography variant="body2" color="warning.main">
+                                {repo.new_name}
+                              </Typography>
+                              <Chip
+                                label="renamed"
+                                size="small"
+                                color="warning"
+                                sx={{ fontSize: "0.7rem" }}
+                              />
+                            </>
+                          )}
+                        </Box>
+                        {repo.affected_projects && repo.affected_projects.length > 0 && (
+                          <Box
+                            sx={{
+                              ml: 2,
+                              mt: 0.5,
+                              p: 1,
+                              backgroundColor: "error.dark",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "error.main",
+                            }}
+                          >
+                            <Typography variant="caption" color="error.contrastText" sx={{ fontWeight: 600 }}>
+                              Warning: This repository is shared with other projects that will lose access:
                             </Typography>
-                            <Chip
-                              label="renamed"
-                              size="small"
-                              color="warning"
-                              sx={{ fontSize: "0.7rem" }}
-                            />
-                          </>
+                            <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
+                              {repo.affected_projects.map((proj) => (
+                                <Typography
+                                  key={proj.id}
+                                  component="li"
+                                  variant="caption"
+                                  color="error.contrastText"
+                                >
+                                  {proj.name}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </Box>
                         )}
                       </Box>
                     ))}
@@ -2024,6 +2135,46 @@ const ProjectSettings: FC = () => {
                 These repositories will become accessible to all members of the
                 organization based on their roles.
               </Typography>
+
+              {/* Warnings about things that won't be moved */}
+              {movePreview.warnings && movePreview.warnings.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {movePreview.warnings.map((warning, index) => (
+                    <Alert
+                      key={index}
+                      severity="info"
+                      icon={<WarningIcon />}
+                      sx={{ mb: 1 }}
+                    >
+                      {warning}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+
+              {/* Show checkbox if any repos have affected projects */}
+              {movePreview.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 2 }}
+                  control={
+                    <Checkbox
+                      checked={acceptSharedRepoWarning}
+                      onChange={(e) =>
+                        setAcceptSharedRepoWarning(e.target.checked)
+                      }
+                      color="error"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" color="error">
+                      I understand that moving shared repositories will break
+                      the other projects listed above
+                    </Typography>
+                  }
+                />
+              )}
             </Box>
           )}
         </DialogContent>
@@ -2033,6 +2184,7 @@ const ProjectSettings: FC = () => {
               setMoveDialogOpen(false);
               setSelectedOrgToMove("");
               setMovePreview(null);
+              setAcceptSharedRepoWarning(false);
             }}
           >
             Cancel
@@ -2044,7 +2196,11 @@ const ProjectSettings: FC = () => {
             disabled={
               !selectedOrgToMove ||
               !movePreview ||
-              moveProjectMutation.isPending
+              moveProjectMutation.isPending ||
+              (movePreview?.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) &&
+                !acceptSharedRepoWarning)
             }
             startIcon={
               moveProjectMutation.isPending ? (

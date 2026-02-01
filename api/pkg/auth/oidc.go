@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -47,6 +48,9 @@ type OIDCConfig struct {
 	// Useful when the API needs an internal URL for token exchange while discovery
 	// returns browser-accessible URLs.
 	TokenURL string
+	// OfflineAccess requests offline access for refresh tokens (access_type=offline).
+	// Required for Google OIDC to return refresh tokens.
+	OfflineAccess bool
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -135,19 +139,16 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 		endpoint := provider.Endpoint()
 
 		// Override token URL for internal API access
-		// If TokenURL is set explicitly, use it. Otherwise, derive from ProviderURL
-		// (useful when discovery returns browser URLs but API needs internal URLs)
-		tokenURL := c.cfg.TokenURL
-		if tokenURL == "" && c.cfg.ProviderURL != "" {
-			// Auto-derive token URL from provider URL (works for Keycloak and most OIDC providers)
-			tokenURL = c.cfg.ProviderURL + "/protocol/openid-connect/token"
-		}
-		if tokenURL != "" && tokenURL != endpoint.TokenURL {
+		// If TokenURL is set explicitly, use it (useful when discovery returns browser URLs
+		// but API needs internal URLs, e.g., Keycloak behind a proxy)
+		// IMPORTANT: Do NOT auto-derive Keycloak-style URLs - this breaks Google and other
+		// standard OIDC providers. Only override if explicitly configured.
+		if c.cfg.TokenURL != "" && c.cfg.TokenURL != endpoint.TokenURL {
 			log.Info().
 				Str("original_token_url", endpoint.TokenURL).
-				Str("override_token_url", tokenURL).
-				Msg("Overriding token endpoint URL")
-			endpoint.TokenURL = tokenURL
+				Str("override_token_url", c.cfg.TokenURL).
+				Msg("Overriding token endpoint URL with explicit OIDC_TOKEN_URL")
+			endpoint.TokenURL = c.cfg.TokenURL
 		}
 
 		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
@@ -169,18 +170,48 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce))
+	// Add prompt=select_account to force the account picker (useful for Google)
+	// This ensures users can choose which account to use instead of auto-selecting
+	opts := []oauth2.AuthCodeOption{
+		oidc.Nonce(nonce),
+		oauth2.SetAuthURLParam("prompt", "select_account"),
+	}
+
+	// Add access_type=offline for Google OIDC to get refresh tokens
+	// Without this, Google only returns access tokens that expire in 1 hour
+	// and users get logged out when the token expires
+	if c.cfg.OfflineAccess {
+		opts = append(opts, oauth2.AccessTypeOffline)
+		log.Debug().Msg("Requesting offline access for refresh token")
+	}
+
+	return oauth2Config.AuthCodeURL(state, opts...)
 }
 
 // Exchange converts an authorization code into tokens
 func (c *OIDCClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	log.Info().Str("code", code).Msg("Exchanging code for token")
+	// Log truncated code for debugging (avoid logging full code for security)
+	codePreview := code
+	if len(code) > 20 {
+		codePreview = code[:20] + "..."
+	}
+	log.Info().Str("code", codePreview).Msg("Exchanging code for token")
 	oauth2Config, err := c.getOauth2Config()
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("code", code).Msg("Exchanged code for token")
-	return oauth2Config.Exchange(ctx, code)
+	log.Info().
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Str("client_id", oauth2Config.ClientID).
+		Str("token_endpoint", oauth2Config.Endpoint.TokenURL).
+		Msg("Token exchange config")
+	token, err := oauth2Config.Exchange(ctx, code)
+	if err != nil {
+		log.Error().Err(err).Str("redirect_url", oauth2Config.RedirectURL).Msg("Token exchange failed")
+		return nil, err
+	}
+	log.Info().Msg("Token exchange successful")
+	return token, nil
 }
 
 // VerifyIDToken verifies the ID token and returns the claims
@@ -292,7 +323,8 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	}
 
 	// If user doesn't exist, create them (first login after OIDC registration)
-	if user == nil {
+	isNewUser := user == nil
+	if isNewUser {
 		log.Info().
 			Str("subject", userInfo.Subject).
 			Str("email", userInfo.Email).
@@ -308,6 +340,11 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
+	}
+
+	// Auto-join organization by email domain (OIDC only, with verified email)
+	if userInfo.EmailVerified && userInfo.Email != "" {
+		c.tryAutoJoinOrganization(ctx, userInfo.Subject, userInfo.Email)
 	}
 
 	// Determine admin status:
@@ -329,6 +366,57 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	}, nil
 }
 
+// tryAutoJoinOrganization attempts to add the user to an organization based on their email domain
+func (c *OIDCClient) tryAutoJoinOrganization(ctx context.Context, userID, email string) {
+	// Extract domain from email
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return
+	}
+	domain := strings.ToLower(parts[1])
+
+	// Look up organization by domain
+	org, err := c.store.GetOrganizationByDomain(ctx, domain)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Warn().Err(err).Str("domain", domain).Msg("error looking up organization by domain")
+		}
+		return // No org with this domain or error
+	}
+
+	// Check if user is already a member
+	_, err = c.store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+		OrganizationID: org.ID,
+		UserID:         userID,
+	})
+	if err == nil {
+		return // Already a member
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		log.Warn().Err(err).Str("org_id", org.ID).Str("user_id", userID).Msg("error checking organization membership")
+		return
+	}
+
+	// Create membership with member role
+	_, err = c.store.CreateOrganizationMembership(ctx, &types.OrganizationMembership{
+		OrganizationID: org.ID,
+		UserID:         userID,
+		Role:           types.OrganizationRoleMember,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("org_id", org.ID).Str("user_id", userID).Str("domain", domain).Msg("failed to auto-join user to organization")
+		return
+	}
+
+	log.Info().
+		Str("org_id", org.ID).
+		Str("org_name", org.Name).
+		Str("user_id", userID).
+		Str("email", email).
+		Str("domain", domain).
+		Msg("user auto-joined organization via email domain")
+}
+
 type TokenResponse struct {
 	AccessToken  string    `json:"access_token"`
 	TokenType    string    `json:"token_type"`
@@ -337,10 +425,11 @@ type TokenResponse struct {
 }
 
 type UserInfo struct {
-	Email      string `json:"email"`
-	Name       string `json:"name"`
-	Subject    string `json:"sub"`
-	Admin      bool   `json:"admin"`
-	GivenName  string `json:"given_name"`
-	FamilyName string `json:"family_name"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	Subject       string `json:"sub"`
+	Admin         bool   `json:"admin"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
 }

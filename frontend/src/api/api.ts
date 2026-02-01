@@ -722,6 +722,12 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface ServerOrganizationDomainInfo {
+  auto_join_domain?: string;
+  organization_id?: string;
+  organization_name?: string;
+}
+
 export interface ServerPhaseProgress {
   agent?: string;
   completed_at?: string;
@@ -898,6 +904,11 @@ export interface ServerSimpleSampleProject {
   required_scopes?: string[];
   /** RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access */
   requires_github_auth?: boolean;
+  /**
+   * Skills configures project-level skills that will be added when the project is created
+   * These overlay on top of agent-level skills
+   */
+  skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
   /** Enable host Docker access (for Helix-in-Helix dev) */
@@ -1083,6 +1094,11 @@ export interface TypesAdminCreateUserRequest {
 
 export interface TypesAdminResetPasswordRequest {
   new_password?: string;
+}
+
+export interface TypesAffectedProjectInfo {
+  id?: string;
+  name?: string;
 }
 
 export enum TypesAgentType {
@@ -1373,7 +1389,16 @@ export interface TypesAssistantKnowledge {
 }
 
 export interface TypesAssistantMCP {
+  /** Command arguments */
+  args?: string[];
+  /**
+   * Stdio transport fields (used when Transport is "stdio")
+   * The MCP server runs as a subprocess inside the dev container
+   */
+  command?: string;
   description?: string;
+  /** Environment variables for the subprocess */
+  env?: Record<string, string>;
   headers?: Record<string, string>;
   name?: string;
   /** The name of the OAuth provider to use for authentication */
@@ -1381,14 +1406,30 @@ export interface TypesAssistantMCP {
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
   tools?: McpTool[];
-  /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
+  /**
+   * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
+   * For stdio transport, use Command/Args/Env fields instead of URL
+   */
   transport?: string;
+  /** HTTP/SSE transport fields (used when Transport is "http" or "sse", or URL is set) */
   url?: string;
 }
 
 export interface TypesAssistantProjectManager {
   enabled?: boolean;
   project_id?: string;
+}
+
+export interface TypesAssistantSkills {
+  apis?: TypesAssistantAPI[];
+  azure_devops?: TypesAssistantAzureDevOps;
+  browser?: TypesAssistantBrowser;
+  calculator?: TypesAssistantCalculator;
+  email?: TypesAssistantEmail;
+  mcps?: TypesAssistantMCP[];
+  project_manager?: TypesAssistantProjectManager;
+  web_search?: TypesAssistantWebSearch;
+  zapier?: TypesAssistantZapier[];
 }
 
 export interface TypesAssistantWebSearch {
@@ -2027,6 +2068,12 @@ export interface TypesForkRepositoriesResponse {
 }
 
 export interface TypesForkSimpleProjectRequest {
+  /**
+   * ConfiguredSkillEnvVars contains user-configured env vars for skills
+   * Outer key: skill name, Inner key: env var name, Value: user-provided value
+   * This allows users to configure skills (like API tokens) during project creation
+   */
+  configured_skill_env_vars?: Record<string, Record<string, string>>;
   description?: string;
   /**
    * For repos the user doesn't have write access to, fork them to this target
@@ -2805,6 +2852,8 @@ export interface TypesMoveProjectPreviewItem {
 export interface TypesMoveProjectPreviewResponse {
   project?: TypesMoveProjectPreviewItem;
   repositories?: TypesMoveRepositoryPreviewItem[];
+  /** Warnings about things that won't be moved automatically */
+  warnings?: string[];
 }
 
 export interface TypesMoveProjectRequest {
@@ -2812,6 +2861,8 @@ export interface TypesMoveProjectRequest {
 }
 
 export interface TypesMoveRepositoryPreviewItem {
+  /** Other projects that will lose this repo */
+  affected_projects?: TypesAffectedProjectInfo[];
   current_name?: string;
   has_conflict?: boolean;
   id?: string;
@@ -2962,6 +3013,8 @@ export interface TypesOpenAIUsage {
 }
 
 export interface TypesOrganization {
+  /** AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members */
+  auto_join_domain?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
   display_name?: string;
@@ -3107,6 +3160,11 @@ export interface TypesProject {
   project_manager_helix_app_id?: string;
   pull_request_reviewer_helix_app_id?: string;
   pull_request_reviews_enabled?: boolean;
+  /**
+   * Project-level skills - these overlay on top of agent skills
+   * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+   */
+  skills?: TypesAssistantSkills;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
@@ -3148,6 +3206,8 @@ export interface TypesProjectCreateRequest {
   guidelines?: string;
   name?: string;
   organization_id?: string;
+  /** Project-level skills */
+  skills?: TypesAssistantSkills;
   startup_script?: string;
   technologies?: string[];
 }
@@ -3174,6 +3234,8 @@ export interface TypesProjectUpdateRequest {
   pull_request_reviewer_helix_app_id?: string;
   /** Whether pull request reviews are enabled */
   pull_request_reviews_enabled?: boolean;
+  /** Project-level skills */
+  skills?: TypesAssistantSkills;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -5313,6 +5375,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all organizations that have auto-join domains configured
+     *
+     * @tags organizations
+     * @name V1AdminOrganizationDomainsList
+     * @summary List organization domains (admin only)
+     * @request GET:/api/v1/admin/organization-domains
+     * @secure
+     */
+    v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
+      this.request<ServerOrganizationDomainInfo[], any>({
+        path: `/api/v1/admin/organization-domains`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
