@@ -12,24 +12,32 @@
 - [ ] Style expanded view to span full width of kanban board area
 
 ## BacklogTableView Component
-- [ ] Create MUI Table with columns: Name, Priority, Type, Description, Created
+- [ ] Create MUI Table with columns: Name, Priority, Type, Prompt, Created
 - [ ] Sort tasks by priority (critical → high → medium → low) then by created date
-- [ ] Truncate description column to ~50 chars with ellipsis
+- [ ] Truncate prompt column to ~100 chars with ellipsis
 - [ ] Format created date as relative time ("2h ago", "3d ago")
 - [ ] Add row hover state for better UX
+- [ ] Track `expandedRowId` state for prompt expansion
 
-## Inline Priority Editing
-- [ ] Render priority cell as clickable chip/button
-- [ ] On click, show MUI Select dropdown with priority options
-- [ ] Use `TypesSpecTaskPriority` enum values (Critical, High, Medium, Low)
+## Inline Editing - All Cells
+- [ ] **Name cell**: Click to show TextField, blur/Enter to save
+- [ ] **Priority cell**: Click to show Select dropdown with colored options
+- [ ] **Type cell**: Click to show Select dropdown (feature, bug, task, epic)
 - [ ] Apply priority colors matching existing `getPriorityColor()` function
-- [ ] Call `useUpdateSpecTask` mutation on selection change
+- [ ] Call `useUpdateSpecTask` mutation on field change
 - [ ] Show loading spinner in cell during API call
 - [ ] Show error snackbar on failure
-- [ ] Animate row position change after successful update
+
+## Expandable Prompt Row
+- [ ] Click prompt cell to expand row and show full prompt textarea
+- [ ] Textarea fills width below the row content
+- [ ] Add Save and Cancel buttons below textarea
+- [ ] Save calls `useUpdateSpecTask` with updated prompt
+- [ ] Cancel collapses row without saving
+- [ ] Only one row can be expanded at a time
 
 ## BacklogFilterBar Component
-- [ ] Add text input with search icon for filtering by name/description
+- [ ] Add text input with search icon for filtering by name/prompt
 - [ ] Add priority multi-select dropdown filter
 - [ ] Add "Clear filters" button (visible only when filters active)
 - [ ] Wire filter state to parent component via props
@@ -39,11 +47,11 @@
 - [ ] Import and wire up `BacklogFilterBar` in `BacklogTableView`
 - [ ] Add filter state (`search`, `priorities[]`) to `SpecTaskKanbanBoard`
 - [ ] Pass filtered tasks to `BacklogTableView`
-- [ ] Test priority update triggers re-sort
+- [ ] Test that edits trigger re-sort (no animation, just re-render)
 - [ ] Verify kanban column task count updates after table edits
 
 ## Polish
-- [ ] Add keyboard navigation (Escape to close dropdown)
+- [ ] Add keyboard navigation (Escape to cancel edit, Enter to save)
 - [ ] Add empty state when no tasks match filters
 - [ ] Test light/dark theme compatibility
 - [ ] Ensure responsive layout on smaller screens
