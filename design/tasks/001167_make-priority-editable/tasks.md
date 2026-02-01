@@ -36,10 +36,10 @@
 - [x] Import and wire up `BacklogFilterBar` in `BacklogTableView`
 - [x] Add filter state (`search`, `priorities[]`) to `SpecTaskKanbanBoard`
 - [x] Pass filtered tasks to `BacklogTableView`
-- [ ] Test that priority edits trigger re-sort
-- [ ] Verify kanban column task count updates after table edits
+- [x] Test that priority edits trigger re-sort
+- [x] Verify kanban column task count updates after table edits
 
 ## Polish
 - [x] Add keyboard navigation (Escape to cancel edit, Enter to save)
 - [x] Add empty state when no tasks match filters
-- [ ] Test light/dark theme compatibility
+- [x] Test light/dark theme compatibility
