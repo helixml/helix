@@ -94,6 +94,37 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	s.anthropicProxy.ServeHTTP(w, r)
 }
 
+// anthropicTokenCountHandler proxies the token counting request to Anthropic.
+// Token counting is free according to Anthropic, so we don't check balance.
+// See: https://docs.anthropic.com/en/api/messages-count-tokens
+func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "user is required", http.StatusUnauthorized)
+		return
+	}
+
+	provider := r.Header.Get("X-Provider")
+	orgID := r.Header.Get("X-Org-ID")
+
+	endpoint, err := s.getProviderEndpoint(r.Context(), user, orgID, provider)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get provider endpoint for token counting")
+		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set the endpoint in request context for the proxy director
+	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Str("provider", endpoint.Name).
+		Msg("proxying token count request to Anthropic")
+
+	s.anthropicProxy.ServeHTTP(w, r)
+}
+
 func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User, orgID, provider string) (*types.ProviderEndpoint, error) {
 	// Default to "anthropic" provider if not specified
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
