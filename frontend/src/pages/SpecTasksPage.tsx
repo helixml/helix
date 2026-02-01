@@ -1077,6 +1077,18 @@ const SpecTasksPage: FC = () => {
               },
             }}
           >
+            {isMobile && defaultRepoId && (
+              <MenuItem onClick={() => { account.orgNavigate('git-repo-detail', { repoId: defaultRepoId }); setViewMenuAnchorEl(null); }}>
+                <FolderOpen style={{ marginRight: 12, width: 20, height: 20 }} />
+                Files
+              </MenuItem>
+            )}
+            {isMobile && projectId && (
+              <MenuItem onClick={() => { account.orgNavigate('project-settings', { id: projectId }); setViewMenuAnchorEl(null); }}>
+                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
+                Settings
+              </MenuItem>
+            )}
             <MenuItem onClick={() => { setShowArchived(!showArchived); setViewMenuAnchorEl(null); }}>
               {showArchived ? <ViewIcon sx={{ mr: 1.5, fontSize: 20 }} /> : <ArchiveIcon sx={{ mr: 1.5, fontSize: 20 }} />}
               {showArchived ? 'Show Active Tasks' : 'Show Archived Tasks'}
