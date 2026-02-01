@@ -58,6 +58,7 @@ var (
 // CookieManager is a helper for setting, getting and deleting cookies.
 type CookieManager struct {
 	SecureCookies bool
+	MaxAge        int // Max age in seconds, 0 = session cookie
 }
 
 func NewCookieManager(config *config.ServerConfig) *CookieManager {
@@ -77,6 +78,7 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 
 	return &CookieManager{
 		SecureCookies: secureCookies,
+		MaxAge:        config.Auth.OIDC.CookieMaxAge,
 	}
 }
 
@@ -85,7 +87,7 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 		Name:     c.Name,
 		Path:     c.Path,
 		Value:    value,
-		MaxAge:   int(0),
+		MaxAge:   cm.MaxAge, // 0 = session cookie, >0 = persistent cookie (seconds)
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -661,8 +663,12 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if oauth2Token.RefreshToken != "" {
 		cm.Set(w, refreshTokenCookie, oauth2Token.RefreshToken)
+		log.Info().Msg("Refresh token received and stored")
 	} else {
-		log.Debug().Msg("refresh_token is empty, ignoring")
+		// No refresh token - this is expected for providers like Google when
+		// OIDC_OFFLINE_ACCESS is not enabled. Without a refresh token, the session
+		// will expire when the access token expires (typically 1 hour for Google).
+		log.Warn().Msg("No refresh token received from OIDC provider. Set OIDC_OFFLINE_ACCESS=true for Google to enable token refresh.")
 	}
 
 	// Check if we have a stored redirect URI

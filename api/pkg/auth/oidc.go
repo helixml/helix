@@ -48,6 +48,9 @@ type OIDCConfig struct {
 	// Useful when the API needs an internal URL for token exchange while discovery
 	// returns browser-accessible URLs.
 	TokenURL string
+	// OfflineAccess requests offline access for refresh tokens (access_type=offline).
+	// Required for Google OIDC to return refresh tokens.
+	OfflineAccess bool
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -169,7 +172,20 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 	}
 	// Add prompt=select_account to force the account picker (useful for Google)
 	// This ensures users can choose which account to use instead of auto-selecting
-	return oauth2Config.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.SetAuthURLParam("prompt", "select_account"))
+	opts := []oauth2.AuthCodeOption{
+		oidc.Nonce(nonce),
+		oauth2.SetAuthURLParam("prompt", "select_account"),
+	}
+
+	// Add access_type=offline for Google OIDC to get refresh tokens
+	// Without this, Google only returns access tokens that expire in 1 hour
+	// and users get logged out when the token expires
+	if c.cfg.OfflineAccess {
+		opts = append(opts, oauth2.AccessTypeOffline)
+		log.Debug().Msg("Requesting offline access for refresh token")
+	}
+
+	return oauth2Config.AuthCodeURL(state, opts...)
 }
 
 // Exchange converts an authorization code into tokens

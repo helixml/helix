@@ -1,0 +1,26 @@
+{
+  "name": "@helix/drone-ci-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MCP server for Drone CI with smart log navigation",
+  "license": "Apache-2.0",
+  "bin": {
+    "drone-ci-mcp": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc -w"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "axios": "^1.8.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.2",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1121,7 +1121,7 @@ const SpecTasksPage: FC = () => {
                 </Button>
               }
             >
-              No file storage attached. Go to Settings to connect a repository for file storage.
+              No repositories attached. Go to Settings to connect a repository.
             </Alert>
           )}
 

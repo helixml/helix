@@ -223,8 +223,11 @@ const ProjectSettings: FC = () => {
       current_name: string;
       new_name?: string;
       has_conflict: boolean;
+      affected_projects?: Array<{ id: string; name: string }>;
     }>;
+    warnings?: string[];
   } | null>(null);
+  const [acceptSharedRepoWarning, setAcceptSharedRepoWarning] = useState(false);
   const [loadingMovePreview, setLoadingMovePreview] = useState(false);
 
   // Project secrets
@@ -293,13 +296,27 @@ const ProjectSettings: FC = () => {
         });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, organizationId) => {
       snackbar.success("Project moved to organization successfully");
       setMoveDialogOpen(false);
       setSelectedOrgToMove("");
       setMovePreview(null);
+      setAcceptSharedRepoWarning(false);
       // Invalidate project query to refresh data
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+      // Find the org to get its name (slug) for navigation
+      const targetOrg = account.organizationTools.organizations.find(
+        (org) => org.id === organizationId
+      );
+      if (targetOrg?.name) {
+        // Switch to the new org context and navigate to the project there
+        await account.organizationTools.loadOrganization(organizationId);
+        navigate("org_project-specs", {
+          org_id: targetOrg.name,
+          id: projectId,
+        });
+      }
     },
     onError: (err: any) => {
       const message = err?.response?.data?.error || "Failed to move project";
@@ -2047,34 +2064,63 @@ const ProjectSettings: FC = () => {
                       Repositories ({movePreview.repositories.length})
                     </Typography>
                     {movePreview.repositories.map((repo) => (
-                      <Box
-                        key={repo.id}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                          py: 0.5,
-                        }}
-                      >
-                        <Typography variant="body2">
-                          {repo.current_name}
-                        </Typography>
-                        {repo.has_conflict && repo.new_name && (
-                          <>
-                            <ArrowForwardIcon
-                              fontSize="small"
-                              color="warning"
-                            />
-                            <Typography variant="body2" color="warning.main">
-                              {repo.new_name}
+                      <Box key={repo.id} sx={{ py: 0.5 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          <Typography variant="body2">
+                            {repo.current_name}
+                          </Typography>
+                          {repo.has_conflict && repo.new_name && (
+                            <>
+                              <ArrowForwardIcon
+                                fontSize="small"
+                                color="warning"
+                              />
+                              <Typography variant="body2" color="warning.main">
+                                {repo.new_name}
+                              </Typography>
+                              <Chip
+                                label="renamed"
+                                size="small"
+                                color="warning"
+                                sx={{ fontSize: "0.7rem" }}
+                              />
+                            </>
+                          )}
+                        </Box>
+                        {repo.affected_projects && repo.affected_projects.length > 0 && (
+                          <Box
+                            sx={{
+                              ml: 2,
+                              mt: 0.5,
+                              p: 1,
+                              backgroundColor: "error.dark",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "error.main",
+                            }}
+                          >
+                            <Typography variant="caption" color="error.contrastText" sx={{ fontWeight: 600 }}>
+                              Warning: This repository is shared with other projects that will lose access:
                             </Typography>
-                            <Chip
-                              label="renamed"
-                              size="small"
-                              color="warning"
-                              sx={{ fontSize: "0.7rem" }}
-                            />
-                          </>
+                            <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
+                              {repo.affected_projects.map((proj) => (
+                                <Typography
+                                  key={proj.id}
+                                  component="li"
+                                  variant="caption"
+                                  color="error.contrastText"
+                                >
+                                  {proj.name}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </Box>
                         )}
                       </Box>
                     ))}
@@ -2089,6 +2135,46 @@ const ProjectSettings: FC = () => {
                 These repositories will become accessible to all members of the
                 organization based on their roles.
               </Typography>
+
+              {/* Warnings about things that won't be moved */}
+              {movePreview.warnings && movePreview.warnings.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {movePreview.warnings.map((warning, index) => (
+                    <Alert
+                      key={index}
+                      severity="info"
+                      icon={<WarningIcon />}
+                      sx={{ mb: 1 }}
+                    >
+                      {warning}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+
+              {/* Show checkbox if any repos have affected projects */}
+              {movePreview.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 2 }}
+                  control={
+                    <Checkbox
+                      checked={acceptSharedRepoWarning}
+                      onChange={(e) =>
+                        setAcceptSharedRepoWarning(e.target.checked)
+                      }
+                      color="error"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" color="error">
+                      I understand that moving shared repositories will break
+                      the other projects listed above
+                    </Typography>
+                  }
+                />
+              )}
             </Box>
           )}
         </DialogContent>
@@ -2098,6 +2184,7 @@ const ProjectSettings: FC = () => {
               setMoveDialogOpen(false);
               setSelectedOrgToMove("");
               setMovePreview(null);
+              setAcceptSharedRepoWarning(false);
             }}
           >
             Cancel
@@ -2109,7 +2196,11 @@ const ProjectSettings: FC = () => {
             disabled={
               !selectedOrgToMove ||
               !movePreview ||
-              moveProjectMutation.isPending
+              moveProjectMutation.isPending ||
+              (movePreview?.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) &&
+                !acceptSharedRepoWarning)
             }
             startIcon={
               moveProjectMutation.isPending ? (

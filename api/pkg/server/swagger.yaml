@@ -1729,6 +1729,13 @@ definitions:
       new_password:
         type: string
     type: object
+  types.AffectedProjectInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   types.AgentType:
     enum:
     - helix_basic
@@ -3344,6 +3351,16 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      configured_skill_env_vars:
+        additionalProperties:
+          additionalProperties:
+            type: string
+          type: object
+        description: |-
+          ConfiguredSkillEnvVars contains user-configured env vars for skills
+          Outer key: skill name, Inner key: env var name, Value: user-provided value
+          This allows users to configure skills (like API tokens) during project creation
+        type: object
       description:
         type: string
       fork_to_organization:
@@ -4632,6 +4649,11 @@ definitions:
         items:
           $ref: '#/definitions/types.MoveRepositoryPreviewItem'
         type: array
+      warnings:
+        description: Warnings about things that won't be moved automatically
+        items:
+          type: string
+        type: array
     type: object
   types.MoveProjectRequest:
     properties:
@@ -4640,6 +4662,11 @@ definitions:
     type: object
   types.MoveRepositoryPreviewItem:
     properties:
+      affected_projects:
+        description: Other projects that will lose this repo
+        items:
+          $ref: '#/definitions/types.AffectedProjectInfo'
+        type: array
       current_name:
         type: string
       has_conflict:
