@@ -70,6 +70,30 @@ class DroneClient {
       `/api/repos/${repoSlug}/builds/${buildNumber}/logs/${stageNumber}/${stepNumber}`
     );
   }
+
+  async listBuilds(
+    repoSlug: string,
+    branch?: string,
+    limit?: number
+  ): Promise<DroneBuildListItem[]> {
+    let endpoint = `/api/repos/${repoSlug}/builds?per_page=${limit || 10}`;
+    if (branch) {
+      endpoint += `&branch=${encodeURIComponent(branch)}`;
+    }
+    return this.request(endpoint);
+  }
+}
+
+interface DroneBuildListItem {
+  number: number;
+  status: string;
+  event: string;
+  message: string;
+  source: string;
+  target: string;
+  author_login: string;
+  started: number;
+  finished: number;
 }
 
 interface DroneLogLine {
@@ -119,6 +143,52 @@ const server = new McpServer({
 });
 
 const client = new DroneClient(serverUrl, accessToken);
+
+// Tool: List builds
+server.tool(
+  "drone_list_builds",
+  "List recent builds for a repository. Use this to find build numbers, especially to check CI status for a branch after pushing.",
+  {
+    repo_slug: z.string().describe("Repository slug (e.g., 'helixml/helix')"),
+    branch: z.string().optional().describe("Filter by branch name (e.g., 'main', 'fix/my-feature')"),
+    limit: z.number().optional().default(10).describe("Number of builds to return (default: 10)"),
+  },
+  async ({ repo_slug, branch, limit }) => {
+    try {
+      const builds = await client.listBuilds(repo_slug, branch, limit ?? 10);
+
+      if (builds.length === 0) {
+        const branchMsg = branch ? ` for branch '${branch}'` : '';
+        return { content: [{ type: "text", text: `No builds found${branchMsg}` }] };
+      }
+
+      let summary = `# Recent Builds for ${repo_slug}`;
+      if (branch) {
+        summary += ` (branch: ${branch})`;
+      }
+      summary += `\n\n`;
+
+      summary += `| # | Status | Branch | Message | Author |\n`;
+      summary += `|---|--------|--------|---------|--------|\n`;
+
+      for (const build of builds) {
+        const statusIcon = build.status === 'success' ? '✓' :
+                          build.status === 'failure' ? '✗' :
+                          build.status === 'running' ? '⟳' :
+                          build.status === 'pending' ? '○' : '?';
+        const msg = build.message.split('\n')[0].slice(0, 50);
+        summary += `| ${build.number} | ${statusIcon} ${build.status} | ${build.source} | ${msg} | ${build.author_login} |\n`;
+      }
+
+      summary += `\nUse \`drone_build_info\` with a build number to see step details.`;
+
+      return { content: [{ type: "text", text: summary }] };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: `Error: ${msg}` }], isError: true };
+    }
+  }
+);
 
 // Tool: Get build info
 server.tool(
