@@ -65,6 +65,7 @@ import useRouter from '../../hooks/useRouter';
 import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
+import MobileColumnSidebar, { getColumnAccent } from './MobileColumnSidebar';
 import {
   SpecTask,
   useSpecTasks,
@@ -175,19 +176,6 @@ interface SpecTaskKanbanBoardProps {
   showMerged?: boolean; // Show merged column
   hideCreateButton?: boolean; // Hide the "New Task" button (useful on mobile when button is in bottom nav)
 }
-
-// Column color mapping helper - used by both DroppableColumn and mobile sidebar
-const getColumnAccent = (id: string) => {
-  switch (id) {
-    case 'backlog': return { color: '#6b7280', bg: 'transparent' };
-    case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
-    case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
-    case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
-    case 'pull_request': return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.08)' };
-    case 'completed': return { color: '#6b7280', bg: 'transparent' };
-    default: return { color: '#6b7280', bg: 'transparent' };
-  }
-};
 
 const DroppableColumn: React.FC<{
   column: KanbanColumn;
@@ -1060,74 +1048,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
         {/* Mobile right sidebar for column navigation */}
         {isMobile && (
-          <Box
-            sx={{
-              position: 'absolute',
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: '24px',
-              backgroundColor: 'background.paper',
-              borderLeft: '1px solid',
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              zIndex: 10,
-            }}
-          >
-            {columns.map((column, index) => {
-              const isActive = index === currentColumnIndex;
-              const accent = getColumnAccent(column.id);
-              // Short labels for mobile sidebar
-              const shortLabel = {
-                backlog: 'B',
-                planning: 'P',
-                review: 'R',
-                implementation: 'D',
-                pull_request: 'PR',
-                completed: 'M',
-              }[column.id] || column.id[0].toUpperCase();
-
-              return (
-                <Box
-                  key={column.id}
-                  onClick={() => handleColumnClick(index)}
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    backgroundColor: isActive ? 'action.selected' : 'transparent',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.55rem',
-                      fontWeight: isActive ? 700 : 400,
-                      color: isActive ? accent.color : 'text.secondary',
-                      lineHeight: 1,
-                      letterSpacing: '-0.02em',
-                    }}
-                  >
-                    {shortLabel}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: '0.5rem',
-                      fontWeight: 500,
-                      color: isActive ? accent.color : 'text.disabled',
-                      lineHeight: 1,
-                      mt: 0.25,
-                    }}
-                  >
-                    {column.tasks.length}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Box>
+          <MobileColumnSidebar
+            columns={columns}
+            currentColumnIndex={currentColumnIndex}
+            onColumnClick={handleColumnClick}
+          />
         )}
       </Box>
 
