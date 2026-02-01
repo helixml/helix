@@ -12,6 +12,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// OAuthTokenGetter is a function that retrieves OAuth tokens for stdio MCPs
+// Returns the access token and any error. If no token is available, returns empty string with no error.
+type OAuthTokenGetter func(ctx context.Context, userID, providerName string) (string, error)
+
 // ZedMCPConfig represents Zed's MCP configuration format
 type ZedMCPConfig struct {
 	ContextServers map[string]ContextServerConfig `json:"context_servers"`
@@ -74,7 +78,9 @@ type ContextServerConfig struct {
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
 // projectSkills are optional project-level skills that overlay on top of agent skills
+// oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs
 func GenerateZedMCPConfig(
+	ctx context.Context,
 	app *types.App,
 	userID string,
 	sessionID string,
@@ -82,6 +88,7 @@ func GenerateZedMCPConfig(
 	helixToken string,
 	koditEnabled bool,
 	projectSkills *types.AssistantSkills,
+	oauthTokenGetter OAuthTokenGetter,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -208,12 +215,12 @@ func GenerateZedMCPConfig(
 	}
 
 	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
-	// This runs locally in the sandbox container on port 9877 (alongside screenshot-server)
+	// This runs locally in the sandbox container on port 9878 (desktop-bridge MCP server)
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
 		Source: "http",
-		URL:    "http://localhost:9877/mcp",
+		URL:    "http://localhost:9878/mcp", // Desktop MCP server (desktop-bridge runs on 9878)
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -251,10 +258,11 @@ func GenerateZedMCPConfig(
 	// - Transport adaptation (can convert between SSE and Streamable HTTP if needed)
 	// - Centralized authentication and authorization
 	// Stdio MCPs are passed through directly (they run locally in the sandbox)
+	// OAuth tokens are injected for stdio MCPs with oauth_provider set
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
-			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(ctx, mcp, userID, helixAPIURL, helixToken, oauthTokenGetter)
 		}
 	}
 
@@ -263,7 +271,7 @@ func GenerateZedMCPConfig(
 	if projectSkills != nil {
 		for _, mcp := range projectSkills.MCPs {
 			serverName := sanitizeName(mcp.Name)
-			config.ContextServers[serverName] = mcpToContextServerWithProxy(mcp, helixAPIURL, helixToken)
+			config.ContextServers[serverName] = mcpToContextServerWithProxy(ctx, mcp, userID, helixAPIURL, helixToken, oauthTokenGetter)
 		}
 	}
 
@@ -292,14 +300,52 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 // mcpToContextServerWithProxy converts Helix MCP config to Zed context server config,
 // routing HTTP MCPs through the Helix proxy for proper SSE endpoint handling.
 // Stdio MCPs run directly inside the dev container.
-func mcpToContextServerWithProxy(mcp types.AssistantMCP, helixAPIURL, helixToken string) ContextServerConfig {
+// If oauthTokenGetter is provided and the MCP has oauth_provider set, the token will be injected.
+func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, userID, helixAPIURL, helixToken string, oauthTokenGetter OAuthTokenGetter) ContextServerConfig {
 	// Check for explicit stdio transport (new format with Command/Args/Env)
 	// This is used for MCPs that run inside the dev container via npx or other commands
 	if mcp.Transport == "stdio" || mcp.Command != "" {
+		env := mcp.Env
+		if env == nil {
+			env = make(map[string]string)
+		} else {
+			// Make a copy to avoid modifying the original
+			envCopy := make(map[string]string)
+			for k, v := range env {
+				envCopy[k] = v
+			}
+			env = envCopy
+		}
+
+		// Inject OAuth token if provider is configured and tokenGetter is available
+		if mcp.OAuthProvider != "" && oauthTokenGetter != nil {
+			token, err := oauthTokenGetter(ctx, userID, mcp.OAuthProvider)
+			if err != nil {
+				log.Warn().Err(err).Str("provider", mcp.OAuthProvider).Msg("Failed to get OAuth token for stdio MCP")
+			} else if token != "" {
+				// Map provider names to their expected environment variable names
+				switch strings.ToLower(mcp.OAuthProvider) {
+				case "github":
+					env["GITHUB_PERSONAL_ACCESS_TOKEN"] = token
+				default:
+					// Generic fallback using provider name
+					envKey := fmt.Sprintf("%s_ACCESS_TOKEN", strings.ToUpper(mcp.OAuthProvider))
+					env[envKey] = token
+				}
+				log.Debug().Str("provider", mcp.OAuthProvider).Msg("Injected OAuth token into stdio MCP environment")
+			}
+		}
+
+		// Ensure args is an empty slice, not nil (Zed doesn't accept null for args)
+		args := mcp.Args
+		if args == nil {
+			args = []string{}
+		}
+
 		return ContextServerConfig{
 			Command: mcp.Command,
-			Args:    mcp.Args,
-			Env:     mcp.Env,
+			Args:    args,
+			Env:     env,
 		}
 	}
 
@@ -521,7 +567,38 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Check if Kodit is enabled (defaults to true)
 	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
 
-	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills)
+	// Create OAuth token getter that looks up tokens from the store
+	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
+		// First find the provider by name
+		providers, err := s.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{})
+		if err != nil {
+			return "", fmt.Errorf("failed to list OAuth providers: %w", err)
+		}
+
+		var providerID string
+		for _, p := range providers {
+			if strings.EqualFold(p.Name, providerName) || strings.EqualFold(string(p.Type), providerName) {
+				providerID = p.ID
+				break
+			}
+		}
+		if providerID == "" {
+			return "", nil // No provider found, not an error
+		}
+
+		// Get the user's connection to this provider
+		conn, err := s.GetOAuthConnectionByUserAndProvider(ctx, userID, providerID)
+		if err != nil {
+			if err == store.ErrNotFound {
+				return "", nil // No connection, not an error
+			}
+			return "", fmt.Errorf("failed to get OAuth connection: %w", err)
+		}
+
+		return conn.AccessToken, nil
+	}
+
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

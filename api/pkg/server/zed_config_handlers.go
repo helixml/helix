@@ -120,7 +120,16 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
 	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
 	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills)
+	//
+	// Create OAuth token getter for stdio MCPs that need OAuth tokens
+	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
+		if apiServer.oauthManager == nil {
+			return "", nil
+		}
+		// Use empty scopes - the token getter will use whatever scopes the user has
+		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -400,7 +409,15 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
 	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills)
+	//
+	// Create OAuth token getter for stdio MCPs that need OAuth tokens
+	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
+		if apiServer.oauthManager == nil {
+			return "", nil
+		}
+		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")

@@ -1090,6 +1090,11 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
+export interface TypesAffectedProjectInfo {
+  id?: string;
+  name?: string;
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -2057,6 +2062,12 @@ export interface TypesForkRepositoriesResponse {
 }
 
 export interface TypesForkSimpleProjectRequest {
+  /**
+   * ConfiguredSkillEnvVars contains user-configured env vars for skills
+   * Outer key: skill name, Inner key: env var name, Value: user-provided value
+   * This allows users to configure skills (like API tokens) during project creation
+   */
+  configured_skill_env_vars?: Record<string, Record<string, string>>;
   description?: string;
   /**
    * For repos the user doesn't have write access to, fork them to this target
@@ -2835,6 +2846,8 @@ export interface TypesMoveProjectPreviewItem {
 export interface TypesMoveProjectPreviewResponse {
   project?: TypesMoveProjectPreviewItem;
   repositories?: TypesMoveRepositoryPreviewItem[];
+  /** Warnings about things that won't be moved automatically */
+  warnings?: string[];
 }
 
 export interface TypesMoveProjectRequest {
@@ -2842,6 +2855,8 @@ export interface TypesMoveProjectRequest {
 }
 
 export interface TypesMoveRepositoryPreviewItem {
+  /** Other projects that will lose this repo */
+  affected_projects?: TypesAffectedProjectInfo[];
   current_name?: string;
   has_conflict?: boolean;
   id?: string;

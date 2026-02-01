@@ -2961,6 +2961,11 @@ type ForkSimpleProjectRequest struct {
 	// Key: GitHub URL (e.g., "github.com/helixml/helix")
 	// Value: "use_original" (has write access) or "fork" (will fork)
 	RepositoryDecisions map[string]string `json:"repository_decisions,omitempty"`
+
+	// ConfiguredSkillEnvVars contains user-configured env vars for skills
+	// Outer key: skill name, Inner key: env var name, Value: user-provided value
+	// This allows users to configure skills (like API tokens) during project creation
+	ConfiguredSkillEnvVars map[string]map[string]string `json:"configured_skill_env_vars,omitempty"`
 }
 
 // ForkSimpleProjectResponse represents the fork response
