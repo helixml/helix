@@ -98,8 +98,11 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 // Token counting is free according to Anthropic, so we don't check balance.
 // See: https://docs.anthropic.com/en/api/messages-count-tokens
 func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info().Msg("🔢 [TOKEN_COUNT] Received token counting request")
+
 	user := getRequestUser(r)
 	if user == nil {
+		log.Warn().Msg("🔢 [TOKEN_COUNT] No user in request, returning 401")
 		http.Error(w, "user is required", http.StatusUnauthorized)
 		return
 	}
@@ -107,9 +110,15 @@ func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *ht
 	provider := r.Header.Get("X-Provider")
 	orgID := r.Header.Get("X-Org-ID")
 
+	log.Info().
+		Str("user_id", user.ID).
+		Str("provider", provider).
+		Str("org_id", orgID).
+		Msg("🔢 [TOKEN_COUNT] Processing request")
+
 	endpoint, err := s.getProviderEndpoint(r.Context(), user, orgID, provider)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to get provider endpoint for token counting")
+		log.Error().Err(err).Msg("🔢 [TOKEN_COUNT] Failed to get provider endpoint")
 		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -117,12 +126,17 @@ func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *ht
 	// Set the endpoint in request context for the proxy director
 	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
 
-	log.Debug().
+	log.Info().
 		Str("user_id", user.ID).
 		Str("provider", endpoint.Name).
-		Msg("proxying token count request to Anthropic")
+		Str("base_url", endpoint.BaseURL).
+		Msg("🔢 [TOKEN_COUNT] Proxying to Anthropic")
 
 	s.anthropicProxy.ServeHTTP(w, r)
+
+	log.Info().
+		Str("user_id", user.ID).
+		Msg("🔢 [TOKEN_COUNT] Request completed")
 }
 
 func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User, orgID, provider string) (*types.ProviderEndpoint, error) {
