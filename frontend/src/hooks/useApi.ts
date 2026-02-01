@@ -17,6 +17,7 @@ import {
 import {
   reportError,
 } from '../utils/analytics'
+import { tokenStorage } from '../utils/tokenStorage'
 
 const API_MOUNT = ""
 
@@ -71,6 +72,7 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
       // Update both axios defaults and OpenAPI client security data
       axios.defaults.headers.common = getTokenHeaders(newToken)
       apiClientSingleton.setSecurityData({ token: newToken })
+      tokenStorage.setToken(newToken)
       console.log('[API] Token refresh successful, in-memory token updated')
     } else {
       console.log('[API] Token refresh successful (cookie only, no token in response)')

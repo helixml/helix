@@ -14,6 +14,7 @@ import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 import useRouter from '../../hooks/useRouter';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
+import { tokenStorage } from '../../utils/tokenStorage';
 import { useGetConfig } from '../../services/userService';
 
 interface LoginRegisterDialogProps {
@@ -72,7 +73,12 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
         password: passwordValue,
       };
 
-      await apiClient.v1AuthLoginCreate(loginRequest);
+      const response = await apiClient.v1AuthLoginCreate(loginRequest);
+      const data = response.data as unknown as { token?: string } | undefined;
+      
+      if (data?.token) {
+        tokenStorage.setToken(data.token);
+      }
       
       snackbar.success('Login successful');
       handleClose();
@@ -132,7 +138,12 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
         password_confirm: passwordConfirmValue,
       };
 
-      await apiClient.v1AuthRegisterCreate(registerRequest);
+      const response = await apiClient.v1AuthRegisterCreate(registerRequest);
+      const data = response.data as unknown as { token?: string } | undefined;
+      
+      if (data?.token) {
+        tokenStorage.setToken(data.token);
+      }
       
       snackbar.success('Registration successful');
       handleClose();

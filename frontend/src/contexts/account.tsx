@@ -15,6 +15,7 @@ import {
   IUserConfig,
   IProviderEndpoint,
 } from '../types'
+import { tokenStorage } from '../utils/tokenStorage'
 
 export interface IAccountContext {
   initialized: boolean,
@@ -292,6 +293,7 @@ export const useAccountContext = (): IAccountContext => {
 
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
+    tokenStorage.clearToken()
     try {
       // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
       // which would fail due to CORS when redirecting to Keycloak
@@ -337,11 +339,28 @@ export const useAccountContext = (): IAccountContext => {
 
     try {
       const client = api.getApiClient()
-      const authenticated = await client.v1AuthAuthenticatedList()
+      let authenticated = await client.v1AuthAuthenticatedList()
+      
+      // If not authenticated via cookies, try using stored token from localStorage
+      // This handles iOS Safari which aggressively clears cookies
+      if (!authenticated.data.authenticated) {
+        const storedToken = tokenStorage.getToken()
+        if (storedToken) {
+          console.log('[AUTH] Cookies cleared, attempting to restore session from localStorage')
+          api.setToken(storedToken)
+          authenticated = await client.v1AuthAuthenticatedList()
+          if (!authenticated.data.authenticated) {
+            console.log('[AUTH] Stored token is invalid, clearing')
+            tokenStorage.clearToken()
+          }
+        }
+      }
+      
       if (authenticated.data.authenticated) {
         const userResponse = await client.v1AuthUserList()
         const user = userResponse.data as IKeycloakUser
         api.setToken(user.token)
+        tokenStorage.setToken(user.token)
 
         const win = (window as any)
         if (win.setUser) {
@@ -380,6 +399,7 @@ export const useAccountContext = (): IAccountContext => {
                 }))
                 if (refreshedUser.token) {
                   api.setToken(refreshedUser.token)
+                  tokenStorage.setToken(refreshedUser.token)
                   console.log('[AUTH] Emergency refresh completed')
                 }
               }
@@ -407,6 +427,7 @@ export const useAccountContext = (): IAccountContext => {
             }))
             if (user.token) {
               api.setToken(user.token)
+              tokenStorage.setToken(user.token)
               console.log('[AUTH] Updated axios headers with new token')
             }
           } catch (e) {
