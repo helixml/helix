@@ -73,6 +73,8 @@ import {
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
+import { TypesWIPLimits } from '../../api/api';
+
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed';
 type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
@@ -164,11 +166,7 @@ interface SpecTaskKanbanBoardProps {
   onRefresh?: () => void;
   refreshing?: boolean;
   refreshTrigger?: number;
-  wipLimits?: {
-    planning: number;
-    review: number;
-    implementation: number;
-  };
+  wipLimits?: TypesWIPLimits;
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   showArchived?: boolean; // Show archived tasks instead of active tasks
