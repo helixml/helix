@@ -174,6 +174,7 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
+  hideCreateButton?: boolean; // Hide the "New Task" button (useful on mobile when button is in bottom nav)
 }
 
 const DroppableColumn: React.FC<{
@@ -350,6 +351,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
+  hideCreateButton = false,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -900,7 +902,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               <InfoIcon sx={{ fontSize: 16, color: 'text.secondary', cursor: 'help' }} />
             </Tooltip>
           </Box>
-          {onCreateTask && (
+          {onCreateTask && !hideCreateButton && (
             <Tooltip title="Press Enter">
               <Button
                 variant="contained"
