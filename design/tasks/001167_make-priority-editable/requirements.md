@@ -1,26 +1,26 @@
-# Requirements: Backlog Table View with Editable Fields
+# Requirements: Backlog Table View with Editable Priority
 
 ## User Stories
 
 ### 1. Expand Backlog to Table View
 **As a** project manager  
 **I want to** click on the backlog column header to expand it into a full table view  
-**So that** I can see all backlog tasks at once with full details including the entire prompt
+**So that** I can see all my backlog prompts stacked vertically with their full text
 
-### 2. Edit All Fields Inline
-**As a** user managing tasks  
-**I want to** edit task name, priority, type, and prompt directly in the table  
-**So that** I can quickly update multiple tasks without opening detail views
+### 2. View Full Prompts
+**As a** user reviewing backlog items  
+**I want to** see the entire prompt text for each task (multiline, not truncated)  
+**So that** I can read and understand all my tasks at a glance
 
-### 3. View and Edit Full Prompt
+### 3. Edit Prompts Inline
 **As a** user refining task requirements  
-**I want to** see the full prompt text and edit it easily in the table  
+**I want to** edit the prompt text directly in the table  
 **So that** I can refine task descriptions without extra clicks
 
-### 4. Auto-Sort by Priority
-**As a** user viewing the backlog  
-**I want** tasks to automatically sort by priority (critical → high → medium → low)  
-**So that** the most important tasks are always visible at the top
+### 4. Edit Priority and Auto-Sort
+**As a** user prioritizing work  
+**I want to** change task priority via dropdown and have tasks automatically reorder  
+**So that** critical tasks always appear at the top
 
 ### 5. Filter and Search Tasks
 **As a** user with many backlog items  
@@ -31,31 +31,27 @@
 
 ### Table View Expansion
 - [ ] Clicking backlog column header expands to full-width table view
-- [ ] Table shows columns: Name, Priority, Type, Prompt (full text), Created
+- [ ] Table shows two columns: Prompt (wide, left) and Priority (narrow, right)
 - [ ] Click header again or "X" button to collapse back to kanban column
-- [ ] Table view maintains scroll position when collapsing/expanding
 
-### Inline Editing (All Cells)
-- [ ] **Name**: Click to edit inline (text input)
-- [ ] **Priority**: Click to show dropdown (Critical, High, Medium, Low)
-- [ ] **Type**: Click to show dropdown (feature, bug, task, epic)
-- [ ] **Prompt**: Click to expand into multi-line textarea for full viewing/editing
-- [ ] All changes trigger immediate API update via `v1SpecTasksUpdate`
+### Prompt Column (Left)
+- [ ] Shows full prompt text, multiline (no truncation)
+- [ ] Click to edit inline (textarea)
+- [ ] Changes trigger API update via `v1SpecTasksUpdate`
 - [ ] Show loading indicator during save
 - [ ] Show error toast if update fails
 
-### Prompt Column
-- [ ] Show truncated preview (~100 chars) in table row
-- [ ] Click to expand row and show full prompt in textarea
-- [ ] Textarea is editable with save/cancel buttons
+### Priority Column (Right)
+- [ ] Shows priority as colored chip/dropdown
+- [ ] Click to show dropdown (Critical, High, Medium, Low)
+- [ ] Change triggers immediate API update
+- [ ] Table re-renders with new sort order after change
 
 ### Auto-Sort Behavior
 - [ ] Tasks sort by priority: critical (top) → high → medium → low (bottom)
-- [ ] After priority change, table re-renders with new sort order (no animation needed)
 - [ ] Secondary sort by created date (newest first) within same priority
 
 ### Filter Bar
-- [ ] Text search filters by task name and prompt content
+- [ ] Text search filters by prompt content
 - [ ] Priority filter dropdown (multi-select)
 - [ ] Clear filters button when any filter is active
-- [ ] Filter state persists during session (not across page refresh)

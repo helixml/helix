@@ -1,8 +1,8 @@
-# Design: Backlog Table View with Editable Fields
+# Design: Backlog Table View with Editable Priority
 
 ## Overview
 
-Add an expandable table view to the backlog column in `SpecTaskKanbanBoard.tsx`. When clicked, the backlog header expands to show a full-width table with inline editing for all fields (name, priority, type, prompt) and filtering capabilities.
+Add an expandable table view to the backlog column in `SpecTaskKanbanBoard.tsx`. When clicked, the backlog header expands to show a full-width table with two columns: Prompt (full text, multiline) and Priority (editable dropdown).
 
 ## Architecture
 
@@ -17,7 +17,6 @@ SpecTaskKanbanBoard.tsx
     └── BacklogTableView (expanded state - new)
         ├── BacklogFilterBar
         └── BacklogTable (using MUI Table)
-            └── BacklogTableRow (expandable for full prompt editing)
 ```
 
 ### State Management
@@ -29,81 +28,71 @@ const [backlogFilters, setBacklogFilters] = useState({
   search: '',
   priorities: [] as TypesSpecTaskPriority[]
 })
-const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
 ```
 
 ### Key Decisions
 
-1. **MUI Table vs DataGrid**: Use MUI Table components for simplicity. The existing `DataGrid` uses a third-party library (`@inovua/reactdatagrid-community`) which is overkill for this use case.
+1. **Two columns only**: Prompt (wide, left) and Priority (narrow, right). No name, type, or created columns - spec tasks are defined by their prompt.
 
-2. **Inline Edit Pattern**: 
-   - Name/Type: Click cell to switch to edit mode (text input / select)
-   - Priority: Click to show dropdown, matching existing UI in `SpecTaskDetailContent.tsx`
-   - Prompt: Click row to expand and show full textarea below
+2. **Full prompt display**: Show entire prompt text multiline in each row. No truncation - users want to read all prompts in a stack.
 
-3. **Expandable Row for Prompt**: Since prompts can be long, clicking the prompt cell expands the row to show a full-height textarea below the main row content.
+3. **Inline editing**: 
+   - Prompt: Click to edit in-place (textarea)
+   - Priority: Click to show dropdown
 
 4. **Sorting**: Client-side sorting using a priority weight map:
    ```typescript
    const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
    ```
-   No animation on re-sort - table simply re-renders with new order.
 
-5. **API Integration**: Reuse `useUpdateSpecTask` hook from `services/specTaskService.ts` for all field updates.
+5. **API Integration**: Reuse `useUpdateSpecTask` hook from `services/specTaskService.ts`.
 
 ## Data Flow
 
 ```
-User clicks cell to edit
-  → Cell enters edit mode (input/select/textarea)
-  → User makes change and blurs or presses Enter
-  → Call updateSpecTask({ taskId, updates: { [field]: value } })
-  → Show loading indicator in cell
+User edits prompt or changes priority
+  → Call updateSpecTask({ taskId, updates: { original_prompt } }) or { priority }
+  → Show loading indicator
   → On success: invalidate 'specTasks' query (auto-refetch)
-  → Table re-renders with updated data and new sort order
+  → Table re-renders with new sort order (if priority changed)
 ```
 
 ## UI Layout (Expanded State)
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Backlog (12)                                                  [X Close] │
-├─────────────────────────────────────────────────────────────────────────┤
-│ [🔍 Search tasks...        ] [Priority ▼] [Clear filters]               │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Name              │ Priority │ Type    │ Prompt              │ Created  │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Fix login bug     │ Critical▼│ bug    ▼│ Users cannot log... │ 2h ago   │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Add dark mode     │ High    ▼│ feature▼│ Implement theme...  │ 1d ago   │
-│ ┌─────────────────────────────────────────────────────────────────────┐ │
-│ │ Full prompt textarea (expanded):                                    │ │
-│ │ Implement a dark/light mode toggle with persistent user preference. │ │
-│ │ Should respect system preference by default.                        │ │
-│ │                                              [Cancel] [Save]        │ │
-│ └─────────────────────────────────────────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Update docs       │ Medium  ▼│ task   ▼│ Add API docs for... │ 3d ago   │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Backlog (12)                                                       [X Close] │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [🔍 Search prompts...      ] [Priority ▼] [Clear]                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Prompt                                                           │ Priority  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Fix the login bug where users cannot authenticate when using     │ Critical▼ │
+│ SSO with Azure AD. The error occurs after the redirect callback. │           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Implement a dark/light mode toggle with persistent user          │ High    ▼ │
+│ preference. Should respect system preference by default.         │           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Add API documentation for the new /v2/sessions endpoints.        │ Medium  ▼ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Consider adding keyboard shortcuts for common actions.           │ Low     ▼ │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Editable Cell Behaviors
+## Column Specifications
 
-| Column | Display | Edit Mode | Trigger |
-|--------|---------|-----------|---------|
-| Name | Text | TextField | Click |
-| Priority | Colored chip | Select dropdown | Click |
-| Type | Text | Select dropdown | Click |
-| Prompt | Truncated (~100 chars) | Expanded textarea below row | Click |
-| Created | Relative time | Not editable | - |
+| Column | Width | Display | Edit Mode |
+|--------|-------|---------|-----------|
+| Prompt | ~85% (flex grow) | Full multiline text | Textarea (click to edit) |
+| Priority | ~15% (fixed ~100px) | Colored chip | Select dropdown |
 
 ## Files to Modify/Create
 
 | File | Action | Description |
 |------|--------|-------------|
-| `frontend/src/components/tasks/BacklogTableView.tsx` | Create | Main table component with expandable rows |
-| `frontend/src/components/tasks/BacklogFilterBar.tsx` | Create | Filter bar component |
-| `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` | Modify | Add expansion state and render BacklogTableView |
+| `frontend/src/components/tasks/BacklogTableView.tsx` | Create | Table with prompt + priority columns |
+| `frontend/src/components/tasks/BacklogFilterBar.tsx` | Create | Search and priority filter |
+| `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` | Modify | Add expansion state, render BacklogTableView |
 
 ## Existing Patterns Used
 
@@ -111,4 +100,3 @@ User clicks cell to edit
 - Task update hook: `useUpdateSpecTask` from `services/specTaskService.ts`
 - Priority colors: `getPriorityColor()` in `SpecTaskDetailContent.tsx`
 - Column header styling: `DroppableColumn` in `SpecTaskKanbanBoard.tsx` lines 244-294
-- Inline text editing: Standard MUI TextField with onBlur save pattern
