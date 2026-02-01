@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   DialogContent,
   DialogActions,
@@ -10,14 +10,18 @@ import {
   Link,
   InputAdornment,
   IconButton,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, CheckCircle } from '@mui/icons-material';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantMCP } from '../../api/api';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
+import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
 
 interface GitHubMcpSkillProps {
   open: boolean;
@@ -87,6 +91,31 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [authMethod, setAuthMethod] = useState<'oauth' | 'pat'>('oauth');
+
+  // Check if user has GitHub OAuth connection
+  const { data: oauthProviders } = useListOAuthProviders();
+  const { data: oauthConnections } = useListOAuthConnections();
+
+  // Check if GitHub OAuth is available and connected
+  const githubOAuthStatus = useMemo(() => {
+    const githubProvider = oauthProviders?.find(
+      p => p.type?.toLowerCase() === 'github' && p.enabled
+    );
+    if (!githubProvider) {
+      return { available: false, connected: false, providerName: '' };
+    }
+
+    const isConnected = oauthConnections?.some(
+      c => c.provider_id === githubProvider.id
+    ) ?? false;
+
+    return {
+      available: true,
+      connected: isConnected,
+      providerName: githubProvider.name || 'GitHub',
+    };
+  }, [oauthProviders, oauthConnections]);
 
   // Find existing GitHub MCP config
   const findExistingConfig = (): { index: number; config: TypesAssistantMCP } | null => {
@@ -102,19 +131,32 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
   useEffect(() => {
     const existing = findExistingConfig();
     if (existing) {
-      setAccessToken(existing.config.env?.GITHUB_PERSONAL_ACCESS_TOKEN || '');
+      // Check if using OAuth or PAT
+      if (existing.config.oauth_provider) {
+        setAuthMethod('oauth');
+        setAccessToken('');
+      } else {
+        setAuthMethod('pat');
+        setAccessToken(existing.config.env?.GITHUB_PERSONAL_ACCESS_TOKEN || '');
+      }
     } else {
+      // Default to OAuth if connected, otherwise PAT
+      setAuthMethod(githubOAuthStatus.connected ? 'oauth' : 'pat');
       setAccessToken('');
     }
-  }, [app.mcpTools, open]);
+  }, [app.mcpTools, open, githubOAuthStatus.connected]);
 
   const handleEnable = async () => {
     try {
       setError(null);
 
-      // Validate
-      if (!accessToken.trim()) {
+      // Validate based on auth method
+      if (authMethod === 'pat' && !accessToken.trim()) {
         setError('Personal Access Token is required');
+        return;
+      }
+      if (authMethod === 'oauth' && !githubOAuthStatus.connected) {
+        setError('Please connect your GitHub account first in the OAuth settings');
         return;
       }
 
@@ -125,10 +167,17 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
         transport: 'stdio',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-github'],
-        env: {
-          GITHUB_PERSONAL_ACCESS_TOKEN: accessToken.trim(),
-        },
       };
+
+      if (authMethod === 'oauth') {
+        // Use OAuth - the backend will inject the token
+        mcpSkill.oauth_provider = 'github';
+      } else {
+        // Use PAT - pass the token directly
+        mcpSkill.env = {
+          GITHUB_PERSONAL_ACCESS_TOKEN: accessToken.trim(),
+        };
+      }
 
       // Create a copy of the app state
       const appCopy = JSON.parse(JSON.stringify(app));
@@ -179,7 +228,10 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
     onClose();
   };
 
-  const isConfigured = accessToken.trim().length > 0;
+  // Check if configuration is valid based on auth method
+  const isConfigured = authMethod === 'oauth'
+    ? githubOAuthStatus.connected
+    : accessToken.trim().length > 0;
 
   return (
     <DarkDialog
@@ -204,58 +256,107 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
             </NameTypography>
           </Box>
           <DescriptionTypography>
-            Enable the GitHub skill to allow the AI to interact with GitHub repositories, issues, pull requests, and more.
-            Uses the official GitHub MCP server from Anthropic.
+            Interact with GitHub repositories, issues, pull requests, and more.
+            Uses the official GitHub MCP server.
           </DescriptionTypography>
 
           <SectionCard>
             <Typography sx={{ color: '#F8FAFC', mb: 2, fontWeight: 600 }}>
-              GitHub Configuration
+              Authentication Method
             </Typography>
 
-            <DarkTextField
-              fullWidth
-              label="Personal Access Token"
-              value={accessToken}
-              onChange={(e) => {
-                setError(null);
-                setAccessToken(e.target.value);
-              }}
-              type={showPassword ? 'text' : 'password'}
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-              helperText={
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Create a Personal Access Token with repo, issues, and pull_request scopes.
+            <RadioGroup
+              value={authMethod}
+              onChange={(e) => setAuthMethod(e.target.value as 'oauth' | 'pat')}
+            >
+              <FormControlLabel
+                value="oauth"
+                control={<Radio sx={{ color: '#A0AEC0', '&.Mui-checked': { color: '#10B981' } }} />}
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography sx={{ color: '#F8FAFC' }}>
+                      Use connected GitHub account
+                    </Typography>
+                    {githubOAuthStatus.connected ? (
+                      <CheckCircle sx={{ color: '#10B981', fontSize: 18 }} />
+                    ) : (
+                      <Typography variant="caption" sx={{ color: '#EF4444' }}>
+                        (Not connected)
+                      </Typography>
+                    )}
+                  </Box>
+                }
+                disabled={!githubOAuthStatus.available}
+              />
+              <FormControlLabel
+                value="pat"
+                control={<Radio sx={{ color: '#A0AEC0', '&.Mui-checked': { color: '#10B981' } }} />}
+                label={
+                  <Typography sx={{ color: '#F8FAFC' }}>
+                    Use Personal Access Token
                   </Typography>
-                  <Link
-                    href="https://github.com/settings/tokens/new?description=Helix%20AI&scopes=repo,read:org,read:user"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    sx={{ color: '#3182CE', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-                  >
-                    Create a new Personal Access Token on GitHub
-                  </Link>
-                </Box>
-              }
-              margin="normal"
-              required
-              autoComplete="new-github-token"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="toggle password visibility"
-                      onClick={() => setShowPassword(!showPassword)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      edge="end"
+                }
+              />
+            </RadioGroup>
+
+            {authMethod === 'oauth' && !githubOAuthStatus.connected && githubOAuthStatus.available && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Connect your GitHub account in the OAuth settings to use this option.
+                Your existing GitHub permissions will be used.
+              </Alert>
+            )}
+
+            {authMethod === 'oauth' && githubOAuthStatus.connected && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                Your GitHub account is connected. The AI will use your existing GitHub permissions.
+              </Alert>
+            )}
+
+            {authMethod === 'pat' && (
+              <DarkTextField
+                fullWidth
+                label="Personal Access Token"
+                value={accessToken}
+                onChange={(e) => {
+                  setError(null);
+                  setAccessToken(e.target.value);
+                }}
+                type={showPassword ? 'text' : 'password'}
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                helperText={
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">
+                      Create a Personal Access Token with repo, issues, and pull_request scopes.
+                    </Typography>
+                    <Link
+                      href="https://github.com/settings/tokens/new?description=Helix%20AI&scopes=repo,read:org,read:user"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ color: '#3182CE', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
                     >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
+                      Create a new Personal Access Token on GitHub
+                    </Link>
+                  </Box>
+                }
+                margin="normal"
+                required
+                autoComplete="new-github-token"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label="toggle password visibility"
+                        onClick={() => setShowPassword(!showPassword)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        edge="end"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            )}
 
             <Box sx={{ mt: 3, p: 2, bgcolor: '#1A1D24', borderRadius: 1 }}>
               <Typography variant="subtitle2" sx={{ color: '#10B981', mb: 1 }}>

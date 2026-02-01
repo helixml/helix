@@ -58,6 +58,7 @@ var (
 // CookieManager is a helper for setting, getting and deleting cookies.
 type CookieManager struct {
 	SecureCookies bool
+	MaxAge        int // Max age in seconds, 0 = session cookie
 }
 
 func NewCookieManager(config *config.ServerConfig) *CookieManager {
@@ -77,6 +78,7 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 
 	return &CookieManager{
 		SecureCookies: secureCookies,
+		MaxAge:        config.Auth.OIDC.CookieMaxAge,
 	}
 }
 
@@ -85,7 +87,7 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 		Name:     c.Name,
 		Path:     c.Path,
 		Value:    value,
-		MaxAge:   int(0),
+		MaxAge:   cm.MaxAge, // 0 = session cookie, >0 = persistent cookie (seconds)
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,

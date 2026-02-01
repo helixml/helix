@@ -192,6 +192,12 @@ type OIDC struct {
 	// beyond the 1-hour access token lifetime. Enabled by default since it's harmless for
 	// providers that don't need it (like Keycloak) and required for providers that do (like Google).
 	OfflineAccess bool `envconfig:"OIDC_OFFLINE_ACCESS" default:"true"`
+	// CookieMaxAge sets the max age for auth cookies in seconds.
+	// Default is 0 (session cookie - expires when browser closes).
+	// Set to a positive value (e.g., 604800 = 7 days) to persist sessions across browser restarts.
+	// This is especially useful with Google OIDC + OIDC_OFFLINE_ACCESS=true, as the refresh token
+	// will be preserved and can obtain new access tokens even after the browser is closed.
+	CookieMaxAge int `envconfig:"OIDC_COOKIE_MAX_AGE" default:"0"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

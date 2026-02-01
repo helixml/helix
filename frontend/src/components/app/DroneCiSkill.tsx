@@ -125,12 +125,13 @@ const DroneCiSkill: React.FC<DroneCiSkillProps> = ({
       }
 
       // Create the MCP skill object
+      // drone-ci-mcp is installed globally in the desktop images
       const mcpSkill: TypesAssistantMCP = {
         name: DRONE_CI_MCP_NAME,
         description: 'Drone CI integration for viewing build status and navigating logs',
         transport: 'stdio',
-        command: 'npx',
-        args: ['-y', '@helix/drone-ci-mcp'],
+        command: 'drone-ci-mcp',
+        args: [],
         env: {
           DRONE_SERVER_URL: serverUrl.trim(),
           DRONE_ACCESS_TOKEN: accessToken.trim(),
@@ -209,8 +210,8 @@ const DroneCiSkill: React.FC<DroneCiSkillProps> = ({
             Drone CI
           </NameTypography>
           <DescriptionTypography>
-            Enable the Drone CI skill to allow the AI to check build status, fetch logs, and navigate through CI failures efficiently.
-            The skill saves large logs to files and provides search and navigation tools to avoid context overflow.
+            Check Drone CI build status, fetch logs, and navigate through CI failures efficiently.
+            Large logs are saved to files with search and navigation tools to avoid context overflow.
           </DescriptionTypography>
 
           <SectionCard>

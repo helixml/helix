@@ -3342,6 +3342,16 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      configured_skill_env_vars:
+        additionalProperties:
+          additionalProperties:
+            type: string
+          type: object
+        description: |-
+          ConfiguredSkillEnvVars contains user-configured env vars for skills
+          Outer key: skill name, Inner key: env var name, Value: user-provided value
+          This allows users to configure skills (like API tokens) during project creation
+        type: object
       description:
         type: string
       fork_to_organization:
@@ -4629,6 +4639,11 @@ definitions:
       repositories:
         items:
           $ref: '#/definitions/types.MoveRepositoryPreviewItem'
+        type: array
+      warnings:
+        description: Warnings about things that won't be moved automatically
+        items:
+          type: string
         type: array
     type: object
   types.MoveProjectRequest:

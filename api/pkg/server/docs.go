@@ -18237,6 +18237,16 @@ const docTemplate = `{
         "types.ForkSimpleProjectRequest": {
             "type": "object",
             "properties": {
+                "configured_skill_env_vars": {
+                    "description": "ConfiguredSkillEnvVars contains user-configured env vars for skills\nOuter key: skill name, Inner key: env var name, Value: user-provided value\nThis allows users to configure skills (like API tokens) during project creation",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
@@ -20050,6 +20060,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.MoveRepositoryPreviewItem"
+                    }
+                },
+                "warnings": {
+                    "description": "Warnings about things that won't be moved automatically",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
