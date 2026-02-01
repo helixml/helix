@@ -997,6 +997,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             ...(isMobile && {
               scrollSnapType: 'x mandatory',
               WebkitOverflowScrolling: 'touch',
+              pt: 1, // Add top spacing on mobile to separate from topbar
             }),
             '&::-webkit-scrollbar': {
               height: '8px',
