@@ -1,45 +1,45 @@
 # Implementation Tasks
 
 ## Setup
-- [~] Create `frontend/src/components/tasks/BacklogTableView.tsx` skeleton component
-- [ ] Create `frontend/src/components/tasks/BacklogFilterBar.tsx` skeleton component
+- [x] Create `frontend/src/components/tasks/BacklogTableView.tsx` skeleton component
+- [x] Create `frontend/src/components/tasks/BacklogFilterBar.tsx` skeleton component
 
 ## Backlog Expansion
-- [ ] Add `backlogExpanded` state to `SpecTaskKanbanBoard.tsx`
+- [~] Add `backlogExpanded` state to `SpecTaskKanbanBoard.tsx`
 - [ ] Make backlog column header clickable (cursor pointer, onClick handler)
 - [ ] Conditionally render `BacklogTableView` when expanded instead of `DroppableColumn`
 - [ ] Add close button (X) to collapse back to kanban view
 - [ ] Style expanded view to span full width of kanban board area
 
 ## BacklogTableView Component
-- [ ] Create MUI Table with two columns: Prompt (wide) and Priority (narrow)
-- [ ] Display full prompt text multiline (no truncation)
-- [ ] Sort tasks by priority (critical → high → medium → low) then by created date
-- [ ] Add row hover state for better UX
+- [x] Create MUI Table with two columns: Prompt (wide) and Priority (narrow)
+- [x] Display full prompt text multiline (no truncation)
+- [x] Sort tasks by priority (critical → high → medium → low) then by created date
+- [x] Add row hover state for better UX
 
 ## Inline Editing
-- [ ] **Prompt cell**: Click to edit in-place with textarea, blur/Enter to save
-- [ ] **Priority cell**: Click to show Select dropdown with colored options
-- [ ] Apply priority colors matching existing `getPriorityColor()` function
-- [ ] Call `useUpdateSpecTask` mutation on change
-- [ ] Show loading indicator during API call
-- [ ] Show error snackbar on failure
+- [x] **Prompt cell**: Click to edit in-place with textarea, blur/Enter to save
+- [x] **Priority cell**: Click to show Select dropdown with colored options
+- [x] Apply priority colors matching existing `getPriorityColor()` function
+- [x] Call `useUpdateSpecTask` mutation on change
+- [x] Show loading indicator during API call
+- [x] Show error snackbar on failure
 
 ## BacklogFilterBar Component
-- [ ] Add text input with search icon for filtering by prompt content
-- [ ] Add priority multi-select dropdown filter
-- [ ] Add "Clear" button (visible only when filters active)
-- [ ] Wire filter state to parent component via props
-- [ ] Apply filters to task list before rendering table
+- [x] Add text input with search icon for filtering by prompt content
+- [x] Add priority multi-select dropdown filter
+- [x] Add "Clear" button (visible only when filters active)
+- [x] Wire filter state to parent component via props
+- [x] Apply filters to task list before rendering table
 
 ## Integration
-- [ ] Import and wire up `BacklogFilterBar` in `BacklogTableView`
+- [x] Import and wire up `BacklogFilterBar` in `BacklogTableView`
 - [ ] Add filter state (`search`, `priorities[]`) to `SpecTaskKanbanBoard`
 - [ ] Pass filtered tasks to `BacklogTableView`
 - [ ] Test that priority edits trigger re-sort
 - [ ] Verify kanban column task count updates after table edits
 
 ## Polish
-- [ ] Add keyboard navigation (Escape to cancel edit, Enter to save)
-- [ ] Add empty state when no tasks match filters
+- [x] Add keyboard navigation (Escape to cancel edit, Enter to save)
+- [x] Add empty state when no tasks match filters
 - [ ] Test light/dark theme compatibility
