@@ -5,11 +5,11 @@
 - [x] Create `frontend/src/components/tasks/BacklogFilterBar.tsx` skeleton component
 
 ## Backlog Expansion
-- [~] Add `backlogExpanded` state to `SpecTaskKanbanBoard.tsx`
-- [ ] Make backlog column header clickable (cursor pointer, onClick handler)
-- [ ] Conditionally render `BacklogTableView` when expanded instead of `DroppableColumn`
-- [ ] Add close button (X) to collapse back to kanban view
-- [ ] Style expanded view to span full width of kanban board area
+- [x] Add `backlogExpanded` state to `SpecTaskKanbanBoard.tsx`
+- [x] Make backlog column header clickable (cursor pointer, onClick handler)
+- [x] Conditionally render `BacklogTableView` when expanded instead of `DroppableColumn`
+- [x] Add close button (X) to collapse back to kanban view
+- [x] Style expanded view to span full width of kanban board area
 
 ## BacklogTableView Component
 - [x] Create MUI Table with two columns: Prompt (wide) and Priority (narrow)
@@ -34,8 +34,8 @@
 
 ## Integration
 - [x] Import and wire up `BacklogFilterBar` in `BacklogTableView`
-- [ ] Add filter state (`search`, `priorities[]`) to `SpecTaskKanbanBoard`
-- [ ] Pass filtered tasks to `BacklogTableView`
+- [x] Add filter state (`search`, `priorities[]`) to `SpecTaskKanbanBoard`
+- [x] Pass filtered tasks to `BacklogTableView`
 - [ ] Test that priority edits trigger re-sort
 - [ ] Verify kanban column task count updates after table edits
 
