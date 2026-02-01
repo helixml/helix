@@ -200,9 +200,70 @@ Updated `setToken()` in `useApi.ts` to also set `localStorage.setItem('token', t
 so that direct `fetch()` calls (e.g., file uploads in filestoreService.ts) have access
 to the current token.
 
-## Next Steps
+## Root Cause CONFIRMED (2026-02-01 Session 2)
 
-1. [x] Implemented Fix 1: Detect Helix JWTs and clear cookies when OIDC is configured
-2. [x] Implemented Fix 2: Add `localStorage.setItem('token', ...)` in setToken
-3. [ ] Test the fixes by clearing cookies and logging in via Google
-4. [ ] Consider Fix 3 (prompt=consent) if users still experience issues after re-login
+**The actual root cause was Hypothesis 4: Google not returning refresh tokens.**
+
+### Evidence from Logs
+
+```
+WRN pkg/server/auth.go:671 > No refresh token received from OIDC provider. Set OIDC_OFFLINE_ACCESS=true for Google to enable token refresh.
+DBG pkg/server/auth.go:868 > Failed to get refresh_token, skipping refresh error="not found: refresh_token"
+```
+
+The logs show:
+1. Google is NOT returning refresh tokens even with `access_type=offline`
+2. Every 2 minutes, the refresh interval fails because there's no `refresh_token` cookie
+3. After 1 hour, the access token expires, and the user gets logged out
+
+### Why Google Doesn't Return Refresh Tokens
+
+Google ONLY returns refresh tokens in two cases:
+1. **First authorization** - user has never authorized the app before
+2. **`prompt=consent`** - explicitly forces the consent screen
+
+The code was using `prompt=select_account` which only shows the account picker. For returning users who have already authorized the app, Google says "you already gave consent" and doesn't issue a new refresh token.
+
+### The Fix
+
+Changed `oidc.go` to use `prompt=consent select_account` when `OfflineAccess` is enabled:
+
+```go
+if c.cfg.OfflineAccess {
+    opts = append(opts, oauth2.AccessTypeOffline)
+    // IMPORTANT: For Google OIDC, we must use prompt=consent to get refresh tokens
+    // for returning users. prompt=select_account only shows the account picker but
+    // Google won't issue refresh tokens unless consent is explicitly requested.
+    // Using "consent select_account" shows both consent AND account picker.
+    opts = append(opts, oauth2.SetAuthURLParam("prompt", "consent select_account"))
+}
+```
+
+**UX Change:** Users will now see the Google consent screen ("Allow Helix to...") every time they log in, not just the account picker. This is necessary to ensure refresh tokens are always returned.
+
+## Timeline of Issues
+
+1. **Stale Helix JWTs** (Fixed in PR #1569)
+   - Deployment had `AUTH_PROVIDER=regular` before, then switched to `oidc`
+   - Old Helix JWTs in cookies were being rejected by Google's userinfo endpoint
+   - Fix: Detect Helix JWTs and clear cookies, force re-login
+
+2. **Missing refresh tokens** (Fixed in this session)
+   - Google wasn't returning refresh tokens for returning users
+   - Access tokens expire after 1 hour, no way to refresh
+   - Fix: Add `prompt=consent` to force Google to return refresh tokens
+
+## Completed Fixes
+
+1. [x] Fix 1: Detect Helix JWTs and clear cookies when OIDC is configured
+2. [x] Fix 2: Add `localStorage.setItem('token', ...)` in setToken
+3. [x] Fix 3: Add `prompt=consent select_account` when offline access is requested
+
+## Testing Plan
+
+1. Clear all cookies and localStorage
+2. Log in via Google OIDC
+3. Verify consent screen appears (not just account picker)
+4. Check API logs for: `Refresh token received and stored`
+5. Wait ~2 hours or check logs for: `Token refresh successful`
+6. Verify user remains logged in
