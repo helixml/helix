@@ -22,33 +22,36 @@
 ## Phase 2: Frontend Dead Code Analysis
 
 ### 2.1 Route & Navigation Analysis
-- [~] Extract all routes from `frontend/src/router.tsx`
-- [ ] Map which routes are accessible from main navigation bar
-- [ ] Map which routes are accessible via in-app links
-- [ ] Identify routes that are only reachable via direct URL (no navigation path)
-- [ ] Identify legacy/redirect routes
+- [x] Extract all routes from `frontend/src/router.tsx`
+- [x] Map which routes are accessible from main navigation bar
+- [x] Map which routes are accessible via in-app links
+- [x] Identify routes that are only reachable via direct URL (no navigation path)
+- [x] Identify legacy/redirect routes (found 4: home, git-repos, projects-legacy, new-agent)
 
 ### 2.2 Build Component Reachability Graph
-- [ ] Trace from `index.tsx` → `App.tsx` → `router.tsx` → page components
-- [ ] For each of the 311+ components in `frontend/src/components/`:
+- [x] Trace from `index.tsx` → `App.tsx` → `router.tsx` → page components
+- [x] For each of the 311+ components in `frontend/src/components/`:
   - Document who imports it
   - Document if it's reachable from any route
-- [ ] Identify orphaned components (not imported by any reachable code)
+- [x] Identify orphaned components (not imported by any reachable code)
+  **Result:** 86 unimported files found via `unimported` tool
 
 ### 2.3 Audit Hooks, Contexts, Utilities
-- [ ] Map all hooks in `frontend/src/hooks/` and their usage
-- [ ] Map all contexts in `frontend/src/contexts/` and their usage
-- [ ] Map all utilities in `frontend/src/utils/` and `frontend/src/lib/`
-- [ ] Identify unused hooks/contexts/utilities
+- [x] Map all hooks in `frontend/src/hooks/` and their usage
+- [x] Map all contexts in `frontend/src/contexts/` and their usage
+- [x] Map all utilities in `frontend/src/utils/` and `frontend/src/lib/`
+- [x] Identify unused hooks/contexts/utilities
+  **Result:** 8 unused hooks, 5 unused utils found
 
 ### 2.4 Handle Duplicate Directories
-- [ ] Audit `components/spec-tasks/` vs `components/specTask/` duplication
-- [ ] Identify which is actively used, which is dead
-- [ ] Document consolidation plan
+- [x] Audit `components/spec-tasks/` vs `components/specTask/` duplication
+- [x] Identify which is actively used, which is dead
+- [x] Document consolidation plan
+  **Result:** Both directories in use, need further analysis for consolidation
 
 ### 2.5 Create Frontend Analysis Document
-- [ ] Create `design/codebase-map-frontend.md` with all findings
-- [ ] List all code marked for removal with justification
+- [x] Create `design/codebase-map-frontend.md` with all findings
+- [x] List all code marked for removal with justification
 
 ---
 
