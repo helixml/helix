@@ -24,7 +24,7 @@ Users are getting logged out unexpectedly when using Google OIDC authentication,
 The API logs show 401 errors with this pattern:
 ```
 error validating user token: invalid access token (could not get user info): 401 Unauthorized: Invalid Credentials
-token=eyJhbGciOiJIUzI1NiJ9...
+token=<redacted-jwt>
 ```
 
 Decoding the JWT payload reveals:
