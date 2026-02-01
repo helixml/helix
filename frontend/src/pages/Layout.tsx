@@ -26,13 +26,9 @@ import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
-import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import FloatingModal from '../components/admin/FloatingModal'
 import { useFloatingModal } from '../contexts/floatingModal'
-import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
-import DnsIcon from '@mui/icons-material/Dns'
 import UserOrgSelector from '../components/orgs/UserOrgSelector'
 
 import useRouter from '../hooks/useRouter'

@@ -3,7 +3,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction,
   IconButton,
   Chip,
   Box,
@@ -49,7 +48,7 @@ const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
   const codeRepos = repositories.filter(r => r.repo_type !== 'internal')
 
   return (
-    <List>
+    <List sx={{ '& .MuiListItem-root': { px: { xs: 1, sm: 2 } } }}>
       {codeRepos.map((repo) => (
         <ListItem
           key={repo.id}
@@ -59,13 +58,34 @@ const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
             '&:hover': {
               backgroundColor: 'rgba(0, 0, 0, 0.04)',
             },
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: 1, sm: 0 },
+            py: { xs: 1.5, sm: 1 },
           }}
           onClick={() => handleNavigateToRepo(repo.id)}
         >
           <ListItemText
+            sx={{
+              pr: { xs: 0, sm: 14 },
+              width: '100%',
+              '& .MuiListItemText-secondary': {
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              },
+            }}
             primary={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {repo.name}
                 </Typography>
               </Box>
@@ -76,40 +96,49 @@ const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
                 : repo.description || 'Helix-hosted repository'
             }
           />
-          <ListItemSecondaryAction>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              {primaryRepoId === repo.id ? (
-                <Chip
-                  icon={<StarIcon />}
-                  label="Primary"
-                  color="secondary"
-                  size="small"
-                />
-              ) : (
-                <IconButton
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (repo.id) onSetPrimaryRepo(repo.id)
-                  }}
-                  disabled={setPrimaryRepoPending}
-                  title="Set as primary"
-                >
-                  <StarBorderIcon />
-                </IconButton>
-              )}
+          <Box
+            sx={{
+              display: 'flex',
+              gap: 0.5,
+              alignItems: 'center',
+              alignSelf: { xs: 'flex-end', sm: 'center' },
+              position: { xs: 'relative', sm: 'absolute' },
+              right: { xs: 'auto', sm: 16 },
+            }}
+          >
+            {primaryRepoId === repo.id ? (
+              <Chip
+                icon={<StarIcon />}
+                label="Primary"
+                color="secondary"
+                size="small"
+              />
+            ) : (
               <IconButton
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (repo.id) onDetachRepo(repo.id)
+                  if (repo.id) onSetPrimaryRepo(repo.id)
                 }}
-                disabled={detachRepoPending}
-                title="Detach from project"
-                color="error"
+                disabled={setPrimaryRepoPending}
+                title="Set as primary"
+                size="small"
               >
-                <DeleteIcon />
+                <StarBorderIcon fontSize="small" />
               </IconButton>
-            </Box>
-          </ListItemSecondaryAction>
+            )}
+            <IconButton
+              onClick={(e) => {
+                e.stopPropagation()
+                if (repo.id) onDetachRepo(repo.id)
+              }}
+              disabled={detachRepoPending}
+              title="Detach from project"
+              color="error"
+              size="small"
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </ListItem>
       ))}
     </List>

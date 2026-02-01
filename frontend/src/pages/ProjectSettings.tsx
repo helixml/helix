@@ -32,17 +32,13 @@ import {
   Switch,
 } from "@mui/material";
 import CodeIcon from "@mui/icons-material/Code";
-import ExploreIcon from "@mui/icons-material/Explore";
 import PeopleIcon from "@mui/icons-material/People";
 import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
-import StopIcon from "@mui/icons-material/Stop";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
-import EditIcon from "@mui/icons-material/Edit";
 import { Bot } from "lucide-react";
 import HistoryIcon from "@mui/icons-material/History";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -842,7 +838,7 @@ const ProjectSettings: FC = () => {
             }}
           >
             {/* Basic Information */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Basic Information
               </Typography>
@@ -869,7 +865,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Startup Script */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <CodeIcon sx={{ mr: 1 }} />
                 <Typography variant="h6">Startup Script</Typography>
@@ -897,12 +893,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Repositories */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
                   justifyContent: "space-between",
-                  alignItems: "center",
+                  alignItems: { xs: "stretch", sm: "flex-start" },
+                  gap: { xs: 2, sm: 0 },
                   mb: 2,
                 }}
               >
@@ -920,8 +918,9 @@ const ProjectSettings: FC = () => {
                   startIcon={<AddIcon />}
                   onClick={() => setAttachRepoDialogOpen(true)}
                   size="small"
+                  sx={{ flexShrink: 0, alignSelf: { xs: "flex-start", sm: "flex-start" } }}
                 >
-                  Attach Repository
+                  Attach
                 </Button>
               </Box>
               <Divider sx={{ mb: 2 }} />
@@ -957,7 +956,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Default Agent */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Bot size={24} style={{ marginRight: 8 }} />
                 <Typography variant="h6">Agent configuration</Typography>
@@ -1120,7 +1119,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Board Settings */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Kanban Board Settings
               </Typography>
@@ -1132,12 +1131,12 @@ const ProjectSettings: FC = () => {
               <Box
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
                   gap: 2,
                 }}
               >
                 <TextField
-                  label="Planning Column Limit"
+                  label="Planning Limit"
                   value={wipLimits.planning}
                   onChange={(e) =>
                     setWipLimits({
@@ -1146,10 +1145,11 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Planning column"
+                  helperText="Max tasks in Planning"
+                  size="small"
                 />
                 <TextField
-                  label="Review Column Limit"
+                  label="Review Limit"
                   value={wipLimits.review}
                   onChange={(e) =>
                     setWipLimits({
@@ -1158,10 +1158,11 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Review column"
+                  helperText="Max tasks in Review"
+                  size="small"
                 />
                 <TextField
-                  label="Implementation Column Limit"
+                  label="Implementation Limit"
                   value={wipLimits.implementation}
                   onChange={(e) =>
                     setWipLimits({
@@ -1170,13 +1171,14 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Implementation column"
+                  helperText="Max tasks in Implementation"
+                  size="small"
                 />
               </Box>
             </Paper>
 
             {/* Automations */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Automations
               </Typography>
@@ -1254,12 +1256,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Secrets */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "flex-start", sm: "center" },
                   justifyContent: "space-between",
+                  gap: { xs: 1, sm: 0 },
                   mb: 1,
                 }}
               >
@@ -1273,7 +1277,7 @@ const ProjectSettings: FC = () => {
                   startIcon={<AddIcon />}
                   onClick={() => setAddSecretDialogOpen(true)}
                 >
-                  Add Secret
+                  Add
                 </Button>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -1333,7 +1337,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Skills */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <HubIcon sx={{ mr: 1, color: "#10B981" }} />
                 <Typography variant="h6">Skills</Typography>
@@ -1352,12 +1356,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Guidelines */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "flex-start", sm: "center" },
                   justifyContent: "space-between",
+                  gap: { xs: 1, sm: 0 },
                   mb: 1,
                 }}
               >
@@ -1413,7 +1419,7 @@ const ProjectSettings: FC = () => {
 
             {/* Members & Access Control */}
             {project?.organization_id ? (
-              <Paper sx={{ p: 3 }}>
+              <Paper sx={{ p: { xs: 2, sm: 3 } }}>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                   <PeopleIcon sx={{ mr: 1 }} />
                   <Typography variant="h6">Members & Access</Typography>

@@ -98,18 +98,26 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Toolbar - stays at top, doesn't move */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="caption" color="text.secondary">
+      <Box sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', sm: 'row' },
+        justifyContent: 'space-between',
+        alignItems: { xs: 'stretch', sm: 'center' },
+        gap: 1,
+        mb: 1
+      }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mb: { xs: 0.5, sm: 0 } }}>
           Bash startup script (runs before agent starts)
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button
             size="small"
             variant="outlined"
             startIcon={<HistoryIcon />}
             onClick={() => setShowHistory(!showHistory)}
+            sx={{ whiteSpace: 'nowrap' }}
           >
-            {showHistory ? 'Hide History' : 'Show History'}
+            {showHistory ? 'Hide' : 'History'}
           </Button>
           <Tooltip title={testTooltip || ''} disableHoverListener={!testTooltip}>
             <Button
@@ -119,6 +127,7 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
               startIcon={testLoading ? <CircularProgress size={16} color="inherit" /> : <TestIcon />}
               onClick={onTest}
               disabled={testDisabled || testLoading}
+              sx={{ whiteSpace: 'nowrap', flex: { xs: 1, sm: 'none' } }}
               endIcon={
                 !testLoading && (
                   <Box component="span" sx={{
@@ -126,13 +135,14 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
                     opacity: 0.6,
                     fontFamily: 'monospace',
                     ml: 1,
+                    display: { xs: 'none', sm: 'inline' },
                   }}>
                     {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
                   </Box>
                 )
               }
             >
-              {testLoading ? 'Starting...' : 'Test Script'}
+              {testLoading ? 'Starting...' : 'Test'}
             </Button>
           </Tooltip>
         </Box>
