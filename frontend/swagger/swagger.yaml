@@ -1121,6 +1121,15 @@ definitions:
       reason:
         type: string
     type: object
+  server.OrganizationDomainInfo:
+    properties:
+      auto_join_domain:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+    type: object
   server.PhaseProgress:
     properties:
       agent:
@@ -4923,6 +4932,10 @@ definitions:
     type: object
   types.Organization:
     properties:
+      auto_join_domain:
+        description: AutoJoinDomain - if set, users logging in via OIDC with this
+          email domain are automatically added as members
+        type: string
       created_at:
         type: string
       deleted_at:
@@ -8647,6 +8660,21 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/organization-domains:
+    get:
+      description: List all organizations that have auto-join domains configured
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OrganizationDomainInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization domains (admin only)
+      tags:
+      - organizations
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins
