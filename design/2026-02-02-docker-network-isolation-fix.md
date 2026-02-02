@@ -1,8 +1,8 @@
 # Docker Network Isolation Fix: Preventing Subnet Conflicts
 
 **Date:** 2026-02-02
-**Status:** In Progress
-**Author:** Claude
+**Status:** Implemented
+**Author:** Claude (with Luke)
 
 ## Executive Summary
 
@@ -11,7 +11,29 @@ Docker-in-Docker network subnet conflicts caused streaming sessions to fail with
 1. **Desktop containers received the wrong Docker socket** - They connected to the sandbox's main dockerd instead of their per-session Hydra dockerd
 2. **No subnet isolation** - Docker Compose projects running inside desktop containers created networks with the same subnet as the outer control plane
 
-This document describes the architecture, root cause analysis, and comprehensive fix.
+## Solution Implemented
+
+### Security Fix: Always Use Per-Session Hydra Dockerd
+
+Each desktop container now ALWAYS gets its own isolated dockerd instance. This is a security requirement to prevent:
+
+1. Users breaking each other's containers (`docker stop/rm`)
+2. Users reading secrets from other containers (`docker exec/logs`)
+3. Network conflicts from docker-compose with conflicting subnets
+4. Container escape to the sandbox's control plane dockerd
+
+**Code change:** `api/pkg/external-agent/hydra_executor.go` - Removed the `if agent.UseHydraDocker` condition, making per-session dockerd mandatory.
+
+### Configuration Cleanup: Remove Hardcoded IPs
+
+Removed all hardcoded IP addresses from `docker-compose.dev.yaml`:
+
+- Removed static IP assignments for API and sandbox services
+- Removed hardcoded subnet (Docker uses default-address-pools from daemon.json)
+- Changed runner API_HOST from gateway IP to service name (`api:8080`)
+- Made network name configurable via `HELIX_NETWORK_NAME` environment variable
+
+This document describes the architecture and root cause analysis.
 
 ---
 

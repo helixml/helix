@@ -270,10 +270,15 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// If Hydra Docker isolation is enabled, create isolated dockerd first
+	// ALWAYS create isolated dockerd for each session (security requirement)
+	// This prevents:
+	// 1. Users breaking each other's containers (docker stop/rm)
+	// 2. Users reading secrets from other containers (docker exec/logs)
+	// 3. Network conflicts from docker-compose with conflicting subnets
+	// 4. Container escape to the sandbox's control plane dockerd
 	// This must happen BEFORE buildMounts so we can pass the correct Docker socket
 	var dockerSocket string
-	if agent.UseHydraDocker {
+	{
 		log.Info().
 			Str("session_id", agent.SessionID).
 			Msg("Creating isolated Docker instance via Hydra")

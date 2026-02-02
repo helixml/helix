@@ -27,8 +27,7 @@ services:
       dockerfile: Dockerfile
       target: api-dev-env
     networks:
-      default:
-        ipv4_address: 172.19.0.20
+      - default
     ports:
       - ${API_PORT:-8080}:8080
       # Port range for expose endpoint (port-based proxy for dev container services)
@@ -266,8 +265,7 @@ services:
     profiles: [code-nvidia] # NVIDIA GPU sandbox
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # GPU configuration
       - NVIDIA_DRIVER_CAPABILITIES=all
@@ -356,8 +354,7 @@ services:
     profiles: [code-amd-intel]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
@@ -440,8 +437,7 @@ services:
     profiles: [code-software]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # Software rendering (CPU-only, no GPU)
       - GPU_VENDOR=none
@@ -529,7 +525,7 @@ services:
         TAG: 2025-08-13c-large
     environment:
       # Runner configuration
-      - API_HOST=http://172.17.0.1:8080
+      - API_HOST=http://api:8080
       - API_TOKEN=oh-hallo-insecure-token
       - RUNNER_ID=dev-gpu-runner
       - LOG_LEVEL=debug
@@ -556,7 +552,7 @@ services:
         TAG: 2025-08-13c-large
     environment:
       # Runner configuration
-      - API_HOST=http://172.17.0.1:8080
+      - API_HOST=http://api:8080
       - API_TOKEN=oh-hallo-insecure-token
       - RUNNER_ID=dev-gpu-runner-amd
       - LOG_LEVEL=debug
@@ -669,7 +665,4 @@ volumes:
 
 networks:
   default:
-    name: helix_default
-    ipam:
-      config:
-        - subnet: 172.19.0.0/16
+    name: ${HELIX_NETWORK_NAME:-helix_default}
