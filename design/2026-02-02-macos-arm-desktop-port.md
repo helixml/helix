@@ -1112,3 +1112,32 @@ Add new options for frame export:
 - [Apple VideoToolbox](https://developer.apple.com/documentation/videotoolbox)
 - [WWDC21: Low-latency video encoding](https://developer.apple.com/videos/play/wwdc2021/10158/)
 - [Collabora: State of GFX virtualization](https://www.collabora.com/news-and-blog/blog/2025/01/15/the-state-of-gfx-virtualization-using-virglrenderer/)
+
+## Progress Log
+
+### 2026-02-02: QEMU Frame Export Implementation
+
+**Completed:**
+- ✅ Created Ubuntu 25.10 ARM64 VM in UTM with Venus enabled
+- ✅ Verified Venus/Vulkan working: `vulkaninfo` shows "Virtio-GPU Venus (Apple M1 Pro)"
+- ✅ Created QEMU fork branch `helix-frame-export` in `qemu-utm/`
+- ✅ Implemented frame export files:
+  - `qemu-utm/hw/display/helix/helix-frame-export.h` - Protocol definitions
+  - `qemu-utm/hw/display/helix/helix-frame-export.c` - VideoToolbox encoder + virglrenderer integration
+  - `qemu-utm/hw/display/helix/meson.build` - Build configuration
+- ✅ Updated `qemu-utm/hw/display/meson.build` to include helix subdir
+- ✅ Committed to `helix-frame-export` branch in qemu-utm
+
+**Next steps:**
+1. Create GitHub fork: Need to create `helixml/qemu` (or similar) to push the QEMU changes
+2. Build modified QEMU: Set up full UTM build environment to compile our fork
+3. Integration test: Load VM with modified QEMU, test virgl_renderer_resource_get_info_ext
+4. End-to-end test: Guest vsockenc → host frame export → H.264 back to guest
+
+**Files changed in helix repo:**
+- `.gitignore` - Removed qemu-utm/ from ignore list
+- `design/2026-02-02-macos-arm-desktop-port.md` - This file
+
+**QEMU fork location:**
+- Local: `/Users/luke/pm/helix/qemu-utm/` (branch: `helix-frame-export`)
+- Remote: TBD - need to create helixml/qemu fork on GitHub
