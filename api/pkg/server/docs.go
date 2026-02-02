@@ -111,6 +111,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/organization-domains": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all organizations that have auto-join domains configured",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization domains (admin only)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.OrganizationDomainInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -6643,6 +6668,134 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/move": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Move a project from personal workspace to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Move a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/move/preview": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Check for naming conflicts before moving a project to an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Preview moving a project to an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Move project request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.MoveProjectPreviewResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -14948,6 +15101,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.OrganizationDomainInfo": {
+            "type": "object",
+            "properties": {
+                "auto_join_domain": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                }
+            }
+        },
         "server.PhaseProgress": {
             "type": "object",
             "properties": {
@@ -15353,6 +15520,14 @@ const docTemplate = `{
                 "requires_github_auth": {
                     "description": "RequiresGitHubAuth indicates this sample project needs GitHub OAuth for push access",
                     "type": "boolean"
+                },
+                "skills": {
+                    "description": "Skills configures project-level skills that will be added when the project is created\nThese overlay on top of agent-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
                 },
                 "task_prompts": {
                     "type": "array",
@@ -15808,6 +15983,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "new_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AffectedProjectInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -16468,8 +16654,26 @@ const docTemplate = `{
         "types.AssistantMCP": {
             "type": "object",
             "properties": {
+                "args": {
+                    "description": "Command arguments",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "description": "Stdio transport fields (used when Transport is \"stdio\")\nThe MCP server runs as a subprocess inside the dev container",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
+                },
+                "env": {
+                    "description": "Environment variables for the subprocess",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "headers": {
                     "type": "object",
@@ -16497,7 +16701,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "Transport type: \"http\" (default, Streamable HTTP), \"sse\" (legacy SSE), or \"stdio\" (command execution)\nFor stdio transport, use Command/Args/Env fields instead of URL",
+                    "type": "string"
+                },
                 "url": {
+                    "description": "HTTP/SSE transport fields (used when Transport is \"http\" or \"sse\", or URL is set)",
                     "type": "string"
                 }
             }
@@ -16510,6 +16719,47 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AssistantSkills": {
+            "type": "object",
+            "properties": {
+                "apis": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantAPI"
+                    }
+                },
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AssistantAzureDevOps"
+                },
+                "browser": {
+                    "$ref": "#/definitions/types.AssistantBrowser"
+                },
+                "calculator": {
+                    "$ref": "#/definitions/types.AssistantCalculator"
+                },
+                "email": {
+                    "$ref": "#/definitions/types.AssistantEmail"
+                },
+                "mcps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
+                "web_search": {
+                    "$ref": "#/definitions/types.AssistantWebSearch"
+                },
+                "zapier": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantZapier"
+                    }
                 }
             }
         },
@@ -18026,6 +18276,16 @@ const docTemplate = `{
         "types.ForkSimpleProjectRequest": {
             "type": "object",
             "properties": {
+                "configured_skill_env_vars": {
+                    "description": "ConfiguredSkillEnvVars contains user-configured env vars for skills\nOuter key: skill name, Inner key: env var name, Value: user-provided value\nThis allows users to configure skills (like API tokens) during project creation",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
@@ -19814,6 +20074,75 @@ const docTemplate = `{
                 "ModelTypeEmbed"
             ]
         },
+        "types.MoveProjectPreviewItem": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveProjectPreviewResponse": {
+            "type": "object",
+            "properties": {
+                "project": {
+                    "$ref": "#/definitions/types.MoveProjectPreviewItem"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MoveRepositoryPreviewItem"
+                    }
+                },
+                "warnings": {
+                    "description": "Warnings about things that won't be moved automatically",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.MoveProjectRequest": {
+            "type": "object",
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MoveRepositoryPreviewItem": {
+            "type": "object",
+            "properties": {
+                "affected_projects": {
+                    "description": "Other projects that will lose this repo",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AffectedProjectInfo"
+                    }
+                },
+                "current_name": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "new_name": {
+                    "description": "nil if no conflict",
+                    "type": "string"
+                }
+            }
+        },
         "types.OAuthConnection": {
             "type": "object",
             "properties": {
@@ -20183,6 +20512,10 @@ const docTemplate = `{
         "types.Organization": {
             "type": "object",
             "properties": {
+                "auto_join_domain": {
+                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -20526,6 +20859,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "type": "boolean"
                 },
+                "skills": {
+                    "description": "Project-level skills - these overlay on top of agent skills\nUseful for project-specific tools like CI integration (e.g., drone-ci-mcp)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -20633,6 +20974,14 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
+                },
                 "startup_script": {
                     "type": "string"
                 },
@@ -20695,6 +21044,14 @@ const docTemplate = `{
                 "pull_request_reviews_enabled": {
                     "description": "Whether pull request reviews are enabled",
                     "type": "boolean"
+                },
+                "skills": {
+                    "description": "Project-level skills",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AssistantSkills"
+                        }
+                    ]
                 },
                 "startup_script": {
                     "type": "string"
@@ -24470,6 +24827,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/mcp.Tool"
                     }
                 },
+                "transport": {
+                    "description": "\"http\" (default, Streamable HTTP) or \"sse\" (legacy SSE transport)",
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -24958,6 +25319,10 @@ const docTemplate = `{
                 },
                 "sb": {
                     "type": "boolean"
+                },
+                "session_id": {
+                    "description": "Session this API key is scoped to (ephemeral keys)",
+                    "type": "string"
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",

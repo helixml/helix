@@ -51,22 +51,85 @@ const apiClientSingleton = new Api({
   }
 })
 
-// Add response interceptor to log 401 errors for debugging
-// NOTE: We intentionally DON'T redirect on 401 here - the account context handles auth state
-// Redirecting on any 401 was too aggressive and caused refresh loops when APIs returned 401
-// for other reasons (e.g., missing project access, not session expiration)
+// Track if we're currently refreshing to avoid multiple refresh attempts
+let isRefreshing = false
+let refreshPromise: Promise<boolean> | null = null
+
+// Attempt to refresh the token and update in-memory state
+const attemptTokenRefresh = async (): Promise<boolean> => {
+  try {
+    console.log('[API] Attempting token refresh...')
+    // Refresh updates cookies on the backend
+    await apiClientSingleton.v1AuthRefreshCreate()
+
+    // Fetch user to get the new token for in-memory storage
+    // The v1AuthUserList endpoint reads the fresh cookie and returns the token in the response
+    const userResponse = await apiClientSingleton.v1AuthUserList()
+    const newToken = (userResponse.data as any)?.token
+
+    if (newToken) {
+      // Update both axios defaults and OpenAPI client security data
+      axios.defaults.headers.common = getTokenHeaders(newToken)
+      apiClientSingleton.setSecurityData({ token: newToken })
+      console.log('[API] Token refresh successful, in-memory token updated')
+    } else {
+      console.log('[API] Token refresh successful (cookie only, no token in response)')
+    }
+
+    return true
+  } catch (refreshError) {
+    console.error('[API] Token refresh failed:', refreshError)
+    return false
+  }
+}
+
+// Add response interceptor to handle 401 errors with automatic token refresh
+// When a 401 is received (token expired), we try to refresh and retry the request
 apiClientSingleton.instance.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config
+
     if (error.response?.status === 401) {
-      const url = error.config?.url || ''
+      const url = originalRequest?.url || ''
       const isAuthEndpoint = url.includes('/api/v1/auth/')
 
-      if (!isAuthEndpoint) {
-        // Log the 401 error for debugging (but don't redirect)
-        console.error('[API] 401 Unauthorized error:', {
+      // Don't try to refresh for auth endpoints (would cause infinite loop)
+      // Also don't retry if we already tried refreshing for this request
+      if (!isAuthEndpoint && !originalRequest._retry) {
+        originalRequest._retry = true
+
+        // If we're already refreshing, wait for that to complete
+        if (isRefreshing && refreshPromise) {
+          const refreshed = await refreshPromise
+          if (refreshed) {
+            // Delete old Authorization header - the fresh cookies will be used instead
+            delete originalRequest.headers['Authorization']
+            return apiClientSingleton.instance.request(originalRequest)
+          }
+        } else {
+          // Start a new refresh
+          isRefreshing = true
+          refreshPromise = attemptTokenRefresh()
+
+          try {
+            const refreshed = await refreshPromise
+            if (refreshed) {
+              // Delete old Authorization header - the fresh cookies will be used instead
+              // The backend will use the updated access_token cookie set by the refresh endpoint
+              delete originalRequest.headers['Authorization']
+              return apiClientSingleton.instance.request(originalRequest)
+            }
+          } finally {
+            isRefreshing = false
+            refreshPromise = null
+          }
+        }
+
+        // Refresh failed, log for debugging
+        console.error('[API] 401 Unauthorized after refresh attempt:', {
           url: url,
-          method: error.config?.method,
+          method: originalRequest?.method,
           message: error.response?.data?.error || error.message
         })
       }
@@ -200,18 +263,26 @@ export const useApi = () => {
   // we can just call useApi() from anywhere and we will get the token injected into the request
   // because the top level account context has called this
   const setToken = useCallback(function(token: string) {
-    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}    
-    
+    axios.defaults.headers.common = token ? getTokenHeaders(token) : {}
+
     // Set token for OpenAPI client
     apiClientSingleton.setSecurityData({
       token: token,
-    });    
-    
+    });
+
     // Force a direct modification of the client instance's default headers as a fallback
     try {
-      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;      
+      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } catch (e) {
       console.error('Failed to set token directly on client instance:', e);
+    }
+
+    // Also set in localStorage for direct fetch() calls (e.g., filestoreService.ts)
+    // This ensures all API call paths have access to the current token
+    if (token) {
+      localStorage.setItem('token', token)
+    } else {
+      localStorage.removeItem('token')
     }
   }, [])
 

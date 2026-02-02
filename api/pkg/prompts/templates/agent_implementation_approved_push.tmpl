@@ -1,7 +1,11 @@
-Your implementation has been approved! Please push your changes now to open a Pull Request.
+Your implementation has been approved!
 
-If you have uncommitted changes, commit them first. If all changes are already committed, you can push an empty commit:
-git commit --allow-empty -m "chore: open pull request for review"
+Please commit and push any remaining uncommitted changes:
+
+```bash
+git add -A
+git commit -m "Complete implementation"
 git push origin {{ .BranchName }}
+```
 
-This will open a Pull Request in the external repository for code review.
+If all your changes are already committed and pushed, no action is needed - the Pull Request has been opened automatically.

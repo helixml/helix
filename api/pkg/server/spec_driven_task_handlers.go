@@ -171,7 +171,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		ProjectID:       projectID,
 		Status:          types.SpecTaskStatus(query.Get("status")),
 		UserID:          query.Get("user_id"),
-		Limit:           parseIntQuery(query.Get("limit"), 50),
+		Limit:           parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:          parseIntQuery(query.Get("offset"), 0),
 		IncludeArchived: query.Get("include_archived") == "true",
 		ArchivedOnly:    query.Get("archived_only") == "true",

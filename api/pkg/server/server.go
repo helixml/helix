@@ -186,6 +186,7 @@ func NewServer(
 			Store:          store,
 			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
 			TokenURL:       cfg.Auth.OIDC.TokenURL,
+			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -591,6 +592,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Anthropic API compatible routes
 	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/messages/count_tokens", apiServer.authMiddleware.auth(apiServer.anthropicTokenCountHandler)).Methods(http.MethodPost, http.MethodOptions)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 
@@ -801,6 +803,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/organization-domains", apiServer.listOrganizationDomains).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
@@ -982,6 +985,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
@@ -1132,21 +1137,15 @@ func getID(r *http.Request) string {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-
-	// if we are in prod - then the frontend has been burned into the filesystem of the container
-	// and the FrontendURL will actually have the value "/www"
-	// so this switch is "are we in dev or not"
-	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
-
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
-			apiServer.Cfg.WebServer.FrontendURL,
-		))
-	} else {
-		log.Info().Msgf("serving static UI files from %s", apiServer.Cfg.WebServer.FrontendURL)
-
-		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
-
+	if apiServer.Cfg.WebServer.ServeProdFrontendInDev {
+		const prodBuildPath = "/www"
+		log.Info().Msgf("serving production frontend from %s", prodBuildPath)
+		fileSystem := http.Dir(prodBuildPath)
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	} else {
+		const devServerURL = "http://frontend:8081"
+		log.Info().Msgf("proxying frontend requests to %s", devServerURL)
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(devServerURL))
 	}
 }
 

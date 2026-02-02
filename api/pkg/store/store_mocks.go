@@ -521,6 +521,20 @@ func (mr *MockStoreMockRecorder) CreateProjectRepository(ctx, projectID, reposit
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProjectRepository", reflect.TypeOf((*MockStore)(nil).CreateProjectRepository), ctx, projectID, repositoryID, organizationID)
 }
 
+// UpdateProjectRepository mocks base method.
+func (m *MockStore) UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProjectRepository", ctx, pr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProjectRepository indicates an expected call of UpdateProjectRepository.
+func (mr *MockStoreMockRecorder) UpdateProjectRepository(ctx, pr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProjectRepository", reflect.TypeOf((*MockStore)(nil).UpdateProjectRepository), ctx, pr)
+}
+
 // CreateProviderEndpoint mocks base method.
 func (m *MockStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -2318,6 +2332,21 @@ func (m *MockStore) GetOrganization(ctx context.Context, q *GetOrganizationQuery
 func (mr *MockStoreMockRecorder) GetOrganization(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganization", reflect.TypeOf((*MockStore)(nil).GetOrganization), ctx, q)
+}
+
+// GetOrganizationByDomain mocks base method.
+func (m *MockStore) GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrganizationByDomain", ctx, domain)
+	ret0, _ := ret[0].(*types.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrganizationByDomain indicates an expected call of GetOrganizationByDomain.
+func (mr *MockStoreMockRecorder) GetOrganizationByDomain(ctx, domain any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationByDomain", reflect.TypeOf((*MockStore)(nil).GetOrganizationByDomain), ctx, domain)
 }
 
 // GetOrganizationMembership mocks base method.

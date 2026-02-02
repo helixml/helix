@@ -164,6 +164,7 @@ type Store interface {
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error)
 	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	DeleteOrganization(ctx context.Context, id string) error
 	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
@@ -548,6 +549,7 @@ type Store interface {
 
 	// Project-Repository junction table methods (many-to-many relationship)
 	CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error
+	UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error
 	DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error
 	DeleteProjectRepositoriesByProject(ctx context.Context, projectID string) error
 	DeleteProjectRepositoriesByRepository(ctx context.Context, repositoryID string) error

@@ -58,6 +58,7 @@ var (
 // CookieManager is a helper for setting, getting and deleting cookies.
 type CookieManager struct {
 	SecureCookies bool
+	MaxAge        int // Max age in seconds, 0 = session cookie
 }
 
 func NewCookieManager(config *config.ServerConfig) *CookieManager {
@@ -77,6 +78,7 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 
 	return &CookieManager{
 		SecureCookies: secureCookies,
+		MaxAge:        config.Auth.OIDC.CookieMaxAge,
 	}
 }
 
@@ -85,7 +87,7 @@ func (cm *CookieManager) Set(w http.ResponseWriter, c Cookie, value string) {
 		Name:     c.Name,
 		Path:     c.Path,
 		Value:    value,
-		MaxAge:   int(0),
+		MaxAge:   cm.MaxAge, // 0 = session cookie, >0 = persistent cookie (seconds)
 		Secure:   cm.SecureCookies,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -490,15 +492,19 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	cookieManager.Set(w, nonceCookie, nonce)
 	// Store the original URL if provided in the "redirect_uri" query parameter
 	if loginRequest.RedirectURI != "" {
-		// Validate the redirect URI
-		if s.Cfg.WebServer.URL == "" {
-			log.Error().Msg("WebServer.URL is not set, unable to validate redirect URI")
-			http.Error(w, "unable to validate redirect URI", http.StatusBadRequest)
+		// Validate the redirect URI - must be same origin as the request
+		// This prevents open redirect attacks while allowing multiple hostnames
+		parsedRedirect, err := url.Parse(loginRequest.RedirectURI)
+		if err != nil {
+			log.Debug().Err(err).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI format")
+			http.Error(w, "invalid redirect URI format", http.StatusBadRequest)
 			return
 		}
-		if !strings.HasPrefix(loginRequest.RedirectURI, s.Cfg.WebServer.URL) {
-			log.Debug().Str("server_url", s.Cfg.WebServer.URL).Str("redirect_uri", loginRequest.RedirectURI).Msg("Invalid redirect URI")
-			http.Error(w, fmt.Sprintf("invalid redirect URI: %s != %s", loginRequest.RedirectURI, s.Cfg.WebServer.URL), http.StatusBadRequest)
+		// Get the request's origin from the Host header
+		requestHost := r.Host
+		if parsedRedirect.Host != requestHost {
+			log.Debug().Str("request_host", requestHost).Str("redirect_host", parsedRedirect.Host).Msg("Invalid redirect URI - host mismatch")
+			http.Error(w, fmt.Sprintf("invalid redirect URI: host %s does not match request host %s", parsedRedirect.Host, requestHost), http.StatusBadRequest)
 			return
 		}
 		cookieManager.Set(w, redirectURICookie, loginRequest.RedirectURI)
@@ -657,8 +663,12 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if oauth2Token.RefreshToken != "" {
 		cm.Set(w, refreshTokenCookie, oauth2Token.RefreshToken)
+		log.Info().Msg("Refresh token received and stored")
 	} else {
-		log.Debug().Msg("refresh_token is empty, ignoring")
+		// No refresh token - this is expected for providers like Google when
+		// OIDC_OFFLINE_ACCESS is not enabled. Without a refresh token, the session
+		// will expire when the access token expires (typically 1 hour for Google).
+		log.Warn().Msg("No refresh token received from OIDC provider. Set OIDC_OFFLINE_ACCESS=true for Google to enable token refresh.")
 	}
 
 	// Check if we have a stored redirect URI
@@ -702,6 +712,14 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
+		// was changed from "regular" to "oidc" and user still has old cookies
+		if looksLikeHelixJWT(accessToken) {
+			log.Warn().Msg("detected Helix JWT while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			http.Error(w, "Token format mismatch: please log in again", http.StatusUnauthorized)
+			return
+		}
 		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
 		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
@@ -741,32 +759,41 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	// Remove cookies
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
+	// Use redirect_uri from query param if provided (set by frontend from window.location.origin)
+	// This allows the logout redirect to work correctly regardless of which hostname is used
+	postLogoutRedirect := r.URL.Query().Get("redirect_uri")
+	if postLogoutRedirect == "" {
+		postLogoutRedirect = s.Cfg.WebServer.URL
+	}
+
 	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
 		// If get_url=true query param is set, return the URL as JSON instead of redirecting
 		if r.URL.Query().Get("get_url") == "true" {
-			writeResponse(w, map[string]string{"url": s.Cfg.WebServer.URL}, http.StatusOK)
+			writeResponse(w, map[string]string{"url": postLogoutRedirect}, http.StatusOK)
 			return
 		}
-		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
+		http.Redirect(w, r, postLogoutRedirect, http.StatusFound)
 		return
 	}
 
 	logoutURL, err := s.oidcClient.GetLogoutURL()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get logout URL")
-		http.Error(w, "Failed to get logout URL: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if logoutURL == "" {
-		log.Error().Msg("empty logout URL")
-		http.Error(w, "empty logout URL", http.StatusBadGateway)
+	if err != nil || logoutURL == "" {
+		// Some OIDC providers (like Google) don't have an end_session_endpoint
+		// In this case, just clear cookies and redirect back - the user is logged out of Helix
+		// but remains logged into the OIDC provider
+		log.Debug().Err(err).Msg("No OIDC logout URL available, redirecting to post-logout URL")
+		if r.URL.Query().Get("get_url") == "true" {
+			writeResponse(w, map[string]string{"url": postLogoutRedirect}, http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, postLogoutRedirect, http.StatusFound)
 		return
 	}
 
 	// Add post_logout_redirect_uri to redirect back to Helix after OIDC logout
 	// This is part of OIDC RP-Initiated Logout spec and works with most providers
 	// Also add client_id which some providers require
-	redirectURI := url.QueryEscape(s.Cfg.WebServer.URL)
+	redirectURI := url.QueryEscape(postLogoutRedirect)
 	clientID := url.QueryEscape(s.Cfg.Auth.OIDC.ClientID)
 	if strings.Contains(logoutURL, "?") {
 		logoutURL = logoutURL + "&post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
@@ -813,7 +840,17 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	case types.AuthProviderRegular:
 		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
 	default:
-		// OIDC-based auth
+		// OIDC-based auth - first check for stale Helix JWTs
+		// This can happen when AUTH_PROVIDER was changed from "regular" to "oidc"
+		// and the user still has old cookies from regular auth
+		if looksLikeHelixJWT(accessToken) {
+			log.Warn().Msg("detected Helix JWT while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			writeResponse(w, types.AuthenticatedResponse{
+				Authenticated: false,
+			}, http.StatusOK)
+			return
+		}
 		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 	}
 	if err != nil {
@@ -882,6 +919,14 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		newRefreshToken = token
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
+		// was changed from "regular" to "oidc" and user still has old cookies
+		if looksLikeHelixJWT(refreshToken) {
+			log.Warn().Msg("detected Helix JWT as refresh token while OIDC is configured - clearing cookies")
+			cm.DeleteAllCookies(w)
+			http.Error(w, "Token format mismatch: please log in again", http.StatusUnauthorized)
+			return
+		}
 		token, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to refresh access_token")

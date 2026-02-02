@@ -187,6 +187,17 @@ type OIDC struct {
 	// (e.g., http://keycloak:8080/auth/realms/helix/protocol/openid-connect/token)
 	// while the discovery response contains a browser-accessible URL (localhost:8180).
 	TokenURL string `envconfig:"OIDC_TOKEN_URL"`
+	// OfflineAccess requests offline access for refresh tokens (access_type=offline).
+	// Required for Google OIDC to return refresh tokens, which allow sessions to persist
+	// beyond the 1-hour access token lifetime. Enabled by default since it's harmless for
+	// providers that don't need it (like Keycloak) and required for providers that do (like Google).
+	OfflineAccess bool `envconfig:"OIDC_OFFLINE_ACCESS" default:"true"`
+	// CookieMaxAge sets the max age for auth cookies in seconds.
+	// Default is 0 (session cookie - expires when browser closes).
+	// Set to a positive value (e.g., 604800 = 7 days) to persist sessions across browser restarts.
+	// This is especially useful with Google OIDC + OIDC_OFFLINE_ACCESS=true, as the refresh token
+	// will be preserved and can obtain new access tokens even after the browser is closed.
+	CookieMaxAge int `envconfig:"OIDC_COOKIE_MAX_AGE" default:"0"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -417,8 +428,8 @@ type WebServer struct {
 	URL  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
-	// Can either be a URL to frontend or a path to static files
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:""`
+	// ServeProdFrontendInDev enables serving the production frontend build instead of the dev server
+	ServeProdFrontendInDev bool `envconfig:"SERVE_PROD_FRONTEND_IN_DEV" default:"false" description:"Serve production frontend build instead of dev server"`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
 	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.

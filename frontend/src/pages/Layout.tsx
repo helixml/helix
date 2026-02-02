@@ -17,6 +17,7 @@ import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
+import InstallPWA from '../components/system/InstallPWA'
 import DarkDialog from '../components/dialog/DarkDialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -25,13 +26,9 @@ import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
-import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import FloatingModal from '../components/admin/FloatingModal'
 import { useFloatingModal } from '../contexts/floatingModal'
-import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
-import DnsIcon from '@mui/icons-material/Dns'
 import UserOrgSelector from '../components/orgs/UserOrgSelector'
 
 import useRouter from '../hooks/useRouter'
@@ -387,6 +384,7 @@ const Layout: FC<{
         </Box>
         <Snackbar />
         <GlobalLoading />
+        <InstallPWA />
         {
           account.showLoginWindow && (
             config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
@@ -410,7 +408,7 @@ const Layout: FC<{
                 </DialogTitle>
                 <DialogContent>
                   <Typography>
-                    We will keep what you've done here for you, so you may continue where you left off.
+                    Sign in to access all features.
                   </Typography>
                 </DialogContent>
                 <DialogActions>
@@ -444,17 +442,17 @@ const Layout: FC<{
             <LicenseKeyPrompt /> :
             null
         }
-        {
+        {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
           )
-        }
+        */}
         {
           floatingModal.isVisible && account.admin && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }
-        {
+        {/* Floating runner state toggle button disabled
           account.admin && (
             <Box
               sx={{
@@ -469,8 +467,8 @@ const Layout: FC<{
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
                     const clickPosition = {
-                      x: rect.left - 340, // Position floating window to the left of button
-                      y: rect.top - 50    // Position slightly above the button
+                      x: rect.left - 340,
+                      y: rect.top - 50
                     }
                     floatingRunnerState.toggleFloatingRunnerState(clickPosition)
                   }}
@@ -498,7 +496,7 @@ const Layout: FC<{
               </Tooltip>
             </Box>
           )
-        }
+        */}
       </Box>
     </>
   )

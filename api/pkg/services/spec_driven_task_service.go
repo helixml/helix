@@ -149,26 +149,6 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		branchMode = types.BranchModeNew
 	}
 
-	// VALIDATION: Check for active tasks on the same branch
-	// This prevents multiple agents working on the same branch which causes confusion
-	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" {
-		existingTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			ProjectID:  req.ProjectID,
-			BranchName: req.WorkingBranch,
-		})
-		if err != nil {
-			log.Warn().Err(err).Str("branch", req.WorkingBranch).Msg("Failed to check for existing tasks on branch")
-			// Continue anyway - don't block task creation on this check
-		} else {
-			// Check if any existing task is active (not completed, cancelled, or archived)
-			for _, existingTask := range existingTasks {
-				if !isTaskInactive(existingTask) {
-					return nil, fmt.Errorf("branch '%s' already has an active task: %s (%s). Complete or archive that task first, or create a new branch", req.WorkingBranch, existingTask.Name, existingTask.ID)
-				}
-			}
-		}
-	}
-
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -361,6 +341,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
@@ -733,6 +714,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
 		OrganizationID: orgID,
+		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
