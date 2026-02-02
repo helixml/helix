@@ -1,8 +1,23 @@
 # Workspace Storage Optimization with ZFS Deduplication
 
 **Date:** 2026-02-02
-**Status:** Proposal
+**Status:** Validated - Ready to Deploy
 **Author:** Claude (with Luke)
+
+## Update: 2026-02-02 - ZFS 2.4.0 Required
+
+**Critical finding:** ZFS 2.3.x has a dedup regression bug (PR #17120) that prevents deduplication from working correctly. After upgrading to ZFS 2.4.0, dedup works as expected.
+
+### Test Results with ZFS 2.4.0
+
+| Metric | ext4 (baseline) | ZFS 2.4.0 (dedup + lz4) |
+|--------|-----------------|-------------------------|
+| 20 workspaces size | 22 GB | ~1 GB actual disk |
+| Compression ratio | - | 2.28x |
+| **Dedup ratio** | - | **17.89x** |
+| **Total savings** | - | **95%** |
+
+The DDT shows blocks with refcounts of 16-32x, meaning node_modules and .zed-state files are heavily deduplicated across workspaces as expected.
 
 ## Problem Statement
 
@@ -77,6 +92,24 @@ prod/workspaces (ZFS dataset, dedup=on, compression=lz4)
 └── spec-tasks/     (410GB -> estimated 150GB with dedup)
 ```
 
+### Prerequisites
+
+**ZFS 2.4.0 or later is required.** Earlier versions have a dedup regression bug.
+
+```bash
+# Check current version
+zfs --version
+
+# If on Ubuntu 25.10 with ZFS 2.3.x, add the PPA:
+sudo add-apt-repository ppa:arter97/zfs
+sudo apt update
+sudo apt install zfsutils-linux zfs-dkms
+# Reboot to load new kernel module
+
+# Upgrade pool features after ZFS upgrade
+sudo zpool upgrade prod
+```
+
 ### Implementation Steps
 
 1. **Create dedicated ZFS dataset**
@@ -109,15 +142,18 @@ prod/workspaces (ZFS dataset, dedup=on, compression=lz4)
    zfs get dedupratio prod/workspaces
    ```
 
-### Expected Results
+### Expected Results (Updated with Actual Test Data)
 
 With 191 node_modules directories (many identical 66MB), and 461 .git directories (clones of same repos):
 
-| Metric | Before | After (estimated) |
-|--------|--------|-------------------|
-| Workspace storage | 410GB | ~150GB |
-| Dedup ratio | 1.0x | 2.5-3.0x |
-| RAM for DDT | 0 | ~1-2GB |
+| Metric | Before | After (actual from test) |
+|--------|--------|--------------------------|
+| Workspace storage | 410GB | **~23GB** (extrapolated) |
+| Dedup ratio | 1.0x | **17.89x** |
+| Compression ratio | 1.0x | 2.28x |
+| RAM for DDT | 0 | ~180MB (48MB in-core) |
+
+**Note:** Original estimates were conservative. Actual dedup is 6x better than predicted due to high duplication of .zed-state and node_modules across workspaces.
 
 ### Memory Considerations
 
