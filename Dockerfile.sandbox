@@ -100,21 +100,29 @@ RUN apt-get update -y && \
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Install ROCm SMI for AMD GPU monitoring (optional)
+# Install ROCm SMI for AMD GPU monitoring (amd64 only, optional)
 # ====================================================================
-# Note: ROCm may not be available for all Ubuntu versions. This is optional
-# and the build will continue even if ROCm installation fails.
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends wget gnupg && \
-    mkdir -p /etc/apt/keyrings && \
-    (wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg || true) && \
-    UBUNTU_CODENAME=$(lsb_release -cs) && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 ${UBUNTU_CODENAME} main" > /etc/apt/sources.list.d/rocm.list && \
+# Note: ROCm is only available for amd64. On arm64, AMD GPU monitoring is skipped.
+RUN <<_INSTALL_ROCM
+set -e
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    apt-get update -y
+    apt-get install -y --no-install-recommends wget gnupg lsb-release
+    mkdir -p /etc/apt/keyrings
+    (wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg || true)
+    UBUNTU_CODENAME=$(lsb_release -cs)
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 ${UBUNTU_CODENAME} main" > /etc/apt/sources.list.d/rocm.list
     (apt-get update -y && apt-get install -y --no-install-recommends rocm-smi amd-smi 2>/dev/null && \
      ln -sf /opt/rocm/bin/rocm-smi /usr/local/bin/rocm-smi && \
      ln -sf /opt/rocm/bin/amd-smi /usr/local/bin/amd-smi 2>/dev/null || \
-     echo "ROCm not available for ${UBUNTU_CODENAME}, skipping AMD GPU monitoring") && \
-    rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/rocm.list 2>/dev/null || true
+     echo "ROCm not available for ${UBUNTU_CODENAME}, skipping AMD GPU monitoring")
+    rm -rf /etc/apt/sources.list.d/rocm.list 2>/dev/null || true
+else
+    echo "=== arm64: Skipping ROCm installation (amd64 only) ==="
+fi
+rm -rf /var/lib/apt/lists/*
+_INSTALL_ROCM
 
 # ====================================================================
 # Install Docker + NVIDIA Container Toolkit
@@ -139,16 +147,23 @@ RUN apt-get update -y && \
     iptables \
     && rm -rf /var/lib/apt/lists/*
 
-# NVIDIA Container Toolkit
-RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-    && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+# NVIDIA Container Toolkit (amd64 only - no NVIDIA GPU on ARM64 macOS)
+RUN <<_INSTALL_NVIDIA_TOOLKIT
+set -e
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    echo "=== Installing NVIDIA Container Toolkit for amd64 ==="
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
-    && apt-get update -y \
-    && apt-get install -y --no-install-recommends \
-    nvidia-container-toolkit \
-    nvidia-container-runtime \
-    && rm -rf /var/lib/apt/lists/*
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    apt-get update -y
+    apt-get install -y --no-install-recommends nvidia-container-toolkit nvidia-container-runtime
+else
+    echo "=== arm64: Skipping NVIDIA Container Toolkit (uses VideoToolbox on macOS host) ==="
+fi
+rm -rf /var/lib/apt/lists/*
+_INSTALL_NVIDIA_TOOLKIT
 
 # ====================================================================
 # Copy desktop image references (registry-based distribution)

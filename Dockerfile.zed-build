@@ -56,6 +56,19 @@ RUN apt-get update && apt-get install -y \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# ARM64-specific cargo config (only applies when building for aarch64)
+# - Targets native ARM64 (no QEMU emulation on Apple Silicon)
+# - Reduces memory usage for release builds (codegen-units=16, lto=false)
+# x86_64 builds are unaffected by this config
+ARG TARGETARCH
+RUN mkdir -p /root/.cargo && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        echo '# ARM64-specific: reduce memory for release builds' >> /root/.cargo/config.toml && \
+        echo '[profile.release]' >> /root/.cargo/config.toml && \
+        echo 'codegen-units = 16' >> /root/.cargo/config.toml && \
+        echo 'lto = false' >> /root/.cargo/config.toml; \
+    fi
+
 # Set working directory for builds
 WORKDIR /zed
 

@@ -52,15 +52,17 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
 
 # ====================================================================
-# Rust build stage for GStreamer zero-copy plugin (optional)
+# Rust build stage for GStreamer zero-copy plugin (amd64 only)
 # ====================================================================
 # This plugin enables GPU-accelerated video streaming:
 # - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
 # - AMD/Intel: DMA-BUF -> VA-API
 # Enable with HELIX_VIDEO_MODE=zerocopy
 #
+# NOTE: Only built for amd64 - ARM64 uses standard pipewiresrc + software encoding
 # Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+# --platform=linux/amd64 ensures this stage only builds on amd64
+FROM --platform=linux/amd64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-amd64
 WORKDIR /build
 
 # Install Rust and GStreamer dev packages
@@ -104,13 +106,26 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
+# Placeholder stage for arm64 (no zerocopy plugin)
+FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
+RUN touch /libgstpipewirezerocopy.so
+
 # ====================================================================
-# CUDA libraries stage - extract libnvrtc for GStreamer cudascale
+# CUDA libraries stage - extract libnvrtc for GStreamer cudascale (amd64 only)
 # ====================================================================
 # cudascale element requires CUDA runtime compilation library (libnvrtc)
 # We copy just this library from NVIDIA's CUDA image to keep the image small
-FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs
+# NOTE: CUDA/NVENC not available for ARM64 - video encoding happens on macOS host
+# --platform=linux/amd64 ensures this stage is always pulled as amd64
+FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
 # libnvrtc is in /usr/local/cuda/lib64/
+# Create copies with predictable names for multi-arch COPY
+RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
+    cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
+
+# Placeholder stage for arm64 (no CUDA)
+FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
+RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -237,10 +252,11 @@ _INSTALL_BASE
 
 # Install Go (version extracted from go.mod)
 # This makes Go available for agents running inside the container (Helix-in-Helix)
+# TARGETARCH is set by Docker buildx (amd64 or arm64)
 COPY go.mod /tmp/go.mod
 RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
-    echo "Installing Go ${GO_VERSION}..." && \
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz && \
+    echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
     rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
@@ -286,24 +302,27 @@ RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
 # Supports: .docx, .doc, .odt, .xlsx, .xls, .ods, .pptx, .ppt, .odp, .pdf
 # Placed early in Dockerfile for better layer caching (before COPY commands).
+# NOTE: OnlyOffice is only available for amd64, use LibreOffice on arm64
 RUN <<_INSTALL_ONLYOFFICE
 set -e
-echo "=== Installing OnlyOffice Desktop Editors ==="
-
-# Download OnlyOffice deb package
-cd /tmp
-wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
-
-# Install with dependency resolution
-apt-get update
-dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
-
-# Cleanup
-rm onlyoffice-desktopeditors_amd64.deb
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-
-echo "=== OnlyOffice Desktop Editors installed ==="
+if [ "${TARGETARCH}" = "arm64" ]; then
+    echo "=== OnlyOffice not available for arm64, installing LibreOffice ==="
+    apt-get update
+    apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc libreoffice-impress
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    echo "=== LibreOffice installed as OnlyOffice alternative ==="
+else
+    echo "=== Installing OnlyOffice Desktop Editors ==="
+    cd /tmp
+    wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
+    apt-get update
+    dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
+    rm onlyoffice-desktopeditors_amd64.deb
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    echo "=== OnlyOffice Desktop Editors installed ==="
+fi
 _INSTALL_ONLYOFFICE
 
 # Create retro user (from GOW base-app)
@@ -551,66 +570,102 @@ RUN apt-get update && \
 # Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
 # See: https://developer.chrome.com/blog/chrome-devtools-mcp
 
-RUN apt-get update && \
-    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
-    rm /tmp/google-chrome.deb && \
-    rm -rf /var/lib/apt/lists/* && \
+# Chrome installation - use Google Chrome on amd64, Chromium on arm64
+# Google Chrome doesn't provide arm64 Linux packages
+RUN <<_INSTALL_CHROME
+set -e
+apt-get update
+
+if [ "${TARGETARCH}" = "arm64" ]; then
+    echo "=== Installing Chromium for arm64 ==="
+    apt-get install -y chromium-browser
+
+    # Create compatibility symlinks so chrome-devtools-mcp works
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+
+    # Configure Chromium policies (same as Chrome)
+    mkdir -p /etc/chromium/policies/managed
+    echo '{
+      "DefaultBrowserSettingEnabled": false,
+      "MetricsReportingEnabled": false,
+      "BrowserSignin": 0,
+      "PromotionalTabsEnabled": false,
+      "SyncDisabled": true,
+      "PasswordManagerEnabled": true
+    }' > /etc/chromium/policies/managed/helix.json
+
+    echo "=== Chromium installed for arm64 ==="
+else
+    echo "=== Installing Google Chrome for amd64 ==="
+    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y
+    rm /tmp/google-chrome.deb
+
     # Configure Chrome enterprise policies (suppress all first-run dialogs)
-    mkdir -p /etc/opt/chrome/policies/managed && \
-    echo '{ \
-      "DefaultBrowserSettingEnabled": false, \
-      "MetricsReportingEnabled": false, \
-      "BrowserSignin": 0, \
-      "PromotionalTabsEnabled": false, \
-      "ShowFirstRunBubble": false, \
-      "WelcomePageOnOSUpgradeEnabled": false, \
-      "SyncDisabled": true, \
-      "ImportBookmarks": false, \
-      "ImportHistory": false, \
-      "ImportSavedPasswords": false, \
-      "ImportSearchEngine": false, \
-      "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true, \
-      "PrivacySandboxPromptEnabled": false, \
-      "PrivacySandboxAdTopicsEnabled": false, \
-      "PrivacySandboxSiteEnabledAdsEnabled": false, \
-      "PrivacySandboxAdMeasurementEnabled": false \
-    }' > /etc/opt/chrome/policies/managed/helix.json && \
+    mkdir -p /etc/opt/chrome/policies/managed
+    echo '{
+      "DefaultBrowserSettingEnabled": false,
+      "MetricsReportingEnabled": false,
+      "BrowserSignin": 0,
+      "PromotionalTabsEnabled": false,
+      "ShowFirstRunBubble": false,
+      "WelcomePageOnOSUpgradeEnabled": false,
+      "SyncDisabled": true,
+      "ImportBookmarks": false,
+      "ImportHistory": false,
+      "ImportSavedPasswords": false,
+      "ImportSearchEngine": false,
+      "RestoreOnStartup": 5,
+      "PasswordManagerEnabled": true,
+      "PrivacySandboxPromptEnabled": false,
+      "PrivacySandboxAdTopicsEnabled": false,
+      "PrivacySandboxSiteEnabledAdsEnabled": false,
+      "PrivacySandboxAdMeasurementEnabled": false
+    }' > /etc/opt/chrome/policies/managed/helix.json
+
     # Create master preferences to skip first run and welcome page
-    mkdir -p /opt/google/chrome && \
-    echo '{ \
-      "distribution": { \
-        "skip_first_run_ui": true, \
-        "suppress_first_run_default_browser_prompt": true, \
-        "do_not_create_desktop_shortcut": true, \
-        "do_not_create_quick_launch_shortcut": true, \
-        "do_not_create_taskbar_shortcut": true, \
-        "do_not_launch_chrome": true, \
-        "do_not_register_for_update_launch": true, \
-        "make_chrome_default": false, \
-        "make_chrome_default_for_user": false, \
-        "suppress_first_run_bubble": true, \
-        "import_bookmarks": false, \
-        "import_history": false, \
-        "import_home_page": false, \
-        "import_search_engine": false \
-      }, \
-      "browser": { \
-        "check_default_browser": false, \
-        "show_home_button": false \
-      }, \
-      "sync_promo": { \
-        "show_on_first_run_allowed": false \
-      }, \
-      "first_run_tabs": ["about:blank"] \
-    }' > /opt/google/chrome/master_preferences && \
+    mkdir -p /opt/google/chrome
+    echo '{
+      "distribution": {
+        "skip_first_run_ui": true,
+        "suppress_first_run_default_browser_prompt": true,
+        "do_not_create_desktop_shortcut": true,
+        "do_not_create_quick_launch_shortcut": true,
+        "do_not_create_taskbar_shortcut": true,
+        "do_not_launch_chrome": true,
+        "do_not_register_for_update_launch": true,
+        "make_chrome_default": false,
+        "make_chrome_default_for_user": false,
+        "suppress_first_run_bubble": true,
+        "import_bookmarks": false,
+        "import_history": false,
+        "import_home_page": false,
+        "import_search_engine": false
+      },
+      "browser": {
+        "check_default_browser": false,
+        "show_home_button": false
+      },
+      "sync_promo": {
+        "show_on_first_run_allowed": false
+      },
+      "first_run_tabs": ["about:blank"]
+    }' > /opt/google/chrome/master_preferences
+
     # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
-    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop
+
     # Create wrapper script so --password-store=basic is always used (even from command line)
-    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
-    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable && \
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real
+    printf '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable
     chmod +x /usr/bin/google-chrome-stable
+
+    echo "=== Google Chrome installed for amd64 ==="
+fi
+
+rm -rf /var/lib/apt/lists/*
+_INSTALL_CHROME
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
 RUN mkdir -p /etc/skel/.config/google-chrome && \
@@ -640,17 +695,65 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
-# Install to system GStreamer plugins directory
-COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
-RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+# ====================================================================
+# GStreamer zero-copy plugin and CUDA libs (amd64 only)
+# ====================================================================
+# On arm64, zerocopy mode is not available (no NVENC, encoding happens on macOS host)
+# We COPY from the platform-appropriate stage. Buildx ensures only the matching
+# platform stage is built - the --platform directive on each stage handles this.
+#
+# For amd64 builds: copies real zerocopy plugin + CUDA libs
+# For arm64 builds: copies placeholder files (skipped in RUN)
 
-# CUDA runtime compilation library (libnvrtc) for GStreamer cudascale element
-# cudascale enables GPU-accelerated video scaling in the zero-copy pipeline
-COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so.12
-COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /usr/lib/x86_64-linux-gnu/libnvrtc-builtins.so.12.6
-RUN ln -sf libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so && \
-    ldconfig
+# Copy artifacts from platform-specific stages
+COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
+COPY --from=rust-build-env-arm64 /libgstpipewirezerocopy.so /tmp/zerocopy-arm64.so
+COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
+COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
+COPY --from=cuda-libs-arm64 /libnvrtc.so.12 /tmp/libnvrtc-arm64.so.12
+COPY --from=cuda-libs-arm64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins-arm64.so.12.6
+
+# Install zerocopy plugin and CUDA libs (amd64 only)
+RUN <<_INSTALL_ZEROCOPY
+set -e
+if [ "${TARGETARCH}" = "amd64" ]; then
+    echo "=== Installing zerocopy plugin and CUDA libs for amd64 ==="
+    LIB_DIR="/usr/lib/x86_64-linux-gnu"
+
+    # Install zerocopy plugin (only if it's a real .so file, not a placeholder)
+    if file /tmp/zerocopy-amd64.so | grep -q "shared object"; then
+        cp /tmp/zerocopy-amd64.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+        chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+        echo "Zerocopy plugin installed"
+    else
+        echo "WARNING: Zerocopy plugin is placeholder, skipping"
+    fi
+
+    # Install CUDA runtime libs (only if real files)
+    if [ -s /tmp/libnvrtc.so.12 ]; then
+        cp /tmp/libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so.12
+        cp /tmp/libnvrtc-builtins.so.12.6 ${LIB_DIR}/libnvrtc-builtins.so.12.6
+        ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+        ldconfig
+        echo "CUDA runtime libs installed"
+    else
+        echo "WARNING: CUDA libs are placeholders, skipping"
+    fi
+
+    echo "=== Zerocopy setup complete ==="
+elif [ "${TARGETARCH}" = "arm64" ]; then
+    echo "=== arm64: Skipping zerocopy plugin (uses native pipewiresrc) ==="
+    echo "Video encoding happens on macOS host via VideoToolbox"
+    LIB_DIR="/usr/lib/aarch64-linux-gnu"
+    # Ensure GStreamer plugin directory exists
+    mkdir -p ${LIB_DIR}/gstreamer-1.0
+else
+    echo "=== Unknown arch ${TARGETARCH}, skipping zerocopy ==="
+fi
+
+# Cleanup temp files
+rm -f /tmp/zerocopy-*.so /tmp/libnvrtc*.so* /tmp/libnvrtc-builtins*.so*
+_INSTALL_ZEROCOPY
 
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
@@ -697,23 +800,31 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
 # ====================================================================
 # Install from mkasberg/ghostty-ubuntu community packages
 # Ghostty provides native background blur which GNOME Terminal lacks
+# On arm64, fall back to kitty (already installed) as Ghostty arm64 packages may not exist
 RUN <<_INSTALL_GHOSTTY
 set -e
-echo "=== Installing Ghostty terminal ==="
-
-# Download and install the deb package for Ubuntu 25.10 (Questing)
-# Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_amd64_25.10.deb
-GHOSTTY_TAG="1.2.3-0-ppa1"
-GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_amd64_25.10.deb"
-wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
 apt-get update
-apt-get install -y /tmp/ghostty.deb
-rm /tmp/ghostty.deb
+
+if [ "${TARGETARCH}" = "arm64" ]; then
+    echo "=== Ghostty arm64 packages not available, using kitty as terminal ==="
+    # kitty is already installed in the utilities section
+    # Create ghostty symlink to kitty for compatibility
+    ln -sf /usr/bin/kitty /usr/bin/ghostty || true
+else
+    echo "=== Installing Ghostty terminal for amd64 ==="
+    # Download and install the deb package for Ubuntu 25.10 (Questing)
+    # Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_amd64_25.10.deb
+    GHOSTTY_TAG="1.2.3-0-ppa1"
+    GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_amd64_25.10.deb"
+    wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
+    apt-get install -y /tmp/ghostty.deb
+    rm /tmp/ghostty.deb
+    echo "=== Ghostty installed ==="
+    ghostty --version || echo "Ghostty installation check"
+fi
+
 apt-get clean
 rm -rf /var/lib/apt/lists/*
-
-echo "=== Ghostty installed ==="
-ghostty --version || echo "Ghostty installation check"
 _INSTALL_GHOSTTY
 
 # Ghostty config - translucent blur background
