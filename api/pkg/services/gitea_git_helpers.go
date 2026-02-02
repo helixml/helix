@@ -37,7 +37,6 @@ var gitErrorPatterns = struct {
 	},
 	EmptyRepository: []string{
 		"couldn't find remote ref",
-		"does not appear to be a git repository",
 		"fatal: remote HEAD is ambiguous",
 	},
 	RemoteAlreadyExists: []string{
