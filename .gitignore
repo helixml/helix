@@ -91,4 +91,4 @@ screenshot-*.jpg
 # Rust build artifacts
 desktop/gst-pipewire-zerocopy/target/
 desktop/gst-pipewire-zerocopy/Cargo.lock
-qemu-utm/
+# qemu-utm/ is a tracked fork of UTM's QEMU for frame export
