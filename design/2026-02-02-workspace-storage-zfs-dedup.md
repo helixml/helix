@@ -1,14 +1,31 @@
 # Workspace Storage Optimization with ZFS Deduplication
 
 **Date:** 2026-02-02
-**Status:** Validated - Ready to Deploy
+**Status:** Deployed
 **Author:** Claude (with Luke)
 
-## Update: 2026-02-02 - ZFS 2.4.0 Required
+## Update: 2026-02-02 - Migration Complete
 
-**Critical finding:** ZFS 2.3.x has a dedup regression bug (PR #17120) that prevents deduplication from working correctly. After upgrading to ZFS 2.4.0, dedup works as expected.
+### Production Migration Results
 
-### Test Results with ZFS 2.4.0
+| Metric | Value |
+|--------|-------|
+| Original ext4 size | 427 GB |
+| Logical data migrated | 402 GB |
+| **Actual disk growth** | **35 GB** |
+| Compression ratio | 2.14x |
+| **Effective dedup+compression** | **11.5x** |
+| **Disk saved** | **367 GB (91%)** |
+| Files migrated | 19,211,290 |
+| DDT (dedup table) size | 344 MB |
+
+Configuration: `HELIX_SANDBOX_DATA=/prod/helix-workspaces` in `.env`
+
+### ZFS 2.4.0 Required
+
+**Critical finding:** ZFS 2.3.x has a dedup regression bug (PR #17120) that prevents deduplication from working correctly. After upgrading to ZFS 2.4.0 via the arter97 PPA, dedup works as expected.
+
+### Initial Test Results (20 workspaces)
 
 | Metric | ext4 (baseline) | ZFS 2.4.0 (dedup + lz4) |
 |--------|-----------------|-------------------------|
@@ -94,20 +111,27 @@ prod/workspaces (ZFS dataset, dedup=on, compression=lz4)
 
 ### Prerequisites
 
-**ZFS 2.4.0 or later is required.** Earlier versions have a dedup regression bug.
+**ZFS 2.4.0 or later is required.** ZFS 2.3.x has a dedup regression bug (PR #17120 - "Fix deduplication of overridden blocks") that causes dedup to silently fail on many block writes.
 
 ```bash
 # Check current version
 zfs --version
 
-# If on Ubuntu 25.10 with ZFS 2.3.x, add the PPA:
+# If on Ubuntu 25.10 (Questing) with ZFS 2.3.x, add the arter97 PPA:
+# This PPA provides ZFS 2.4.0 packages: https://launchpad.net/~arter97/+archive/ubuntu/zfs
 sudo add-apt-repository ppa:arter97/zfs
 sudo apt update
 sudo apt install zfsutils-linux zfs-dkms
+# Version installed: 2.4.0-0arter97~ubuntu25.10.1
+
 # Reboot to load new kernel module
+sudo reboot
+
+# After reboot, verify:
+zfs --version  # Should show zfs-2.4.0
 
 # Upgrade pool features after ZFS upgrade
-sudo zpool upgrade prod
+sudo zpool upgrade <poolname>
 ```
 
 ### Implementation Steps
