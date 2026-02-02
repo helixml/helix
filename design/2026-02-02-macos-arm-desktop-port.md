@@ -864,6 +864,92 @@ This is the "correct architecture" that keeps frame data on the GPU throughout t
 
 4. **Multiple containers** - Currently designed for single dev container. Multiple containers would need session multiplexing over vsock.
 
+## Fallback Options (If QEMU Fork Proves Impractical)
+
+**Decision**: Try zero-copy QEMU fork first. If that proves too complex or unmaintainable, fall back to these alternatives in order of preference.
+
+### Fallback 1: ivshmem Shared Memory (One Copy)
+
+**Approach**: Use QEMU's ivshmem (inter-VM shared memory) device to share memory between guest and host without modifying QEMU.
+
+```
+Guest: PipeWire DMA-BUF → copy to ivshmem (shared RAM)
+Host: mmap ivshmem → IOSurface → VideoToolbox (zero-copy on host)
+```
+
+**Setup**:
+```bash
+# Host: create shared memory file (256MB ring buffer)
+# UTM additional QEMU args:
+-device ivshmem-plain,memdev=framebuf \
+-object memory-backend-file,id=framebuf,share=on,mem-path=/tmp/helix-frames,size=256M
+```
+
+**Guest side**:
+- Load ivshmem kernel driver
+- mmap the shared memory region
+- PipeWire captures DMA-BUF → glReadPixels/vaMapBuffer to ivshmem
+- Signal host via vsock (just metadata: offset, size, timestamp, format)
+
+**Host side**:
+- mmap same file as guest
+- Create IOSurface backed by this memory (if possible) or memcpy to IOSurface
+- Encode with VideoToolbox
+- Send H.264 NALs back via vsock
+
+**Copies**: 1 (GPU→shared RAM in guest). Host side can potentially be zero-copy if IOSurface can back the shared memory.
+
+**Bandwidth**: ~180 MB/s for 1080p60 YUV420. Well within DDR bandwidth.
+
+**Pros**:
+- No QEMU fork required
+- UTM supports custom QEMU arguments
+- vsock only carries tiny signaling messages
+
+**Cons**:
+- One GPU→CPU copy in guest
+- More complex guest daemon needed
+- Ring buffer synchronization
+
+### Fallback 2: Guest Software Encoding (Simplest)
+
+**Approach**: Encode H.264 in the guest using software (x264), send compressed stream over vsock.
+
+```
+Guest: PipeWire → GStreamer → x264enc → vsock → Host
+Host: Receive H.264, forward to WebSocket (no encoding needed)
+```
+
+**This is exactly what we do on Linux**, just with x264 instead of nvh264enc.
+
+**Implementation**:
+- Reuse existing pipewirezerocopysrc with x264enc fallback
+- No changes to desktop-bridge architecture
+- vsock carries ~2-5 MB/s H.264 (vs 180 MB/s raw)
+
+**CPU Cost**: ~10-15% of one VM core for 1080p60 at "veryfast" preset. Apple Silicon VMs are fast (HVF acceleration), so this is acceptable.
+
+**Pros**:
+- No QEMU modifications
+- All existing code works
+- Minimal bandwidth over vsock
+- Proven reliable (this is our Linux fallback path)
+
+**Cons**:
+- Uses VM CPU for encoding
+- Slightly higher latency than hardware encode
+- Not "zero-copy"
+
+### Decision Matrix
+
+| Approach | Copies | QEMU Fork? | Complexity | Performance |
+|----------|--------|------------|------------|-------------|
+| QEMU virglrenderer export | 0 | Yes | High | Best |
+| ivshmem shared memory | 1 | No | Medium | Good |
+| Guest x264 encoding | 2+ | No | Low | Acceptable |
+
+**Recommendation**: Start with QEMU fork (zero-copy). If maintaining the fork becomes burdensome, fall back to guest x264 encoding (simplest) for initial release, then potentially implement ivshmem for v2.
+
 ## QEMU Frame Export Implementation Plan
 
 ### Overview
