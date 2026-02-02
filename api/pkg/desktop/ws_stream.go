@@ -660,7 +660,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		parts = append(parts,
 			"vaapipostproc",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
+			fmt.Sprintf("vaapih264enc rate-control=cqp keyframe-period=%d",
 				v.getEffectiveGOPSize()),
 		)
 		// Log if render device is configured (even though legacy plugin uses env var instead)
