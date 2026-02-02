@@ -424,10 +424,10 @@ gst_vsockenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
 {
     GstVsockEnc *self = GST_VSOCKENC(encoder);
     GstVideoInfo *info;
-    VsockFrameRequest req;
-    guint8 header[5];
+    HelixFrameRequest req;
     guint32 resource_id;
     ssize_t written;
+    gboolean force_keyframe;
 
     if (!self->connected) {
         if (!gst_vsockenc_connect(self)) {
@@ -445,31 +445,53 @@ gst_vsockenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
         /* Fall through with resource_id=0, host will handle error */
     }
 
-    /* Build frame request */
+    /* Check if keyframe is requested */
+    force_keyframe = GST_VIDEO_CODEC_FRAME_IS_FORCE_KEYFRAME(frame) ||
+                     (self->keyframe_interval > 0 &&
+                      self->frame_count % self->keyframe_interval == 0);
+
+    /* Build frame request with Helix protocol header */
+    memset(&req, 0, sizeof(req));
+    req.header.magic = HELIX_MSG_MAGIC;
+    req.header.msg_type = HELIX_MSG_FRAME_REQUEST;
+    req.header.flags = 0;
+    req.header.session_id = 1;  /* Default session */
+    req.header.payload_size = sizeof(HelixFrameRequest) - sizeof(HelixMsgHeader);
+
     req.resource_id = resource_id;
     req.width = GST_VIDEO_INFO_WIDTH(info);
     req.height = GST_VIDEO_INFO_HEIGHT(info);
-    req.format = GST_VIDEO_INFO_FORMAT(info);
+    req.stride = GST_VIDEO_INFO_PLANE_STRIDE(info, 0);
     req.pts = GST_BUFFER_PTS(frame->input_buffer);
     req.duration = GST_BUFFER_DURATION(frame->input_buffer);
+    req.force_keyframe = force_keyframe ? 1 : 0;
 
-    /* Send header: type (1 byte) + length (4 bytes) */
-    header[0] = VSOCK_MSG_FRAME_REQUEST;
-    *((guint32 *)&header[1]) = sizeof(VsockFrameRequest);
+    /* Map GStreamer format to Helix format */
+    switch (GST_VIDEO_INFO_FORMAT(info)) {
+        case GST_VIDEO_FORMAT_BGRx:
+        case GST_VIDEO_FORMAT_BGRA:
+            req.format = HELIX_FORMAT_BGRA8888;
+            break;
+        case GST_VIDEO_FORMAT_RGBx:
+        case GST_VIDEO_FORMAT_RGBA:
+            req.format = HELIX_FORMAT_RGBA8888;
+            break;
+        case GST_VIDEO_FORMAT_NV12:
+            req.format = HELIX_FORMAT_NV12;
+            break;
+        default:
+            req.format = HELIX_FORMAT_BGRA8888;  /* Default */
+            break;
+    }
 
     g_mutex_lock(&self->lock);
 
-    written = write(self->socket_fd, header, 5);
-    if (written != 5) {
-        g_mutex_unlock(&self->lock);
-        GST_ERROR_OBJECT(self, "Failed to write header");
-        return GST_FLOW_ERROR;
-    }
-
+    /* Send complete frame request message */
     written = write(self->socket_fd, &req, sizeof(req));
     if (written != sizeof(req)) {
         g_mutex_unlock(&self->lock);
-        GST_ERROR_OBJECT(self, "Failed to write frame request");
+        GST_ERROR_OBJECT(self, "Failed to write frame request: %s",
+                         g_strerror(errno));
         return GST_FLOW_ERROR;
     }
 
@@ -480,11 +502,28 @@ gst_vsockenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
 
     self->frame_count++;
 
-    GST_DEBUG_OBJECT(self, "Sent frame %lu, resource_id=%u, size=%ux%u",
+    GST_DEBUG_OBJECT(self, "Sent frame %lu, resource_id=%u, size=%ux%u, keyframe=%d",
                      self->frame_count, resource_id,
-                     req.width, req.height);
+                     req.width, req.height, force_keyframe);
 
     return GST_FLOW_OK;
+}
+
+/* Read exactly n bytes from socket */
+static gboolean
+read_exact(int fd, void *buf, size_t n)
+{
+    size_t total = 0;
+    while (total < n) {
+        ssize_t r = read(fd, (guint8 *)buf + total, n - total);
+        if (r <= 0) {
+            if (r < 0 && errno == EINTR)
+                continue;
+            return FALSE;
+        }
+        total += r;
+    }
+    return TRUE;
 }
 
 /* Thread to receive encoded frames from host */
@@ -492,8 +531,7 @@ static gpointer
 gst_vsockenc_recv_thread(gpointer data)
 {
     GstVsockEnc *self = GST_VSOCKENC(data);
-    guint8 header[5];
-    ssize_t nread;
+    HelixMsgHeader header;
 
     GST_DEBUG_OBJECT(self, "Receive thread started");
 
@@ -504,37 +542,64 @@ gst_vsockenc_recv_thread(gpointer data)
         }
 
         /* Read message header */
-        nread = read(self->socket_fd, header, 5);
-        if (nread <= 0) {
-            if (nread < 0 && errno == EAGAIN)
-                continue;
+        if (!read_exact(self->socket_fd, &header, sizeof(header))) {
             if (self->running) {
-                GST_WARNING_OBJECT(self, "Connection lost");
+                GST_WARNING_OBJECT(self, "Connection lost reading header");
                 self->connected = FALSE;
             }
             continue;
         }
 
-        guint8 msg_type = header[0];
-        guint32 msg_len = *((guint32 *)&header[1]);
+        /* Validate magic */
+        if (header.magic != HELIX_MSG_MAGIC) {
+            GST_WARNING_OBJECT(self, "Invalid message magic: 0x%08x", header.magic);
+            continue;
+        }
 
-        if (msg_type == VSOCK_MSG_FRAME_RESPONSE && msg_len > 0) {
-            /* Read response header */
-            VsockFrameResponseHeader resp_header;
-            nread = read(self->socket_fd, &resp_header, sizeof(resp_header));
-            if (nread != sizeof(resp_header)) {
-                GST_WARNING_OBJECT(self, "Failed to read response header");
+        if (header.msg_type == HELIX_MSG_FRAME_RESPONSE) {
+            /* Read frame response (minus header we already have) */
+            HelixFrameResponse resp;
+            memcpy(&resp.header, &header, sizeof(header));
+
+            size_t remaining = sizeof(HelixFrameResponse) - sizeof(HelixMsgHeader);
+            if (!read_exact(self->socket_fd, ((guint8 *)&resp) + sizeof(HelixMsgHeader),
+                           remaining)) {
+                GST_WARNING_OBJECT(self, "Failed to read frame response");
                 continue;
             }
 
-            /* Read NAL data */
-            guint8 *nal_data = g_malloc(resp_header.nal_length);
-            nread = read(self->socket_fd, nal_data, resp_header.nal_length);
-            if (nread != resp_header.nal_length) {
-                GST_WARNING_OBJECT(self, "Failed to read NAL data");
-                g_free(nal_data);
-                continue;
+            /* Read NAL units */
+            /* Format: nal_count x (uint32 size + NAL data) */
+            GstBuffer *outbuf = gst_buffer_new();
+            guint32 total_nal_size = 0;
+
+            for (guint32 i = 0; i < resp.nal_count; i++) {
+                guint32 nal_size;
+                if (!read_exact(self->socket_fd, &nal_size, sizeof(nal_size))) {
+                    GST_WARNING_OBJECT(self, "Failed to read NAL size");
+                    gst_buffer_unref(outbuf);
+                    outbuf = NULL;
+                    break;
+                }
+
+                guint8 *nal_data = g_malloc(nal_size);
+                if (!read_exact(self->socket_fd, nal_data, nal_size)) {
+                    GST_WARNING_OBJECT(self, "Failed to read NAL data");
+                    g_free(nal_data);
+                    gst_buffer_unref(outbuf);
+                    outbuf = NULL;
+                    break;
+                }
+
+                /* Append NAL to output buffer */
+                GstMemory *mem = gst_memory_new_wrapped(0, nal_data, nal_size,
+                                                         0, nal_size, nal_data, g_free);
+                gst_buffer_append_memory(outbuf, mem);
+                total_nal_size += nal_size;
             }
+
+            if (!outbuf)
+                continue;
 
             /* Find matching pending frame by PTS */
             g_mutex_lock(&self->lock);
@@ -543,7 +608,7 @@ gst_vsockenc_recv_thread(gpointer data)
             GList *l;
             for (l = self->pending_frames->head; l; l = l->next) {
                 GstVideoCodecFrame *f = l->data;
-                if (GST_BUFFER_PTS(f->input_buffer) == resp_header.pts) {
+                if (GST_BUFFER_PTS(f->input_buffer) == resp.pts) {
                     frame = f;
                     g_queue_delete_link(self->pending_frames, l);
                     break;
@@ -553,12 +618,12 @@ gst_vsockenc_recv_thread(gpointer data)
             g_mutex_unlock(&self->lock);
 
             if (frame) {
-                /* Create output buffer with NAL data */
-                GstBuffer *outbuf = gst_buffer_new_wrapped(nal_data, resp_header.nal_length);
-
-                if (resp_header.is_keyframe) {
+                if (resp.is_keyframe) {
                     GST_VIDEO_CODEC_FRAME_SET_SYNC_POINT(frame);
                 }
+
+                /* Set DTS on output buffer */
+                GST_BUFFER_DTS(outbuf) = resp.dts;
 
                 frame->output_buffer = outbuf;
 
@@ -566,13 +631,34 @@ gst_vsockenc_recv_thread(gpointer data)
                 gst_video_encoder_finish_frame(GST_VIDEO_ENCODER(self), frame);
 
                 GST_DEBUG_OBJECT(self, "Finished frame pts=%" G_GINT64_FORMAT
-                                 " keyframe=%d nal_size=%u",
-                                 resp_header.pts, resp_header.is_keyframe,
-                                 resp_header.nal_length);
+                                 " keyframe=%d nal_count=%u total_size=%u",
+                                 resp.pts, resp.is_keyframe,
+                                 resp.nal_count, total_nal_size);
             } else {
                 GST_WARNING_OBJECT(self, "No pending frame for pts=%" G_GINT64_FORMAT,
-                                   resp_header.pts);
-                g_free(nal_data);
+                                   resp.pts);
+                gst_buffer_unref(outbuf);
+            }
+        } else if (header.msg_type == HELIX_MSG_ERROR) {
+            /* Read error response */
+            HelixErrorResponse err;
+            memcpy(&err.header, &header, sizeof(header));
+
+            size_t remaining = sizeof(HelixErrorResponse) - sizeof(HelixMsgHeader);
+            if (read_exact(self->socket_fd, ((guint8 *)&err) + sizeof(HelixMsgHeader),
+                          remaining)) {
+                GST_ERROR_OBJECT(self, "Host encoder error %d: %s",
+                                 err.error_code, err.message);
+            }
+        } else if (header.msg_type == HELIX_MSG_PONG) {
+            GST_DEBUG_OBJECT(self, "Received pong");
+        } else {
+            GST_WARNING_OBJECT(self, "Unknown message type: %d", header.msg_type);
+            /* Skip payload */
+            if (header.payload_size > 0) {
+                guint8 *skip = g_malloc(header.payload_size);
+                read_exact(self->socket_fd, skip, header.payload_size);
+                g_free(skip);
             }
         }
     }
