@@ -37,11 +37,9 @@ steps:
         path: /usr/local/share/.cache/yarn
       - name: node-modules-cache
         path: /go/src/github.com/helix-ml/helix/frontend/node_modules
-      - name: frontend-build-cache
-        path: /go/src/github.com/helix-ml/helix/frontend/dist
     commands:
       - cd frontend
-      - yarn install
+      - yarn install --frozen-lockfile --check-files
       - yarn test
       - yarn build
     depends_on: []
@@ -852,9 +850,6 @@ volumes:
   - name: node-modules-cache
     host:
       path: /var/cache/drone/node_modules
-  - name: frontend-build-cache
-    host:
-      path: /var/cache/drone/frontend-build
 ---
 kind: pipeline
 type: docker
