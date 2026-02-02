@@ -1,0 +1,7 @@
+build/bin
+node_modules
+frontend/dist
+for-mac
+helix-desktop
+*.dylib
+*.a
