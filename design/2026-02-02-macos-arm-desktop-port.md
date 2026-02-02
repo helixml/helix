@@ -948,7 +948,7 @@ Host: Receive H.264, forward to WebSocket (no encoding needed)
 | ivshmem shared memory | 1 | No | Medium | Good |
 | Guest x264 encoding | 2+ | No | Low | Acceptable |
 
-**Recommendation**: Start with QEMU fork (zero-copy). If maintaining the fork becomes burdensome, fall back to guest x264 encoding (simplest) for initial release, then potentially implement ivshmem for v2.
+**Decision**: Start with QEMU fork (zero-copy). If we can't get zero-copy working (e.g., virglrenderer doesn't expose Metal textures as expected, or IOSurface isn't accessible), fall back to ivshmem shared memory (one copy). Guest software encoding is a last resort only - it likely won't achieve the "native feel" we're targeting.
 
 ## QEMU Frame Export Implementation Plan
 
