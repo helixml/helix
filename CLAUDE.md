@@ -82,9 +82,13 @@ docker compose -f docker-compose.dev.yaml up -d api
 ```
 
 ### Docker
+# ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
+- **NEVER EVER** run `docker builder prune` — this destroys hours of cached builds and makes rebuilding the entire stack take HOURS. There is NO reason to do this. If disk is full, clean up old IMAGES not build cache.
+- **NEVER** run `docker system prune` — same problem, destroys build cache
 - **NEVER** use `--no-cache` — trust Docker cache
-- **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
+- **NEVER** run ANY cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
+- **IF DISK IS FULL**: Delete old helix-ubuntu/helix-sway IMAGE TAGS (not build cache!), delete dangling volumes, or ask user. NEVER touch build cache.
 - **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
   ```bash
   # ✅ CORRECT - always use dev compose file

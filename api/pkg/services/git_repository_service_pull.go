@@ -107,6 +107,15 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		// Get remote ref commit
 		remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 		if err != nil {
+			// If remote tracking ref doesn't exist either, the remote repo is empty
+			// This is fine - nothing to sync
+			if giteagit.IsErrNotExist(err) {
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("branch", branchName).
+					Msg("Remote repository appears to be empty (no tracking ref after fetch), nothing to sync")
+				return nil
+			}
 			return fmt.Errorf("failed to get remote branch reference: %w", err)
 		}
 
@@ -127,6 +136,15 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	// Get remote ref commit
 	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
+		// If remote tracking ref doesn't exist, the remote repo is empty
+		// Local branch exists but remote is empty - nothing to sync
+		if giteagit.IsErrNotExist(err) {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("branch", branchName).
+				Msg("Remote repository appears to be empty (no tracking ref), nothing to sync")
+			return nil
+		}
 		return fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
 
@@ -183,7 +201,9 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	return nil
 }
 
-// getRemoteTrackingCommit gets the commit ID for a remote-tracking ref
+// getRemoteTrackingCommit gets the commit ID for a remote-tracking ref.
+// Returns ("", ErrNotExist) unwrapped if the ref doesn't exist (empty repo case).
+// This allows callers to use giteagit.IsErrNotExist() to detect empty repos.
 func getRemoteTrackingCommit(ctx context.Context, repoPath, branchName string) (string, error) {
 	// Use gitea's high-level API to get the ref commit ID
 	repo, err := giteagit.OpenRepository(ctx, repoPath)
@@ -194,6 +214,12 @@ func getRemoteTrackingCommit(ctx context.Context, repoPath, branchName string) (
 
 	commitID, err := repo.GetRefCommitID("refs/remotes/origin/" + branchName)
 	if err != nil {
+		// Return ErrNotExist unwrapped so callers can use IsErrNotExist.
+		// gitea's IsErrNotExist uses direct type assertion, not errors.As,
+		// so wrapping would break detection.
+		if giteagit.IsErrNotExist(err) {
+			return "", err
+		}
 		return "", fmt.Errorf("failed to get remote tracking commit: %w", err)
 	}
 	return commitID, nil
