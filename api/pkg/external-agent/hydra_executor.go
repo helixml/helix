@@ -283,11 +283,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			Str("session_id", agent.SessionID).
 			Msg("Creating isolated Docker instance via Hydra")
 
+		// NOTE: We always create a per-session dockerd, even when UseHostDocker is true.
+		// This is critical for helix-in-helix mode:
+		// - /var/run/docker.sock → per-session dockerd (for inner control plane)
+		// - /var/run/host-docker.sock → host Docker (for inner sandbox, via buildMounts)
+		//
+		// If we passed UseHostDocker here, Hydra would return the host socket for BOTH,
+		// and there would be no isolation for the inner control plane.
 		dockerReq := &hydra.CreateDockerInstanceRequest{
-			ScopeType:     hydra.ScopeTypeSession,
-			ScopeID:       agent.SessionID,
-			UserID:        agent.UserID,
-			UseHostDocker: agent.UseHostDocker,
+			ScopeType: hydra.ScopeTypeSession,
+			ScopeID:   agent.SessionID,
+			UserID:    agent.UserID,
+			// UseHostDocker intentionally NOT passed - we always want a per-session dockerd
 		}
 		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
 		if err != nil {

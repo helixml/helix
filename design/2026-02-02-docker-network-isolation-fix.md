@@ -211,6 +211,27 @@ sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
 
 ---
 
+## Fix 4: Helix-in-Helix Docker Socket Isolation
+
+**File:** `api/pkg/external-agent/hydra_executor.go`
+
+When `UseHostDocker` is true (helix-in-helix mode), we must NOT pass it to `CreateDockerInstance()`. Otherwise, Hydra returns the host docker socket for BOTH mounts, breaking isolation:
+
+**Before (broken):**
+- `/var/run/docker.sock` → host Docker (wrong!)
+- `/var/run/host-docker.sock` → host Docker
+
+**After (fixed):**
+- `/var/run/docker.sock` → per-session Hydra dockerd (for inner control plane)
+- `/var/run/host-docker.sock` → host Docker (for inner sandbox, only when UseHostDocker=true)
+
+This allows helix-in-helix to work correctly:
+1. Inner control plane (`./stack start`) runs on isolated per-session dockerd
+2. Inner sandbox uses host Docker (via `DOCKER_HOST=unix:///var/run/host-docker.sock`)
+3. No DinD-in-DinD-in-DinD issues
+
+---
+
 ## Testing Plan
 
 1. **Build and deploy changes:**
