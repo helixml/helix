@@ -270,8 +270,34 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Build mounts
-	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker)
+	// If Hydra Docker isolation is enabled, create isolated dockerd first
+	// This must happen BEFORE buildMounts so we can pass the correct Docker socket
+	var dockerSocket string
+	if agent.UseHydraDocker {
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Msg("Creating isolated Docker instance via Hydra")
+
+		dockerReq := &hydra.CreateDockerInstanceRequest{
+			ScopeType:     hydra.ScopeTypeSession,
+			ScopeID:       agent.SessionID,
+			UserID:        agent.UserID,
+			UseHostDocker: agent.UseHostDocker,
+		}
+		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create isolated Docker instance: %w", err)
+		}
+		dockerSocket = dockerResp.DockerSocket
+
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Str("docker_socket", dockerResp.DockerSocket).
+			Msg("Created isolated Docker instance")
+	}
+
+	// Build mounts - pass the Docker socket so it mounts the correct one
+	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker, dockerSocket)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
@@ -288,30 +314,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType: hydra.DevContainerType(containerType),
 		UserID:        agent.UserID,
 		Network:       "bridge",
-	}
-
-	// If Hydra Docker isolation is enabled, create isolated dockerd first
-	if agent.UseHydraDocker {
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Msg("Creating isolated Docker instance via Hydra")
-
-		dockerReq := &hydra.CreateDockerInstanceRequest{
-			ScopeType:     hydra.ScopeTypeSession,
-			ScopeID:       agent.SessionID,
-			UserID:        agent.UserID,
-			UseHostDocker: agent.UseHostDocker,
-		}
-		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create isolated Docker instance: %w", err)
-		}
-		req.DockerSocket = dockerResp.DockerSocket
-
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Str("docker_socket", dockerResp.DockerSocket).
-			Msg("Created isolated Docker instance")
+		DockerSocket:  dockerSocket,
 	}
 
 	// Create dev container via Hydra
@@ -874,7 +877,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
 // useHostDocker: if true, also mount the host Docker socket for privileged mode
-func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool) []hydra.MountConfig {
+// dockerSocket: path to the Docker socket to mount (e.g., per-session Hydra socket), empty for default
+func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool, dockerSocket string) []hydra.MountConfig {
 	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
@@ -902,11 +906,20 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	}
 
 	// Docker socket mount
-	// Note: Hydra may use isolated dockerd - DockerSocket field in request handles this
-	// For now, mount the default socket; Hydra's CreateDevContainerRequest.DockerSocket
-	// overrides this when using isolated Docker instances
+	// If dockerSocket is set (from Hydra isolation), use that specific socket.
+	// Otherwise use the default socket (sandbox's main dockerd).
+	// This ensures desktop containers using Hydra Docker isolation get their
+	// per-session dockerd socket, preventing network conflicts when users
+	// run docker-compose inside the desktop.
+	dockerSocketSource := "/var/run/docker.sock"
+	if dockerSocket != "" {
+		dockerSocketSource = dockerSocket
+		log.Debug().
+			Str("docker_socket", dockerSocket).
+			Msg("Using isolated Docker socket for desktop container")
+	}
 	mounts = append(mounts, hydra.MountConfig{
-		Source:      "/var/run/docker.sock",
+		Source:      dockerSocketSource,
 		Destination: "/var/run/docker.sock",
 		ReadOnly:    false,
 	})

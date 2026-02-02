@@ -33,6 +33,12 @@ echo "🔗 DNS: 172.17.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
 #   - sandbox-nvidia: GPU_VENDOR=nvidia
 #   - sandbox-amd-intel: GPU_VENDOR=intel
 #   - sandbox-software: GPU_VENDOR=none
+# Configure default-address-pools to use high 10.x range instead of 172.x.x.x
+# This prevents subnet conflicts with the outer Docker network (172.19.0.0/16)
+# which would cause routing issues for RevDial connections to the API.
+#
+# We use 10.213.0.0/16 - an awkward number (3×71) no human would choose.
+# See: https://docs.docker.com/reference/cli/dockerd/#daemon-configuration-file
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
@@ -46,7 +52,10 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
   "dns": ["172.17.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
-  "insecure-registries": ["registry:5000"]
+  "insecure-registries": ["registry:5000"],
+  "default-address-pools": [
+    {"base": "10.213.0.0/16", "size": 24}
+  ]
 }
 DAEMON_JSON
 else
@@ -56,7 +65,10 @@ else
   "dns": ["172.17.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
-  "insecure-registries": ["registry:5000"]
+  "insecure-registries": ["registry:5000"],
+  "default-address-pools": [
+    {"base": "10.213.0.0/16", "size": 24}
+  ]
 }
 DAEMON_JSON
 fi
