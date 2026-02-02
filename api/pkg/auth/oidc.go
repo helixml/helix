@@ -170,11 +170,8 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 		log.Error().Err(err).Msg("Failed to get oauth2 config")
 		return ""
 	}
-	// Add prompt=select_account to force the account picker (useful for Google)
-	// This ensures users can choose which account to use instead of auto-selecting
 	opts := []oauth2.AuthCodeOption{
 		oidc.Nonce(nonce),
-		oauth2.SetAuthURLParam("prompt", "select_account"),
 	}
 
 	// Add access_type=offline for Google OIDC to get refresh tokens
@@ -182,7 +179,15 @@ func (c *OIDCClient) GetAuthURL(state, nonce string) string {
 	// and users get logged out when the token expires
 	if c.cfg.OfflineAccess {
 		opts = append(opts, oauth2.AccessTypeOffline)
-		log.Debug().Msg("Requesting offline access for refresh token")
+		// IMPORTANT: For Google OIDC, we must use prompt=consent to get refresh tokens
+		// for returning users. prompt=select_account only shows the account picker but
+		// Google won't issue refresh tokens unless consent is explicitly requested.
+		// Using "consent select_account" shows both consent AND account picker.
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "consent select_account"))
+		log.Debug().Msg("Requesting offline access with consent prompt for refresh token")
+	} else {
+		// When not requesting offline access, just show the account picker
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "select_account"))
 	}
 
 	return oauth2Config.AuthCodeURL(state, opts...)

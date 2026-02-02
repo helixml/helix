@@ -28,6 +28,10 @@ var (
 	ErrNoAPIKeyFound           = errors.New("no API key found")
 	ErrNoUserIDFound           = errors.New("no user ID found")
 	ErrAppAPIKeyPathNotAllowed = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
+	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
+	// is configured. This can happen when a user has stale cookies from when the server was using
+	// regular auth. The user needs to clear their cookies and log in again via OIDC.
+	ErrHelixTokenWithOIDC = errors.New("token format mismatch: please log out and log in again")
 )
 
 type authMiddlewareConfig struct {
@@ -84,6 +88,29 @@ func (a *account) Type() accountType {
 		return accountTypeToken
 	}
 	return accountTypeInvalid
+}
+
+// looksLikeHelixJWT checks if a token appears to be a Helix-issued JWT
+// by parsing the token without verification and checking the issuer claim.
+// This is used to detect stale Helix JWTs when OIDC authentication is configured,
+// which can happen when a user has cookies from when the server used regular auth.
+func looksLikeHelixJWT(token string) bool {
+	// Parse token without validation to check claims
+	parser := jwt.NewParser()
+	parsedToken, _, err := parser.ParseUnverified(token, jwt.MapClaims{})
+	if err != nil {
+		// Not a valid JWT structure - could be a Google opaque token
+		return false
+	}
+
+	claims, ok := parsedToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+
+	// Check if issuer is "helix" - this indicates a Helix-generated JWT
+	issuer, _ := claims["iss"].(string)
+	return issuer == "helix"
 }
 
 // isAdminWithContext checks admin status.
@@ -196,6 +223,14 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	var user *types.User
 	var err error
 	if auth.oidcClient != nil {
+		// OIDC is configured - check for stale Helix JWTs before calling Google's userinfo endpoint.
+		// This can happen when a user has cookies from when the server was using regular auth,
+		// or when AUTH_PROVIDER was changed from "regular" to "oidc".
+		// Detecting this early provides a clearer error message instead of "Invalid Credentials".
+		if looksLikeHelixJWT(token) {
+			log.Warn().Msg("detected Helix JWT token while OIDC is configured - user needs to clear cookies and re-login")
+			return nil, ErrHelixTokenWithOIDC
+		}
 		// Use OIDC client for token validation (validates via userinfo endpoint)
 		user, err = auth.oidcClient.ValidateUserToken(ctx, token)
 	} else {

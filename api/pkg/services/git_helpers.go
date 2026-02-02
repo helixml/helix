@@ -264,13 +264,17 @@ func ParseDesignDocTaskIDs(files []string) (taskIDs []string, dirNamesNeedingLoo
 		taskID := lastPart
 		foundOldFormat := false
 
-		// For spt_ prefixed IDs
+		// For spt_ prefixed IDs (either "something_spt_xxx" or starts with "spt_xxx")
 		if strings.Contains(dirName, "_spt_") {
 			sptIdx := strings.LastIndex(dirName, "_spt_")
 			if sptIdx != -1 {
 				taskID = dirName[sptIdx+1:]
 				foundOldFormat = true
 			}
+		} else if strings.HasPrefix(dirName, "spt_") {
+			// Directory name IS the task ID (e.g., "spt_01kg2fg47nr167g2khc9gsa7dh")
+			taskID = dirName
+			foundOldFormat = true
 		}
 
 		// For legacy task_ prefix format

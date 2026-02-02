@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -26,10 +26,13 @@ import GitHubIcon from '@mui/icons-material/GitHub'
 import { Search, Brain, ExternalLink, CheckCircle, Cloud, Key } from 'lucide-react'
 import { SiGitlab, SiBitbucket } from 'react-icons/si'
 
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useListOAuthConnections,
   useListOAuthProviders,
   useListOAuthConnectionRepositories,
+  oauthConnectionsQueryKey,
+  oauthProvidersQueryKey,
 } from '../../services/oauthProvidersService'
 import {
   useGitProviderConnections,
@@ -41,6 +44,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import { matchesProviderType, mapProviderToRepoType, PROVIDER_TYPES } from '../../utils/oauthProviders'
 
 interface BrowseProvidersDialogProps {
   open: boolean
@@ -88,6 +92,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const snackbar = useSnackbar()
   const account = useAccount()
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const oauthPopupRef = useRef<Window | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('providers')
   const [selectedProvider, setSelectedProvider] = useState<ProviderType | null>(null)
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
@@ -112,12 +118,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const [patReposError, setPatReposError] = useState<string | null>(null)
 
   const { data: oauthConnections, isLoading: oauthConnectionsLoading } = useListOAuthConnections()
-  const { data: providers } = useListOAuthProviders()
+  const { data: providers, isLoading: providersLoading } = useListOAuthProviders()
   const { data: patConnections, isLoading: patConnectionsLoading } = useGitProviderConnections()
   const createPatConnection = useCreateGitProviderConnection()
   const deletePatConnection = useDeleteGitProviderConnection()
 
-  const connectionsLoading = oauthConnectionsLoading || patConnectionsLoading
+  const connectionsLoading = oauthConnectionsLoading || patConnectionsLoading || providersLoading
 
   // Get repositories for selected OAuth connection
   const { data: repositoriesData, isLoading: reposLoading, error: reposError } =
@@ -125,9 +131,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
   const repositories = repositoriesData?.repositories || []
 
-  // Reset state when dialog closes
+  // Reset state when dialog closes, refresh connections when it opens
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      // Refresh OAuth providers and connections when dialog opens to ensure we have latest data
+      queryClient.invalidateQueries({ queryKey: oauthProvidersQueryKey() })
+      queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
+    } else {
       setViewMode('providers')
       setSelectedProvider(null)
       setSelectedConnectionId(null)
@@ -148,32 +158,57 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     }
   }, [open])
 
+  // Track if we're waiting for OAuth connection after popup
+  const waitingForOAuthRef = useRef(false)
+
+  // Detect OAuth popup closure and refresh connections
+  useEffect(() => {
+    const checkPopupClosed = () => {
+      if (oauthPopupRef.current && oauthPopupRef.current.closed) {
+        oauthPopupRef.current = null
+        // Mark that we're waiting for connection data to refresh
+        waitingForOAuthRef.current = true
+        // Refresh OAuth connections after popup closes
+        queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
+      }
+    }
+
+    const interval = setInterval(checkPopupClosed, 500)
+    return () => clearInterval(interval)
+  }, [queryClient])
+
+  // Auto-navigate to browse-repos when OAuth connection is established
+  useEffect(() => {
+    // Only act if we're waiting for OAuth and on the choose-method screen
+    if (!waitingForOAuthRef.current || viewMode !== 'choose-method' || !selectedProvider) {
+      return
+    }
+
+    // Check if a connection now exists for the selected provider
+    const connection = oauthConnections?.find(conn =>
+      matchesProviderType(conn.provider?.type, conn.provider?.name, selectedProvider)
+    )
+
+    if (connection) {
+      // Connection established - navigate to repo browser
+      waitingForOAuthRef.current = false
+      setSelectedConnectionId(connection.id || null)
+      setViewMode('browse-repos')
+    }
+  }, [oauthConnections, viewMode, selectedProvider])
+
   // Find OAuth connection for a provider type
   const getOAuthConnectionForProvider = (providerType: ProviderType) => {
-    return oauthConnections?.find(conn => {
-      const connType = conn.provider?.type?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado'
-      }
-      if (providerType === 'bitbucket') {
-        return connType === 'bitbucket'
-      }
-      return connType === providerType
-    })
+    return oauthConnections?.find(conn =>
+      matchesProviderType(conn.provider?.type, conn.provider?.name, providerType)
+    )
   }
 
   // Find PAT connection for a provider type
   const getPatConnectionForProvider = (providerType: ProviderType) => {
-    return patConnections?.find(conn => {
-      const connType = conn.provider_type?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return connType === 'azure-devops' || connType === 'ado'
-      }
-      if (providerType === 'bitbucket') {
-        return connType === 'bitbucket'
-      }
-      return connType === providerType
-    })
+    return patConnections?.find(conn =>
+      matchesProviderType(conn.provider_type, null, providerType)
+    )
   }
 
   // Get any connection (OAuth or PAT) for a provider type
@@ -181,30 +216,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     return getOAuthConnectionForProvider(providerType) || getPatConnectionForProvider(providerType)
   }
 
-  // Find provider ID for OAuth flow
+  // Find provider ID for OAuth flow (must be enabled or enabled not explicitly set to false)
   const getProviderIdForType = (providerType: ProviderType) => {
     const provider = providers?.find(p => {
-      const pType = p.type?.toLowerCase()
-      if (providerType === 'azure-devops') {
-        return pType === 'azure-devops' || pType === 'ado'
-      }
-      return pType === providerType
+      if (p.enabled === false) return false
+      return matchesProviderType(p.type, p.name, providerType)
     })
     return provider?.id
-  }
-
-  // Map frontend provider type to API provider type
-  const mapProviderType = (provider: ProviderType): TypesExternalRepositoryType => {
-    switch (provider) {
-      case 'github':
-        return 'github' as TypesExternalRepositoryType
-      case 'gitlab':
-        return 'gitlab' as TypesExternalRepositoryType
-      case 'azure-devops':
-        return 'ado' as TypesExternalRepositoryType
-      case 'bitbucket':
-        return 'bitbucket' as TypesExternalRepositoryType
-    }
   }
 
   // Fetch repos using PAT via backend API
@@ -216,7 +234,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     try {
       const apiClient = api.getApiClient()
       const response = await apiClient.v1GitBrowseRemoteCreate({
-        provider_type: mapProviderType(provider),
+        provider_type: mapProviderToRepoType(provider),
         token: creds.pat,
         username: creds.username,
         organization_url: creds.orgUrl,
@@ -259,7 +277,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }
 
   // Handle choosing OAuth connection method
-  const handleChooseOAuth = () => {
+  const handleChooseOAuth = async () => {
     if (!selectedProvider) return
 
     const oauthConnection = getOAuthConnectionForProvider(selectedProvider)
@@ -268,11 +286,39 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setSelectedConnectionId(oauthConnection.id || null)
       setViewMode('browse-repos')
     } else {
-      // Start OAuth flow
+      // Start OAuth flow with appropriate scopes for repository access
       const providerId = getProviderIdForType(selectedProvider)
       if (providerId) {
-        sessionStorage.setItem('oauth_return_url', window.location.href)
-        window.location.href = `/api/v1/oauth/flow/start/${providerId}`
+        // Request scopes based on provider type
+        // GitHub needs 'repo' scope for read/write access to repositories
+        // GitLab needs 'read_repository,write_repository' scopes
+        let scopesParam = ''
+        if (selectedProvider === 'github') {
+          scopesParam = '?scopes=repo,read:org,read:user,user:email'
+        } else if (selectedProvider === 'gitlab') {
+          scopesParam = '?scopes=read_repository,write_repository,read_user'
+        }
+
+        try {
+          // Fetch the OAuth authorization URL
+          const response = await api.get(`/api/v1/oauth/flow/start/${providerId}${scopesParam}`)
+          const authUrl = response.auth_url || response?.data?.auth_url
+          if (authUrl) {
+            // Open in popup and track it
+            const width = 800
+            const height = 700
+            const left = (window.innerWidth - width) / 2
+            const top = (window.innerHeight - height) / 2
+            oauthPopupRef.current = window.open(
+              authUrl,
+              'oauth-popup',
+              `width=${width},height=${height},left=${left},top=${top}`
+            )
+          }
+        } catch (err) {
+          console.error('Failed to start OAuth flow:', err)
+          snackbar.error('Failed to start authorization')
+        }
       }
     }
   }
@@ -314,7 +360,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     if (saveConnection) {
       try {
         await createPatConnection.mutateAsync({
-          provider_type: mapProviderType(selectedProvider) as any,
+          provider_type: mapProviderToRepoType(selectedProvider) as any,
           token: pat,
           auth_username: creds.username,
           organization_url: creds.orgUrl,
@@ -523,23 +569,31 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Typography>
 
           <List>
-            {/* OAuth option */}
+            {/* OAuth option - highlighted when available but not connected */}
             <ListItem disablePadding sx={{ mb: 1 }}>
               <ListItemButton
                 onClick={handleChooseOAuth}
                 disabled={!hasOAuth}
                 sx={{
-                  border: 1,
-                  borderColor: 'divider',
+                  border: 2,
+                  borderColor: hasOAuth && !oauthConnection ? 'primary.main' : 'divider',
                   borderRadius: 1,
                   opacity: hasOAuth ? 1 : 0.5,
+                  bgcolor: hasOAuth && !oauthConnection ? 'action.hover' : 'transparent',
                 }}
               >
                 <ListItemIcon>
                   <ExternalLink size={24} />
                 </ListItemIcon>
                 <ListItemText
-                  primary="Connect via OAuth"
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      Connect via OAuth
+                      {hasOAuth && !oauthConnection && (
+                        <Chip label="Recommended" size="small" color="primary" sx={{ height: 20 }} />
+                      )}
+                    </Box>
+                  }
                   secondary={
                     oauthConnection
                       ? `Connected as ${oauthConnection.profile?.name || oauthConnection.profile?.email || 'user'}`

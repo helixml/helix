@@ -82,9 +82,13 @@ docker compose -f docker-compose.dev.yaml up -d api
 ```
 
 ### Docker
+# ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
+- **NEVER EVER** run `docker builder prune` — this destroys hours of cached builds and makes rebuilding the entire stack take HOURS. There is NO reason to do this. If disk is full, clean up old IMAGES not build cache.
+- **NEVER** run `docker system prune` — same problem, destroys build cache
 - **NEVER** use `--no-cache` — trust Docker cache
-- **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
+- **NEVER** run ANY cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
+- **IF DISK IS FULL**: Delete old helix-ubuntu/helix-sway IMAGE TAGS (not build cache!), delete dangling volumes, or ask user. NEVER touch build cache.
 - **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
   ```bash
   # ✅ CORRECT - always use dev compose file
@@ -153,16 +157,22 @@ helix-sandbox (outer container)
 
 ### Verify Build
 
-```bash
-# Check desktop image versions
-cat sandbox-images/helix-sway.version
-cat sandbox-images/helix-ubuntu.version
+**IMPORTANT:** After running `./stack build-ubuntu` or `./stack build-sway`, ALWAYS verify the image is ready before testing:
 
-# Verify image is available in sandbox's dockerd
-docker compose exec -T sandbox docker images | grep helix-
+```bash
+# 1. Check version file matches what was built
+cat sandbox-images/helix-ubuntu.version   # Should show new version hash (e.g., "c8ed42")
+
+# 2. Verify image exists in sandbox with correct version
+docker compose exec -T sandbox-nvidia docker images helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version) --format "Tag: {{.Tag}}, Created: {{.CreatedAt}}"
+
+# 3. If image is missing, the build transfer failed - rebuild or manually pull:
+docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version)
 ```
 
-New sessions auto-pull from local registry. Version flow: build writes `.version` files → sandbox heartbeat reads them → API looks up version from heartbeat when starting sessions. Existing containers don't update.
+**Version flow:** build writes `.version` files → pushes to local registry → pulls into sandbox's dockerd → restarts heartbeat → API reads version from heartbeat when starting sessions.
+
+**Key point:** New sessions auto-pull from the sandbox's local dockerd. Existing containers keep their old image - you must start a NEW session to use the updated image.
 
 ## Code Patterns
 

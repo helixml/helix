@@ -509,6 +509,29 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	gatewayIP := fmt.Sprintf("10.200.%d.1", bridgeIndex)
 	dnsJSON := fmt.Sprintf(`["%s"]`, gatewayIP)
 
+	// Configure default-address-pools to give each Hydra dockerd a unique range.
+	// This prevents user-created networks from using 172.x.x.x (outer Docker conflict)
+	// and ensures sessions can't accidentally get overlapping subnets.
+	//
+	// We use awkward 10.x ranges no human would choose:
+	// - Per-session dockerds: 10.112.0.0/12 (10.112.0.0 - 10.127.255.255)
+	// - Sandbox's main dockerd: 10.213.0.0/16 (separate range)
+	// Note: We avoid 100.64.0.0/10 (CGNAT) because Tailscale uses it.
+	//
+	// Allocation scheme using /20 blocks (16 /24 networks per session):
+	// - Session N (bridgeIndex 1-254) gets a unique /20 block
+	// - 16 /20 blocks fit in each /16, so sessions span 10.112.x.x through 10.127.x.x
+	// - Hydra bridges use 10.200.X.0/24 (internal veth connections only)
+	//
+	// Formula: 10.(112 + (N-1)/16).((N-1)%16 * 16).0/20
+	// - bridgeIndex 1: 10.112.0.0/20
+	// - bridgeIndex 16: 10.112.240.0/20
+	// - bridgeIndex 17: 10.113.0.0/20
+	// - bridgeIndex 254: 10.127.208.0/20
+	secondOctet := 112 + (bridgeIndex-1)/16
+	thirdOctet := ((bridgeIndex - 1) % 16) * 16
+	sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
+
 	daemonConfig := fmt.Sprintf(`{
   "runtimes": {
     "nvidia": {
@@ -519,8 +542,11 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
   "storage-driver": "overlay2",
   "log-level": "warn",
   "fixed-cidr": "%s",
-  "dns": %s
-}`, bridgeSubnet, dnsJSON)
+  "dns": %s,
+  "default-address-pools": [
+    {"base": "%s", "size": 24}
+  ]
+}`, bridgeSubnet, dnsJSON, sessionPoolBase)
 
 	if err := os.WriteFile(configFile, []byte(daemonConfig), 0644); err != nil {
 		m.deleteBridge(bridgeName)

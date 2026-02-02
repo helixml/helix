@@ -1429,6 +1429,51 @@ function transfer-desktop-to-sandbox() {
   echo "🔄 Restarting heartbeat daemon to report new version..."
   docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
   echo "✅ Image transferred and heartbeat restarted"
+
+  # Clean up old images to prevent disk exhaustion
+  # Keep only the current version tag and latest
+  echo "🧹 Cleaning up old ${IMAGE_NAME} images..."
+
+  # Clean up old images on host (keep current tag and latest)
+  local OLD_HOST_IMAGES=$(docker images "localhost:5000/${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+  if [ -n "$OLD_HOST_IMAGES" ]; then
+    echo "   Removing old host images: $(echo $OLD_HOST_IMAGES | tr '\n' ' ')"
+    for tag in $OLD_HOST_IMAGES; do
+      docker rmi "localhost:5000/${IMAGE_NAME}:${tag}" 2>/dev/null || true
+    done
+  fi
+
+  # Clean up old images inside sandbox (keep current tag and latest)
+  local OLD_SANDBOX_IMAGES=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+  if [ -n "$OLD_SANDBOX_IMAGES" ]; then
+    echo "   Removing old sandbox images: $(echo $OLD_SANDBOX_IMAGES | tr '\n' ' ')"
+    for tag in $OLD_SANDBOX_IMAGES; do
+      docker exec "$SANDBOX_CONTAINER" docker rmi "${IMAGE_NAME}:${tag}" 2>/dev/null || true
+    done
+  fi
+
+  # Prune dangling images in sandbox
+  docker exec "$SANDBOX_CONTAINER" docker image prune -f 2>/dev/null || true
+
+  # Garbage collect registry to remove orphaned layers
+  # This is safe because we only delete old manifests (above), which orphans old layers
+  # that aren't shared with the current image. Shared layers remain referenced.
+  if docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    echo "   Running registry garbage collection..."
+    # Delete old manifests from registry (keeps only current tag)
+    for old_tag in $(curl -s "http://localhost:5000/v2/${IMAGE_NAME}/tags/list" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | grep -v "^${IMAGE_TAG}$" || true); do
+      digest=$(curl -s -I -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+        "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${old_tag}" 2>/dev/null | \
+        grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+      if [ -n "$digest" ]; then
+        curl -s -X DELETE "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${digest}" 2>/dev/null || true
+      fi
+    done
+    # Run garbage-collect inside registry container (removes orphaned blobs)
+    docker compose -f docker-compose.dev.yaml exec -T registry bin/registry garbage-collect /etc/docker/registry/config.yml 2>/dev/null || true
+  fi
+
+  echo "✅ Cleanup complete"
 }
 
 # Backward compatibility wrappers
