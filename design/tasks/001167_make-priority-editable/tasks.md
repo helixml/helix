@@ -43,3 +43,9 @@
 - [x] Add keyboard navigation (Escape to cancel edit, Enter to save)
 - [x] Add empty state when no tasks match filters
 - [x] Test light/dark theme compatibility
+
+## Follow-up: Expand All Columns
+- [ ] Allow all column headers (not just backlog) to expand to table view
+- [ ] Priority editing available in all columns (can reprioritize in-progress tasks)
+- [ ] Prompt editing only available for backlog tasks (read-only once planning started)
+- [ ] Show task status in expanded view for non-backlog columns
