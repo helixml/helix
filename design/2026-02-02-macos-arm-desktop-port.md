@@ -755,6 +755,25 @@ func (u *UTMManager) GetIP() (string, error) {
 }
 ```
 
+## Desktop App UX Design
+
+### Network Access Settings
+- **Default**: Web interface only accessible on localhost (127.0.0.1)
+- **Optional**: Expose to local network (configurable in Settings page)
+- When exposed, users can be configured via the admin panel
+- Security: Off by default, explicit opt-in required
+
+### Default User Experience
+- App runs as local admin user by default (no login required for single-user)
+- Main window shows embedded web view of Helix interface
+- No separate browser needed for basic usage
+
+### Settings Page Requirements
+- Toggle: "Allow access from other devices on network" (default: OFF)
+- When ON: Show bind address (0.0.0.0) and port
+- Link to admin panel for user management (when network access enabled)
+- Warning about security implications when enabling network access
+
 ## Open Questions
 
 1. ~~**UTM embedding**: Can UTM be used as a framework, or do we need to fork/extract components?~~ **RESOLVED** - See UTM Embedding Options above
