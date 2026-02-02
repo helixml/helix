@@ -306,6 +306,10 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
+	// NOTE: DockerSocket is intentionally NOT passed here. Dev containers are always
+	// created on the sandbox's main dockerd. The per-session Hydra dockerd socket
+	// is MOUNTED into the container (via buildMounts) so users' docker commands
+	// go to their isolated dockerd, but the container itself runs on the main dockerd.
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:     agent.SessionID,
 		Image:         image,
@@ -319,7 +323,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType: hydra.DevContainerType(containerType),
 		UserID:        agent.UserID,
 		Network:       "bridge",
-		DockerSocket:  dockerSocket,
+		// DockerSocket intentionally omitted - container created on main dockerd
 	}
 
 	// Create dev container via Hydra
