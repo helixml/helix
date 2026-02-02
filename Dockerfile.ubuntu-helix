@@ -367,11 +367,11 @@ echo "**** Fixing GPU device permissions ****"
 for gpu_dev in /dev/dri/card* /dev/dri/renderD*; do
     if [ -c "$gpu_dev" ]; then
         current_group=$(stat -c "%G" "$gpu_dev")
-        if [ "$current_group" = "root" ]; then
+        if [ "$current_group" = "root" ] || [ "$current_group" = "sgx" ]; then
             if getent group video >/dev/null 2>&1; then
                 chgrp video "$gpu_dev"
                 chmod 660 "$gpu_dev"
-                echo "Changed $gpu_dev to video group"
+                echo "Changed $gpu_dev from $current_group to video group"
             else
                 chmod 666 "$gpu_dev"
                 echo "Made $gpu_dev world-accessible (no video group)"
