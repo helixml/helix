@@ -11,14 +11,14 @@ gow_log "**** Configure devices ****"
 gow_log "Fixing GPU device permissions..."
 for gpu_dev in /dev/dri/card* /dev/dri/renderD*; do
     if [ -c "$gpu_dev" ]; then
-        # Get current group - if it's root, we need to fix it
+        # Get current group - if it's root or sgx, we need to fix it
         current_group=$(stat -c "%G" "$gpu_dev")
-        if [ "$current_group" = "root" ]; then
+        if [ "$current_group" = "root" ] || [ "$current_group" = "sgx" ]; then
             # Change to video group if it exists, otherwise make world-accessible
             if getent group video >/dev/null 2>&1; then
                 chgrp video "$gpu_dev"
                 chmod 660 "$gpu_dev"
-                gow_log "Changed $gpu_dev to video group"
+                gow_log "Changed $gpu_dev from $current_group to video group"
             else
                 chmod 666 "$gpu_dev"
                 gow_log "Made $gpu_dev world-accessible (no video group)"
