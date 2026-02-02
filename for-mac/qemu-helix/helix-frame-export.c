@@ -227,7 +227,10 @@ static int create_encoder_session(HelixFrameExport *fe,
 }
 
 /*
- * Look up IOSurface for a virtio-gpu resource
+ * Look up IOSurface for a virtio-gpu resource (zero-copy)
+ *
+ * The MTLTexture MUST be backed by IOSurface. If not, this fails
+ * and we need to modify virglrenderer to create IOSurface-backed textures.
  */
 IOSurfaceRef helix_get_iosurface_for_resource(void *virtio_gpu,
                                                uint32_t resource_id)
@@ -253,14 +256,14 @@ IOSurfaceRef helix_get_iosurface_for_resource(void *virtio_gpu,
         return NULL;
     }
 
-    /* Get IOSurface from Metal texture */
+    /* Get IOSurface - texture MUST be backed by IOSurface for zero-copy */
     IOSurfaceRef surface = texture.iosurface;
     if (!surface) {
-        error_report("Metal texture has no IOSurface backing\n");
+        error_report("Metal texture has no IOSurface backing - "
+                     "virglrenderer must create IOSurface-backed textures\n");
         return NULL;
     }
 
-    /* Retain before returning */
     IOSurfaceIncrementUseCount(surface);
     return surface;
 }
