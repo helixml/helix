@@ -864,6 +864,158 @@ This is the "correct architecture" that keeps frame data on the GPU throughout t
 
 4. **Multiple containers** - Currently designed for single dev container. Multiple containers would need session multiplexing over vsock.
 
+## QEMU Frame Export Implementation Plan
+
+### Overview
+
+The QEMU modification adds a vsock-based frame export mechanism that:
+1. Receives virtio-gpu resource IDs from the guest
+2. Looks up the corresponding Metal texture via virglrenderer
+3. Encodes frames using VideoToolbox
+4. Sends H.264 NAL units back to the guest
+
+### Implementation Files
+
+**New files to create:**
+
+```
+qemu-utm/
+├── hw/display/
+│   ├── helix-frame-export.c     # Main frame export implementation
+│   └── helix-frame-export.h     # Header with protocol definitions
+├── include/hw/virtio/
+│   └── helix-frame-export.h     # Public API
+└── contrib/helix/
+    └── meson.build              # Build configuration
+```
+
+### Protocol Definition (helix-frame-export.h)
+
+```c
+#ifndef HELIX_FRAME_EXPORT_H
+#define HELIX_FRAME_EXPORT_H
+
+#include <stdint.h>
+
+// Message types
+#define HELIX_MSG_FRAME_REQUEST   1  // Guest -> Host: encode this resource
+#define HELIX_MSG_FRAME_RESPONSE  2  // Host -> Guest: encoded NAL data
+#define HELIX_MSG_KEYFRAME_REQ    3  // Guest -> Host: request keyframe
+#define HELIX_MSG_PING            4  // Keepalive
+#define HELIX_MSG_PONG            5  // Keepalive response
+
+// Frame request structure
+typedef struct HelixFrameRequest {
+    uint32_t resource_id;   // virtio-gpu resource ID
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;        // Pixel format (BGRA, NV12, etc.)
+    int64_t pts;            // Presentation timestamp (ns)
+    int64_t duration;       // Frame duration (ns)
+} __attribute__((packed)) HelixFrameRequest;
+
+// Frame response structure
+typedef struct HelixFrameResponse {
+    int64_t pts;
+    uint8_t is_keyframe;
+    uint32_t nal_size;
+    // NAL data follows
+} __attribute__((packed)) HelixFrameResponse;
+
+#endif // HELIX_FRAME_EXPORT_H
+```
+
+### Core Implementation (helix-frame-export.c)
+
+```c
+// Key functions to implement:
+
+// 1. Initialize the frame export subsystem
+int helix_frame_export_init(VirtIOGPU *g, int vsock_port);
+
+// 2. Handle incoming frame request
+static void handle_frame_request(HelixFrameExport *fe, HelixFrameRequest *req) {
+    struct virgl_renderer_resource_info_ext info_ext;
+
+    // Look up the Metal texture for this resource
+    int ret = virgl_renderer_resource_get_info_ext(req->resource_id, &info_ext);
+    if (ret != 0) {
+        error_report("Failed to get resource info for %d", req->resource_id);
+        return;
+    }
+
+    if (info_ext.native_type != VIRGL_NATIVE_HANDLE_METAL_TEXTURE) {
+        error_report("Resource %d is not a Metal texture", req->resource_id);
+        return;
+    }
+
+    // Get IOSurface from Metal texture
+    // info_ext.native_handle is MTLTexture*
+    // MTLTexture.iosurface gives us the IOSurface
+
+    // Encode with VideoToolbox
+    helix_encode_iosurface(fe->encoder, info_ext.native_handle,
+                          req->pts, req->duration);
+}
+
+// 3. Send encoded frame back to guest
+static void encoder_callback(void *ctx, CMSampleBufferRef sample) {
+    HelixFrameExport *fe = ctx;
+    // Extract NAL units and send via vsock
+    helix_send_frame_response(fe, sample);
+}
+```
+
+### Integration with virtio-gpu-virgl.c
+
+Add initialization call in `virtio_gpu_virgl_init()`:
+
+```c
+int virtio_gpu_virgl_init(VirtIOGPU *g)
+{
+    // ... existing code ...
+
+    // Initialize Helix frame export if enabled
+    if (g->conf.helix_frame_export) {
+        ret = helix_frame_export_init(g, g->conf.helix_vsock_port);
+        if (ret != 0) {
+            error_report("Failed to initialize Helix frame export: %d", ret);
+            // Non-fatal, continue without frame export
+        }
+    }
+
+    return 0;
+}
+```
+
+### Build Configuration
+
+Add to `hw/display/meson.build`:
+
+```meson
+if host_machine.system() == 'darwin'
+  softmmu_ss.add(files('helix-frame-export.c'))
+  softmmu_ss.add(dependency('videotoolbox'))
+  softmmu_ss.add(dependency('corevideo'))
+  softmmu_ss.add(dependency('coremedia'))
+endif
+```
+
+### QEMU Command Line Options
+
+Add new options for frame export:
+
+```
+-device virtio-gpu-gl-pci,helix-frame-export=on,helix-vsock-port=5000
+```
+
+### Testing Strategy
+
+1. **Unit test virglrenderer lookup**: Verify `virgl_renderer_resource_get_info_ext` returns valid Metal texture
+2. **Unit test VideoToolbox encoding**: Encode test IOSurface, verify H.264 output
+3. **Integration test**: Full guest→host→guest round trip with test resource
+4. **Performance test**: Measure frame latency and encoding throughput
+
 ## References
 
 - [UTM GitHub](https://github.com/utmapp/UTM)
