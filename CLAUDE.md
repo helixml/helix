@@ -39,6 +39,10 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
 - **NEVER** stop sessions you didn't create in the current conversation — always ask first
 
+### Workflow
+- **NEVER** ask if the user wants to take a break — just keep working
+- **NEVER** ask "should I continue?" or similar — assume yes and proceed
+
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
 - ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
