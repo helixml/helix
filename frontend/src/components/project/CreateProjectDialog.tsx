@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useContext, useMemo, useCallback } from 'react'
+import React, { FC, useState, useEffect, useContext, useMemo, useCallback, useRef } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -22,20 +22,33 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Avatar,
+  Chip,
+  InputAdornment,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { FolderGit2, Link as LinkIcon, Plus, Bot } from 'lucide-react'
+import GitHubIcon from '@mui/icons-material/GitHub'
+import LockIcon from '@mui/icons-material/Lock'
+import { FolderGit2, Link as LinkIcon, Plus, Bot, RefreshCw, Search } from 'lucide-react'
 import EditIcon from '@mui/icons-material/Edit'
-import { TypesExternalRepositoryType } from '../../api/api'
+import { TypesExternalRepositoryType, TypesRepositoryInfo } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import NewRepoForm from './forms/NewRepoForm'
-import ExternalRepoForm from './forms/ExternalRepoForm'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCreateProject } from '../../services'
+import { useListOAuthConnections, useListOAuthProviders, useListOAuthConnectionRepositories, oauthConnectionsQueryKey } from '../../services/oauthProvidersService'
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
+import useApi from '../../hooks/useApi'
 import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
+import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -68,8 +81,8 @@ interface CreateProjectDialogProps {
   reposLoading?: boolean
   // For creating new repos
   onCreateRepo?: (name: string, description: string) => Promise<TypesGitRepository | null>
-  // For linking external repos
-  onLinkRepo?: (url: string, name: string, type: TypesExternalRepositoryType, username?: string, password?: string, azureDevOps?: TypesAzureDevOps) => Promise<TypesGitRepository | null>
+  // For linking external repos (oauthConnectionId is used for OAuth-based linking)
+  onLinkRepo?: (url: string, name: string, type: TypesExternalRepositoryType, username?: string, password?: string, azureDevOps?: TypesAzureDevOps, oauthConnectionId?: string) => Promise<TypesGitRepository | null>
   // Preselect an existing repo (used when creating project from repo detail page)
   preselectedRepoId?: string
 }
@@ -86,8 +99,17 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
+  const api = useApi()
+  const queryClient = useQueryClient()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
+
+  // OAuth connections for GitHub browse
+  const { data: oauthConnections } = useListOAuthConnections()
+  const { data: oauthProviders } = useListOAuthProviders()
+
+  // Track OAuth popup window to detect when it closes
+  const oauthPopupRef = useRef<Window | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedRepoId, setSelectedRepoId] = useState('')
@@ -102,7 +124,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   // External repo linking fields
   const [externalUrl, setExternalUrl] = useState('')
   const [externalName, setExternalName] = useState('')
-  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
+  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
   const [externalUsername, setExternalUsername] = useState('')
   const [externalPassword, setExternalPassword] = useState('')
   const [externalOrgUrl, setExternalOrgUrl] = useState('')
@@ -110,6 +132,46 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
   const [creatingRepo, setCreatingRepo] = useState(false)
   const [repoError, setRepoError] = useState('')
+
+  // OAuth browse state
+  const [selectedOAuthRepo, setSelectedOAuthRepo] = useState<TypesRepositoryInfo | null>(null)
+  const [selectedOAuthConnectionId, setSelectedOAuthConnectionId] = useState<string | null>(null)
+  const [repoSearchQuery, setRepoSearchQuery] = useState('')
+
+  // Check if GitHub OAuth is connected with repo scope
+  const githubConnection = useMemo(() => {
+    return findOAuthConnectionForProvider(oauthConnections, PROVIDER_TYPES.GITHUB)
+  }, [oauthConnections])
+
+  const githubHasRepoScope = useMemo(() => {
+    if (!githubConnection) return false
+    return hasRequiredScopes(githubConnection.scopes, ['repo'])
+  }, [githubConnection])
+
+  const githubProvider = useMemo(() => {
+    return findOAuthProviderForType(oauthProviders, PROVIDER_TYPES.GITHUB)
+  }, [oauthProviders])
+
+  // Fetch GitHub repos when connected with repo scope
+  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError } =
+    useListOAuthConnectionRepositories(
+      githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
+        ? (githubConnection?.id || '')
+        : ''
+    )
+
+  const githubRepos = githubReposData?.repositories || []
+
+  // Filter repos by search query
+  const filteredGithubRepos = useMemo(() => {
+    if (!repoSearchQuery) return githubRepos
+    const query = repoSearchQuery.toLowerCase()
+    return githubRepos.filter(repo =>
+      repo.name?.toLowerCase().includes(query) ||
+      repo.full_name?.toLowerCase().includes(query) ||
+      repo.description?.toLowerCase().includes(query)
+    )
+  }, [githubRepos, repoSearchQuery])
 
   // Agent selection state
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
@@ -139,6 +201,30 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       .replace(/-+/g, '-')           // Collapse multiple hyphens
       .replace(/^-|-$/g, '')         // Remove leading/trailing hyphens
   }
+
+  // Open OAuth popup for GitHub authorization
+  const openOAuthPopup = useCallback(async (providerId: string) => {
+    try {
+      const response = await api.get(
+        `/api/v1/oauth/flow/start/${providerId}?scopes=repo,read:org,read:user,user:email`
+      )
+      const authUrl = response.auth_url || response?.data?.auth_url
+      if (authUrl) {
+        const width = 800
+        const height = 700
+        const left = (window.innerWidth - width) / 2
+        const top = (window.innerHeight - height) / 2
+        oauthPopupRef.current = window.open(
+          authUrl,
+          'oauth-popup',
+          `width=${width},height=${height},left=${left},top=${top}`
+        )
+      }
+    } catch (err) {
+      console.error('Failed to start OAuth flow:', err)
+      snackbar.error('Failed to start GitHub authorization')
+    }
+  }, [api, snackbar])
 
   // Auto-sync repo name from project name (if user hasn't modified it)
   useEffect(() => {
@@ -188,12 +274,16 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setUserModifiedRepoName(false)
       setExternalUrl('')
       setExternalName('')
-      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
+      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
       setExternalUsername('')
       setExternalPassword('')
       setExternalOrgUrl('')
       setExternalToken('')
       setRepoError('')
+      // Reset OAuth browse state
+      setSelectedOAuthRepo(null)
+      setSelectedOAuthConnectionId(null)
+      setRepoSearchQuery('')
       // Reset agent state
       setSelectedAgentId('')
       setShowCreateAgentForm(false)
@@ -229,6 +319,20 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
   }, [open, apps, sortedApps, selectedAgentId])
+
+  // Detect OAuth popup closure and refresh connections
+  useEffect(() => {
+    const checkPopupClosed = () => {
+      if (oauthPopupRef.current && oauthPopupRef.current.closed) {
+        oauthPopupRef.current = null
+        // Refresh OAuth connections after popup closes
+        queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
+      }
+    }
+
+    const interval = setInterval(checkPopupClosed, 500)
+    return () => clearInterval(interval)
+  }, [queryClient])
 
   // Handle creating a new agent
   const handleCreateAgent = async (): Promise<string | null> => {
@@ -276,6 +380,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     } finally {
       setCreatingAgent(false)
     }
+  }
+
+  // Handle inline repo selection from GitHub OAuth list
+  const handleSelectGitHubRepo = (repo: TypesRepositoryInfo) => {
+    setSelectedOAuthRepo(repo)
+    setSelectedOAuthConnectionId(githubConnection?.id || null)
+    setExternalUrl(repo.clone_url || repo.html_url || '')
+    setExternalName(repo.name || '')
   }
 
   const handleSubmit = async () => {
@@ -354,10 +466,17 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         return
       }
 
-      // ADO validation
+      // ADO validation - requires org URL and PAT
       if (externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!externalOrgUrl.trim() || !externalToken.trim())) {
         setRepoError('Organization URL and Personal Access Token are required for Azure DevOps')
         return
+      }
+
+      // GitHub/GitLab validation - skip if using OAuth connection
+      const usingOAuth = !!selectedOAuthConnectionId
+      if (!usingOAuth && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && !externalToken.trim()) {
+        // Allow without token for public repos, but warn
+        console.log('[CreateProjectDialog] Linking GitHub repo without token - will only work for public repos')
       }
 
       setCreatingRepo(true)
@@ -373,8 +492,9 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           repoName,
           externalType,
           externalUsername || undefined,
-          externalPassword || undefined,
-          azureDevOps
+          externalPassword || externalToken || undefined, // Use token as password for GitHub/GitLab
+          azureDevOps,
+          selectedOAuthConnectionId || undefined // Pass OAuth connection ID
         )
         if (!linkedRepo?.id) {
           setRepoError('Failed to link repository')
@@ -586,23 +706,338 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                 )}
 
                 {repoMode === 'link' && (
-                  <ExternalRepoForm
-                    url={externalUrl}
-                    onUrlChange={setExternalUrl}
-                    name={externalName}
-                    onNameChange={setExternalName}
-                    type={externalType}
-                    onTypeChange={setExternalType}
-                    username={externalUsername}
-                    onUsernameChange={setExternalUsername}
-                    password={externalPassword}
-                    onPasswordChange={setExternalPassword}
-                    organizationUrl={externalOrgUrl}
-                    onOrganizationUrlChange={setExternalOrgUrl}
-                    token={externalToken}
-                    onTokenChange={setExternalToken}
-                    size="small"
-                  />
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* Repository Type selector - always shown */}
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Repository Type</InputLabel>
+                      <Select
+                        value={externalType}
+                        label="Repository Type"
+                        onChange={(e) => {
+                          setExternalType(e.target.value as TypesExternalRepositoryType)
+                          // Clear OAuth selection when changing type
+                          if (selectedOAuthRepo) {
+                            setSelectedOAuthRepo(null)
+                            setSelectedOAuthConnectionId(null)
+                            setExternalUrl('')
+                            setExternalName('')
+                          }
+                        }}
+                      >
+                        <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub</MenuItem>
+                        <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab</MenuItem>
+                        <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeADO}>Azure DevOps</MenuItem>
+                        <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket}>Bitbucket (coming soon)</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    {/* CASE 1: GitHub + OAuth with repo scope - Inline repo browser */}
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubHasRepoScope && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {/* Search field */}
+                        <TextField
+                          fullWidth
+                          size="small"
+                          placeholder="Search your repositories..."
+                          value={repoSearchQuery}
+                          onChange={(e) => setRepoSearchQuery(e.target.value)}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Search size={18} />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+
+                        {/* Error state */}
+                        {githubReposError && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            {githubReposError instanceof Error ? githubReposError.message : 'Failed to load repositories'}
+                          </Alert>
+                        )}
+
+                        {/* Loading state */}
+                        {githubReposLoading ? (
+                          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                            <CircularProgress size={24} />
+                          </Box>
+                        ) : filteredGithubRepos.length === 0 ? (
+                          <Box sx={{ textAlign: 'center', py: 3 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              {repoSearchQuery ? 'No repositories match your search' : 'No repositories found'}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          /* Repo list */
+                          <List
+                            sx={{
+                              maxHeight: 200,
+                              overflow: 'auto',
+                              border: 1,
+                              borderColor: 'divider',
+                              borderRadius: 1,
+                              bgcolor: 'background.paper',
+                            }}
+                            dense
+                          >
+                            {filteredGithubRepos.map((repo, index) => {
+                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
+                                selectedOAuthRepo?.id === repo.id
+                              return (
+                                <ListItem key={repo.id || repo.full_name || index} disablePadding>
+                                  <ListItemButton
+                                    selected={isSelected}
+                                    onClick={() => handleSelectGitHubRepo(repo)}
+                                    sx={{
+                                      '&.Mui-selected': {
+                                        bgcolor: 'action.selected',
+                                        '&:hover': { bgcolor: 'action.selected' },
+                                      },
+                                    }}
+                                  >
+                                    <ListItemIcon sx={{ minWidth: 36 }}>
+                                      <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem', bgcolor: 'action.hover' }}>
+                                        {repo.name?.[0]?.toUpperCase() || 'R'}
+                                      </Avatar>
+                                    </ListItemIcon>
+                                    <ListItemText
+                                      primary={repo.full_name || repo.name}
+                                      secondary={repo.description || 'No description'}
+                                      primaryTypographyProps={{ variant: 'body2' }}
+                                      secondaryTypographyProps={{ variant: 'caption', noWrap: true }}
+                                    />
+                                    {repo.private && (
+                                      <Chip
+                                        icon={<LockIcon sx={{ fontSize: 12 }} />}
+                                        label="Private"
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{ height: 20, '& .MuiChip-label': { px: 0.5, fontSize: '0.65rem' } }}
+                                      />
+                                    )}
+                                  </ListItemButton>
+                                </ListItem>
+                              )
+                            })}
+                          </List>
+                        )}
+
+                        {/* Selected repo details */}
+                        {selectedOAuthRepo && (
+                          <Box sx={{ mt: 1 }}>
+                            <TextField
+                              label="Display Name in Helix (optional)"
+                              fullWidth
+                              size="small"
+                              value={externalName}
+                              onChange={(e) => setExternalName(e.target.value)}
+                              helperText="Name shown in Helix. Leave empty to use the repository name."
+                            />
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+
+                    {/* CASE 2: GitHub + OAuth without repo scope - Upgrade prompt + PAT fallback */}
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubConnection && !githubHasRepoScope && githubProvider && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Alert
+                          severity="info"
+                          action={
+                            <Button
+                              color="inherit"
+                              size="small"
+                              startIcon={<RefreshCw size={14} />}
+                              onClick={() => openOAuthPopup(githubProvider.id)}
+                            >
+                              Upgrade
+                            </Button>
+                          }
+                        >
+                          Upgrade your GitHub connection to browse repos directly.
+                        </Alert>
+                        <Divider>
+                          <Typography variant="caption" color="text.secondary">
+                            or use Personal Access Token
+                          </Typography>
+                        </Divider>
+                        <TextField
+                          label="Repository URL"
+                          fullWidth
+                          size="small"
+                          value={externalUrl}
+                          onChange={(e) => setExternalUrl(e.target.value)}
+                          placeholder="https://github.com/owner/repository"
+                          helperText="HTTPS URL to the GitHub repository"
+                          required
+                        />
+                        <TextField
+                          label="Display Name in Helix (optional)"
+                          fullWidth
+                          size="small"
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
+                          helperText="Name shown in Helix. Leave empty to use the repository name."
+                        />
+                        <TextField
+                          label="Personal Access Token"
+                          fullWidth
+                          size="small"
+                          type="password"
+                          value={externalToken}
+                          onChange={(e) => setExternalToken(e.target.value)}
+                          placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                          helperText="Required for private repositories"
+                        />
+                      </Box>
+                    )}
+
+                    {/* CASE 3: GitHub but no OAuth connection - PAT form with hint */}
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && !githubConnection && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {githubProvider && (
+                          <Alert
+                            severity="info"
+                            action={
+                              <Button
+                                color="inherit"
+                                size="small"
+                                onClick={() => openOAuthPopup(githubProvider.id)}
+                              >
+                                Connect
+                              </Button>
+                            }
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              Connect via OAuth
+                              <Chip label="Recommended" size="small" color="primary" sx={{ height: 20 }} />
+                            </Box>
+                          </Alert>
+                        )}
+                        <TextField
+                          label="Repository URL"
+                          fullWidth
+                          size="small"
+                          value={externalUrl}
+                          onChange={(e) => setExternalUrl(e.target.value)}
+                          placeholder="https://github.com/owner/repository"
+                          helperText="HTTPS URL to the GitHub repository"
+                          required
+                        />
+                        <TextField
+                          label="Display Name in Helix (optional)"
+                          fullWidth
+                          size="small"
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
+                          helperText="Name shown in Helix. Leave empty to use the repository name."
+                        />
+                        <TextField
+                          label="Personal Access Token"
+                          fullWidth
+                          size="small"
+                          type="password"
+                          value={externalToken}
+                          onChange={(e) => setExternalToken(e.target.value)}
+                          placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                          helperText="Required for private repositories"
+                        />
+                      </Box>
+                    )}
+
+                    {/* CASE 4: Non-GitHub providers - standard forms */}
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitLab && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <TextField
+                          label="Repository URL"
+                          fullWidth
+                          size="small"
+                          value={externalUrl}
+                          onChange={(e) => setExternalUrl(e.target.value)}
+                          placeholder="https://gitlab.com/group/project"
+                          helperText="HTTPS URL to the GitLab project"
+                          required
+                        />
+                        <TextField
+                          label="Display Name in Helix (optional)"
+                          fullWidth
+                          size="small"
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
+                          helperText="Name shown in Helix. Leave empty to use the repository name."
+                        />
+                        <TextField
+                          label="Personal Access Token"
+                          fullWidth
+                          size="small"
+                          type="password"
+                          value={externalToken}
+                          onChange={(e) => setExternalToken(e.target.value)}
+                          placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+                          helperText="Required for private repositories (needs read_repository scope)"
+                        />
+                      </Box>
+                    )}
+
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <TextField
+                          label="Repository URL"
+                          fullWidth
+                          size="small"
+                          value={externalUrl}
+                          onChange={(e) => setExternalUrl(e.target.value)}
+                          placeholder="https://dev.azure.com/organization/project/_git/repository"
+                          helperText="Paste the full URL - organization will be auto-filled"
+                          required
+                        />
+                        <TextField
+                          label="Display Name in Helix (optional)"
+                          fullWidth
+                          size="small"
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
+                          helperText="Name shown in Helix. Leave empty to use the repository name."
+                        />
+                        <TextField
+                          label="Organization URL"
+                          fullWidth
+                          size="small"
+                          required
+                          value={externalOrgUrl}
+                          onChange={(e) => setExternalOrgUrl(e.target.value)}
+                          placeholder="https://dev.azure.com/organization"
+                          helperText="Azure DevOps organization URL"
+                        />
+                        <TextField
+                          label="Personal Access Token"
+                          fullWidth
+                          size="small"
+                          required
+                          type="password"
+                          value={externalToken}
+                          onChange={(e) => setExternalToken(e.target.value)}
+                          helperText="Personal Access Token for Azure DevOps"
+                        />
+                      </Box>
+                    )}
+
+                    {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Alert severity="warning">Bitbucket support coming soon</Alert>
+                        <TextField
+                          label="Repository URL"
+                          fullWidth
+                          size="small"
+                          value={externalUrl}
+                          onChange={(e) => setExternalUrl(e.target.value)}
+                          placeholder="https://bitbucket.org/owner/repository"
+                          disabled
+                        />
+                      </Box>
+                    )}
+                  </Box>
                 )}
               </Box>
             </AccordionDetails>
