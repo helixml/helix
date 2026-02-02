@@ -21,13 +21,14 @@ echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
-# DNS is configured to use dns-proxy (172.17.0.1) which forwards to outer Docker DNS.
+# DNS is configured to use dns-proxy (10.213.0.1) which forwards to outer Docker DNS.
 # This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
 # Search domains are NOT needed for FQDNs - they're only for short hostnames.
+# NOTE: We use 10.213.0.1 because default-address-pools sets docker0 to 10.213.0.0/24
 # ================================================================================
 mkdir -p /etc/docker
 
-echo "🔗 DNS: 172.17.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
+echo "🔗 DNS: 10.213.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
 
 # GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile:
 #   - sandbox-nvidia: GPU_VENDOR=nvidia
@@ -49,7 +50,7 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
       "runtimeArgs": []
     }
   },
-  "dns": ["172.17.0.1"],
+  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
@@ -62,7 +63,7 @@ else
     echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 {
-  "dns": ["172.17.0.1"],
+  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
