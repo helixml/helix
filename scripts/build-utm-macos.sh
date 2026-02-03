@@ -66,12 +66,13 @@ xcodebuild -project UTM.xcodeproj \
 echo ""
 echo "Fixing MoltenVK packaging..."
 MOLTENVK_DYLIB="sysroot-macOS-arm64/lib/libMoltenVK.dylib"
-UTM_APP="build-macOS-arm64/UTM.app"
-VULKAN_DIR="$UTM_APP/Contents/Resources/vulkan"
+UTM_APP="build/Build/Products/Release/UTM.app"
+VULKAN_ICD_DIR="$UTM_APP/Contents/Resources/vulkan/icd.d"
 
-if [ -f "$MOLTENVK_DYLIB" ] && [ -d "$VULKAN_DIR" ]; then
-    cp "$MOLTENVK_DYLIB" "$VULKAN_DIR/"
-    echo "✓ Copied libMoltenVK.dylib to $VULKAN_DIR/"
+if [ -f "$MOLTENVK_DYLIB" ] && [ -d "$VULKAN_ICD_DIR" ]; then
+    cp "$MOLTENVK_DYLIB" "$VULKAN_ICD_DIR/"
+    echo "✓ Copied libMoltenVK.dylib to $VULKAN_ICD_DIR/"
+    echo "  (MoltenVK_icd.json expects ./libMoltenVK.dylib relative to icd.d/)"
 else
     echo "WARNING: Could not copy MoltenVK dylib (Venus/Vulkan may not work)"
 fi

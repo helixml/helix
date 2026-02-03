@@ -1426,22 +1426,30 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
 
 | Renderer Backend | Vulkan Driver | Vulkan Result | OpenGL Result | Notes |
 |------------------|---------------|---------------|---------------|-------|
-| Default | Default | llvmpipe | virgl(?) | Original config, baseline |
+| Default | Default | llvmpipe | virgl | Original config, baseline |
 | ANGLE (OpenGL) | MoltenVK | llvmpipe | llvmpipe | Both fail |
-| Default | MoltenVK | llvmpipe | llvmpipe | Both fail |
+| Default | MoltenVK | **Venus (M3 Ultra)** ✅ | virgl | **WORKING!** |
 | ANGLE (Metal) | KosmicKrisp | llvmpipe | llvmpipe | Both fail |
 
+**Venus/Vulkan Success:**
+- **Device**: `Virtio-GPU Venus (Apple M3 Ultra)` ✅
+- **Driver**: Mesa Venus 25.2.8
+- **Root cause**: libMoltenVK.dylib was in wrong location
+- **Fix**: MoltenVK_icd.json uses relative path `./libMoltenVK.dylib`, needs dylib in `icd.d/` directory
+- **Solution**: Copy libMoltenVK.dylib to `UTM.app/Contents/Resources/vulkan/icd.d/`
+- **Updated**: build-utm-macos.sh now installs MoltenVK correctly
+
 **Key Findings:**
-- Venus/Vulkan NOT working in any configuration tested
-- Command-line tests (`vulkaninfo`, `glxinfo` via Xvfb) show software rendering (llvmpipe)
-- **However**: Desktop feels responsive, suggesting actual compositor (GNOME on Wayland) may be using GPU
-- Possible explanation: virgl works for console display, not for Xvfb virtual displays over SSH
+- Venus/Vulkan NOW WORKING with Default renderer + MoltenVK driver ✅
+- Guest Vulkan apps use Apple M3 Ultra GPU via MoltenVK on host
+- virgl OpenGL still works (shows "virgl" renderer)
+- Build script updated to fix MoltenVK packaging automatically
 
 **Conclusion for Phase 1:**
-- Proceed with OpenGL/virgl path (Default + Default config)
-- Test actual Helix sandbox frame capture to see real performance
-- Venus/Vulkan can be revisited in Phase 2 if needed
-- Desktop responsiveness suggests GPU acceleration is working for actual displays
+- ✅ Venus/Vulkan acceleration working end-to-end
+- ✅ OpenGL/virgl acceleration working
+- **Recommended config**: Default renderer + MoltenVK (QEMURendererBackend=0, QEMUVulkanDriver=2)
+- Guest can use both Vulkan (via Venus) and OpenGL (via virgl) simultaneously
 
 **VM Setup Status:**
 - ✅ SSH access working (port 2222)
