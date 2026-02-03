@@ -396,7 +396,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
             />
           </Box>
 
-          <Box sx={{ flex: 1, overflow: 'hidden' }}>
+          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <DiffContent
               file={fileContent}
               isLoading={loadingFileContent}
