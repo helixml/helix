@@ -105,9 +105,36 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # DISABLED FOR ARM64-ONLY BUILD:     cargo clean && \
 # DISABLED FOR ARM64-ONLY BUILD:     cargo build --release && \
 # DISABLED FOR ARM64-ONLY BUILD:     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
-# DISABLED FOR ARM64-ONLY BUILD: 
-# Placeholder stage for arm64 (no zerocopy plugin)
+# DISABLED FOR ARM64-ONLY BUILD:
+# ARM64 build stage - vsockenc GStreamer plugin (delegates encoding to host VideoToolbox)
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
+WORKDIR /build
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    meson \
+    ninja-build \
+    pkg-config \
+    gcc \
+    g++ \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libdrm-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy vsockenc plugin source
+COPY desktop/gst-vsockenc ./gst-vsockenc/
+
+# Build vsockenc with meson
+RUN cd gst-vsockenc && \
+    meson setup builddir --prefix=/usr --libdir=lib && \
+    meson compile -C builddir && \
+    meson install -C builddir --destdir=/install
+
+# Extract the built plugin to known location
+RUN find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
+
+# Placeholder zerocopy (not used on ARM64)
 RUN touch /libgstpipewirezerocopy.so
 
 # ====================================================================
@@ -708,6 +735,7 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # Copy artifacts from platform-specific stages
 # DISABLED FOR ARM64-ONLY BUILD: COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
 COPY --from=rust-build-env-arm64 /libgstpipewirezerocopy.so /tmp/zerocopy-arm64.so
+COPY --from=rust-build-env-arm64 /libgstvsockenc.so /tmp/vsockenc-arm64.so
 # DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
 # DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 COPY --from=cuda-libs-arm64 /libnvrtc.so.12 /tmp/libnvrtc-arm64.so.12
@@ -742,17 +770,24 @@ if [ "${TARGETARCH}" = "amd64" ]; then
 
     echo "=== Zerocopy setup complete ==="
 elif [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== arm64: Skipping zerocopy plugin (uses native pipewiresrc) ==="
-    echo "Video encoding happens on macOS host via VideoToolbox"
+    echo "=== arm64: Installing vsockenc plugin for VideoToolbox delegation ==="
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
-    # Ensure GStreamer plugin directory exists
     mkdir -p ${LIB_DIR}/gstreamer-1.0
+
+    # Install vsockenc plugin (delegates encoding to host VideoToolbox)
+    if [ -f /tmp/vsockenc-arm64.so ] && file /tmp/vsockenc-arm64.so | grep -q "shared object"; then
+        cp /tmp/vsockenc-arm64.so ${LIB_DIR}/gstreamer-1.0/libgstvsockenc.so
+        chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstvsockenc.so
+        echo "vsockenc plugin installed - video encoding will use host VideoToolbox"
+    else
+        echo "WARNING: vsockenc plugin build failed or missing"
+    fi
 else
     echo "=== Unknown arch ${TARGETARCH}, skipping zerocopy ==="
 fi
 
 # Cleanup temp files
-rm -f /tmp/zerocopy-*.so /tmp/libnvrtc*.so* /tmp/libnvrtc-builtins*.so*
+rm -f /tmp/zerocopy-*.so /tmp/vsockenc-*.so /tmp/libnvrtc*.so* /tmp/libnvrtc-builtins*.so*
 _INSTALL_ZEROCOPY
 
 # AI agent privacy configs
