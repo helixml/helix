@@ -14,7 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func skipIfNoGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available in PATH")
+	}
+}
+
 func setupTestGitRepo(t *testing.T) string {
+	skipIfNoGit(t)
 	t.Helper()
 	dir := t.TempDir()
 
@@ -115,6 +123,7 @@ func TestResolveBaseBranch(t *testing.T) {
 }
 
 func TestResolveBaseBranch_NoValidBranch(t *testing.T) {
+	skipIfNoGit(t)
 	dir := t.TempDir()
 	runGit := func(args ...string) {
 		cmd := exec.Command("git", args...)
@@ -316,6 +325,7 @@ func TestHandleDiff_IncludeContent(t *testing.T) {
 }
 
 func TestHandleDiff_BaseBranchNotFound(t *testing.T) {
+	skipIfNoGit(t)
 	dir := t.TempDir()
 	runGit := func(args ...string) {
 		cmd := exec.Command("git", args...)
