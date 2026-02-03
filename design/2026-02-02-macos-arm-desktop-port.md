@@ -1469,7 +1469,14 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
 - ✅ Zed binary (308MB, release build) copied to VM
 - ✅ qwen-code repository cloned
 - ✅ ARM64 build fix: Commented out x86_64 CUDA symlink in Dockerfile.ubuntu-helix
+- ✅ ARM64 build fix: Changed Go download from linux-amd64 to linux-arm64
+- ✅ ARM64 build fix: Replaced Google Chrome (amd64-only) with Chromium (has ARM64 build)
+  - Updated all paths: /etc/chromium/policies, /opt/chromium, /usr/bin/chromium-browser
+  - Chromium wrapper script with --password-store=basic flag
+  - Chrome DevTools MCP server works with Chromium
 - 🔄 Building helix-ubuntu desktop image (in progress, ~30-60 min)
+  - Currently installing GNOME desktop packages
+  - Rust gst-pipewire-zerocopy plugin will compile in parallel
 
 **Remaining Work for Golden Image:**
 1. ✅ **Build Zed** - Already built on host, binary copied to VM
