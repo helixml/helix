@@ -38,15 +38,18 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
 2. ~~Implement QEMU vsock handler to access virglrenderer~~ ✅ Done (helix-frame-export complete)
-3. **Integrate helix-frame-export into UTM's QEMU fork:**
-   - Clone https://github.com/utmapp/qemu
-   - Copy for-mac/qemu-helix/ to hw/display/helix/
-   - Modify hw/display/virtio-gpu-virgl.c to init frame export
-   - Add QEMU option: --device virtio-gpu,helix-frame-export=on
-   - Rebuild UTM with modified QEMU
-4. Add code-macos sandbox profile (vendor 0x1af4 detection)
-5. Update desktop-bridge to use vsockenc encoder for virtio-gpu
-6. Test zero-copy encoding path end-to-end
+3. ~~Integrate helix-frame-export into UTM's QEMU fork~~ ✅ Done (committed 4237f5099b)
+4. **Build modified QEMU and UTM.app:**
+   - Build QEMU from ~/pm/qemu-utm (utm-edition branch with helix integration)
+   - Integrate built QEMU into UTM.app build
+   - Test VM with modified QEMU + helix-frame-export
+5. **Complete helix-ubuntu build and test vsockenc:**
+   - VM build currently in progress (testing meson fix)
+   - Verify libgstvsockenc.so installed correctly
+   - Test vsockenc plugin loads in GStreamer
+6. Add code-macos sandbox profile (vendor 0x1af4 detection)
+7. Update desktop-bridge to use vsockenc encoder for virtio-gpu
+8. Test zero-copy encoding path end-to-end
 
 ## Architecture
 
