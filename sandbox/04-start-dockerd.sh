@@ -44,7 +44,7 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     }
   },
   "dns": ["172.17.0.1"],
-  "storage-driver": "overlay2",
+  "storage-driver": "vfs",
   "log-level": "error",
   "insecure-registries": ["registry:5000"]
 }
@@ -54,7 +54,7 @@ else
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 {
   "dns": ["172.17.0.1"],
-  "storage-driver": "overlay2",
+  "storage-driver": "vfs",
   "log-level": "error",
   "insecure-registries": ["registry:5000"]
 }
@@ -189,7 +189,7 @@ load_desktop_image() {
 }
 
 # Load desktop images (sway is required, others are optional)
-load_desktop_image "sway" "true"
+load_desktop_image "sway" "false"
 load_desktop_image "zorin" "false"
 load_desktop_image "ubuntu" "false"
 load_desktop_image "kde" "false"
