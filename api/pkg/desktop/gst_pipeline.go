@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && linux
 
 // Package desktop provides GStreamer pipeline management using go-gst bindings.
 // This replaces the UDP-based gst-launch subprocess approach with native Go bindings

@@ -171,6 +171,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
+      - apk add --no-cache git
       # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
       - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/desktop-bridge/...
     when:
