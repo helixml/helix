@@ -19,9 +19,11 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 **Status:**
 - ✅ VM running Ubuntu 25.10 ARM64 with Venus/Vulkan GPU acceleration
 - ✅ helix-ubuntu desktop image built (ARM64-native)
-- ✅ helix-sandbox container running and healthy
-- 🔄 Image transfer to sandbox in progress
-- ⏳ Next: Create test session, verify PipeWire ScreenCast, implement vsockenc
+- ✅ helix-sandbox container running with overlay2 storage driver
+- ✅ Test session created and running (ses_01kgjkc6qcxs3qf568xbt4p3yv)
+- ✅ **PipeWire ScreenCast working with DmaBuf enabled**
+- ✅ **Video streaming functional** (H.264 via WebSocket, x264enc software encoding)
+- ⏳ Next: Implement code-macos profile, design vsockenc element
 
 **Remaining Challenges:**
 1. Slow image transfers with vfs storage driver (~20+ min for 7GB image)
@@ -1301,6 +1303,38 @@ Add new options for frame export:
   - desktop-bridge: Select vsockenc encoder when running on macOS (vendor 0x1af4)
 
 ## Progress Log
+
+### 2026-02-03: Video Streaming Functional, Ready for vsockenc Implementation
+
+**Major Milestone:** End-to-end video streaming pipeline working on ARM64 VM!
+
+**Completed:**
+- ✅ Fixed overlay2 storage driver (was incorrectly using vfs)
+  - Image transfers: vfs took 30+ min, overlay2 takes ~2-3 min
+  - Kernel 6.17.0 has overlay module loaded - no special config needed
+- ✅ Created test session with helix-ubuntu desktop (ses_01kgjkc6qcxs3qf568xbt4p3yv)
+- ✅ **PipeWire ScreenCast confirmed working:**
+  - ScreenCast sessions created successfully
+  - **DmaBuf enabled** (critical for zero-copy path)
+  - Screenshot capture working (139KB JPEG via PipeWire node 53)
+- ✅ **Video streaming functional:**
+  - H.264 frames flowing via WebSocket
+  - Codec: H.264 Baseline with zero-latency decode
+  - Currently using x264enc (software encoding)
+  - FPS low (0.3 fps) on static desktop - expected for damage-based ScreenCast
+
+**GPU Detection Issue:**
+- Vendor ID 0x1af4 (virtio-gpu) not recognized by detect-render-node.sh
+- Falls back to software rendering mode
+- **Solution needed:** Implement code-macos profile with vendor 0x1af4 detection
+
+**Next Steps:**
+1. **Add code-macos sandbox profile** for virtio-gpu (vendor 0x1af4)
+2. **Design vsockenc GStreamer element** for VideoToolbox delegation
+3. **Implement host-side VideoToolbox encoder** (vsock-encoder-server)
+4. Test zero-copy encoding: DmaBuf → vsock → VideoToolbox → H.264
+
+**Key Achievement:** The entire video pipeline works - PipeWire capture with DmaBuf, H.264 encoding, WebSocket streaming. This validates the architecture before implementing vsockenc.
 
 ### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
 
