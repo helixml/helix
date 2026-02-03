@@ -1456,10 +1456,13 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
 - ✅ Docker CE 29.2.1 + Docker Compose v5.0.2 installed
 - ✅ Go 1.23.6 installed
 - ✅ Helix repository cloned
-- ✅ GPU devices accessible inside Docker containers
+- ✅ GPU devices accessible inside Docker containers (`/dev/dri/card0`, `/dev/dri/renderD128`)
 - ✅ vsock support confirmed
 - ✅ PipeWire running
-- ⚠️ GPU acceleration: Works for desktop (responsive), shows llvmpipe in CLI tests
+- ✅ **GPU acceleration working end-to-end:**
+  - Host: Venus/Vulkan using Apple M3 Ultra via MoltenVK
+  - Docker containers: Can access virtio-gpu and use Venus driver
+  - Verified: `docker run --device=/dev/dri` shows "Virtio-GPU Venus (Apple M3 Ultra)"
 
 **Remaining Work for Golden Image:**
 1. **Build Zed** - Clone Zed fork, build with external_websocket_sync feature
