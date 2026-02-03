@@ -1160,3 +1160,97 @@ Add new options for frame export:
 **QEMU fork location:**
 - Local: `/Users/luke/pm/helix/qemu-utm/` (branch: `helix-frame-export`)
 - Remote: https://github.com/helixml/qemu (branch: `helix-frame-export`)
+
+### 2026-02-02: UTM Build Fixes (Late Evening)
+
+**Problem:** UTM's QEMU tarball has a bug where `ui/sdl2-gl.c` has inconsistent state - the function signature was patched but the body still contains an old `backing_borrow()` call that no longer exists.
+
+**Root Cause Analysis:**
+1. UTM's `qemu-10.0.2-utm.tar.xz` tarball is pre-patched
+2. But the patches are in an inconsistent state - some hunks applied, others didn't
+3. The `sdl2_gl_scanout_texture()` function has:
+   - New signature with `ScanoutTextureNative native` parameter
+   - But still has `GLuint backing_texture = backing_borrow(...)` call in body
+4. Additionally, macOS shared library builds fail with `_qemu_main` undefined because dylibs reference symbols from the main executable
+
+**Fixes Applied to UTM Patch File:**
+
+Added two patches to `/Users/luke/pm/helix/UTM/patches/qemu-10.0.2-utm.patch`:
+
+1. **sdl2-gl.c Fix**: Remove vestigial `backing_borrow()` call
+```diff
+--- a/ui/sdl2-gl.c
++++ b/ui/sdl2-gl.c
+-    GLuint backing_texture = backing_borrow(backing_id, &backing_y_0_top,
+-                                            &backing_width, &backing_height,
+-                                            &d3d_tex2d);
+```
+
+2. **meson.build Fix**: Add `-undefined dynamic_lookup` for macOS shared lib builds
+```diff
+--- a/meson.build
++++ b/meson.build
++  if get_option('shared_lib')
++    emulator_link_args += ['-Wl,-undefined,dynamic_lookup']
++  endif
+```
+
+**Build Result:**
+- ✅ QEMU builds successfully with all target architectures
+- ✅ All `libqemu-*-softmmu.dylib` shared libraries created
+- ✅ All `qemu-system-*` binaries installed
+- ❌ Mesa/virglrenderer build fails due to missing `libclc` (OpenCL dependency) - separate issue
+
+**Installed QEMU Artifacts:**
+- `/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/bin/qemu-system-aarch64`
+- `/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib` (30MB)
+- Plus all other target architectures
+
+### 2026-02-02: UTM.app Successfully Built!
+
+**Mesa/virglrenderer Dependencies Fixed:**
+- Installed `libclc` from Homebrew for OpenCL support
+- Installed `spirv-llvm-translator` for SPIRV-Tools
+- Installed `spirv-tools` for Mesa shader compilation
+- Created custom venv at `/tmp/helix-utm-venv` with required Python packages:
+  - six, pyparsing, pyyaml, mako, distlib, setuptools, packaging
+
+**virglrenderer Build:**
+- ✅ Built successfully (2.9MB library)
+- ✅ Provides GPU virtualization for guest VMs
+
+**MoltenVK Build:**
+- ✅ Built manually with Xcode (10.6MB dylib → 5.1MB after lipo for arm64)
+- ✅ Installed to sysroot with ICD JSON
+
+**Kosmickrisp (Mesa Vulkan) Workaround:**
+- ❌ Full build requires extensive X11 dependencies (libxrandr, etc.)
+- ✅ Created stub `vulkan_kosmickrisp.framework` to satisfy Xcode build
+- Note: Not needed for Venus/Vulkan passthrough - MoltenVK is sufficient
+
+**Library-to-Framework Conversion:**
+- Created `/tmp/utm-fixup.sh` to convert 87 dylibs to macOS frameworks
+- Frameworks installed to `sysroot-macOS-arm64/Frameworks/`
+
+**UTM.app Build:**
+- ✅ **BUILD SUCCEEDED** with Xcode
+- Build target: arm64 only (not universal binary)
+- App location: `/Users/luke/pm/helix/UTM/build-macOS-arm64/UTM.app` (754MB)
+- Signed with "Sign to Run Locally" (ad-hoc signing)
+
+**Key Components Built:**
+| Component | Size | Status |
+|-----------|------|--------|
+| QEMU (all targets) | 30MB+ each | ✅ |
+| virglrenderer | 2.9MB | ✅ |
+| libepoxy | 1.3MB | ✅ |
+| MoltenVK | 5.1MB | ✅ |
+| GStreamer + plugins | Multiple | ✅ |
+| SPICE | Multiple | ✅ |
+| UTM.app (total) | 754MB | ✅ |
+
+**Next Steps:**
+1. Test UTM.app launches and can create VMs
+2. Test Venus/Vulkan passthrough with existing Ubuntu VM
+3. Integrate helix frame export code into QEMU
+4. Test frame capture and VideoToolbox encoding
