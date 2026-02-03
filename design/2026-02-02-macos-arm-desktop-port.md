@@ -1500,9 +1500,125 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
 5. **Build vsockenc plugin** - GStreamer element for guest→host frame delegation (future)
 6. **Test end-to-end** - Start session, capture frames, verify video streaming works
 
+**Sandbox Container Status (VM):**
+- ✅ Sandbox container running and healthy
+- ✅ Dockerd running with vfs storage driver (overlay2 incompatible with nested DinD)
+- ✅ Hydra daemon running with RevDial connection to API
+- ✅ Sandbox heartbeat daemon monitoring disk usage
+- ✅ Desktop image loaded: helix-ubuntu (0f7b63)
+- ✅ Fixed: Made helix-sway optional (was causing container crashes when version file missing)
+
+## Video Streaming Pipeline Architecture (Clarified)
+
+**IMPORTANT**: This section clarifies the video encoding architecture based on actual implementation requirements.
+
+### Component Responsibilities
+
+**pipewirezerocopysrc** (GStreamer Rust plugin):
+- Captures frames from PipeWire ScreenCast
+- Provides DMA-buf-backed video frames to the GStreamer pipeline
+- **Does NOT care about encoding** - it's encoder-agnostic
+- Works the same way on NVIDIA GPUs, virtio-gpu, and software rendering
+
+**desktop-bridge** (Go server in dev containers):
+- **Detects GPU vendor** at startup
+- **Selects appropriate encoder** based on detected GPU:
+  - NVIDIA GPU → `nvh264enc` (uses NVENC hardware encoder)
+  - virtio-gpu/macOS → `vsockenc` (new element, sends frames to host via vsock)
+  - Software/fallback → `x264enc` (CPU encoding)
+- Constructs GStreamer pipeline with appropriate encoder element
+- Streams encoded H.264 over WebSocket to browser
+
+### Pipeline on NVIDIA GPU (Linux)
+```
+PipeWire ScreenCast → pipewirezerocopysrc (DMA-buf frames)
+    → nvh264enc (NVENC hardware encoding, zero-copy)
+    → desktop-bridge WebSocket → browser
+```
+
+### Pipeline on virtio-gpu (macOS VM)
+```
+PipeWire ScreenCast → pipewirezerocopysrc (DMA-buf frames from virtio-gpu)
+    → vsockenc (new GStreamer element):
+        1. Extracts virtio-gpu resource ID from DMA-buf
+        2. Sends resource ID to host via vsock
+        3. Host receives resource ID via vsock server
+        4. Host looks up MTLTexture via virglrenderer API
+        5. Host encodes with VideoToolbox (VTCompressionSession)
+        6. Host sends H.264 NAL units back via vsock
+        7. vsockenc outputs NAL units to GStreamer pipeline
+    → desktop-bridge WebSocket → browser
+```
+
+### Host-Side VideoToolbox Encoder (macOS)
+
+**vsock-encoder-server** (new Go daemon on macOS host):
+- Listens on vsock port for encoding requests
+- Receives virtio-gpu resource IDs from guest
+- Calls virglrenderer API to get MTLTexture from resource ID
+- Uses VideoToolbox API (VTCompressionSession) to encode frames
+- Sends compressed H.264 NAL units back to guest
+- **No GStreamer dependency** - uses VideoToolbox directly via Cgo
+
+### GPU Vendor Detection (desktop-bridge)
+
+desktop-bridge detects GPU vendor at startup:
+
+```go
+// Detect GPU vendor from DRM render node
+func detectGPUVendor() string {
+    // Read /sys/class/drm/card0/device/vendor
+    vendor := readFile("/sys/class/drm/card0/device/vendor")
+
+    switch vendor {
+    case "0x10de":  // NVIDIA
+        return "nvidia"
+    case "0x1af4":  // Red Hat (virtio-gpu)
+        return "virtio"
+    default:
+        return "unknown"
+    }
+}
+
+// Select encoder based on GPU vendor
+func selectEncoder(vendor string) string {
+    switch vendor {
+    case "nvidia":
+        return "nvh264enc"
+    case "virtio":
+        return "vsockenc"  // Delegates to host VideoToolbox
+    default:
+        return "x264enc"   // Software fallback
+    }
+}
+```
+
+### Implementation Plan
+
+**Phase 1: Testing (Current)**
+1. ✅ Build helix-ubuntu desktop image
+2. ✅ Build helix-sandbox container
+3. ✅ Start sandbox and verify all services running
+4. **Next**: Create test session, verify PipeWire ScreenCast works
+5. **Next**: Test existing pipewirezerocopysrc with software encoding (x264enc fallback)
+
+**Phase 2: vsockenc Implementation**
+1. Create `vsockenc` GStreamer element (Rust, similar structure to pipewirezerocopysrc)
+2. Add GPU vendor detection to desktop-bridge
+3. Modify desktop-bridge pipeline construction to use vsockenc for virtio-gpu
+4. Create `vsock-encoder-server` (Go daemon for macOS host)
+5. Integrate virglrenderer API calls (get MTLTexture from resource ID)
+6. Integrate VideoToolbox encoding (VTCompressionSession)
+
+**Phase 3: Integration Testing**
+1. Test vsockenc in VM with vsock-encoder-server on host
+2. Verify zero-copy path (GPU memory → VideoToolbox without CPU copies)
+3. Benchmark performance (FPS, latency, CPU usage)
+4. Compare with NVENC performance on Linux
+
 **Next Immediate Steps:**
-1. Clone and build Zed fork
-2. Build Helix sandbox with all desktop images
-3. Test actual Helix session creation and frame capture
-4. Verify GPU usage during video streaming
-5. Create golden VM image for bundling with Helix.app
+1. ✅ Sandbox container running
+2. **Create test Helix session** using helix-ubuntu desktop
+3. **Verify PipeWire ScreenCast** captures frames from GNOME
+4. **Test with x264enc** (software encoding) as baseline
+5. **Design vsockenc GStreamer element** (Rust plugin)
