@@ -1464,10 +1464,17 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
   - Docker containers: Can access virtio-gpu and use Venus driver
   - Verified: `docker run --device=/dev/dri` shows "Virtio-GPU Venus (Apple M3 Ultra)"
 
+**Building Helix Stack in VM (In Progress):**
+- ✅ VM memory increased to 64GB for build
+- ✅ Zed binary (308MB, release build) copied to VM
+- ✅ qwen-code repository cloned
+- ✅ ARM64 build fix: Commented out x86_64 CUDA symlink in Dockerfile.ubuntu-helix
+- 🔄 Building helix-ubuntu desktop image (in progress, ~30-60 min)
+
 **Remaining Work for Golden Image:**
-1. **Build Zed** - Clone Zed fork, build with external_websocket_sync feature
-2. **Build Helix sandbox** - Run `./stack build-sandbox` with Zed available
-3. **Build desktop images** - `./stack build-ubuntu` and `./stack build-sway`
+1. ✅ **Build Zed** - Already built on host, binary copied to VM
+2. 🔄 **Build desktop images** - `./stack build-ubuntu` in progress
+3. **Build Helix sandbox** - Run `./stack build-sandbox`
 4. **Test frame capture** - Verify PipeWire ScreenCast works in dev containers
 5. **Build vsockenc plugin** - GStreamer element for guest→host frame delegation (future)
 6. **Test end-to-end** - Start session, capture frames, verify video streaming works
