@@ -42,20 +42,54 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ⏳ Next: Complete QEMU build, rebuild UTM.app, test end-to-end zero-copy pipeline
 
 **Remaining Work:**
-1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
+1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (helix-ubuntu:169abe)
 2. ~~Implement QEMU vsock handler to access virglrenderer~~ ✅ Done (helix-frame-export complete)
 3. ~~Integrate helix-frame-export into UTM's QEMU fork~~ ✅ Done (committed 4237f5099b)
-4. **Build modified QEMU and UTM.app:**
-   - Build QEMU from ~/pm/qemu-utm (utm-edition branch with helix integration)
-   - Integrate built QEMU into UTM.app build
+4. **Build modified QEMU and integrate into UTM.app:**
+   - ⏳ Building QEMU from ~/pm/qemu-utm (in progress, ~1 hour remaining)
+   - Replace QEMU binary in existing UTM.app (no need to rebuild entire app!)
    - Test VM with modified QEMU + helix-frame-export
-5. **Complete helix-ubuntu build and test vsockenc:**
-   - VM build currently in progress (testing meson fix)
-   - Verify libgstvsockenc.so installed correctly
-   - Test vsockenc plugin loads in GStreamer
-6. Add code-macos sandbox profile (vendor 0x1af4 detection)
-7. Update desktop-bridge to use vsockenc encoder for virtio-gpu
+5. ~~Complete helix-ubuntu build and test vsockenc~~ ✅ Done (helix-ubuntu:169abe ready)
+6. ~~Add code-macos sandbox profile~~ ✅ Done (GPU_VENDOR=virtio detection)
+7. ~~Update desktop-bridge to use vsockenc encoder~~ ✅ Done (ws_stream.go updated)
 8. Test zero-copy encoding path end-to-end
+
+## Deployment Strategy
+
+**Production Deployment Approach:**
+
+Instead of building UTM from source, we can **patch and re-sign production UTM releases**:
+
+1. **Download official UTM.app** (5.0+ required for virglrenderer API)
+2. **Build only our modified QEMU** with helix-frame-export module
+3. **Replace QEMU binary** in UTM.app bundle:
+   ```bash
+   # Copy built QEMU into existing UTM.app
+   cp qemu-system-aarch64 \
+      UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+   ```
+4. **Re-sign bundle** (ad-hoc signing for local use):
+   ```bash
+   codesign --force --deep --sign - UTM.app
+   ```
+5. **Distribute patched UTM.app** with Helix
+
+**Benefits:**
+- ⚡ **Much faster** - Building QEMU takes ~1 hour vs building entire UTM.app (~3-4 hours)
+- 🔄 **Easy updates** - Patch new UTM releases as they come out
+- 📦 **Smaller builds** - Only need to build QEMU, not all UTM dependencies
+- ✅ **Tested base** - Start from stable UTM releases
+
+**Build Time Comparison:**
+- Full UTM.app build: 3-4 hours (builds all dependencies + QEMU + GUI app)
+- QEMU-only build: ~1 hour (just QEMU with helix-frame-export)
+- Patching production UTM: 5 minutes (copy binary + re-sign)
+
+**What Gets Patched:**
+- Only `qemu-aarch64-softmmu` binary (the ARM64 QEMU system emulator)
+- Location: `UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
+- Size: ~29MB
+- Changes: Adds helix-frame-export module for VideoToolbox encoding via vsock
 
 ## Architecture
 
