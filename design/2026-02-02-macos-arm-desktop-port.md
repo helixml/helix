@@ -24,13 +24,16 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ✅ **PipeWire ScreenCast working with DmaBuf enabled**
 - ✅ **Video streaming functional** (H.264 via WebSocket, x264enc software encoding)
 - ✅ **vsockenc GStreamer element implemented** (C, with DmaBuf→virtio-gpu resource ID extraction)
-- ⏳ Next: Integrate vsockenc into build, implement host-side VideoToolbox encoder
+- ✅ **vsockenc integrated into helix-ubuntu ARM64 build** (meson, installs to /usr/lib/gstreamer-1.0/)
+- ⏳ Testing vsockenc build in VM (in progress)
+- ⏳ Next: Protocol alignment, QEMU modification for virglrenderer access
 
 **Remaining Work:**
-1. Integrate vsockenc into helix-ubuntu desktop image build
-2. Add code-macos sandbox profile (vendor 0x1af4 detection)
-3. Implement host-side vsock-encoder-server (VideoToolbox integration)
-4. Test zero-copy encoding path end-to-end
+1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
+2. Align vsock.go protocol with vsockenc's Helix Frame Export Protocol
+3. Implement QEMU vsock handler to access virglrenderer from within QEMU process
+4. Add code-macos sandbox profile (vendor 0x1af4 detection)
+5. Test zero-copy encoding path end-to-end
 
 ## Architecture
 
@@ -1370,9 +1373,46 @@ resource_id = prime_handle.handle;  // For virtio-gpu, GEM handle == resource ID
 - Installs to `/usr/lib/gstreamer-1.0/libgstvsockenc.so`
 
 **Remaining Work:**
-1. Integrate vsockenc meson build into helix-ubuntu Dockerfile
-2. Implement host-side `vsock-encoder-server` (Go daemon with VideoToolbox)
-3. Test resource ID extraction with real PipeWire DmaBuf frames
+1. ~~Integrate vsockenc meson build into helix-ubuntu Dockerfile~~ ✅ Done
+2. Align protocol between vsockenc (C) and vsock.go (Go)
+3. Implement QEMU modification for virglrenderer access
+4. Test resource ID extraction with real PipeWire DmaBuf frames
+
+### 2026-02-03: vsockenc Integration and Protocol Design
+
+**vsockenc Build Integration:**
+- ✅ Added ARM64 build stage to Dockerfile.ubuntu-helix
+- ✅ Meson build compiles vsockenc from `desktop/gst-vsockenc/`
+- ✅ Installs `/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvsockenc.so`
+- ✅ Build dependencies: meson, ninja, pkg-config, GStreamer dev, libdrm
+- ⏳ Testing build in VM (packages installing)
+
+**Host-Side Infrastructure Discovered:**
+- `for-mac/vsock.go` - VsockServer implementation with frame protocol
+- `for-mac/virgl.go` - virglrenderer integration with ResourceToIOSurfaceID
+- `for-mac/encoder.go` - VideoToolbox encoder (existing)
+
+**Protocol Mismatch Found:**
+vsockenc (C) uses **Helix Frame Export Protocol**:
+- Magic: `0x52465848` ('HXFR')
+- HelixMsgHeader: magic, msg_type, flags, session_id, payload_size
+- HelixFrameRequest: full header + resource_id, width, height, format, stride, pts, duration
+- HelixFrameResponse: full header + pts, dts, is_keyframe, nal_count + NAL units
+
+vsock.go (Go) uses **Simple Protocol**:
+- Header: type (1 byte) + length (4 bytes)
+- FrameRequest: flat struct (no header)
+- FrameResponse: flat struct
+
+**Action Required:** Update vsock.go to match Helix Frame Export Protocol.
+
+**Critical Blocker: virglrenderer Context Access**
+
+The `virgl_renderer_resource_get_info_ext()` function must be called from within QEMU's process where the virglrenderer context exists. The for-mac code has the infrastructure but requires `InitVirglRenderer(getInfoExtFn)` to be called with the function pointer.
+
+**Two paths forward:**
+1. **QEMU modification** (correct architecture): Add vsock handler to QEMU that calls virgl APIs internally
+2. **Dynamic loading** (workaround): Try to dlopen virglrenderer from UTM.app/Contents/Frameworks/
 
 ### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
 
