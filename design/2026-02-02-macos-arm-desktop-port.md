@@ -1321,15 +1321,16 @@ Add new options for frame export:
   - Need new sandbox profile for macOS/virtio-gpu systems
   - Current workaround: COMPOSE_PROFILES=code-software
 
-**Challenges:**
-- Image transfer to sandbox taking very long (~20+ minutes)
-- vfs storage driver significantly slower than overlay2
-- Transfer hung once, required manual retry
-- Need to decide on sandbox profile naming for macOS ARM systems
+**Challenges Resolved:**
+- ✅ **Storage Driver Issue**: Fixed overlay2 support (was incorrectly disabled)
+  - Root cause: Mistakenly assumed overlay2 doesn't work with nested DinD on ARM64
+  - Reality: overlay2 works perfectly (kernel 6.17.0 has overlay module loaded)
+  - Solution: Changed daemon.json from vfs → overlay2, restarted dockerd
+  - Result: Dramatically faster image operations (vfs was taking 30+ min, overlay2 takes ~2-3 min)
 
 **Technical Decisions Made:**
-1. **Storage Driver**: Use vfs for now (slower but works with nested DinD)
-2. **Sandbox Profile**: Temporarily using code-software, should create code-virtio later
+1. **Storage Driver**: overlay2 (standard, fast, fully supported on ARM64)
+2. **Sandbox Profile**: Use `code-macos` (not code-virtio - reflects host OS where encoding happens)
 3. **Build Strategy**: ARM64-only builds, no cross-compilation
 
 ### 2026-02-02: QEMU Frame Export Implementation
