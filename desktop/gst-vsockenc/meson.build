@@ -11,6 +11,15 @@ gst_video_dep = dependency('gstreamer-video-1.0', version : '>=1.20')
 gst_allocators_dep = dependency('gstreamer-allocators-1.0', version : '>=1.20')
 libdrm_dep = dependency('libdrm')
 
+# C args for GStreamer plugin compilation
+plugin_c_args = [
+  '-DPACKAGE="gst-vsockenc"',
+  '-DVERSION="@0@"'.format(meson.project_version()),
+  '-DGST_LICENSE="LGPL"',
+  '-DGST_PACKAGE_NAME="gst-vsockenc"',
+  '-DGST_PACKAGE_ORIGIN="https://helix.ml"',
+]
+
 vsockenc_sources = [
   'gstvsockenc.c',
 ]
@@ -25,6 +34,7 @@ vsockenc_deps = [
 
 gstvsockenc = shared_library('gstvsockenc',
   vsockenc_sources,
+  c_args : plugin_c_args,
   dependencies : vsockenc_deps,
   install : true,
   install_dir : get_option('libdir') / 'gstreamer-1.0',
