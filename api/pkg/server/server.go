@@ -1139,6 +1139,10 @@ func getID(r *http.Request) string {
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 	frontendURL := apiServer.Cfg.WebServer.FrontendURL
 
+	if frontendURL == "" {
+		log.Fatal().Msg("FRONTEND_URL must be set - use a URL (http://...) for dev proxy or a path (/www) for static files")
+	}
+
 	// If FrontendURL is a URL (http:// or https://), proxy to it (dev mode)
 	// Otherwise, serve from filesystem (prod mode, e.g. /www)
 	if strings.HasPrefix(frontendURL, "http://") || strings.HasPrefix(frontendURL, "https://") {
