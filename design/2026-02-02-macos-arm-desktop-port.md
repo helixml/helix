@@ -1406,13 +1406,27 @@ vsock.go (Go) uses **Simple Protocol**:
 
 **Action Required:** Update vsock.go to match Helix Frame Export Protocol.
 
-**Critical Blocker: virglrenderer Context Access**
+**QEMU Integration Module Already Implemented!**
 
-The `virgl_renderer_resource_get_info_ext()` function must be called from within QEMU's process where the virglrenderer context exists. The for-mac code has the infrastructure but requires `InitVirglRenderer(getInfoExtFn)` to be called with the function pointer.
+Found complete QEMU module in `for-mac/qemu-helix/`:
+- ✅ **helix-frame-export.h** - Protocol definitions matching vsockenc exactly
+- ✅ **helix-frame-export.c** (500+ lines) - Complete implementation:
+  - `helix_get_iosurface_for_resource()` - Calls virgl_renderer_resource_get_info_ext from QEMU process
+  - `helix_encode_iosurface()` - IOSurface → CVPixelBuffer → VideoToolbox (zero-copy)
+  - `encoder_output_callback()` - Async H.264 NAL unit handling
+  - `handle_frame_request()` - vsock message handler
+- ✅ **README.md** - Integration instructions for UTM's QEMU fork
+- ✅ **meson.build** - Build system integration
 
-**Two paths forward:**
-1. **QEMU modification** (correct architecture): Add vsock handler to QEMU that calls virgl APIs internally
-2. **Dynamic loading** (workaround): Try to dlopen virglrenderer from UTM.app/Contents/Frameworks/
+**Integration Steps** (from README):
+1. Clone UTM's QEMU fork from https://github.com/utmapp/qemu
+2. Copy `for-mac/qemu-helix/` to `hw/display/helix/` in QEMU
+3. Add `subdir('helix')` to `hw/display/meson.build`
+4. Modify `hw/display/virtio-gpu-virgl.c` to call `helix_frame_export_init()`
+5. Add QEMU option `--device virtio-gpu,helix-frame-export=on`
+6. Rebuild UTM with modified QEMU
+
+**Status:** Module is feature-complete and ready to integrate. Just needs QEMU fork + rebuild UTM.
 
 ### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
 
