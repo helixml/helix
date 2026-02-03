@@ -7,10 +7,16 @@
 
 Port Helix desktop streaming to macOS ARM64 (Apple Silicon), replacing the current Linux-based Wolf/NVENC pipeline with a native macOS stack using VideoToolbox for hardware H.264 encoding.
 
+**Distribution Model**: Docker Desktop-like architecture
+- Native macOS app (Wails-based) bundles a preconfigured Linux VM
+- VM contains Helix sandbox pre-installed with all dependencies
+- App manages VM lifecycle, proxies API requests, handles video streaming
+- Single `.app` download, users don't need to configure VMs manually
+
 ## Goals
 
-1. Run Helix desktop sessions on macOS ARM hosts
-2. GPU-accelerated rendering inside VMs via virtio-gpu
+1. Ship a single macOS `.app` that runs Helix (like Docker Desktop)
+2. GPU-accelerated rendering inside bundled VM via virtio-gpu
 3. Zero-copy video encoding path using Apple VideoToolbox
 4. Maintain compatibility with existing dev container images (helix-ubuntu, helix-sway)
 
@@ -126,6 +132,59 @@ UTM defaults to `virtio-gpu-gl-pci` for Linux VMs with ANGLE Metal backend + Ven
 
 **Reference**: [UTM Graphics Architecture](https://github.com/utmapp/UTM/blob/main/Documentation/Graphics.md), [Venus + MoltenVK Issue](https://github.com/utmapp/UTM/issues/4551)
 
+### Venus/Vulkan Known Limitations (2026-02-03)
+
+**Status**: Venus is **experimental** in UTM 5.0+. Testing on Ubuntu 25.10 ARM64 VM reveals:
+
+- **OpenGL (virgl) works**: `glxinfo` shows virgl renderer, `glxgears` gets ~52 FPS (vsync)
+- **Vulkan (Venus) partially broken**: `vulkaninfo` shows `VK_ERROR_INCOMPATIBLE_DRIVER (-9)` from `libvulkan_virtio.so`, falls back to llvmpipe software rendering
+- **GNOME can fall back**: While modern mutter prefers Vulkan, it can use OpenGL backend when Vulkan unavailable
+
+**UTM 5.0 Release Notes state**:
+- Apple CoreGL backend does **NOT** support Vulkan
+- **DXVK does not work** due to missing features in Venus implementation
+- Venus passthrough is incomplete
+
+**UTM Graphics Configuration Options** (found in VM settings UI):
+
+1. **Renderer Backend** (how host renders guest GL/Vulkan):
+   - `Default` - Auto-select (usually ANGLE OpenGL)
+   - `ANGLE (OpenGL)` - OpenGL → Metal via ANGLE
+   - `ANGLE (Metal)` - Direct Metal backend (faster, better Vulkan support)
+   - `Apple Core OpenGL` - Deprecated macOS OpenGL (no Vulkan support)
+
+2. **Vulkan Driver** (guest Vulkan → host translation):
+   - `Default` - Auto-select
+   - `Disabled` - No Vulkan passthrough
+   - `MoltenVK` - Use MoltenVK for Vulkan → Metal translation (recommended for Venus)
+   - `KosmicKrisp` - Mesa Venus driver name (guest-side)
+
+**Recommended Configuration for Venus/Vulkan:**
+- Renderer Backend: `ANGLE (Metal)` - Uses Metal directly instead of OpenGL
+- Vulkan Driver: `MoltenVK` - Explicitly enable Vulkan → Metal translation
+
+**Setting Graphics Options Programmatically:**
+
+These are **global UTM preferences** (stored in `~/Library/Preferences/com.utmapp.UTM.plist`), not per-VM settings:
+
+```bash
+# Set Renderer Backend to ANGLE (Metal)
+defaults write com.utmapp.UTM QEMURendererBackend -int 2
+
+# Set Vulkan Driver to MoltenVK
+defaults write com.utmapp.UTM QEMUVulkanDriver -int 2
+
+# Restart UTM for changes to take effect
+```
+
+**Value Reference:**
+- `QEMURendererBackend`: 0=Default, 1=ANGLE(OpenGL), 2=ANGLE(Metal), 3=Apple Core OpenGL
+- `QEMUVulkanDriver`: 0=Default, 1=Disabled, 2=MoltenVK, 3=KosmicKrisp
+
+**Implication for Helix**: We can proceed with **virgl OpenGL acceleration** for frame capture. Modern GNOME will use OpenGL rendering path when Vulkan is unavailable. The virglrenderer stack still provides GPU-accelerated rendering via OpenGL → ANGLE → Metal, which is sufficient for desktop streaming.
+
+**Workaround if needed**: Set `MUTTER_DEBUG_FORCE_KMS_MODE=simple` to explicitly force OpenGL backend.
+
 ## GPU Frame Path Analysis
 
 ### Two Frame Sources
@@ -218,6 +277,68 @@ this path is not available unless we also run virglrenderer alongside gfxstream.
 **Cons:**
 - Uses VM CPU for encoding instead of host VideoToolbox
 - Slightly higher latency
+
+## Distribution Architecture (Docker Desktop Model)
+
+### Bundle Structure
+
+```
+Helix.app/
+├── Contents/
+│   ├── MacOS/
+│   │   ├── Helix              # Wails app (Swift/Go)
+│   │   └── utmctl             # UTM CLI for VM control
+│   ├── Frameworks/
+│   │   ├── qemu-aarch64-softmmu.framework
+│   │   ├── virglrenderer.0.framework
+│   │   └── ... (UTM dependencies)
+│   ├── Resources/
+│   │   ├── VM/
+│   │   │   └── helix-linux.utm/    # Preconfigured Ubuntu VM
+│   │   │       ├── config.plist
+│   │   │       └── Data/
+│   │   │           └── disk.qcow2  # VM disk with Helix pre-installed
+│   │   └── qemu/                   # BIOS, firmware
+│   └── Info.plist
+```
+
+### Preconfigured VM Image
+
+**What's pre-installed:**
+- Ubuntu 25.10 ARM64
+- Docker CE + Docker Compose (official packages)
+- Helix sandbox built and ready
+- Go 1.23.6
+- PipeWire + GStreamer with vsockenc plugin
+- GPU drivers (virgl) configured
+- SSH server with host key access
+- vsock support enabled
+
+**Graphics Configuration:**
+- virtio-gpu-gl-pci with `blob=true,venus=true`
+- Host UTM settings: ANGLE (Metal) + MoltenVK
+- Port forwarding: SSH (22→2222), API (8080→8080)
+
+**VM Management:**
+- for-mac app sets UTM graphics preferences on first launch:
+  ```go
+  exec.Command("defaults", "write", "com.utmapp.UTM", "QEMURendererBackend", "-int", "2").Run()
+  exec.Command("defaults", "write", "com.utmapp.UTM", "QEMUVulkanDriver", "-int", "2").Run()
+  ```
+- App starts/stops VM via bundled `utmctl`
+- API requests proxied from native app to VM's Helix instance
+- Video streaming handled via vsock or WebSocket
+
+### User Experience
+
+1. User downloads `Helix.app` (single DMG/PKG installer)
+2. First launch: App configures UTM settings, starts VM (takes ~30s)
+3. Native macOS menubar shows Helix status
+4. Web UI opens to Helix running in VM (localhost:8080)
+5. Dev containers run inside VM with GPU acceleration
+6. App handles all VM lifecycle transparently
+
+**No manual VM setup required** - everything preconfigured and bundled.
 
 ## Recommended Approach
 
@@ -1254,3 +1375,95 @@ Added two patches to `/Users/luke/pm/helix/UTM/patches/qemu-10.0.2-utm.patch`:
 2. Test Venus/Vulkan passthrough with existing Ubuntu VM
 3. Integrate helix frame export code into QEMU
 4. Test frame capture and VideoToolbox encoding
+
+### 2026-02-03: Mac Studio Setup & VM Testing
+
+**New Hardware:**
+- Mac Studio M3 Ultra (96GB RAM, 28 cores)
+- macOS 26.2 (Tahoe)
+
+**Environment Setup:**
+- ✅ SSH key generated and added to GitHub
+- ✅ Git config set (me@lukemarsden.net)
+- ✅ Xcode 26.2 installed
+- ✅ Metal Toolchain downloaded
+- ✅ Passwordless sudo configured
+
+**UTM Build on Mac Studio:**
+- ✅ Copied sysroot from old Mac via rsync (complete with headers, libs, frameworks)
+- ✅ UTM.app built successfully from source
+- ✅ Ad-hoc code signed (`codesign --force --deep --sign -`)
+- ✅ VM copied from old Mac (Linux.utm, 11GB)
+
+**Code Signing Limitations Discovered:**
+- vmnet (Shared/Bridged networking) requires Apple-signed entitlement `com.apple.vm.networking`
+- Ad-hoc signed apps cannot use vmnet - switched to "Emulated" networking (QEMU user-mode NAT)
+- GPU passthrough (virtio-gpu-gl) does NOT require special entitlements - just normal OpenGL/Metal access
+
+**VM Configuration (HVF Mode - not TCG):**
+- VM running with `Hypervisor=true` (using Apple Hypervisor Framework for ARM64)
+- virtio-gpu-gl-pci with `hostmem=256M,blob=true,venus=true`
+- SSH port forwarding: guest:22 → host:2222
+- Ubuntu 25.10 ARM64 (Questing)
+
+**GPU Acceleration Verified:**
+- ✅ **OpenGL (virgl)**: `glxinfo` shows "virgl" renderer, `glxgears` gets ~52 FPS (vsync)
+- ⚠️ **Vulkan (Venus)**: Not working - `VK_ERROR_INCOMPATIBLE_DRIVER`, falls back to llvmpipe
+- Venus is experimental in UTM 5.0, but virgl OpenGL is sufficient for our needs
+
+**Helix VM Setup Complete:**
+- ✅ Docker CE 29.2.1 installed from official repository
+- ✅ Docker Compose v5.0.2 installed (plugin)
+- ✅ Go 1.23.6 installed
+- ✅ Helix repository cloned
+- ✅ vsock support confirmed: `/dev/vsock` and `/dev/vhost-vsock` present
+- ✅ PipeWire running in user session
+- ✅ GPU devices: `/dev/dri/card0` (virtio-gpu) and `/dev/dri/renderD128` (render node)
+
+**Graphics Configuration Testing (2026-02-03):**
+
+Tested all UTM graphics backend combinations to enable Venus/Vulkan:
+
+| Renderer Backend | Vulkan Driver | Vulkan Result | OpenGL Result | Notes |
+|------------------|---------------|---------------|---------------|-------|
+| Default | Default | llvmpipe | virgl(?) | Original config, baseline |
+| ANGLE (OpenGL) | MoltenVK | llvmpipe | llvmpipe | Both fail |
+| Default | MoltenVK | llvmpipe | llvmpipe | Both fail |
+| ANGLE (Metal) | KosmicKrisp | llvmpipe | llvmpipe | Both fail |
+
+**Key Findings:**
+- Venus/Vulkan NOT working in any configuration tested
+- Command-line tests (`vulkaninfo`, `glxinfo` via Xvfb) show software rendering (llvmpipe)
+- **However**: Desktop feels responsive, suggesting actual compositor (GNOME on Wayland) may be using GPU
+- Possible explanation: virgl works for console display, not for Xvfb virtual displays over SSH
+
+**Conclusion for Phase 1:**
+- Proceed with OpenGL/virgl path (Default + Default config)
+- Test actual Helix sandbox frame capture to see real performance
+- Venus/Vulkan can be revisited in Phase 2 if needed
+- Desktop responsiveness suggests GPU acceleration is working for actual displays
+
+**VM Setup Status:**
+- ✅ SSH access working (port 2222)
+- ✅ Docker CE 29.2.1 + Docker Compose v5.0.2 installed
+- ✅ Go 1.23.6 installed
+- ✅ Helix repository cloned
+- ✅ GPU devices accessible inside Docker containers
+- ✅ vsock support confirmed
+- ✅ PipeWire running
+- ⚠️ GPU acceleration: Works for desktop (responsive), shows llvmpipe in CLI tests
+
+**Remaining Work for Golden Image:**
+1. **Build Zed** - Clone Zed fork, build with external_websocket_sync feature
+2. **Build Helix sandbox** - Run `./stack build-sandbox` with Zed available
+3. **Build desktop images** - `./stack build-ubuntu` and `./stack build-sway`
+4. **Test frame capture** - Verify PipeWire ScreenCast works in dev containers
+5. **Build vsockenc plugin** - GStreamer element for guest→host frame delegation (future)
+6. **Test end-to-end** - Start session, capture frames, verify video streaming works
+
+**Next Immediate Steps:**
+1. Clone and build Zed fork
+2. Build Helix sandbox with all desktop images
+3. Test actual Helix session creation and frame capture
+4. Verify GPU usage during video streaming
+5. Create golden VM image for bundling with Helix.app
