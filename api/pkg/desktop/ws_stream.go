@@ -348,7 +348,14 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 // 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
 // 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
-	// Try NVENC first (NVIDIA)
+	// Try vsockenc first (macOS/UTM virtio-gpu VideoToolbox encoding)
+	// This delegates encoding to host VideoToolbox via vsock for zero-copy on macOS
+	if checkGstElement("vsockenc") {
+		v.logger.Info("using vsockenc (macOS VideoToolbox via vsock)")
+		return "vsock"
+	}
+
+	// Try NVENC (NVIDIA)
 	if checkGstElement("nvh264enc") {
 		v.logger.Info("using NVIDIA NVENC encoder")
 		return "nvenc"
@@ -561,6 +568,24 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	// Each encoder type has its own GPU-optimized path
 	// Note: VideoModePlugin may provide GPU memory (CUDA/DMABuf) or SHM depending on compositor
 	switch encoder {
+	case "vsock":
+		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
+		// vsockenc delegates to host VideoToolbox via vsock for zero-copy encoding
+		// The encoder connects to QEMU's helix-frame-export module running on the host
+		//
+		// Pipeline: PipeWire DMA-BUF → vsockenc (extracts resource ID, sends via vsock)
+		//           → host QEMU (resource → MTLTexture → VideoToolbox H.264)
+		//           → H.264 NAL units back via vsock
+		//
+		// vsockenc accepts video/x-raw with DMA-BUF memory from PipeWire
+		// No videoconvert needed - vsockenc handles format internally
+		parts = append(parts,
+			fmt.Sprintf("vsockenc bitrate=%d keyframe-interval=%d",
+				v.config.Bitrate, v.getEffectiveGOPSize()),
+			"h264parse",
+			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+		)
+
 	case "nvenc":
 		// NVIDIA NVENC encoding
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.

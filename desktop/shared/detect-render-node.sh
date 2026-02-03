@@ -33,6 +33,10 @@ detect_render_node() {
         intel)
             target_driver="i915"
             ;;
+        virtio)
+            target_driver="virtio_gpu"
+            echo "[render-node] virtio-gpu mode (macOS/UTM VideoToolbox encoding via vsock)"
+            ;;
         none|"")
             echo "[render-node] Software rendering mode (GPU_VENDOR=${gpu_vendor:-unset})"
             export HELIX_RENDER_NODE="SOFTWARE"

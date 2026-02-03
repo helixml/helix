@@ -511,6 +511,89 @@ services:
       retries: 3
       start_period: 10s
 
+  # macOS ARM sandbox (virtio-gpu with VideoToolbox encoding via vsock)
+  # Use: docker compose --profile code-macos up sandbox-macos
+  # For macOS hosts running UTM VMs with virtio-gpu
+  sandbox-macos:
+    profiles: [code-macos]
+    image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # virtio-gpu GPU acceleration (vendor ID 0x1af4)
+      - GPU_VENDOR=virtio
+      # Helix dev mode (enables bind-mounts for hot reload)
+      - HELIX_DEV_MODE=true
+      - ZED_IMAGE=helix-ubuntu:latest
+      # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
+      - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Sandbox data path for workspaces (must match volume mount)
+      - SANDBOX_DATA_PATH=/data
+      # RevDial configuration (connect sandbox to API)
+      - HELIX_API_URL=http://api:8080
+      - HELIX_API_BASE_URL=http://api:8080
+      - SANDBOX_INSTANCE_ID=local
+      - RUNNER_TOKEN=oh-hallo-insecure-token
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
+      # Runtime configuration
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - GST_DEBUG=3
+      - GOP_SIZE=${GOP_SIZE:-240}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+    privileged: true # Required for Docker-in-Docker
+    volumes:
+      # Desktop configuration and state
+      - ./desktop/:/etc/helix/desktop/:rw
+      # Config template - bind-mounted for faster iteration (no rebuild needed)
+      - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+      - /tmp/sockets:/tmp/sockets:rw
+      - sandbox-docker-storage:/var/lib/docker
+      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+      - hydra-storage:/hydra-data
+      - /run/udev:/run/udev:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
+      # Dev bind-mounts for hot reload (Zed + desktop configs)
+      # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
+      - ./zed-build:/helix-dev/zed-build:ro
+      - ./desktop/sway-config:/helix-dev/sway-config:rw
+      - ./desktop/zorin-config:/helix-dev/zorin-config:rw
+      - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+      - ./desktop/xfce-config:/helix-dev/xfce-config:rw
+      - ./desktop/kde-config:/helix-dev/kde-config:rw
+      - ./desktop/shared:/helix-dev/shared:ro
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+      # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+      - sandbox-data:/data
+      # Host Docker socket for privileged mode (Helix-in-Helix development)
+      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      - /var/run/docker.sock:/var/run/host-docker.sock:rw
+      # Desktop image tarballs and versions (bind-mounted for hot-reload)
+      # Adding new desktops requires no changes here - just add to sandbox-images/
+      - ./sandbox-images:/opt/images:ro
+    # virtio-gpu device mounts
+    device_cgroup_rules:
+      - "c 13:* rmw"
+      - "c 226:* rmw"  # DRM devices for virtio-gpu
+    devices:
+      - /dev/uinput
+      - /dev/uhid
+      - /dev/dri  # DRM render nodes for virtio-gpu
+    # No nvidia runtime for virtio-gpu
+    cap_add:
+      - SYS_PTRACE # Thread diagnostics
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # GPU-enabled runner (for LLM inference)
   runner_gpu:
     <<: *runner-config
