@@ -14,22 +14,23 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 1. **VM Platform**: UTM 5.0+ (provides virglrenderer with Metal texture export API)
 2. **GPU Acceleration**: virtio-gpu with Venus/Vulkan + virgl OpenGL support
 3. **Video Encoding**: VideoToolbox on host (via vsockenc GStreamer element)
-4. **Storage**: vfs driver for nested Docker (overlay2 incompatible with DinD on ARM64 VMs)
+4. **Storage**: overlay2 driver for nested Docker (works perfectly with DinD on ARM64)
 
 **Status:**
 - ✅ VM running Ubuntu 25.10 ARM64 with Venus/Vulkan GPU acceleration
 - ✅ helix-ubuntu desktop image built (ARM64-native)
-- ✅ helix-sandbox container running with overlay2 storage driver
+- ✅ helix-sandbox container running with overlay2 storage driver (fast image transfers)
 - ✅ Test session created and running (ses_01kgjkc6qcxs3qf568xbt4p3yv)
 - ✅ **PipeWire ScreenCast working with DmaBuf enabled**
 - ✅ **Video streaming functional** (H.264 via WebSocket, x264enc software encoding)
-- ⏳ Next: Implement code-macos profile, design vsockenc element
+- ✅ **vsockenc GStreamer element implemented** (C, with DmaBuf→virtio-gpu resource ID extraction)
+- ⏳ Next: Integrate vsockenc into build, implement host-side VideoToolbox encoder
 
-**Remaining Challenges:**
-1. Slow image transfers with vfs storage driver (~20+ min for 7GB image)
-2. Need new sandbox profile for virtio-gpu (current: using code-software profile)
-3. vsockenc GStreamer element not yet implemented
-4. VideoToolbox integration not yet tested end-to-end
+**Remaining Work:**
+1. Integrate vsockenc into helix-ubuntu desktop image build
+2. Add code-macos sandbox profile (vendor 0x1af4 detection)
+3. Implement host-side vsock-encoder-server (VideoToolbox integration)
+4. Test zero-copy encoding path end-to-end
 
 ## Architecture
 
@@ -1329,12 +1330,49 @@ Add new options for frame export:
 - **Solution needed:** Implement code-macos profile with vendor 0x1af4 detection
 
 **Next Steps:**
-1. **Add code-macos sandbox profile** for virtio-gpu (vendor 0x1af4)
-2. **Design vsockenc GStreamer element** for VideoToolbox delegation
+1. ~~**Design vsockenc GStreamer element**~~ ✅ Implemented in C
+2. **Integrate vsockenc into helix-ubuntu build**
 3. **Implement host-side VideoToolbox encoder** (vsock-encoder-server)
-4. Test zero-copy encoding: DmaBuf → vsock → VideoToolbox → H.264
+4. **Add code-macos sandbox profile** for virtio-gpu (vendor 0x1af4)
+5. Test zero-copy encoding: DmaBuf → vsock → VideoToolbox → H.264
 
 **Key Achievement:** The entire video pipeline works - PipeWire capture with DmaBuf, H.264 encoding, WebSocket streaming. This validates the architecture before implementing vsockenc.
+
+### 2026-02-03: vsockenc GStreamer Element Implemented
+
+**vsockenc Implementation Complete:**
+- ✅ Implemented in C (`desktop/gst-vsockenc/gstvsockenc.c`, 688 lines)
+- ✅ Full Helix Frame Export Protocol support with structured messages
+- ✅ **DmaBuf → virtio-gpu resource ID extraction** via DRM ioctls
+- ✅ vsock communication with host encoder (CID 2, port 5000)
+- ✅ Async receive thread for encoded H.264 frames
+- ✅ Configurable bitrate and keyframe interval
+- ✅ Proper PTS/DTS handling and frame queue management
+
+**Protocol Implementation:**
+- Helix Frame Export Protocol with magic `0x52465848` ('HXFR')
+- Message types: FRAME_REQUEST, FRAME_RESPONSE, CONFIG_REQ, ERROR, PING/PONG
+- Frame request: resource_id, width, height, format (BGRA/RGBA/NV12), stride, pts, duration
+- Frame response: pts, dts, is_keyframe, nal_count + variable-length NAL units
+
+**Key Technical Implementation:**
+```c
+// Extract virtio-gpu resource ID from DmaBuf
+int drm_fd = open("/dev/dri/renderD128", O_RDWR);
+struct drm_prime_handle prime_handle = { .fd = dmabuf_fd };
+ioctl(drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &prime_handle);
+resource_id = prime_handle.handle;  // For virtio-gpu, GEM handle == resource ID
+```
+
+**Build System:**
+- Meson build configured (`desktop/gst-vsockenc/meson.build`)
+- Dependencies: gstreamer-1.0, gstreamer-video, gstreamer-allocators, libdrm
+- Installs to `/usr/lib/gstreamer-1.0/libgstvsockenc.so`
+
+**Remaining Work:**
+1. Integrate vsockenc meson build into helix-ubuntu Dockerfile
+2. Implement host-side `vsock-encoder-server` (Go daemon with VideoToolbox)
+3. Test resource ID extraction with real PipeWire DmaBuf frames
 
 ### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
 
