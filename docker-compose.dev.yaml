@@ -111,7 +111,7 @@ services:
       # Go caches for faster air rebuilds (shared with runner config)
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
-      # Production frontend build (used when SERVE_PROD_FRONTEND_IN_DEV=true)
+      # Production frontend build (used when FRONTEND_URL=/www)
       - ./frontend/dist:/www:ro
     depends_on:
       - postgres
