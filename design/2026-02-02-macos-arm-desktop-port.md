@@ -1289,13 +1289,16 @@ Add new options for frame export:
 4. Test baseline video streaming (x264enc software encoding)
 5. Implement vsockenc GStreamer element for VideoToolbox delegation
 
-**Sandbox Profile Decision Needed:**
+**Sandbox Profile Decision:**
 - Current: Using `code-software` profile (misleading name for virtio-gpu)
-- Proposed: Add `code-virtio` or `code-macos` profile for proper GPU detection
+- **Decision: Add `code-macos` profile** (not code-virtio)
+  - Rationale: vsockenc is macOS-specific (delegates to VideoToolbox)
+  - Windows with virtio-gpu can use nvenc in guest (Windows supports CUDA in VMs)
+  - Profile name should reflect the host OS, not the virtualization technology
 - Required changes:
-  - docker-compose.dev.yaml: New profile definition
-  - stack script: GPU vendor detection for 0x1af4
-  - desktop-bridge: Select vsockenc encoder for virtio-gpu vendor
+  - docker-compose.dev.yaml: New `code-macos` profile definition
+  - stack script: GPU vendor detection for 0x1af4 → set code-macos profile on macOS hosts
+  - desktop-bridge: Select vsockenc encoder when running on macOS (vendor 0x1af4)
 
 ## Progress Log
 
@@ -1613,7 +1616,7 @@ PipeWire ScreenCast → pipewirezerocopysrc (DMA-buf frames)
 ### Pipeline on virtio-gpu (macOS VM)
 ```
 PipeWire ScreenCast → pipewirezerocopysrc (DMA-buf frames from virtio-gpu)
-    → vsockenc (new GStreamer element):
+    → vsockenc (new GStreamer element, macOS-specific):
         1. Extracts virtio-gpu resource ID from DMA-buf
         2. Sends resource ID to host via vsock
         3. Host receives resource ID via vsock server
@@ -1623,6 +1626,8 @@ PipeWire ScreenCast → pipewirezerocopysrc (DMA-buf frames from virtio-gpu)
         7. vsockenc outputs NAL units to GStreamer pipeline
     → desktop-bridge WebSocket → browser
 ```
+
+**Note on Windows**: On Windows hosts with virtio-gpu, guests can potentially use nvenc directly (Windows supports CUDA in VMs), so vsockenc delegation is macOS-specific.
 
 ### Host-Side VideoToolbox Encoder (macOS)
 
