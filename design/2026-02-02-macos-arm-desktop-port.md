@@ -32,8 +32,11 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
   - Modified hw/display/meson.build to build helix module on macOS
   - Modified hw/display/virtio-gpu-virgl.c to init frame export
   - Committed to utm-edition branch: 4237f5099b
-- ⏳ Testing vsockenc build in VM (rebuild in progress after meson fix)
-- ⏳ Next: Build modified QEMU and rebuild UTM.app
+- ✅ **vsockenc build successful** - helix-ubuntu:7c082c with libgstvsockenc.so installed
+- ✅ **code-macos sandbox profile added** - GPU_VENDOR=virtio for virtio-gpu
+- ✅ **desktop-bridge updated** - selectEncoder() prioritizes vsockenc, pipeline configured
+- ⏳ Testing vsockenc in VM session (pulling image to sandbox)
+- ⏳ Next: Build modified QEMU and rebuild UTM.app for full end-to-end test
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
