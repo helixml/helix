@@ -27,8 +27,13 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ✅ **vsockenc integrated into helix-ubuntu ARM64 build** (meson, installs to /usr/lib/gstreamer-1.0/)
 - ✅ **QEMU integration module discovered** - helix-frame-export already complete in for-mac/qemu-helix/
 - ✅ Fixed vsockenc meson build (added required PACKAGE defines)
+- ✅ **helix-frame-export integrated into UTM's QEMU fork** (~/pm/qemu-utm)
+  - Copied for-mac/qemu-helix/ to hw/display/helix/
+  - Modified hw/display/meson.build to build helix module on macOS
+  - Modified hw/display/virtio-gpu-virgl.c to init frame export
+  - Committed to utm-edition branch: 4237f5099b
 - ⏳ Testing vsockenc build in VM (rebuild in progress after meson fix)
-- ⏳ Next: Integrate helix-frame-export into UTM's QEMU fork
+- ⏳ Next: Build modified QEMU and rebuild UTM.app
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
@@ -1434,7 +1439,34 @@ Found complete QEMU module in `for-mac/qemu-helix/`:
 5. Add QEMU option `--device virtio-gpu,helix-frame-export=on`
 6. Rebuild UTM with modified QEMU
 
-**Status:** Module is feature-complete and ready to integrate. Just needs QEMU fork + rebuild UTM.
+**Status:** ~~Module is feature-complete and ready to integrate. Just needs QEMU fork + rebuild UTM.~~ ✅ **Integration complete!**
+
+### 2026-02-03: QEMU Integration Complete
+
+**helix-frame-export Successfully Integrated into UTM's QEMU:**
+
+Completed integration in `~/pm/qemu-utm/` (utm-edition branch):
+- ✅ Copied `for-mac/qemu-helix/` → `hw/display/helix/`
+- ✅ Modified `hw/display/meson.build`:
+  - Added `subdir('helix')` in virtio-gpu section
+  - helix module builds conditionally on macOS (`host_machine.system() == 'darwin'`)
+  - Depends on: VideoToolbox, CoreVideo, CoreMedia, IOSurface, Metal, virglrenderer
+- ✅ Modified `hw/display/virtio-gpu-virgl.c`:
+  - Added `#include "helix/helix-frame-export.h"` (macOS only)
+  - Added `helix_frame_export_init(g, HELIX_VSOCK_PORT)` to `virtio_gpu_virgl_init()`
+  - Non-fatal error handling - continues without frame export if init fails
+- ✅ Committed: `4237f5099b` "Add Helix frame export for zero-copy VideoToolbox encoding"
+
+**What This Enables:**
+- QEMU can now call `virgl_renderer_resource_get_info_ext()` to get MTLTexture from virtio-gpu resource
+- MTLTexture.iosurface provides IOSurface for zero-copy VideoToolbox encoding
+- vsock communication between guest (vsockenc) and host (QEMU helix module)
+- Complete zero-copy path: Guest GPU → virglrenderer → Metal → VideoToolbox → H.264
+
+**Next Steps:**
+1. Build modified QEMU
+2. Rebuild UTM.app with modified QEMU
+3. Test with helix-ubuntu desktop container running vsockenc
 
 ### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
 
