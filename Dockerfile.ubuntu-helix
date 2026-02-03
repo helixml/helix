@@ -61,51 +61,51 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #
 # NOTE: Only built for amd64 - ARM64 uses standard pipewiresrc + software encoding
 # Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-# --platform=linux/amd64 ensures this stage only builds on amd64
-FROM --platform=linux/amd64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-amd64
-WORKDIR /build
-
-# Install Rust and GStreamer dev packages
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
-    libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
-    libgstreamer-plugins-bad1.0-dev \
-    gstreamer1.0-plugins-base \
-    libgstreamer-plugins-bad1.0-0 \
-    libpipewire-0.3-dev \
-    libspa-0.2-dev \
-    libegl1-mesa-dev \
-    libdrm-dev \
-    libclang-dev \
-    pkg-config \
-    libinput-dev \
-    libxkbcommon-dev \
-    libwayland-dev \
-    libudev-dev \
-    libgbm-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
-
-# Install Rust 1.85 via rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Copy plugin source and vendored dependency
-COPY desktop/wayland-display-core ./wayland-display-core/
-COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
-
-# Build the plugin (creates libgstpipewirezerocopy.so)
-# Cache registry only - target needs clean rebuild when linking changes
-# FORCE CLEAN: cargo clean required because adding libgstcuda link in build.rs
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cd gst-pipewire-zerocopy && \
-    cargo clean && \
-    cargo build --release && \
-    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
-
+# DISABLED FOR ARM64-ONLY BUILD: # --platform=linux/amd64 ensures this stage only builds on amd64
+# DISABLED FOR ARM64-ONLY BUILD: FROM --platform=linux/amd64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-amd64
+# DISABLED FOR ARM64-ONLY BUILD: WORKDIR /build
+# DISABLED FOR ARM64-ONLY BUILD: 
+# DISABLED FOR ARM64-ONLY BUILD: # Install Rust and GStreamer dev packages
+# DISABLED FOR ARM64-ONLY BUILD: ENV DEBIAN_FRONTEND=noninteractive
+# DISABLED FOR ARM64-ONLY BUILD: RUN apt-get update && apt-get install -y \
+# DISABLED FOR ARM64-ONLY BUILD:     curl \
+# DISABLED FOR ARM64-ONLY BUILD:     build-essential \
+# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer1.0-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-base1.0-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-bad1.0-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     gstreamer1.0-plugins-base \
+# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-bad1.0-0 \
+# DISABLED FOR ARM64-ONLY BUILD:     libpipewire-0.3-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libspa-0.2-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libegl1-mesa-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libdrm-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libclang-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     pkg-config \
+# DISABLED FOR ARM64-ONLY BUILD:     libinput-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libxkbcommon-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libwayland-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libudev-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     libgbm-dev \
+# DISABLED FOR ARM64-ONLY BUILD:     && rm -rf /var/lib/apt/lists/* \
+# DISABLED FOR ARM64-ONLY BUILD:     && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
+# DISABLED FOR ARM64-ONLY BUILD: 
+# DISABLED FOR ARM64-ONLY BUILD: # Install Rust 1.85 via rustup
+# DISABLED FOR ARM64-ONLY BUILD: RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+# DISABLED FOR ARM64-ONLY BUILD: ENV PATH="/root/.cargo/bin:${PATH}"
+# DISABLED FOR ARM64-ONLY BUILD: 
+# DISABLED FOR ARM64-ONLY BUILD: # Copy plugin source and vendored dependency
+# DISABLED FOR ARM64-ONLY BUILD: COPY desktop/wayland-display-core ./wayland-display-core/
+# DISABLED FOR ARM64-ONLY BUILD: COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
+# DISABLED FOR ARM64-ONLY BUILD: 
+# DISABLED FOR ARM64-ONLY BUILD: # Build the plugin (creates libgstpipewirezerocopy.so)
+# DISABLED FOR ARM64-ONLY BUILD: # Cache registry only - target needs clean rebuild when linking changes
+# DISABLED FOR ARM64-ONLY BUILD: # FORCE CLEAN: cargo clean required because adding libgstcuda link in build.rs
+# DISABLED FOR ARM64-ONLY BUILD: RUN --mount=type=cache,target=/usr/local/cargo/registry \
+# DISABLED FOR ARM64-ONLY BUILD:     cd gst-pipewire-zerocopy && \
+# DISABLED FOR ARM64-ONLY BUILD:     cargo clean && \
+# DISABLED FOR ARM64-ONLY BUILD:     cargo build --release && \
+# DISABLED FOR ARM64-ONLY BUILD:     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+# DISABLED FOR ARM64-ONLY BUILD: 
 # Placeholder stage for arm64 (no zerocopy plugin)
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
 RUN touch /libgstpipewirezerocopy.so
@@ -116,13 +116,13 @@ RUN touch /libgstpipewirezerocopy.so
 # cudascale element requires CUDA runtime compilation library (libnvrtc)
 # We copy just this library from NVIDIA's CUDA image to keep the image small
 # NOTE: CUDA/NVENC not available for ARM64 - video encoding happens on macOS host
-# --platform=linux/amd64 ensures this stage is always pulled as amd64
-FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
-# libnvrtc is in /usr/local/cuda/lib64/
-# Create copies with predictable names for multi-arch COPY
-RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
-    cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
-
+# DISABLED FOR ARM64-ONLY BUILD: # --platform=linux/amd64 ensures this stage is always pulled as amd64
+# DISABLED FOR ARM64-ONLY BUILD: FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
+# DISABLED FOR ARM64-ONLY BUILD: # libnvrtc is in /usr/local/cuda/lib64/
+# DISABLED FOR ARM64-ONLY BUILD: # Create copies with predictable names for multi-arch COPY
+# DISABLED FOR ARM64-ONLY BUILD: RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
+# DISABLED FOR ARM64-ONLY BUILD:     cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
+# DISABLED FOR ARM64-ONLY BUILD: 
 # Placeholder stage for arm64 (no CUDA)
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
 RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
@@ -706,10 +706,10 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # For arm64 builds: copies placeholder files (skipped in RUN)
 
 # Copy artifacts from platform-specific stages
-COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
+# DISABLED FOR ARM64-ONLY BUILD: COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
 COPY --from=rust-build-env-arm64 /libgstpipewirezerocopy.so /tmp/zerocopy-arm64.so
-COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
-COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
+# DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
+# DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 COPY --from=cuda-libs-arm64 /libnvrtc.so.12 /tmp/libnvrtc-arm64.so.12
 COPY --from=cuda-libs-arm64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins-arm64.so.12.6
 
