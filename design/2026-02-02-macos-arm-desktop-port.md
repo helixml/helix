@@ -1,8 +1,8 @@
 # macOS ARM Desktop Port - Architecture Design
 
 **Date**: 2026-02-02
-**Last Updated**: 2026-02-03
-**Status**: Phase 1 Complete (VM + Desktop Images Built), Phase 2 Starting (Video Streaming)
+**Last Updated**: 2026-02-03 22:15 UTC
+**Status**: Phase 2 In Progress - Building Modified QEMU with helix-frame-export
 
 ## Executive Summary
 
@@ -35,8 +35,11 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ✅ **vsockenc build successful** - helix-ubuntu:7c082c with libgstvsockenc.so installed
 - ✅ **code-macos sandbox profile added** - GPU_VENDOR=virtio for virtio-gpu
 - ✅ **desktop-bridge updated** - selectEncoder() prioritizes vsockenc, pipeline configured
-- ⏳ Testing vsockenc in VM session (pulling image to sandbox)
-- ⏳ Next: Build modified QEMU and rebuild UTM.app for full end-to-end test
+- ✅ **VM disk expanded** - Resized from 256GB (100% full) to 512GB, 418GB free
+- ✅ **VM CPU count increased** - Changed from 4 cores to 20 cores for faster builds
+- ✅ **helix-ubuntu:7c082c pulled into sandbox** - Image available for testing
+- ⏳ **UTM dependency build in progress** - Building QEMU + dependencies (failed on GLib, retrying)
+- ⏳ Next: Complete QEMU build, rebuild UTM.app, test end-to-end zero-copy pipeline
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (testing in VM)
