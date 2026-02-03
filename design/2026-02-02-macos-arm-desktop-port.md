@@ -1464,24 +1464,38 @@ Tested all UTM graphics backend combinations to enable Venus/Vulkan:
   - Docker containers: Can access virtio-gpu and use Venus driver
   - Verified: `docker run --device=/dev/dri` shows "Virtio-GPU Venus (Apple M3 Ultra)"
 
-**Building Helix Stack in VM (In Progress):**
+**Building Helix Stack in VM (Completed):**
 - ✅ VM memory increased to 64GB for build
 - ✅ Zed binary (308MB, release build) copied to VM
 - ✅ qwen-code repository cloned
-- ✅ ARM64 build fix: Commented out x86_64 CUDA symlink in Dockerfile.ubuntu-helix
-- ✅ ARM64 build fix: Changed Go download from linux-amd64 to linux-arm64
-- ✅ ARM64 build fix: Replaced Google Chrome (amd64-only) with Chromium (has ARM64 build)
-  - Updated all paths: /etc/chromium/policies, /opt/chromium, /usr/bin/chromium-browser
-  - Chromium wrapper script with --password-store=basic flag
-  - Chrome DevTools MCP server works with Chromium
-- 🔄 Building helix-ubuntu desktop image (in progress, ~30-60 min)
-  - Currently installing GNOME desktop packages
-  - Rust gst-pipewire-zerocopy plugin will compile in parallel
+- ✅ ARM64 build fixes for Dockerfile.ubuntu-helix:
+  - Commented out x86_64 CUDA symlink (not applicable to ARM/virtualized GPUs)
+  - Changed Go download from linux-amd64 to linux-arm64
+  - Replaced Google Chrome (amd64-only) with Chromium (has ARM64 build)
+    - Updated all paths: /etc/chromium/policies, /opt/chromium, /usr/bin/chromium-browser
+    - Chromium wrapper script with --password-store=basic flag
+    - Chrome DevTools MCP server works with Chromium
+  - Updated Ghostty installation to use ARM64 packages
+    - Previously assumed ARM64 packages didn't exist
+    - Ghostty 1.2.3 has full ARM64 support
+- ✅ helix-ubuntu desktop image built successfully (7.42GB, image ID: 0f7b633fa9af)
+  - GNOME 49.0 with Wayland
+  - Mesa Vulkan drivers 25.2.8 (Venus-ready)
+  - Chromium browser
+  - Ghostty terminal 1.2.3
+  - gst-pipewire-zerocopy Rust plugin compiled
+  - desktop-bridge and settings-sync-daemon Go binaries
+- ✅ helix-sandbox container built successfully
+  - Docker-in-Docker with ARM64 support
+  - Hydra multi-container isolation daemon
+  - Skipped NVIDIA toolkit (will use VideoToolbox on macOS host)
+  - Skipped ROCm (amd64-only)
+  - Ready to host helix-ubuntu sessions
 
 **Remaining Work for Golden Image:**
 1. ✅ **Build Zed** - Already built on host, binary copied to VM
-2. 🔄 **Build desktop images** - `./stack build-ubuntu` in progress
-3. **Build Helix sandbox** - Run `./stack build-sandbox`
+2. ✅ **Build desktop images** - helix-ubuntu built and ready
+3. ✅ **Build Helix sandbox** - Built with ARM64 support
 4. **Test frame capture** - Verify PipeWire ScreenCast works in dev containers
 5. **Build vsockenc plugin** - GStreamer element for guest→host frame delegation (future)
 6. **Test end-to-end** - Start session, capture frames, verify video streaming works
