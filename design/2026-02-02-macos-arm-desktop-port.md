@@ -1,24 +1,33 @@
 # macOS ARM Desktop Port - Architecture Design
 
 **Date**: 2026-02-02
-**Status**: In Progress
+**Last Updated**: 2026-02-03
+**Status**: Phase 1 Complete (VM + Desktop Images Built), Phase 2 Starting (Video Streaming)
 
-## Overview
+## Executive Summary
 
-Port Helix desktop streaming to macOS ARM64 (Apple Silicon), replacing the current Linux-based Wolf/NVENC pipeline with a native macOS stack using VideoToolbox for hardware H.264 encoding.
+Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM with virtio-gpu for GPU acceleration, delegate video encoding to host VideoToolbox for zero-copy H.264 encoding.
 
-**Distribution Model**: Docker Desktop-like architecture
-- Native macOS app (Wails-based) bundles a preconfigured Linux VM
-- VM contains Helix sandbox pre-installed with all dependencies
-- App manages VM lifecycle, proxies API requests, handles video streaming
-- Single `.app` download, users don't need to configure VMs manually
+**Distribution**: Docker Desktop-style app - single `.app` with bundled VM, no manual configuration.
 
-## Goals
+**Key Architecture Decisions:**
+1. **VM Platform**: UTM 5.0+ (provides virglrenderer with Metal texture export API)
+2. **GPU Acceleration**: virtio-gpu with Venus/Vulkan + virgl OpenGL support
+3. **Video Encoding**: VideoToolbox on host (via vsockenc GStreamer element)
+4. **Storage**: vfs driver for nested Docker (overlay2 incompatible with DinD on ARM64 VMs)
 
-1. Ship a single macOS `.app` that runs Helix (like Docker Desktop)
-2. GPU-accelerated rendering inside bundled VM via virtio-gpu
-3. Zero-copy video encoding path using Apple VideoToolbox
-4. Maintain compatibility with existing dev container images (helix-ubuntu, helix-sway)
+**Status:**
+- ✅ VM running Ubuntu 25.10 ARM64 with Venus/Vulkan GPU acceleration
+- ✅ helix-ubuntu desktop image built (ARM64-native)
+- ✅ helix-sandbox container running and healthy
+- 🔄 Image transfer to sandbox in progress
+- ⏳ Next: Create test session, verify PipeWire ScreenCast, implement vsockenc
+
+**Remaining Challenges:**
+1. Slow image transfers with vfs storage driver (~20+ min for 7GB image)
+2. Need new sandbox profile for virtio-gpu (current: using code-software profile)
+3. vsockenc GStreamer element not yet implemented
+4. VideoToolbox integration not yet tested end-to-end
 
 ## Architecture
 
@@ -1253,7 +1262,72 @@ Add new options for frame export:
 - [WWDC21: Low-latency video encoding](https://developer.apple.com/videos/play/wwdc2021/10158/)
 - [Collabora: State of GFX virtualization](https://www.collabora.com/news-and-blog/blog/2025/01/15/the-state-of-gfx-virtualization-using-virglrenderer/)
 
+## Current Status Summary (2026-02-03)
+
+**VM Environment:** ✅ Fully Operational
+- macOS ARM64 VM (Ubuntu 25.10, 64GB RAM, 256GB disk)
+- Venus/Vulkan GPU acceleration working (via virtio-gpu + MoltenVK)
+- Docker CE + Docker Compose installed and running
+- GPU devices accessible: `/dev/dri/card0`, `/dev/dri/renderD128`
+- Vendor ID: `0x1af4` (virtio-gpu), Device ID: `0x1050`
+
+**Build Status:** ✅ Complete (ARM64-Native)
+- helix-ubuntu desktop image: Built successfully (ID: b7fb9b)
+- helix-sandbox container: Running and healthy with vfs storage driver
+- All dependencies: ARM64-native (LibreOffice, Chromium, Ghostty ARM64)
+- Cross-platform issues resolved: AMD64 stages commented out
+
+**Image Transfer:** 🔄 In Progress
+- helix-ubuntu:b7fb9b successfully pushed to host registry
+- Transfer to sandbox's nested dockerd: In progress (vfs storage driver is slow)
+- Once complete: Ready for session creation and testing
+
+**Next Steps:**
+1. Complete image transfer to sandbox
+2. Create test Helix session with helix-ubuntu desktop
+3. Verify PipeWire ScreenCast works with Venus/Vulkan
+4. Test baseline video streaming (x264enc software encoding)
+5. Implement vsockenc GStreamer element for VideoToolbox delegation
+
+**Sandbox Profile Decision Needed:**
+- Current: Using `code-software` profile (misleading name for virtio-gpu)
+- Proposed: Add `code-virtio` or `code-macos` profile for proper GPU detection
+- Required changes:
+  - docker-compose.dev.yaml: New profile definition
+  - stack script: GPU vendor detection for 0x1af4
+  - desktop-bridge: Select vsockenc encoder for virtio-gpu vendor
+
 ## Progress Log
+
+### 2026-02-03: ARM64 Desktop Build Complete, Transfer In Progress
+
+**Achievements:**
+- ✅ Fixed Dockerfile.ubuntu-helix for ARM64-native builds
+  - Commented out AMD64-specific CUDA/Rust build stages
+  - Replaced Chrome (amd64-only) with Chromium ARM64
+  - Fixed Ghostty to use ARM64 packages
+  - Replaced OnlyOffice with LibreOffice (ARM64 available)
+- ✅ Built helix-ubuntu desktop image successfully
+  - Image ID: b7fb9b60b3e3
+  - Size: ~7.4GB compressed layers
+  - All components ARM64-native
+- ✅ Fixed sandbox container restart loop
+  - Changed storage driver from overlay2 to vfs (DinD compatibility)
+  - Made helix-sway optional (was causing crashes)
+- ✅ Identified GPU vendor: 0x1af4 (virtio-gpu)
+  - Need new sandbox profile for macOS/virtio-gpu systems
+  - Current workaround: COMPOSE_PROFILES=code-software
+
+**Challenges:**
+- Image transfer to sandbox taking very long (~20+ minutes)
+- vfs storage driver significantly slower than overlay2
+- Transfer hung once, required manual retry
+- Need to decide on sandbox profile naming for macOS ARM systems
+
+**Technical Decisions Made:**
+1. **Storage Driver**: Use vfs for now (slower but works with nested DinD)
+2. **Sandbox Profile**: Temporarily using code-software, should create code-virtio later
+3. **Build Strategy**: ARM64-only builds, no cross-compilation
 
 ### 2026-02-02: QEMU Frame Export Implementation
 
