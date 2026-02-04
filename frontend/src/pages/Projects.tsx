@@ -85,10 +85,18 @@ const Projects: FC = () => {
     return map
   }, [apps.apps])
 
-  // Check if org slug is set in the URL
-  // const orgSlug = router.params.org_id || ''
+  // Check if we're on an org route - if so, wait for organization to load before querying projects
+  // This prevents the query from running with the wrong org_id during loading
+  const isOrgRoute = !!router.params.org_id
+  const orgId = account.organizationTools.organization?.id
+  const orgLoading = account.organizationTools.loading
 
-  const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '', { enabled: isLoggedIn })
+  // Only enable query when:
+  // 1. User is logged in
+  // 2. If on org route, organization must be loaded (not loading, and has ID)
+  const projectsQueryEnabled = isLoggedIn && (!isOrgRoute || (!!orgId && !orgLoading))
+
+  const { data: projects = [], isLoading, error } = useListProjects(orgId || '', { enabled: projectsQueryEnabled })
   const { data: sampleProjects = [] } = useListSampleProjects({ enabled: isLoggedIn })
   const instantiateSampleMutation = useInstantiateSampleProject()
 
