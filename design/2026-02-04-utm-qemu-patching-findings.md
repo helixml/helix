@@ -264,3 +264,39 @@ The HV_DENIED error was likely caused by over-aggressive re-signing with `--deep
 5. Ensure VM uses **Emulated networking**, NOT vmnet
 
 **Next test:** Replace binary, fix paths, minimal signing, verify networking is set to "Emulated"
+
+## UPDATE: Dependency Build Success (2026-02-04 Evening)
+
+Successfully built all QEMU dependencies from source using UTM's `build_dependencies.sh`:
+
+**✅ Successfully Built:**
+- virglrenderer 1.0 (critical for GPU texture access)
+- QEMU 10.0.2-utm with our helix-frame-export module
+- All 28 dependencies: pkg-config, libffi, libiconv, gettext, glib, pixman, openssl, spice, gstreamer, etc.
+
+**❌ Failed (Non-Critical):**
+- mesa (GPU driver framework) - requires LLVM ≥15.0
+- This failure occurred AFTER virglrenderer and QEMU built successfully
+- mesa is not needed for our use case (we only need virglrenderer)
+
+**Build artifacts:**
+```
+~/pm/UTM/sysroot-macOS-arm64/lib/libvirglrenderer.1.dylib   (2.9 MB)
+~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib  (30.5 MB)
+```
+
+**Helix module integration:**
+- ✅ helix-frame-export.m compiled successfully
+- ✅ Integrated into virtio-gpu-virgl.c
+- ⚠️  VideoToolbox/CoreVideo/CoreMedia frameworks not linked (needs meson.build fix)
+- ✅ virglrenderer linked correctly
+
+**Commits:**
+- `3102734297` - Fix helix_frame_export_init() call signature
+- Pushed to github.com/helixml/qemu-utm utm-edition branch
+
+**Next steps:**
+1. Fix meson.build to properly link VideoToolbox/CoreVideo/CoreMedia frameworks
+2. Rebuild QEMU and verify all frameworks present
+3. Test VM with custom QEMU
+4. Verify helix-frame-export functionality
