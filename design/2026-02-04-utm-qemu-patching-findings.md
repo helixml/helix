@@ -334,3 +334,51 @@ helix_get_iosurface_for_resource
 **Ready for testing:**
 - Custom QEMU binary at: `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib`
 - Next: Patch production UTM.app and test VM
+
+## TESTING RESULTS (2026-02-04 20:11)
+
+**Patching Procedure:**
+1. Killed all UTM/QEMU processes
+2. Backed up original QEMU: `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu.orig`
+3. Replaced QEMU binary with custom build
+4. Fixed library paths using `/tmp/fix-qemu-paths.sh` (changed hardcoded paths to @rpath)
+5. Re-signed XPC services and frameworks with ad-hoc signatures
+6. Attempted to start VM
+
+**Crash Found:**
+VM failed to start with assertion crash in `qemu_opt_get_bool_helper` called from `qemu_spice_init`.
+
+From crash report (`QEMULauncher-2026-02-04-185607.ips`):
+```
+"termination" : {"flags":0,"code":6,"namespace":"SIGNAL","indicator":"Abort trap: 6"}
+Stack trace:
+  __assert_rtn
+  qemu_opt_get_bool_helper.cold.1
+  qemu_opt_get_bool_helper
+  qemu_spice_init
+  qemu_init
+```
+
+**Root Cause:**
+The gl=es parameter patch exists in the source code (`ui/spice-core.c:513` has `.type = QEMU_OPT_STRING`), BUT it's wrapped in `#ifdef HAVE_SPICE_GL`.
+
+Our initial build used manual `./configure` which did NOT enable SPICE GL support, so the patch was excluded at compile time. The binary still has the old `QEMU_OPT_BOOL` type, which triggers an assertion when UTM passes `gl=es`.
+
+**Fix:**
+Must rebuild QEMU using UTM's full dependency build script which properly enables SPICE GL. The quick rebuild script (`scripts/build-qemu-only.sh`) uses a minimal configure command without SPICE support.
+
+**Correct Build Command:**
+```bash
+cd ~/pm/UTM
+./Scripts/build_dependencies.sh -k macosx -s macOS -a arm64 -o ~/pm/UTM
+```
+
+This ensures all configure flags are set correctly, including SPICE GL support.
+
+**VM Information:**
+- External disk VM: `/Volumes/Helix VM/Linux.utm`
+- Correct UUID: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
+- Config: virtio-gpu-gl-pci, Emulated networking, 20 CPUs, 64GB RAM
+- Design doc had wrong UUID (`01CECE09-B09D-48A4-BAB6-D046C06E3A68`) - that was from an old session
+
+**Status:** Rebuilding QEMU with proper SPICE GL configuration (2026-02-04 20:11)
