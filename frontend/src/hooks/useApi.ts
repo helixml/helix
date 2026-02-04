@@ -83,10 +83,23 @@ const attemptTokenRefresh = async (): Promise<boolean> => {
   }
 }
 
-// Add response interceptor to handle 401 errors with automatic token refresh
-// When a 401 is received (token expired), we try to refresh and retry the request
+// Add response interceptor to handle:
+// 1. X-Token-Refreshed header from transparent backend refresh
+// 2. 401 errors with automatic token refresh
 apiClientSingleton.instance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Check if the backend transparently refreshed our token
+    // This happens when the access token was expired but the refresh token was valid
+    const newToken = response.headers['x-token-refreshed']
+    if (newToken) {
+      console.log('[API] Token refreshed transparently by backend, updating in-memory token')
+      axios.defaults.headers.common = getTokenHeaders(newToken)
+      apiClientSingleton.setSecurityData({ token: newToken })
+      // Also update localStorage for direct fetch() calls
+      localStorage.setItem('token', newToken)
+    }
+    return response
+  },
   async (error) => {
     const originalRequest = error.config
 
