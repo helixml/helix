@@ -4,6 +4,14 @@
 
 Attempted to patch production UTM.app with our custom QEMU containing helix-frame-export module. Discovered that macOS code signing prevents simple binary replacement.
 
+**CRITICAL FINDING (2026-02-04):** We were based on the WRONG UTM QEMU branch! Our fork was based on `utm-edition` (the stable branch), but we needed `utm-edition-venus` which already has ALL the Venus/Vulkan and gl=es support including:
+- `d3d_tex2d` → `native` variable rename (fixes shadowing)
+- EGL_IOSURFACE_WRITE_HINT_ANGLE constant defined
+- Proper gl parameter string handling for "on", "es", "core"
+- Complete IOSurface/Metal texture support
+
+This explains why we had to manually patch 3 separate bugs - they were already fixed in the venus branch!
+
 ## Approach Tried
 
 1. Build QEMU with helix-frame-export using UTM's build dependencies
@@ -123,7 +131,30 @@ git push -f helixml utm-edition  # Force push after history rewrite
 
 **Saved Helix Patches:** `~/pm/helix/qemu-patches/` (permanent backup of our 3 commits)
 
-**Status:** Clean patch applied, rebuild in progress (task b7761ba)
+**FINAL SOLUTION (2026-02-04 18:59):**
+
+Rebased our qemu-utm fork onto the correct upstream branch `utm-edition-venus`:
+
+```bash
+cd ~/pm/qemu-utm
+git checkout -b utm-edition-venus-helix origin/utm-edition-venus
+# Manually add helix-frame-export module (patch didn't apply cleanly due to venus changes)
+mkdir -p hw/display/helix
+# Copy helix-frame-export.m, helix-frame-export.h, README.md, meson.build
+# Modify hw/display/meson.build to add subdir('helix')
+# Modify hw/display/virtio-gpu-virgl.c to call helix_frame_export_init()
+git add hw/display/helix hw/display/meson.build hw/display/virtio-gpu-virgl.c
+git commit -m "Add Helix frame export for zero-copy VideoToolbox encoding (rebased on utm-edition-venus)"
+git branch -D utm-edition  # Delete old branch
+git checkout -b utm-edition utm-edition-venus-helix  # Replace with venus-based one
+git push -f helixml utm-edition
+```
+
+Now our fork has:
+- ALL the utm-edition-venus Venus/Vulkan patches (19 commits ahead of stable branch)
+- Our 1 helix-frame-export commit cleanly applied on top
+
+**Status:** Rebased onto correct upstream branch, now rebuilding
 
 ## Options Going Forward
 
