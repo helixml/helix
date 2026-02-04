@@ -193,12 +193,13 @@ const ProjectCard: FC<{
         backgroundColor: 'background.paper',
         border: '1px solid',
         borderColor: 'rgba(0, 0, 0, 0.08)',
-        borderLeft: '3px solid #a78bfa',
+        borderLeft: '3px solid transparent',
         borderRadius: 1,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',
         '&:hover': {
           borderColor: 'rgba(0, 0, 0, 0.12)',
+          borderLeftColor: '#a78bfa',
           backgroundColor: 'rgba(0, 0, 0, 0.01)',
         },
       }}
