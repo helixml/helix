@@ -1,6 +1,6 @@
 import bluebird from 'bluebird'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext, ReactNode } from 'react'
-import useApi from '../hooks/useApi'
+import useApi, { TOKEN_REFRESHED_EVENT } from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
@@ -96,7 +96,6 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ userMeta, setUserMeta ] = useState<{ slug: string }>()
-  const [ tokenExpiryMinutes, setTokenExpiryMinutes ] = useState<number | null>(null)
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
@@ -363,95 +362,10 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Check if token expires soon and refresh immediately if needed
-        const checkAndRefreshToken = async () => {
-          try {
-            if (user.token) {
-              // Check if token looks like a JWT (three dot-separated parts)
-              // OIDC providers like Google return opaque tokens, not JWTs
-              const tokenParts = user.token.split('.')
-              if (tokenParts.length !== 3) {
-                // Opaque token (e.g., Google OIDC) - can't check expiry client-side
-                // The backend handles refresh via cookies
-                return
-              }
-
-              const payload = JSON.parse(atob(tokenParts[1]))
-              const expiry = new Date(payload.exp * 1000)
-              const now = new Date()
-              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
-
-              // If token expires in less than 4 minutes, refresh immediately!
-              if (minutesUntilExpiry < 4) {
-                console.log(`[AUTH] Token expires in ${Math.round(minutesUntilExpiry)} minutes - refreshing immediately!`)
-                const innerClient = api.getApiClient()
-                await innerClient.v1AuthRefreshCreate()
-                const userResponse = await innerClient.v1AuthUserList()
-                const refreshedUser = userResponse.data as IKeycloakUser
-
-                setUser(Object.assign({}, refreshedUser, {
-                  token: refreshedUser.token,
-                  is_admin: admin,
-                }))
-                if (refreshedUser.token) {
-                  api.setToken(refreshedUser.token)
-                  console.log('[AUTH] Emergency refresh completed')
-                }
-              }
-            }
-          } catch (e) {
-            console.error('[AUTH] Emergency refresh failed:', e)
-          }
-        }
-
-        // Do immediate check/refresh if needed
-        await checkAndRefreshToken()
-
-        // Set up token refresh interval - using 4 minutes to stay well within
-        // 15 minute implicit flow token expiry (accessTokenLifespanForImplicitFlow)
-        const refreshInterval = setInterval(async () => {
-          try {
-            const innerClient = api.getApiClient()
-            await innerClient.v1AuthRefreshCreate()
-            const userResponse = await innerClient.v1AuthUserList()
-            const user = userResponse.data as IKeycloakUser
-
-            setUser(Object.assign({}, user, {
-              token: user.token,
-              is_admin: admin,
-            }))
-            if (user.token) {
-              api.setToken(user.token)
-              console.log('[AUTH] Updated axios headers with new token')
-            }
-          } catch (e) {
-            console.error('Error refreshing token:', e)
-
-            // Try to get token expiry info for better error message
-            let expiryInfo = ''
-            try {
-              const currentToken = api.getApiClient().securityData?.token
-              if (currentToken) {
-                const payload = JSON.parse(atob(currentToken.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-                expiryInfo = ` (token expired at ${expiry.toISOString()})`
-              }
-            } catch {}
-
-            // Instead of immediately calling onLogin, clear interval and try one more time
-            clearInterval(refreshInterval)
-            // Only call onLogin if we're really unauthorized, not for network issues
-            if ((e as any).response && (e as any).response.status === 401) {
-              const reason = `Token refresh failed${expiryInfo} - session expired or server restarted`
-              localStorage.setItem('logout_reason', reason)
-              console.log('[AUTH] Logging out:', reason, e)
-              onLogin()
-            }
-          }
-        }, 120 * 1000) // 2 minutes (tokens expire in 5min, so refresh every 2min to be safe)
-
-        // Clean up interval on component unmount
-        return () => clearInterval(refreshInterval)
+        // Token refresh is handled transparently by the backend
+        // When the backend refreshes a token, it sends X-Token-Refreshed header
+        // The useApi interceptor catches this and dispatches TOKEN_REFRESHED_EVENT
+        // We listen for that event here to update React state
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
@@ -530,6 +444,23 @@ export const useAccountContext = (): IAccountContext => {
   useEffect(() => {
     initialize()
   }, [])
+
+  // Listen for token refresh events from useApi interceptor
+  // When the backend transparently refreshes a token, we need to update React state
+  useEffect(() => {
+    const handleTokenRefreshed = (event: Event) => {
+      const customEvent = event as CustomEvent<{ token: string }>
+      const newToken = customEvent.detail?.token
+      if (newToken && user) {
+        console.log('[AUTH] Token refreshed by backend, updating React state')
+        setUser(prevUser => prevUser ? { ...prevUser, token: newToken } : prevUser)
+        api.setToken(newToken)
+      }
+    }
+
+    window.addEventListener(TOKEN_REFRESHED_EVENT, handleTokenRefreshed)
+    return () => window.removeEventListener(TOKEN_REFRESHED_EVENT, handleTokenRefreshed)
+  }, [user, api])
 
   useEffect(() => {
     try {
