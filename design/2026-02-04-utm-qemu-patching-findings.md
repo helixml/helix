@@ -68,26 +68,42 @@ sudo codesign --force --deep --sign - /Applications/UTM.app
 - Hypervisor.framework access DOES work with ad-hoc signing (vmnet doesn't, but we use emulated networking)
 - macOS Gatekeeper must be disabled or set to "Anywhere" (System Settings → Privacy & Security)
 
-### Issue 3: gl=es Parameter Not Supported at Runtime
+### Issue 3: gl=es Parameter Not Supported at Runtime (SOLVED!)
 
 **Problem:** After successful signing, VM fails to start with:
 ```
 qemu-aarch64-softmmu: -spice gl=es: Parameter 'gl' expects 'on' or 'off'
 ```
 
-**Investigation:**
-- Our QEMU is built from `helixml/qemu-utm` (`utm-edition` branch)
-- Based on upstream `utmapp/qemu` v10.0.2-utm (commit `886c4e4797`)
-- Help text shows `gl=on|core|es|off` support (compiled in)
-- But runtime rejects `gl=es` parameter
+**Root Cause:** UTM applies patches AFTER downloading QEMU, but our build replaces the entire QEMU source tree with our fork BEFORE the patch is applied.
 
-**Possible causes:**
-1. Missing runtime dependencies (EGL/OpenGL ES libraries)
-2. Configure-time option not enabled (e.g., `--enable-opengl`)
-3. SPICE server built without OpenGL ES support
-4. Build used UTM's dependency script but missed some configuration
+**How UTM Applies Patches:**
+1. UTM's `Scripts/build_dependencies.sh` has a `download()` function
+2. After unpacking a tarball, it looks for `patches/${NAME}.patch`
+3. For QEMU (unpacked to `qemu-10.0.2-utm/`), it applies `patches/qemu-10.0.2-utm.patch`
+4. This patch changes `ui/spice-core.c` line 513:
+   ```c
+   - .type = QEMU_OPT_BOOL,   // Only accepts on/off
+   + .type = QEMU_OPT_STRING,  // Accepts on/off/es/core
+   ```
 
-**Status:** INVESTIGATING - need to check `./stack build-utm` configuration and compare with working UTM binary
+**Our Build Process Bypasses Patching:**
+- `./stack build-utm` waits for UTM to download QEMU
+- Then REPLACES entire `qemu-10.0.2-utm/` with our `~/pm/qemu-utm` fork
+- UTM's patch never gets applied!
+
+**Solution:** Permanently apply UTM's patches to our fork
+```bash
+cd ~/pm/qemu-utm
+patch -p1 < ~/pm/UTM/patches/qemu-10.0.2-utm.patch
+git add -A
+git commit -m "Apply UTM patches from qemu-10.0.2-utm.patch"
+git push helixml utm-edition
+```
+
+**Committed in:** `767b70311f` - Apply UTM patches from qemu-10.0.2-utm.patch
+
+**Status:** FIXED - Rebuild in progress
 
 ## Options Going Forward
 
