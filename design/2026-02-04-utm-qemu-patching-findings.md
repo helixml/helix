@@ -296,7 +296,41 @@ Successfully built all QEMU dependencies from source using UTM's `build_dependen
 - Pushed to github.com/helixml/qemu-utm utm-edition branch
 
 **Next steps:**
-1. Fix meson.build to properly link VideoToolbox/CoreVideo/CoreMedia frameworks
-2. Rebuild QEMU and verify all frameworks present
+1. ~~Fix meson.build to properly link VideoToolbox/CoreVideo/CoreMedia frameworks~~ ✅ DONE
+2. ~~Rebuild QEMU and verify all frameworks present~~ ✅ DONE
 3. Test VM with custom QEMU
 4. Verify helix-frame-export functionality
+
+## BUILD SUCCESS! (2026-02-04 20:05)
+
+**QEMU with helix-frame-export built successfully!**
+
+Verified frameworks linked into `libqemu-aarch64-softmmu.dylib`:
+```
+VideoToolbox.framework/Versions/A/VideoToolbox  (v3290.6.5)
+CoreVideo.framework/Versions/A/CoreVideo        (v726.2.0)
+CoreMedia.framework/Versions/A/CoreMedia        (v3290.6.5)
+Metal.framework/Versions/A/Metal                (v370.64.2)
+IOSurface.framework/Versions/A/IOSurface        (v1.0.0)
+libvirglrenderer.1.dylib                        (v1.0.0)
+```
+
+Verified helix symbols in dylib:
+```
+helix_encode_iosurface
+helix_frame_export_cleanup
+helix_frame_export_init
+helix_frame_export_process_msg
+helix_get_iosurface_for_resource
+```
+
+**Key fix:** Moved helix module from standalone `system_ss` to `virtio_gpu_gl_ss` source set, ensuring it's compiled into the virtio-gpu-gl loadable module where it's called.
+
+**Commits:**
+- `3102734297` - Fix helix_frame_export_init() call signature
+- `3f8566c5e1` - Fix helix module integration into virtio-gpu-gl source set
+- Pushed to github.com/helixml/qemu-utm utm-edition branch
+
+**Ready for testing:**
+- Custom QEMU binary at: `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib`
+- Next: Patch production UTM.app and test VM
