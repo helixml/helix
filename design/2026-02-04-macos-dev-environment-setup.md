@@ -102,6 +102,35 @@ cd ~/pm
 git clone git@github.com:helixml/qwen-code.git
 ```
 
+## Build Dependencies
+
+**Required for `./stack build-utm` (building custom QEMU):**
+
+### Homebrew Packages
+Source: UTM CI `.github/workflows/build.yml` line 89
+
+```bash
+brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake libclc
+```
+
+**Key packages:**
+- `bison` (>= 3.0) - Parser generator (macOS ships with old 2.3)
+- `nasm` - x86 assembler
+- `meson` + `cmake` - Build systems
+- `libclc` - Mesa/Vulkan OpenCL support
+- `glib-utils` - GLib development utilities
+- `libgpg-error` - Error codes for GnuPG components
+
+### Python Packages
+Source: UTM CI `.github/workflows/build.yml` line 90
+
+```bash
+pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+```
+
+**Validation:**
+`./stack build-utm` automatically checks all dependencies and errors if any are missing.
+
 ## Build Process
 
 ### Build Custom QEMU with helix-frame-export
@@ -112,17 +141,21 @@ cd ~/pm/helix
 ```
 
 This command:
-1. Uses `UTM/Scripts/build_dependencies.sh` to build all dependencies
-2. Points the script to our `qemu-utm` fork (not upstream)
-3. Builds QEMU with:
-   - SPICE support (required by UTM)
-   - GStreamer (for future video pipeline)
+1. Validates all Homebrew and Python dependencies (errors if missing)
+2. Uses `UTM/Scripts/build_dependencies.sh` to build all dependencies including:
+   - ANGLE (from WebKit) for EGL/OpenGL ES support
+   - SPICE server with OpenGL
    - virglrenderer with Metal backend
+   - GStreamer
+3. Points the script to our `qemu-utm` fork (not upstream)
+4. Builds QEMU with:
+   - SPICE support with `gl=es` option
    - All helix-frame-export patches
-4. Installs to `~/pm/UTM/build/Build/Products/Release/UTM.app`
-5. Optionally copies to `/Applications/UTM.app`
+   - OpenGL ES / Vulkan acceleration
+5. Outputs to `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib`
 
 **Build cache:** Stored in `~/pm/UTM/build-macOS-arm64/` for faster rebuilds
+**Build time:** 30-60 minutes on first build, ~5 minutes on incremental
 
 ### Build Desktop Images
 
