@@ -283,11 +283,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			Str("session_id", agent.SessionID).
 			Msg("Creating isolated Docker instance via Hydra")
 
+		// NOTE: We always create a per-session dockerd, even when UseHostDocker is true.
+		// This is critical for helix-in-helix mode:
+		// - /var/run/docker.sock → per-session dockerd (for inner control plane)
+		// - /var/run/host-docker.sock → host Docker (for inner sandbox, via buildMounts)
+		//
+		// If we passed UseHostDocker here, Hydra would return the host socket for BOTH,
+		// and there would be no isolation for the inner control plane.
 		dockerReq := &hydra.CreateDockerInstanceRequest{
-			ScopeType:     hydra.ScopeTypeSession,
-			ScopeID:       agent.SessionID,
-			UserID:        agent.UserID,
-			UseHostDocker: agent.UseHostDocker,
+			ScopeType: hydra.ScopeTypeSession,
+			ScopeID:   agent.SessionID,
+			UserID:    agent.UserID,
+			// UseHostDocker intentionally NOT passed - we always want a per-session dockerd
 		}
 		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
 		if err != nil {
@@ -346,25 +353,26 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
 
-	// Bridge desktop container to per-session Hydra dockerd network
-	// This creates a veth pair so the desktop can reach containers started via `docker compose`
-	// on the per-session dockerd (which uses a separate network like 10.200.x.0/24)
+	// Bridge the desktop container to the per-session dockerd's network
+	// This enables the desktop to access containers running on the per-session dockerd
+	// (e.g., docker-compose projects started by the user inside the desktop)
 	bridgeReq := &hydra.BridgeDesktopRequest{
 		SessionID:          agent.SessionID,
 		DesktopContainerID: resp.ContainerID,
 	}
 	bridgeResp, err := hydraClient.BridgeDesktop(ctx, bridgeReq)
 	if err != nil {
-		// Log warning but don't fail - desktop still works, just can't reach docker-compose containers
 		log.Warn().Err(err).
 			Str("session_id", agent.SessionID).
 			Str("container_id", resp.ContainerID).
-			Msg("Failed to bridge desktop to Hydra network (docker compose containers may be unreachable)")
+			Msg("Failed to bridge desktop to Hydra network (docker-compose access may not work)")
+		// Don't fail - container is running, bridging is optional for basic functionality
 	} else {
 		log.Info().
 			Str("session_id", agent.SessionID).
 			Str("desktop_ip", bridgeResp.DesktopIP).
 			Str("gateway", bridgeResp.Gateway).
+			Str("subnet", bridgeResp.Subnet).
 			Str("interface", bridgeResp.Interface).
 			Msg("Desktop bridged to Hydra network")
 	}

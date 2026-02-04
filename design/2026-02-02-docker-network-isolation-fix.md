@@ -248,6 +248,7 @@ The dns-proxy was binding to `0.0.0.0:53`, which blocked Hydra's per-session DNS
 
 Desktop containers can now use `curl http://my-container:80` to reach containers by name.
 
+
 ### Network Allocation Summary
 
 | Component | Subnet Range | Purpose |
@@ -263,6 +264,27 @@ Desktop containers can now use `curl http://my-container:80` to reach containers
 - The outer 172.19.0.0/16 network (Helix control plane)
 - Common home/corporate networks (10.0.x.x, 10.1.x.x, 10.10.x.x, 10.100.x.x)
 - Tailscale's CGNAT range (100.64.0.0/10)
+
+---
+
+## Fix 6: Helix-in-Helix Docker Socket Isolation
+
+**File:** `api/pkg/external-agent/hydra_executor.go`
+
+When `UseHostDocker` is true (helix-in-helix mode), we must NOT pass it to `CreateDockerInstance()`. Otherwise, Hydra returns the host docker socket for BOTH mounts, breaking isolation:
+
+**Before (broken):**
+- `/var/run/docker.sock` → host Docker (wrong!)
+- `/var/run/host-docker.sock` → host Docker
+
+**After (fixed):**
+- `/var/run/docker.sock` → per-session Hydra dockerd (for inner control plane)
+- `/var/run/host-docker.sock` → host Docker (for inner sandbox, only when UseHostDocker=true)
+
+This allows helix-in-helix to work correctly:
+1. Inner control plane (`./stack start`) runs on isolated per-session dockerd
+2. Inner sandbox uses host Docker (via `DOCKER_HOST=unix:///var/run/host-docker.sock`)
+3. No DinD-in-DinD-in-DinD issues
 
 ---
 

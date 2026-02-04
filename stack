@@ -589,8 +589,16 @@ function build-zed() {
   # Setup cargo + rustup cache for faster rebuilds
   # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
   # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
-  local CARGO_CACHE="$HOME/.cargo-docker-cache"
-  local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+  # Use /buildkit-cache if available (persistent across dev containers), otherwise fall back to $HOME
+  if [ -d "/buildkit-cache" ] && [ -w "/buildkit-cache" ]; then
+    local CARGO_CACHE="/buildkit-cache/cargo"
+    local RUSTUP_CACHE="/buildkit-cache/rustup"
+    echo "📦 Using persistent cache at /buildkit-cache (shared across dev containers)"
+  else
+    local CARGO_CACHE="$HOME/.cargo-docker-cache"
+    local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+    echo "📦 Using local cache at $CARGO_CACHE (not persistent across containers)"
+  fi
   mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
 
   # Build command based on type
