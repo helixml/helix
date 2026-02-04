@@ -37,9 +37,7 @@ export const useWebsocket = (
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
-    // Pass access_token as query param since browsers can't set custom headers on websocket connections
-    // The backend getRequestToken() checks query params as a fallback
-    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${session_id}&access_token=${encodeURIComponent(account.token)}`
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${session_id}`
     
     const rws = new ReconnectingWebSocket(url, [], {
       maxRetries: 10,

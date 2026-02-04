@@ -292,8 +292,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
-    // Pass access_token as query param since browsers can't set custom headers on websocket connections
-    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${currentSessionId}&access_token=${encodeURIComponent(account.token)}`;
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${currentSessionId}`;
     const rws = new ReconnectingWebSocket(url);
 
     const messageHandler = (event: MessageEvent<any>) => {
