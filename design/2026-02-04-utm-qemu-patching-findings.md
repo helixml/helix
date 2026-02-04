@@ -559,3 +559,58 @@ cd ~/pm/helix
 - Use `scripts/build-qemu-only.sh` for fast iteration
 - Always test in a fresh VM start (existing VMs keep old QEMU)
 - Check crash reports if VM fails to start: `~/Library/Logs/DiagnosticReports/QEMULauncher-*.ips`
+
+### 7. Starting VMs with utmctl
+
+UTM provides a CLI tool for automated VM management:
+
+```bash
+# List all VMs with their UUIDs and status
+/Applications/UTM.app/Contents/MacOS/utmctl list
+
+# Start a VM by UUID
+/Applications/UTM.app/Contents/MacOS/utmctl start <UUID>
+
+# Stop a VM
+/Applications/UTM.app/Contents/MacOS/utmctl stop <UUID>
+
+# Get VM status
+/Applications/UTM.app/Contents/MacOS/utmctl status <UUID>
+```
+
+**Our VM Details:**
+- Name: Linux (on external disk)
+- UUID: `01CECE09-B09D-48A4-BAB6-D046C06E3A68`
+- Path: `/Volumes/Helix VM/Linux.utm`
+
+**Start Command:**
+```bash
+/Applications/UTM.app/Contents/MacOS/utmctl start 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+
+# Verify QEMU process started
+ps aux | grep qemu-system-aarch64
+```
+
+**Troubleshooting VM Start Issues:**
+
+```bash
+# Check recent crash reports
+ls -lat ~/Library/Logs/DiagnosticReports/ | grep QEMULauncher | head -3
+
+# Read most recent crash
+cat ~/Library/Logs/DiagnosticReports/$(ls -t ~/Library/Logs/DiagnosticReports/ | grep QEMULauncher | head -1)
+
+# Check for QEMU process
+ps aux | grep -E "qemu-system|QEMULauncher"
+
+# Check UTM system logs
+log show --predicate 'process == "UTM" OR process == "QEMULauncher"' --last 5m --style compact
+
+# Check SPICE socket exists
+ls -la ~/Library/Group\ Containers/*.com.utmapp.UTM/*.spice
+```
+
+**Common Errors:**
+- `-spice: invalid option` → SPICE not compiled in QEMU (use UTM's meson config, not simple ./configure)
+- `gl=es: Parameter 'gl' expects 'on' or 'off'` → SPICE GL not enabled (CONFIG_SPICE not set)
+- `Team ID mismatch` → Re-sign all components with consistent ad-hoc signatures
