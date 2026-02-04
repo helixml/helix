@@ -38,7 +38,8 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	}
 
 	projects, err := s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
-		UserID: user.ID,
+		UserID:       user.ID,
+		IncludeStats: true,
 	})
 	if err != nil {
 		log.Error().
@@ -64,6 +65,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 
 	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
 		OrganizationID: org.ID,
+		IncludeStats:   true,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -1907,4 +1909,87 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		Msg("project moved to organization")
 
 	return project, nil
+}
+
+// getProjectUsage godoc
+// @Summary Get project token usage
+// @Description Get token usage metrics for a project (combined across all tasks)
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param aggregation_level query string false "Aggregation level (5min, hourly, daily)" default(hourly)
+// @Param from query string false "Start time (RFC3339 format)"
+// @Param to query string false "End time (RFC3339 format)"
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/usage [get]
+func (s *HelixAPIServer) getProjectUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	// Get the project and check authorization
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Parse aggregation level
+	aggregationLevel := store.AggregationLevelHourly
+	switch r.URL.Query().Get("aggregation_level") {
+	case "daily":
+		aggregationLevel = store.AggregationLevelDaily
+	case "5min":
+		aggregationLevel = store.AggregationLevel5Min
+	}
+
+	// Parse time range
+	var from time.Time
+	var to time.Time
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
+		}
+	} else {
+		// Default to last 7 days for project-level usage
+		from = time.Now().Add(-7 * 24 * time.Hour)
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
+		}
+	} else {
+		to = time.Now()
+	}
+
+	// Get aggregated usage metrics for the project (combined across all tasks)
+	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+		AggregationLevel: aggregationLevel,
+		UserID:           user.ID,
+		ProjectID:        projectID,
+		// No SpecTaskID - get combined usage for the whole project
+		From: from,
+		To:   to,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return metrics, nil
 }

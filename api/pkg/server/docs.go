@@ -7175,6 +7175,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get token usage metrics for a project (combined across all tasks)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project token usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "hourly",
+                        "description": "Aggregation level (5min, hourly, daily)",
+                        "name": "aggregation_level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339 format)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339 format)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/prompt-history": {
             "get": {
                 "security": [
@@ -15494,6 +15571,10 @@ const docTemplate = `{
                 "github_repo": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines are project-specific instructions for AI agents\nThese get injected into implementation prompts and help the agent understand\nproject conventions, available tools, and how to use them effectively",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -20513,7 +20594,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "auto_join_domain": {
-                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members",
+                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members\nNote: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint\nbecause empty strings would conflict with each other in a unique index",
                     "type": "string"
                 },
                 "created_at": {
@@ -20871,6 +20952,14 @@ const docTemplate = `{
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
                 },
+                "stats": {
+                    "description": "Computed",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProjectStats"
+                        }
+                    ]
+                },
                 "status": {
                     "description": "\"active\", \"archived\", \"completed\"",
                     "type": "string"
@@ -20998,6 +21087,35 @@ const docTemplate = `{
             "properties": {
                 "board_settings": {
                     "$ref": "#/definitions/types.BoardSettings"
+                }
+            }
+        },
+        "types.ProjectStats": {
+            "type": "object",
+            "properties": {
+                "active_agent_sessions": {
+                    "type": "integer"
+                },
+                "average_task_completion_hours": {
+                    "type": "number"
+                },
+                "backlog_tasks": {
+                    "type": "integer"
+                },
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "in_progress_tasks": {
+                    "type": "integer"
+                },
+                "pending_review_tasks": {
+                    "type": "integer"
+                },
+                "planning_tasks": {
+                    "type": "integer"
+                },
+                "total_tasks": {
+                    "type": "integer"
                 }
             }
         },

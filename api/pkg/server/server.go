@@ -986,6 +986,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 
 	// Project access grant routes
