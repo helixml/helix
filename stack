@@ -1788,20 +1788,23 @@ function build-utm() {
 		return 1
 	fi
 
-	# Check bison (need >= 3.0, macOS ships with 2.3)
+	# Required packages from UTM's CI (.github/workflows/build.yml line 89)
+	# brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake
+	REQUIRED_PKGS=("bison" "pkg-config" "gettext" "glib-utils" "libgpg-error" "nasm" "make" "meson" "cmake" "libclc")
+
+	for pkg in "${REQUIRED_PKGS[@]}"; do
+		if brew list "$pkg" &>/dev/null; then
+			VERSION=$(brew list --versions "$pkg" | awk '{print $2}')
+			echo "  ✓ $pkg $VERSION"
+		else
+			MISSING_DEPS+=("$pkg")
+		fi
+	done
+
+	# Special check for bison (need >= 3.0, macOS ships with 2.3)
 	BISON_PATH="/opt/homebrew/opt/bison/bin/bison"
 	if [ ! -f "$BISON_PATH" ]; then
-		MISSING_DEPS+=("bison")
-	else
-		BISON_VERSION=$($BISON_PATH --version | head -1 | awk '{print $4}')
-		echo "  ✓ bison $BISON_VERSION"
-	fi
-
-	# Check libclc (needed for Mesa/Vulkan OpenCL support)
-	if ! brew list libclc &> /dev/null; then
-		MISSING_DEPS+=("libclc")
-	else
-		echo "  ✓ libclc $(brew list --versions libclc | awk '{print $2}')"
+		echo "  ⚠️  bison installed but not in PATH - add /opt/homebrew/opt/bison/bin to PATH"
 	fi
 
 	# Report missing dependencies
@@ -1814,6 +1817,33 @@ function build-utm() {
 		echo ""
 		echo "Install with:"
 		echo "  brew install ${MISSING_DEPS[*]}"
+		return 1
+	fi
+
+	# Check Python packages (from UTM CI line 90)
+	# pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+	echo ""
+	echo "🐍 Checking Python dependencies..."
+	PYTHON_PKGS=("six" "pyparsing" "pyyaml" "setuptools" "distlib" "mako")
+	MISSING_PYTHON=()
+
+	for pkg in "${PYTHON_PKGS[@]}"; do
+		if python3 -c "import ${pkg/pyyaml/yaml}" &>/dev/null; then
+			echo "  ✓ $pkg"
+		else
+			MISSING_PYTHON+=("$pkg")
+		fi
+	done
+
+	if [ ${#MISSING_PYTHON[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Python packages:"
+		for dep in "${MISSING_PYTHON[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  pip3 install --break-system-packages --user ${MISSING_PYTHON[*]}"
 		return 1
 	fi
 
