@@ -29,8 +29,7 @@ sudo install_name_tool -change "$SYSROOT/libglib-2.0.0.dylib" @rpath/glib-2.0.0.
 sudo install_name_tool -change "$SYSROOT/libzstd.1.dylib" @rpath/zstd.1.framework/Versions/A/zstd.1 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libslirp.0.dylib" @rpath/slirp.0.framework/Versions/A/slirp.0 "$QEMU" 2>/dev/null || true
 
-# Fix homebrew dependencies (if present)
-sudo install_name_tool -change /opt/homebrew/opt/capstone/lib/libcapstone.5.dylib @rpath/capstone.5.framework/Versions/A/capstone.5 "$QEMU" 2>/dev/null || true
-sudo install_name_tool -change /opt/homebrew/opt/gnutls/lib/libgnutls.30.dylib @rpath/gnutls.30.framework/Versions/A/gnutls.30 "$QEMU" 2>/dev/null || true
+# NOTE: Don't change Homebrew dependencies (capstone, gnutls) - UTM doesn't bundle them
+# They must remain pointing to /opt/homebrew/ for QEMU to find them
 
 echo "✅ Fixed all library paths to use @rpath"
