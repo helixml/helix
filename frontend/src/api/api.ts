@@ -885,6 +885,12 @@ export interface ServerSimpleSampleProject {
   /** Whether this sample project is shown to users */
   enabled?: boolean;
   github_repo?: string;
+  /**
+   * Guidelines are project-specific instructions for AI agents
+   * These get injected into implementation prompts and help the agent understand
+   * project conventions, available tools, and how to use them effectively
+   */
+  guidelines?: string;
   id?: string;
   name?: string;
   readme_url?: string;
@@ -3013,7 +3019,11 @@ export interface TypesOpenAIUsage {
 }
 
 export interface TypesOrganization {
-  /** AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members */
+  /**
+   * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
+   * Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
+   * because empty strings would conflict with each other in a unique index
+   */
   auto_join_domain?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
@@ -3167,6 +3177,8 @@ export interface TypesProject {
   skills?: TypesAssistantSkills;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
+  /** Computed */
+  stats?: TypesProjectStats;
   /** "active", "archived", "completed" */
   status?: string;
   technologies?: string[];
@@ -3214,6 +3226,17 @@ export interface TypesProjectCreateRequest {
 
 export interface TypesProjectMetadata {
   board_settings?: TypesBoardSettings;
+}
+
+export interface TypesProjectStats {
+  active_agent_sessions?: number;
+  average_task_completion_hours?: number;
+  backlog_tasks?: number;
+  completed_tasks?: number;
+  in_progress_tasks?: number;
+  pending_review_tasks?: number;
+  planning_tasks?: number;
+  total_tasks?: number;
 }
 
 export interface TypesProjectUpdateRequest {
@@ -8743,6 +8766,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/startup-script/history`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get token usage metrics for a project (combined across all tasks)
+     *
+     * @tags Projects
+     * @name V1ProjectsUsageDetail
+     * @summary Get project token usage
+     * @request GET:/api/v1/projects/{id}/usage
+     * @secure
+     */
+    v1ProjectsUsageDetail: (
+      id: string,
+      query?: {
+        /**
+         * Aggregation level (5min, hourly, daily)
+         * @default "hourly"
+         */
+        aggregation_level?: string;
+        /** Start time (RFC3339 format) */
+        from?: string;
+        /** End time (RFC3339 format) */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

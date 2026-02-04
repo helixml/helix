@@ -60,6 +60,19 @@ type Project struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
 	Metadata  ProjectMetadata `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+
+	Stats ProjectStats `json:"stats,omitempty" gorm:"-"` // Computed
+}
+
+type ProjectStats struct {
+	TotalTasks          int     `json:"total_tasks"`
+	CompletedTasks      int     `json:"completed_tasks"`
+	InProgressTasks     int     `json:"in_progress_tasks"`
+	BacklogTasks        int     `json:"backlog_tasks"`
+	PlanningTasks       int     `json:"planning_tasks"`
+	PendingReviewTasks  int     `json:"pending_review_tasks"`
+	ActiveAgentSessions int     `json:"active_agent_sessions"`
+	AverageTaskTime     float64 `json:"average_task_completion_hours"`
 }
 
 // ProjectTask represents a task within a project (extends AgentWorkItem for project-specific tasks)
@@ -119,16 +132,6 @@ type ProjectTaskAgentProgress struct {
 }
 
 // ProjectStats represents project statistics
-type ProjectStats struct {
-	TotalTasks      int            `json:"total_tasks"`
-	CompletedTasks  int            `json:"completed_tasks"`
-	InProgressTasks int            `json:"in_progress_tasks"`
-	TasksByStatus   map[string]int `json:"tasks_by_status"`
-	TasksByPriority map[string]int `json:"tasks_by_priority"`
-	TasksByType     map[string]int `json:"tasks_by_type"`
-	AgentSessions   int            `json:"active_agent_sessions"`
-	AverageTaskTime float64        `json:"average_task_completion_hours"`
-}
 
 // ProjectsListResponse represents the response for listing projects
 type ProjectsListResponse struct {
@@ -148,14 +151,14 @@ type ProjectTasksResponse struct {
 
 // ProjectCreateRequest represents a request to create a new project
 type ProjectCreateRequest struct {
-	OrganizationID    string   `json:"organization_id"`
-	Name              string   `json:"name"`
-	Description       string   `json:"description"`
-	GitHubRepoURL     string   `json:"github_repo_url,omitempty"`
-	DefaultBranch     string   `json:"default_branch,omitempty"`
-	Technologies      []string `json:"technologies,omitempty"`
-	DefaultRepoID     string   `json:"default_repo_id,omitempty"`
-	StartupScript     string   `json:"startup_script,omitempty"`
+	OrganizationID    string           `json:"organization_id"`
+	Name              string           `json:"name"`
+	Description       string           `json:"description"`
+	GitHubRepoURL     string           `json:"github_repo_url,omitempty"`
+	DefaultBranch     string           `json:"default_branch,omitempty"`
+	Technologies      []string         `json:"technologies,omitempty"`
+	DefaultRepoID     string           `json:"default_repo_id,omitempty"`
+	StartupScript     string           `json:"startup_script,omitempty"`
 	DefaultHelixAppID string           `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
 	Guidelines        string           `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
 	Skills            *AssistantSkills `json:"skills,omitempty"`               // Project-level skills
@@ -176,9 +179,9 @@ type ProjectUpdateRequest struct {
 	ProjectManagerHelixAppID      *string          `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
 	PullRequestReviewerHelixAppID *string          `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
 	PullRequestReviewsEnabled     *bool            `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
-	Guidelines                    *string           `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
-	Skills                        *AssistantSkills  `json:"skills,omitempty"`                             // Project-level skills
-	Metadata                      *ProjectMetadata  `json:"metadata,omitempty"`
+	Guidelines                    *string          `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                        *AssistantSkills `json:"skills,omitempty"`                             // Project-level skills
+	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`
 }
 
 // MoveProjectRequest represents a request to move a project to an organization
@@ -203,11 +206,11 @@ type MoveProjectPreviewItem struct {
 
 // MoveRepositoryPreviewItem represents a repository's naming conflict status
 type MoveRepositoryPreviewItem struct {
-	ID               string                  `json:"id"`
-	CurrentName      string                  `json:"current_name"`
-	NewName          *string                 `json:"new_name"` // nil if no conflict
-	HasConflict      bool                    `json:"has_conflict"`
-	AffectedProjects []AffectedProjectInfo   `json:"affected_projects,omitempty"` // Other projects that will lose this repo
+	ID               string                `json:"id"`
+	CurrentName      string                `json:"current_name"`
+	NewName          *string               `json:"new_name"` // nil if no conflict
+	HasConflict      bool                  `json:"has_conflict"`
+	AffectedProjects []AffectedProjectInfo `json:"affected_projects,omitempty"` // Other projects that will lose this repo
 }
 
 // AffectedProjectInfo represents a project that will be affected by moving a shared repo

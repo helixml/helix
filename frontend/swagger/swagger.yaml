@@ -1387,6 +1387,12 @@ definitions:
         type: boolean
       github_repo:
         type: string
+      guidelines:
+        description: |-
+          Guidelines are project-specific instructions for AI agents
+          These get injected into implementation prompts and help the agent understand
+          project conventions, available tools, and how to use them effectively
+        type: string
       id:
         type: string
       name:
@@ -4933,8 +4939,10 @@ definitions:
   types.Organization:
     properties:
       auto_join_domain:
-        description: AutoJoinDomain - if set, users logging in via OIDC with this
-          email domain are automatically added as members
+        description: |-
+          AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
+          Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
+          because empty strings would conflict with each other in a unique index
         type: string
       created_at:
         type: string
@@ -5188,6 +5196,10 @@ definitions:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
         type: string
+      stats:
+        allOf:
+        - $ref: '#/definitions/types.ProjectStats'
+        description: Computed
       status:
         description: '"active", "archived", "completed"'
         type: string
@@ -5272,6 +5284,25 @@ definitions:
     properties:
       board_settings:
         $ref: '#/definitions/types.BoardSettings'
+    type: object
+  types.ProjectStats:
+    properties:
+      active_agent_sessions:
+        type: integer
+      average_task_completion_hours:
+        type: number
+      backlog_tasks:
+        type: integer
+      completed_tasks:
+        type: integer
+      in_progress_tasks:
+        type: integer
+      pending_review_tasks:
+        type: integer
+      planning_tasks:
+        type: integer
+      total_tasks:
+        type: integer
     type: object
   types.ProjectUpdateRequest:
     properties:
@@ -13145,6 +13176,56 @@ paths:
       security:
       - BearerAuth: []
       summary: Get startup script version history
+      tags:
+      - Projects
+  /api/v1/projects/{id}/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get token usage metrics for a project (combined across all tasks)
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: hourly
+        description: Aggregation level (5min, hourly, daily)
+        in: query
+        name: aggregation_level
+        type: string
+      - description: Start time (RFC3339 format)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 format)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project token usage
       tags:
       - Projects
   /api/v1/projects/quick-create:
