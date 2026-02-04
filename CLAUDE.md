@@ -86,6 +86,9 @@ docker compose -f docker-compose.dev.yaml up -d api
 ```
 
 ### UTM Virtual Machines
+
+**See `design/2026-02-04-macos-dev-environment-setup.md` for complete repository setup and build instructions.**
+
 - **Control VMs with utmctl** — Don't wait for user to start VMs manually
   ```bash
   # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl (or ~/pm/helix/UTM/build/...)
