@@ -13,6 +13,7 @@ import (
 type ListProjectsQuery struct {
 	UserID         string
 	OrganizationID string
+	IncludeStats   bool
 }
 
 type GetJobsQuery struct {
