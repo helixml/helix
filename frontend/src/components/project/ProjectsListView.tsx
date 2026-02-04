@@ -11,7 +11,6 @@ import {
   TextField,
   InputAdornment,
   Pagination,
-  Tooltip,
   Skeleton,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -49,8 +48,8 @@ interface ProjectsListViewProps {
 const MiniSparkline: FC<{ data: number[]; color: string }> = ({ data, color }) => {
   if (!data || data.length === 0) {
     return (
-      <Box sx={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)' }}>
+      <Box sx={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem' }}>
           No usage data
         </Typography>
       </Box>
@@ -61,7 +60,7 @@ const MiniSparkline: FC<{ data: number[]; color: string }> = ({ data, color }) =
   const min = Math.min(...data, 0)
   const range = max - min || 1
   const width = 100
-  const height = 40
+  const height = 32
   const padding = 2
 
   const points = data.map((value, index) => {
@@ -108,7 +107,7 @@ const StatRow: FC<{
     minWidth: 0,
   }}>
     <Typography variant="caption" sx={{ 
-      color: 'rgba(255,255,255,0.5)',
+      color: 'text.secondary',
       fontSize: '0.65rem',
       whiteSpace: 'nowrap',
       overflow: 'hidden',
@@ -119,8 +118,8 @@ const StatRow: FC<{
     </Typography>
     <Typography variant="body2" sx={{ 
       fontWeight: 600, 
-      color: 'rgba(255,255,255,0.95)',
-      fontSize: '0.85rem',
+      color: 'text.primary',
+      fontSize: '0.8rem',
       fontFamily: 'monospace',
     }}>
       {value}
@@ -140,7 +139,7 @@ const ProjectCard: FC<{
   onViewProject: (project: TypesProject) => void
   onMenuOpen: (event: React.MouseEvent<HTMLElement>, project: TypesProject) => void
   appNamesMap: Record<string, string>
-}> = ({ project, onViewProject, onMenuOpen, appNamesMap }) => {
+}> = ({ project, onViewProject, onMenuOpen }) => {
   const sevenDaysAgo = useMemo(() => {
     const date = new Date()
     date.setDate(date.getDate() - 7)
@@ -191,15 +190,16 @@ const ProjectCard: FC<{
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'linear-gradient(145deg, rgba(38, 40, 48, 0.95) 0%, rgba(30, 32, 38, 0.98) 100%)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 2,
-        overflow: 'hidden',
-        transition: 'all 0.2s ease-in-out',
+        backgroundColor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'rgba(0, 0, 0, 0.08)',
+        borderLeft: '3px solid #a78bfa',
+        borderRadius: 1,
+        boxShadow: 'none',
+        transition: 'all 0.15s ease-in-out',
         '&:hover': {
-          border: '1px solid rgba(255,255,255,0.12)',
-          transform: 'translateY(-2px)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          borderColor: 'rgba(0, 0, 0, 0.12)',
+          backgroundColor: 'rgba(0, 0, 0, 0.01)',
         },
       }}
     >
@@ -207,52 +207,28 @@ const ProjectCard: FC<{
         sx={{
           flexGrow: 1,
           cursor: 'pointer',
-          p: 2.5,
-          pb: '16px !important',
+          p: 2,
+          '&:last-child': { pb: 2 },
           display: 'flex',
           flexDirection: 'column',
         }}
         onClick={() => onViewProject(project)}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}>
-            <Box sx={{
-              p: 1,
-              borderRadius: 1.5,
-              background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Kanban size={18} style={{ color: '#a78bfa' }} />
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography
-                variant="subtitle1"
-                sx={{
-                  fontWeight: 600,
-                  color: 'rgba(255,255,255,0.95)',
-                  lineHeight: 1.3,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {project.name}
-              </Typography>
-              {project.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: 'rgba(167, 139, 250, 0.8)',
-                    fontSize: '0.7rem',
-                  }}
-                >
-                  {appNamesMap[project.default_helix_app_id]}
-                </Typography>
-              )}
-            </Box>
-          </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 500,
+              flex: 1,
+              lineHeight: 1.4,
+              color: 'text.primary',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {project.name}
+          </Typography>
           <IconButton
             size="small"
             onClick={(e) => {
@@ -260,26 +236,30 @@ const ProjectCard: FC<{
               onMenuOpen(e, project)
             }}
             sx={{
-              p: 0.5,
-              color: 'rgba(255,255,255,0.4)',
-              '&:hover': { color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.05)' },
+              width: 24,
+              height: 24,
+              color: 'text.secondary',
+              ml: 0.5,
+              '&:hover': {
+                color: 'text.primary',
+                backgroundColor: 'rgba(0, 0, 0, 0.04)',
+              },
             }}
           >
-            <MoreVertIcon sx={{ fontSize: 18 }} />
+            <MoreVertIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Box>
 
         <Box sx={{
-          background: 'rgba(0,0,0,0.2)',
-          borderRadius: 1.5,
-          p: 2,
-          mb: 2,
+          background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+          borderRadius: 2,
+          border: '1px solid rgba(255,255,255,0.06)',
+          p: 1.5,
+          mb: 1.5,
         }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
             <Typography variant="caption" sx={{ 
-              color: 'rgba(255,255,255,0.5)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
+              color: 'text.secondary',
               fontSize: '0.65rem',
             }}>
               Token Usage (7d)
@@ -287,14 +267,14 @@ const ProjectCard: FC<{
             {trend !== 0 && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {trend > 0 ? (
-                  <TrendingUpIcon sx={{ fontSize: 14, color: '#4ade80' }} />
+                  <TrendingUpIcon sx={{ fontSize: 12, color: '#10b981' }} />
                 ) : (
-                  <TrendingDownIcon sx={{ fontSize: 14, color: '#f87171' }} />
+                  <TrendingDownIcon sx={{ fontSize: 12, color: '#ef4444' }} />
                 )}
                 <Typography variant="caption" sx={{ 
-                  color: trend > 0 ? '#4ade80' : '#f87171',
+                  color: trend > 0 ? '#10b981' : '#ef4444',
                   fontWeight: 600,
-                  fontSize: '0.7rem',
+                  fontSize: '0.65rem',
                 }}>
                   {Math.abs(trend).toFixed(0)}%
                 </Typography>
@@ -303,24 +283,25 @@ const ProjectCard: FC<{
           </Box>
           
           {usageLoading ? (
-            <Skeleton variant="rectangular" height={40} sx={{ bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
+            <Skeleton variant="rectangular" height={32} sx={{ bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
           ) : (
-            <MiniSparkline data={tokenData} color="#4ade80" />
+            <MiniSparkline data={tokenData} color="#10b981" />
           )}
           
-          <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
             <Typography sx={{ 
-              fontWeight: 700, 
-              color: 'rgba(255,255,255,0.95)',
+              fontWeight: 600, 
+              color: 'text.primary',
               fontFamily: 'monospace',
-              fontSize: { xs: '1.25rem', sm: '1.5rem' },
+              fontSize: '1rem',
             }}>
               {formatTokens(totalTokens)}
             </Typography>
             <Typography variant="caption" sx={{ 
-              color: 'rgba(255,255,255,0.4)',
+              color: 'text.secondary',
               fontWeight: 400,
               fontFamily: 'monospace',
+              fontSize: '0.7rem',
             }}>
               tokens
             </Typography>
@@ -328,13 +309,13 @@ const ProjectCard: FC<{
         </Box>
 
         <Box sx={{
-          pt: 1.5,
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          pt: 1,
+          borderTop: '1px solid rgba(0, 0, 0, 0.06)',
         }}>
           <Box sx={{ 
             display: 'grid', 
             gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 1.5,
+            gap: 1,
           }}>
             <StatRow label="Backlog" value={stats.backlog_tasks || 0} />
             <StatRow label="Review" value={stats.pending_review_tasks || 0} />
