@@ -292,6 +292,12 @@ export const useAccountContext = (): IAccountContext => {
 
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
+
+    // Clear the in-memory token BEFORE redirecting to logout
+    // This prevents stale tokens from being used if the redirect doesn't fully reload the page
+    api.setToken('')
+    setUser(undefined)
+
     try {
       // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
       // which would fail due to CORS when redirecting to Keycloak
