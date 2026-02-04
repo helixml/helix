@@ -382,3 +382,56 @@ This ensures all configure flags are set correctly, including SPICE GL support.
 - Design doc had wrong UUID (`01CECE09-B09D-48A4-BAB6-D046C06E3A68`) - that was from an old session
 
 **Status:** Rebuilding QEMU with proper SPICE GL configuration (2026-02-04 20:11)
+
+## REBUILD COMPLETE (2026-02-04 20:15)
+
+**Rebuild Success:**
+Used UTM's build script (`scripts/build-qemu-only.sh`) which properly configures QEMU with all dependencies including SPICE GL support.
+
+Build completed at 20:13 with proper configuration:
+- ✅ Helix symbols present (all 5 functions)
+- ✅ SPICE GL functions present (qemu_spice_gl_*)
+- ✅ Binary size: 33MB
+- ✅ All frameworks linked: VideoToolbox, CoreVideo, CoreMedia, Metal, IOSurface, virglrenderer
+
+**Re-patching:**
+1. Killed all UTM processes
+2. Replaced QEMU binary with newly-built version
+3. Fixed library paths using `/tmp/fix-qemu-paths.sh`
+4. No re-signing needed (already signed from previous attempt)
+
+**VM Start Testing:**
+Attempted to start VM automatically via AppleScript, but VM is not launching. No new crash reports generated (last crash was at 18:56 before rebuild).
+
+Possible issues:
+- GUI automation may not be clicking the right button
+- May require manual user interaction to approve security dialogs
+- Code signing may need to be redone after binary replacement
+
+**Next Steps:**
+User should manually test:
+1. Open UTM.app
+2. Select "Linux" VM on external disk
+3. Click Play button to start VM
+4. Check for:
+   - Security prompts (approve if needed)
+   - VM console appearing
+   - Linux boot messages
+   - Any error dialogs
+
+If VM fails to start, check:
+```bash
+ls -lat ~/Library/Logs/DiagnosticReports/ | grep QEMULauncher | head -1
+# Read the crash report to see new error
+```
+
+**Binary Location:**
+- Source: `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib`
+- Installed: `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
+- Backup: `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu.orig`
+
+To revert to original QEMU:
+```bash
+sudo cp /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu.orig \
+     /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+```
