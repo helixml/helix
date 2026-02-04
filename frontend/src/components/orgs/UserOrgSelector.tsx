@@ -21,9 +21,7 @@ import {
   LogOut,
   LogIn,
   FileText,
-  HelpCircle,
-  Activity,
-  GitBranch,
+  HelpCircle,  
   FileQuestionMark,
   MessageCircle,
 } from 'lucide-react'
@@ -216,6 +214,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
 
+  // Add a minimum loading time to prevent flickering
+  const [minLoadingComplete, setMinLoadingComplete] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMinLoadingComplete(true)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [])
+
   const isActive = (path: string | string[]) => {
     const routeName = router.name
     const paths = Array.isArray(path) ? path : [path]
@@ -237,17 +244,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return loadedOrgs
   }, [organizations, account.user])
 
-  useEffect(() => {
-    if (!account.user) return
-    if (router.params.org_id) return    
 
-    const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)    
-    if (!storedOrg || storedOrg === 'default') return    
-    if (listOrgs.length > 0 && !listOrgs.some((org) => org.name === storedOrg)) return
-
-    router.navigateReplace('org_projects', { org_id: storedOrg })
-  }, [account.user, router.name, router.params.org_id, listOrgs, router])
-
+  // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string | undefined) => {
     if (orgSlug) {
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
@@ -452,9 +450,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const renderCollapsedIcon = () => {
     const tiles = []
 
+    const orgIDFromUrl = account.organizationTools.orgID
+    const isOrgLoading = orgIDFromUrl && !currentOrg
+
     // Wait for auth context to initialize before showing user-specific content
     // This prevents "?" flash during hot reload while auth state is loading
-    if (!account.initialized) {
+    // Also wait if we're on an org route but the org data hasn't loaded yet
+    if (!account.initialized || isOrgLoading) {
       return (
         <Box
           sx={{
@@ -1002,13 +1004,17 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             </Box>
           </Box>
           {account.user ? (
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                {account.user.name}
-              </Typography>
-              <Typography variant="caption" sx={{ color: lightTheme.textColorFaded }}>
-                {account.user.email}
-              </Typography>
+            <Box sx={{ flex: 1, minHeight: 36 }}>
+              {minLoadingComplete ? (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {account.user.name}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: lightTheme.textColorFaded }}>
+                    {account.user.email}
+                  </Typography>
+                </>
+              ) : null}
             </Box>
           ) : (
             <ShimmerButton
