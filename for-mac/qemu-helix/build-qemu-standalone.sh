@@ -44,65 +44,40 @@ if [ -d "$BUILD_DIR" ]; then
     rm -rf "$BUILD_DIR"
 fi
 
-mkdir -p "$BUILD_DIR"
 cd "$QEMU_SRC"
 
-echo "📝 Generating meson cross-compilation files..."
-
-# Generate config-meson.cross (based on UTM's configuration)
-cat > "$BUILD_DIR/config-meson.cross" << EOF
-# Automatically generated - do not modify
-[properties]
-[built-in options]
-c_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-I$SYSROOT/include','-F$SYSROOT/Frameworks']
-cpp_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-I$SYSROOT/include','-F$SYSROOT/Frameworks','-target','arm64-apple-macos11.0']
-objc_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-I$SYSROOT/include','-F$SYSROOT/Frameworks','-target','arm64-apple-macos11.0']
-c_link_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-L$SYSROOT/lib','-F$SYSROOT/Frameworks','-target','arm64-apple-macos11.0']
-cpp_link_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-L$SYSROOT/lib','-F$SYSROOT/Frameworks','-target','arm64-apple-macos11.0']
-objc_link_args = ['-arch','arm64','-isysroot','/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk','-L$SYSROOT/lib','-F$SYSROOT/Frameworks','-target','arm64-apple-macos11.0']
-
-[binaries]
-c = ['/Applications/Xcode.app/Contents/Developer/usr/bin/gcc','-target','arm64-apple-macos11.0']
-cpp = ['/Applications/Xcode.app/Contents/Developer/usr/bin/g++','-target','arm64-apple-macos11.0']
-objc = ['clang','-target','arm64-apple-macos11.0']
-ar = ['/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar']
-nm = ['/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm']
-pkgconfig = ['$SYSROOT/host/bin/pkg-config']
-pkg-config = ['$SYSROOT/host/bin/pkg-config']
-ranlib = ['/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib']
-strip = ['/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip']
-
-[host_machine]
-system = 'darwin'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-EOF
-
-# Generate config-meson.native
-cat > "$BUILD_DIR/config-meson.native" << EOF
-# Automatically generated - do not modify
-[binaries]
-c = ['cc']
-EOF
-
-echo "✅ Cross-compilation files generated"
+# Step 1: Set environment to use sysroot's pkg-config
+echo "📝 Setting up build environment..."
+export PKG_CONFIG="$SYSROOT/host/bin/pkg-config"
+export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
+export PATH="$SYSROOT/host/bin:$PATH"
+echo "   PKG_CONFIG: $PKG_CONFIG"
+echo "   PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 echo ""
 
-# Configure with meson (same options UTM uses)
-echo "⚙️  Configuring QEMU with meson..."
-echo "   This will auto-detect SPICE, virglrenderer, and other features"
+# Step 2: Run configure script
+echo "🔧 Running QEMU configure script..."
+echo "   This will auto-detect SPICE, virglrenderer via pkg-config"
 echo ""
 
-/opt/homebrew/bin/meson setup "$BUILD_DIR" \
+# Configure creates build dir and calls meson internally
+# It will use our PKG_CONFIG to find sysroot libraries
+./configure \
     --prefix="$SYSROOT" \
+    --target-list=aarch64-softmmu \
     -Dshared_lib=true \
     -Dcocoa=disabled \
     -Db_pie=false \
     -Ddocs=disabled \
-    -Dplugins=true \
-    --cross-file="$BUILD_DIR/config-meson.cross" \
-    --native-file="$BUILD_DIR/config-meson.native"
+    -Dplugins=true
+
+if [ $? -ne 0 ]; then
+    echo "❌ Configure failed"
+    exit 1
+fi
+
+echo "✅ configure completed"
+echo ""
 
 # Check if SPICE was detected
 if grep -q "spice protocol support.*YES" "$BUILD_DIR/meson-logs/meson-log.txt" 2>/dev/null; then
