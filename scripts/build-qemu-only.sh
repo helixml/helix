@@ -28,36 +28,39 @@ fi
 export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
 
-cd "$QEMU_SRC"
+BUILD_DIR="$QEMU_SRC/build"
+
+# Check if meson build directory exists (created by UTM's build_dependencies.sh)
+if [ ! -d "$BUILD_DIR" ]; then
+    echo "❌ Build directory not found: $BUILD_DIR"
+    echo "   You need to run the full dependency build first:"
+    echo "   cd ~/pm/UTM && ./Scripts/build_dependencies.sh -p macos -a arm64"
+    echo ""
+    echo "   This creates the meson configuration files needed to build QEMU"
+    exit 1
+fi
+
+cd "$BUILD_DIR"
 
 # Clean old build artifacts
 echo "🧹 Cleaning old build..."
-make distclean 2>/dev/null || true
+ninja clean
 
-echo "📦 Configuring QEMU..."
-# Use same flags as UTM's build_dependencies.sh
-./configure \
-    --prefix="$SYSROOT" \
-    --host=aarch64-apple-darwin \
-    --cross-prefix="" \
-    --enable-shared-lib \
-    --disable-cocoa \
-    --cpu=aarch64 \
-    --target-list=aarch64-softmmu \
-    || {
-        echo "❌ Configure failed"
-        tail -50 config.log
-        exit 1
-    }
+echo ""
+echo "🔨 Building QEMU with ninja ($NCPU cores)..."
+echo "   Using existing meson configuration from UTM's build"
+echo "   This includes SPICE, virglrenderer, and all UTM patches"
+echo ""
 
-echo "🔨 Compiling QEMU with $NCPU cores..."
-make -j$NCPU || {
+# Build with ninja (uses existing meson configuration)
+ninja -j$NCPU || {
     echo "❌ Compilation failed"
     exit 1
 }
 
+echo ""
 echo "📥 Installing QEMU to sysroot..."
-make install || {
+ninja install || {
     echo "❌ Installation failed"
     exit 1
 }
