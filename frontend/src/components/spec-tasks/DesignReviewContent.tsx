@@ -231,7 +231,8 @@ export default function DesignReviewContent({
     const sessionId = planningSessionId
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
-    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}`
+    // Pass access_token as query param since browsers can't set custom headers on websocket connections
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}&access_token=${encodeURIComponent(account.token)}`
 
     console.log('[DRWS-DEBUG] Creating WebSocket connection to:', url)
     const rws = new ReconnectingWebSocket(url)

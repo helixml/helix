@@ -31,15 +31,41 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
+
+		// If auth failed (error or no user), attempt transparent token refresh
+		// This mirrors the logic in extractMiddleware for regular HTTP requests
+		needsRefresh := err != nil || user == nil || !hasUser(user)
+		if needsRefresh && apiServer.authMiddleware.oidcClient != nil && apiServer.Cfg != nil {
+			cm := NewCookieManager(apiServer.Cfg)
+			refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
+			if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+				newToken, refreshErr := apiServer.authMiddleware.oidcClient.RefreshAccessToken(r.Context(), refreshToken)
+				if refreshErr == nil && newToken.AccessToken != "" {
+					// Update cookies with new tokens
+					cm.Set(w, accessTokenCookie, newToken.AccessToken)
+					if newToken.RefreshToken != "" {
+						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+					}
+					// Set header for frontend to update its in-memory token
+					w.Header().Set("X-Token-Refreshed", newToken.AccessToken)
+					// Retry auth with the new token
+					user, err = apiServer.authMiddleware.getUserFromToken(r.Context(), newToken.AccessToken)
+					if err == nil && user != nil && hasUser(user) {
+						log.Info().Str("path", r.URL.Path).Msg("Token refreshed transparently in websocket handler")
+					}
+				}
+			}
+		}
+
+		// Final auth check after potential refresh
 		if err != nil {
-			log.Error().Msgf("Error getting user: %s", err.Error())
+			log.Error().Err(err).Msg("Error getting user for websocket")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		if user == nil || !hasUser(user) {
-			log.Error().Msgf("Error getting user")
-			http.Error(w, "unauthorized", http.StatusInternalServerError)
+			log.Error().Msg("No valid user for websocket connection")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
