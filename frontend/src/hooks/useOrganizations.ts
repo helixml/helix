@@ -639,7 +639,12 @@ export default function useOrganizations(): IOrganizationTools {
     if (orgID && initialized) {
       const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
       if (!useOrg || !useOrg.id) {
-        setOrganization(undefined)
+        // Only clear the organization if we've loaded the list and still can't find it.
+        // If organizations is empty but we're still loading (or haven't loaded yet),
+        // don't clear - we might just not have the data yet.
+        if (organizations.length > 0) {
+          setOrganization(undefined)
+        }
         return
       } else {
         loadOrganization(useOrg.id)
