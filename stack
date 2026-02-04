@@ -1886,63 +1886,59 @@ function build-utm() {
 		fi
 	fi
 
-	echo "📦 Building QEMU with UTM's build script..."
-	echo "   This includes:"
-	echo "   • SPICE support for UTM compatibility"
+	# Check if dependencies are already built
+	BUILD_DIR="$PROJECTS_ROOT/UTM/build-macOS-arm64"
+	SYSROOT="$PROJECTS_ROOT/UTM/sysroot-macOS-arm64"
+
+	if [ ! -d "$SYSROOT/lib" ] || [ ! -f "$SYSROOT/lib/libvirglrenderer.1.dylib" ]; then
+		echo "📦 Building all dependencies (first time - this takes 30-60 minutes)..."
+		echo "   This includes:"
+		echo "   • virglrenderer (critical for GPU texture access)"
+		echo "   • SPICE, GLib, GStreamer, and 25+ other dependencies"
+		echo ""
+
+		cd "$PROJECTS_ROOT/UTM"
+
+		# Add Homebrew bison to PATH
+		export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
+
+		# Build all dependencies
+		./Scripts/build_dependencies.sh -p macos -a arm64
+
+		if [ $? -ne 0 ]; then
+			echo "❌ Dependency build failed"
+			return 1
+		fi
+
+		echo "✅ Dependencies built successfully"
+	else
+		echo "✅ Dependencies already built (using cached sysroot)"
+	fi
+
+	echo ""
+	echo "🔄 Replacing QEMU source with helix-frame-export fork..."
+	QEMU_BUILD_DIR="$BUILD_DIR/qemu-10.0.2-utm"
+
+	# Backup vanilla QEMU if it exists
+	if [ -d "$QEMU_BUILD_DIR" ] && [ ! -d "$QEMU_BUILD_DIR.vanilla" ]; then
+		echo "   📦 Backing up vanilla QEMU to qemu-10.0.2-utm.vanilla"
+		cp -R "$QEMU_BUILD_DIR" "$QEMU_BUILD_DIR.vanilla"
+	fi
+
+	# Replace with our fork
+	rm -rf "$QEMU_BUILD_DIR"
+	cp -R "$PROJECTS_ROOT/qemu-utm" "$QEMU_BUILD_DIR"
+	echo "✅ QEMU source replaced"
+
+	echo ""
+	echo "🔨 Building custom QEMU (2-3 minutes with cached dependencies)..."
 	echo "   • helix-frame-export module for GPU frame sharing"
-	echo "   • All UTM patches and optimizations"
+	echo "   • SPICE GL support (gl=es parameter)"
+	echo "   • All UTM venus/Vulkan patches"
 	echo ""
-	echo "⏱️  This will take 30-60 minutes..."
-	echo ""
 
-	# UTM's build script downloads QEMU even with -q flag
-	# We need to replace it with our fork after download completes
-	cd "$PROJECTS_ROOT/UTM"
-
-	# Create a wrapper script that replaces QEMU source after download
-	WRAPPER_SCRIPT="/tmp/build-utm-wrapper-$$.sh"
-	cat > "$WRAPPER_SCRIPT" << 'EOF'
-#!/bin/bash
-set -e
-
-# Add Homebrew bison to PATH
-export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
-
-# Get arguments
-QEMU_SRC_DIR="$1"
-BUILD_DIR="$2"
-
-# Start build process in background and monitor
-./Scripts/build_dependencies.sh -p macos -a arm64 2>&1 | tee /tmp/utm-build.log &
-BUILD_PID=$!
-
-# Wait for download_all to complete (look for "Deleting old sysroot" message)
-echo "⏳ Waiting for dependencies to download..."
-while ! grep -q "Deleting old sysroot" /tmp/utm-build.log 2>/dev/null; do
-    if ! kill -0 $BUILD_PID 2>/dev/null; then
-        echo "❌ Build process died during download"
-        exit 1
-    fi
-    sleep 2
-done
-
-# Replace QEMU source with our fork
-echo "🔄 Replacing QEMU source with helix-frame-export fork..."
-QEMU_BUILD_DIR="$BUILD_DIR/qemu-10.0.2-utm"
-if [ -d "$QEMU_BUILD_DIR" ]; then
-    rm -rf "$QEMU_BUILD_DIR"
-fi
-cp -R "$QEMU_SRC_DIR" "$QEMU_BUILD_DIR"
-echo "✅ QEMU source replaced"
-
-# Wait for build to complete
-wait $BUILD_PID
-exit $?
-EOF
-	chmod +x "$WRAPPER_SCRIPT"
-
-	"$WRAPPER_SCRIPT" "$PROJECTS_ROOT/qemu-utm" "$PROJECTS_ROOT/UTM/build-macOS-arm64"
-	rm -f "$WRAPPER_SCRIPT"
+	# Use the fast rebuild script
+	bash "$DIR/scripts/build-qemu-only.sh"
 
 	if [ $? -ne 0 ]; then
 		echo "❌ QEMU build failed"

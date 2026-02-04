@@ -435,3 +435,127 @@ To revert to original QEMU:
 sudo cp /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu.orig \
      /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
 ```
+
+## Reproducible Build Process
+
+**Prerequisites:**
+```bash
+# Install Homebrew dependencies (from UTM's CI)
+brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake libclc
+
+# Install Python dependencies
+pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+
+# Add Homebrew bison to PATH (macOS ships with old 2.3, need 3.0+)
+export PATH="/opt/homebrew/opt/bison/bin:$PATH"
+```
+
+**Directory Structure:**
+```
+~/pm/
+├── helix/              # This repo
+├── qemu-utm/           # Our fork: github.com/helixml/qemu-utm (utm-edition branch)
+└── UTM/                # UTM build scripts: github.com/utmapp/UTM (v5.0.1, commit 8d34e35b)
+```
+
+**Build Steps:**
+
+### 1. Clone Repositories (First Time Only)
+```bash
+cd ~/pm
+git clone https://github.com/helixml/helix
+git clone https://github.com/helixml/qemu-utm
+git clone https://github.com/utmapp/UTM
+cd UTM && git checkout 8d34e35b  # v5.0.1+ tested version
+```
+
+### 2. Build All Dependencies (First Time or After Clean)
+```bash
+cd ~/pm/UTM
+./Scripts/build_dependencies.sh -p macos -a arm64
+
+# This takes 30-60 minutes and builds:
+# - All 28 dependencies (virglrenderer, spice, glib, etc.)
+# - Vanilla QEMU 10.0.2-utm (which we'll replace)
+# Output: ~/pm/UTM/sysroot-macOS-arm64/
+```
+
+### 3. Replace QEMU Source with Our Fork
+```bash
+cd ~/pm/UTM/build-macOS-arm64
+rm -rf qemu-10.0.2-utm
+cp -R ~/pm/qemu-utm qemu-10.0.2-utm
+```
+
+### 4. Rebuild QEMU Only (Fast: 2-3 minutes)
+```bash
+cd ~/pm/helix
+./scripts/build-qemu-only.sh
+
+# Or manually:
+cd ~/pm/UTM/build-macOS-arm64/qemu-10.0.2-utm
+make clean
+../configure --prefix=$HOME/pm/UTM/sysroot-macOS-arm64 \
+    --host=aarch64-apple-darwin \
+    --cross-prefix="" \
+    --enable-shared-lib \
+    --disable-cocoa \
+    --cpu=aarch64 \
+    --target-list=aarch64-softmmu
+make -j$(sysctl -n hw.ncpu)
+make install
+```
+
+**Output:** `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib` (33MB)
+
+### 5. Install into UTM.app
+```bash
+# Kill running VMs
+killall -9 UTM QEMULauncher qemu-system-aarch64 2>/dev/null || true
+
+# Backup original
+sudo cp /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu \
+        /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu.orig
+
+# Install custom build
+sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
+        /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+
+# Fix library paths (script in helix repo)
+~/pm/helix/scripts/fix-qemu-paths.sh
+```
+
+### 6. Test
+```bash
+# Open UTM.app and start a VM
+# Check for crashes: ls -lat ~/Library/Logs/DiagnosticReports/ | grep QEMULauncher
+```
+
+**Incremental Rebuilds:**
+
+After changing helix-frame-export code:
+```bash
+cd ~/pm/qemu-utm
+# Make your changes to hw/display/helix/helix-frame-export.m
+git commit -am "Your change"
+
+cd ~/pm/UTM/build-macOS-arm64/qemu-10.0.2-utm
+cp ~/pm/qemu-utm/hw/display/helix/helix-frame-export.m hw/display/helix/
+make -j$(sysctl -n hw.ncpu)
+make install
+
+# Re-install into UTM.app (steps 5-6 above)
+```
+
+**Automated Build:**
+```bash
+cd ~/pm/helix
+./stack build-utm  # Full automated build with all checks
+```
+
+**Key Points:**
+- Dependencies only need building once (or after `make clean` in UTM)
+- QEMU rebuilds take 2-3 minutes with cached dependencies
+- Use `scripts/build-qemu-only.sh` for fast iteration
+- Always test in a fresh VM start (existing VMs keep old QEMU)
+- Check crash reports if VM fails to start: `~/Library/Logs/DiagnosticReports/QEMULauncher-*.ips`
