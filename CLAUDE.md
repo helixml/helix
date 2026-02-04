@@ -50,7 +50,9 @@ See also: `.cursor/rules/*.mdc`
 - **Settings-sync-daemon does NOT hot reload** — it runs inside the helix-ubuntu container, so changes to `zed_config.go` or related code require rebuilding the desktop image with `./stack build-ubuntu` and starting a NEW session
 
 ### Production Frontend Mode
-For demos or slow connections, serve the production build instead of Vite dev server:
+For demos or slow connections, serve the production build instead of Vite dev server.
+
+**Note:** `SERVE_PROD_FRONTEND_IN_DEV` is an obsolete variable that does nothing. Use `FRONTEND_URL=/www` instead.
 
 ```bash
 # 1. Build the frontend

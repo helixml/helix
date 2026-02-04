@@ -262,6 +262,7 @@ func NewServer(
 				adminUserIDs: cfg.WebServer.AdminUserIDs,
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
+			cfg,
 		),
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,

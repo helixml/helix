@@ -361,7 +361,16 @@ export const useAccountContext = (): IAccountContext => {
         const checkAndRefreshToken = async () => {
           try {
             if (user.token) {
-              const payload = JSON.parse(atob(user.token.split('.')[1]))
+              // Check if token looks like a JWT (three dot-separated parts)
+              // OIDC providers like Google return opaque tokens, not JWTs
+              const tokenParts = user.token.split('.')
+              if (tokenParts.length !== 3) {
+                // Opaque token (e.g., Google OIDC) - can't check expiry client-side
+                // The backend handles refresh via cookies
+                return
+              }
+
+              const payload = JSON.parse(atob(tokenParts[1]))
               const expiry = new Date(payload.exp * 1000)
               const now = new Date()
               const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60

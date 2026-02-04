@@ -46,6 +46,7 @@ type authMiddleware struct {
 	oidcClient    authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
 	store         store.Store
 	cfg           authMiddlewareConfig
+	serverCfg     *config.ServerConfig // Server config for cookie management
 }
 
 func newAuthMiddleware(
@@ -53,12 +54,14 @@ func newAuthMiddleware(
 	oidcClient authpkg.OIDC,
 	store store.Store,
 	cfg authMiddlewareConfig,
+	serverCfg *config.ServerConfig,
 ) *authMiddleware {
 	return &authMiddleware{
 		authenticator: authenticator,
 		oidcClient:    oidcClient,
 		store:         store,
 		cfg:           cfg,
+		serverCfg:     serverCfg,
 	}
 }
 
@@ -271,6 +274,12 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
+			}
 			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -304,6 +313,12 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
+			}
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
 			}
 			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)

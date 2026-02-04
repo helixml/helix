@@ -636,7 +636,7 @@ export default function useOrganizations(): IOrganizationTools {
       return
     }
 
-    if (orgID && initialized) {  
+    if (orgID && initialized) {
       const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
       if (!useOrg || !useOrg.id) {
         setOrganization(undefined)
@@ -645,7 +645,7 @@ export default function useOrganizations(): IOrganizationTools {
         loadOrganization(useOrg.id)
       }
     }
-  }, [orgID, initialized])
+  }, [orgID, initialized, organizations])
 
   return {
     organizations,
