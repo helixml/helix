@@ -85,6 +85,27 @@ sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
 
+### UTM Virtual Machines
+- **Control VMs with utmctl** — Don't wait for user to start VMs manually
+  ```bash
+  # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl (or ~/pm/helix/UTM/build/...)
+  utmctl list                    # List all VMs
+  utmctl start <UUID>            # Start a VM
+  utmctl stop <UUID>             # Stop a VM
+  utmctl status <UUID>           # Check VM status
+  ```
+- **Expanding VM disks**:
+  ```bash
+  # 1. Expand the qcow2 file (VM must be stopped)
+  qemu-img resize /path/to/vm.qcow2 1T
+
+  # 2. Start the VM and expand the partition inside
+  sudo growpart /dev/vda 2
+  sudo resize2fs /dev/vda2
+  df -h  # Verify new space
+  ```
+- **QEMU build requirements**: Custom QEMU builds must include SPICE support (`--enable-spice`) or UTM will fail with "-spice: invalid option"
+
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong

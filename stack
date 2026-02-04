@@ -1767,6 +1767,99 @@ function update_openapi() {
 	echo "✅ OpenAPI update complete"
 }
 
+function build-utm() {
+	# Build custom QEMU with helix-frame-export for UTM (macOS only)
+	echo "🖥️  Building custom QEMU with helix-frame-export for UTM..."
+	echo ""
+
+	# Check platform
+	if [[ "$OSTYPE" != "darwin"* ]]; then
+		echo "❌ build-utm is only supported on macOS"
+		return 1
+	fi
+
+	# Check dependencies
+	if [ ! -d "$PROJECTS_ROOT/qemu-utm" ]; then
+		echo "❌ QEMU fork not found at $PROJECTS_ROOT/qemu-utm"
+		echo "   Clone it first: git clone https://github.com/helixml/qemu-utm $PROJECTS_ROOT/qemu-utm"
+		return 1
+	fi
+
+	if [ ! -d "$PROJECTS_ROOT/UTM" ]; then
+		echo "❌ UTM not found at $PROJECTS_ROOT/UTM"
+		echo "   Clone it first: git clone https://github.com/utmapp/UTM $PROJECTS_ROOT/UTM"
+		return 1
+	fi
+
+	echo "📦 Building QEMU with UTM's build script..."
+	echo "   This includes:"
+	echo "   • SPICE support for UTM compatibility"
+	echo "   • helix-frame-export module for GPU frame sharing"
+	echo "   • All UTM patches and optimizations"
+	echo ""
+	echo "⏱️  This will take 30-60 minutes..."
+	echo ""
+
+	cd "$PROJECTS_ROOT/UTM"
+	./Scripts/build_dependencies.sh -p macos -a arm64 -q "$PROJECTS_ROOT/qemu-utm"
+
+	if [ $? -ne 0 ]; then
+		echo "❌ QEMU build failed"
+		return 1
+	fi
+
+	echo ""
+	echo "📥 Installing QEMU into UTM.app..."
+
+	# Find the built QEMU
+	QEMU_BUILT="$PROJECTS_ROOT/UTM/build-macOS-arm64/sysroot-macos-arm64/lib/libqemu-aarch64-softmmu.dylib"
+
+	if [ ! -f "$QEMU_BUILT" ]; then
+		echo "❌ Built QEMU not found at $QEMU_BUILT"
+		return 1
+	fi
+
+	# Install to custom UTM build
+	UTM_APP="$PROJECTS_ROOT/UTM/build/Build/Products/Release/UTM.app"
+	QEMU_DEST="$UTM_APP/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
+
+	if [ ! -d "$UTM_APP" ]; then
+		echo "❌ UTM.app not found - build UTM first with Xcode"
+		return 1
+	fi
+
+	# Backup original if it exists
+	if [ -f "$QEMU_DEST" ] && [ ! -f "$QEMU_DEST.backup" ]; then
+		echo "💾 Backing up original QEMU to $QEMU_DEST.backup"
+		cp "$QEMU_DEST" "$QEMU_DEST.backup"
+	fi
+
+	# Copy new QEMU
+	echo "📋 Copying $QEMU_BUILT"
+	echo "    → $QEMU_DEST"
+	cp "$QEMU_BUILT" "$QEMU_DEST"
+
+	# Re-sign the app
+	echo "🔏 Re-signing UTM.app..."
+	codesign --force --deep --sign - "$UTM_APP"
+
+	# Copy to /Applications if desired
+	if [ -d "/Applications/UTM.app" ]; then
+		echo ""
+		echo "📱 Installing to /Applications/UTM.app..."
+		rm -rf /Applications/UTM.app
+		cp -R "$UTM_APP" /Applications/
+		codesign --force --deep --sign - /Applications/UTM.app
+	fi
+
+	echo ""
+	echo "✅ Custom QEMU with helix-frame-export installed successfully!"
+	echo ""
+	echo "Next steps:"
+	echo "  1. Start a VM: utmctl start <UUID>"
+	echo "  2. Test zero-copy pipeline: helix spectask benchmark --video-mode zerocopy"
+}
+
 function build-frontend() {
 	echo "🔄 Building production frontend for SERVE_PROD_FRONTEND_IN_DEV mode..."
 	cd "$DIR/frontend"
@@ -2022,6 +2115,7 @@ function help() {
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
+  echo "  build-utm          - Build custom QEMU with helix-frame-export for UTM (macOS only)"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"
