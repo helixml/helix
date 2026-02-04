@@ -1,8 +1,8 @@
 # macOS ARM Desktop Port - Architecture Design
 
 **Date**: 2026-02-02
-**Last Updated**: 2026-02-03 22:15 UTC
-**Status**: Phase 2 In Progress - Building Modified QEMU with helix-frame-export
+**Last Updated**: 2026-02-04 07:25 UTC
+**Status**: Phase 2 Complete - Modified QEMU Built and Patched into UTM.app
 
 ## Executive Summary
 
@@ -38,21 +38,34 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ✅ **VM disk expanded** - Resized from 256GB (100% full) to 512GB, 418GB free
 - ✅ **VM CPU count increased** - Changed from 4 cores to 20 cores for faster builds
 - ✅ **helix-ubuntu:7c082c pulled into sandbox** - Image available for testing
-- ⏳ **UTM dependency build in progress** - Building QEMU + dependencies (failed on GLib, retrying)
-- ⏳ Next: Complete QEMU build, rebuild UTM.app, test end-to-end zero-copy pipeline
+- ✅ **Modified QEMU built successfully** - Built from ~/pm/qemu-utm with helix-frame-export
+  - Fixed virglrenderer dependency issues (manual paths in meson.build)
+  - Fixed virtio-gpu-virgl.c API compatibility (added version guards)
+  - Binary: libqemu-aarch64-softmmu.dylib (29MB) with helix symbols verified
+  - Pushed to GitHub: https://github.com/helixml/qemu-utm (utm-edition branch)
+- ✅ **UTM.app patched with modified QEMU** - Replaced binary and re-signed
+  - Location: ~/pm/helix/UTM/build/Build/Products/Release/UTM.app
+  - Ad-hoc signed for local testing
+- ⏳ Next: Test end-to-end zero-copy pipeline with vsockenc → helix-frame-export → VideoToolbox
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (helix-ubuntu:169abe)
 2. ~~Implement QEMU vsock handler to access virglrenderer~~ ✅ Done (helix-frame-export complete)
 3. ~~Integrate helix-frame-export into UTM's QEMU fork~~ ✅ Done (committed 4237f5099b)
-4. **Build modified QEMU and integrate into UTM.app:**
-   - ⏳ Building QEMU from ~/pm/qemu-utm (in progress, ~1 hour remaining)
-   - Replace QEMU binary in existing UTM.app (no need to rebuild entire app!)
-   - Test VM with modified QEMU + helix-frame-export
+4. ~~Build modified QEMU and integrate into UTM.app~~ ✅ Done
+   - ✅ Built QEMU from ~/pm/qemu-utm with helix-frame-export module
+   - ✅ Fixed build issues (virglrenderer deps, API compatibility)
+   - ✅ Replaced QEMU binary in UTM.app and re-signed (ad-hoc)
+   - ✅ Verified helix-frame-export symbols in binary
 5. ~~Complete helix-ubuntu build and test vsockenc~~ ✅ Done (helix-ubuntu:169abe ready)
 6. ~~Add code-macos sandbox profile~~ ✅ Done (GPU_VENDOR=virtio detection)
 7. ~~Update desktop-bridge to use vsockenc encoder~~ ✅ Done (ws_stream.go updated)
-8. Test zero-copy encoding path end-to-end
+8. **Test zero-copy encoding path end-to-end:**
+   - Configure vsock device in QEMU for guest→host communication
+   - Start helix session with helix-ubuntu:169abe image
+   - Verify helix-frame-export initialization in logs
+   - Test video streaming with `helix spectask stream`
+   - Measure performance vs software x264enc encoding
 
 ## Deployment Strategy
 
@@ -90,6 +103,105 @@ Instead of building UTM from source, we can **patch and re-sign production UTM r
 - Location: `UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
 - Size: ~29MB
 - Changes: Adds helix-frame-export module for VideoToolbox encoding via vsock
+
+## QEMU Build Process
+
+### Build Approach
+
+Instead of using UTM's full dependency build system (which had reliability issues), we built QEMU directly against pre-built dependencies from UTM's sysroot:
+
+```bash
+# Configure QEMU with helix-frame-export module
+cd ~/pm/qemu-utm
+export PKG_CONFIG_PATH="$HOME/pm/helix/UTM/sysroot-macOS-arm64/lib/pkgconfig"
+./configure \
+  --enable-shared-lib \
+  --disable-cocoa \
+  --cpu=aarch64 \
+  --target-list=aarch64-softmmu \
+  --extra-cflags="-I$HOME/pm/helix/UTM/sysroot-macOS-arm64/include" \
+  --extra-ldflags="-L$HOME/pm/helix/UTM/sysroot-macOS-arm64/lib"
+
+# Build (produces qemu-system-aarch64-unsigned + libqemu-aarch64-softmmu.dylib)
+make -j28
+```
+
+### Build Issues Fixed
+
+#### 1. virglrenderer Dependency Not Found
+
+**Problem**: QEMU configure couldn't find virglrenderer via pkg-config, so helix-frame-export.m couldn't include virglrenderer.h.
+
+**Solution**: Added fallback manual dependency in `hw/display/helix/meson.build`:
+
+```meson
+virglrenderer = dependency('virglrenderer', required: false)
+if not virglrenderer.found()
+  virglrenderer_inc = include_directories('/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/include/virgl')
+  virglrenderer_lib = declare_dependency(
+    include_directories: virglrenderer_inc,
+    link_args: ['-L/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/lib', '-lvirglrenderer']
+  )
+  virglrenderer = virglrenderer_lib
+endif
+```
+
+**Commit**: 886c4e4797
+
+#### 2. virglrenderer API Version Incompatibility
+
+**Problem**: `hw/display/virtio-gpu-virgl.c` defined `virgl_borrow_texture_for_scanout()` wrapper function, but this function is only used when `VIRGL_VERSION_MAJOR < 1`. The function definition wasn't version-guarded, causing compilation errors with virglrenderer 1.2.0.
+
+**Error messages**:
+```
+error: variable has incomplete type 'struct virgl_renderer_texture_info'
+error: call to undeclared function 'virgl_renderer_borrow_texture_for_scanout'
+```
+
+**Solution**: Wrapped the function definition in version guard at `virtio-gpu-virgl.c:415`:
+
+```c
+#if VIRGL_VERSION_MAJOR < 1
+static GLuint virgl_borrow_texture_for_scanout(uint32_t id, bool *y_0_top,
+                                               uint32_t *width,
+                                               uint32_t *height,
+                                               void **d3d_tex2d)
+{
+    // ... implementation ...
+}
+#endif
+```
+
+This matches the usage pattern at line 502 where the function is only called when `VIRGL_VERSION_MAJOR < 1`.
+
+**Commit**: 886c4e4797
+
+### Build Verification
+
+After successful build, verified helix-frame-export module is compiled into the binary:
+
+```bash
+# Check symbols
+nm libqemu-aarch64-softmmu.dylib | grep helix
+# Output:
+# 0000000000357f34 t _helix_encode_iosurface
+# 0000000000358300 t _helix_frame_export_cleanup
+# 0000000000358380 t _helix_frame_export_init
+# 0000000000357e30 t _helix_get_iosurface_for_resource
+
+# Check error/log strings
+strings libqemu-aarch64-softmmu.dylib | grep "helix:"
+# Output includes expected error messages from helix-frame-export.m
+```
+
+### Repository
+
+Modified QEMU source: https://github.com/helixml/qemu-utm (utm-edition branch)
+
+**Key commits**:
+- `4237f5099b`: Initial helix-frame-export integration (copied from for-mac/qemu-helix)
+- `dda666bc6d`: Renamed helix-frame-export.c → .m for Objective-C compilation
+- `886c4e4797`: Fixed build issues (virglrenderer deps + API compatibility)
 
 ## Architecture
 
