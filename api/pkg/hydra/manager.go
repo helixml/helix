@@ -1066,10 +1066,19 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 		return nil, fmt.Errorf("failed to bring up eth1: %w", err)
 	}
 
-	// 8. Add route to Hydra subnet via the new interface
+	// 8. Add route to Hydra bridge subnet via the new interface
 	if err := m.runNsenter(containerPID, "ip", "route", "add", subnet, "dev", "eth1"); err != nil {
 		// Route may already exist, just log warning
 		log.Warn().Err(err).Str("subnet", subnet).Msg("Failed to add route (may already exist)")
+	}
+
+	// 8b. Add route to per-session dockerd networks via the Hydra gateway
+	// The per-session dockerd creates containers on 10.112.0.0/12 (10.112.x.x - 10.127.x.x)
+	// Without this route, DNS returns container IPs that the desktop can't reach
+	dockerdNetworks := "10.112.0.0/12"
+	if err := m.runNsenter(containerPID, "ip", "route", "add", dockerdNetworks, "via", gateway, "dev", "eth1"); err != nil {
+		// Route may already exist, just log warning
+		log.Warn().Err(err).Str("subnet", dockerdNetworks).Msg("Failed to add dockerd networks route (may already exist)")
 	}
 
 	// 9. Configure DNS by adding Hydra's DNS server to resolv.conf

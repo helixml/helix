@@ -193,6 +193,44 @@ thirdOctet := ((bridgeIndex - 1) % 16) * 16
 sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
 ```
 
+### Fix 4: Bridge Desktop to Hydra Network
+
+**File:** `api/pkg/external-agent/hydra_executor.go`
+
+After creating the desktop container, call `BridgeDesktop` to create a veth pair connecting the desktop (on sandbox's docker0) to the per-session Hydra dockerd network. This enables the desktop to reach containers started via `docker compose` on the per-session dockerd.
+
+```go
+// Bridge desktop container to per-session Hydra dockerd network
+bridgeReq := &hydra.BridgeDesktopRequest{
+    SessionID:          agent.SessionID,
+    DesktopContainerID: resp.ContainerID,
+}
+bridgeResp, err := hydraClient.BridgeDesktop(ctx, bridgeReq)
+if err != nil {
+    log.Warn().Err(err).Msg("Failed to bridge desktop to Hydra network")
+} else {
+    log.Info().
+        Str("desktop_ip", bridgeResp.DesktopIP).
+        Str("gateway", bridgeResp.Gateway).
+        Msg("Desktop bridged to Hydra network")
+}
+```
+
+**What BridgeDesktop does:**
+1. Creates a veth pair: `veth-{session}-h` (host end) and `veth-{session}-c` (container end)
+2. Attaches host end to the Hydra bridge (e.g., `hydra3`)
+3. Injects container end into the desktop container's network namespace
+4. Assigns IP address from the Hydra subnet (e.g., `10.200.3.254/24`)
+5. Adds route for the Hydra bridge network (`10.200.x.0/24`) via eth1
+6. Adds route for per-session dockerd networks (`10.112.0.0/12`) via the Hydra gateway
+7. Configures DNS to use Hydra's DNS server (resolves container names)
+8. Sets up localhost forwarding for exposed Docker ports (refreshed every 10 seconds)
+
+**Result:** Desktop container gets a second interface (`eth1`) with:
+- Connectivity to containers on the per-session dockerd (via 10.112.0.0/12 route)
+- DNS resolution for container names (via Hydra DNS on 10.200.x.1:53)
+- Localhost port forwarding for `docker run -p` exposed ports
+
 ### Network Allocation Summary
 
 | Component | Subnet Range | Purpose |
