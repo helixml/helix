@@ -90,20 +90,40 @@ qemu-aarch64-softmmu: -spice gl=es: Parameter 'gl' expects 'on' or 'off'
 **Our Build Process Bypasses Patching:**
 - `./stack build-utm` waits for UTM to download QEMU
 - Then REPLACES entire `qemu-10.0.2-utm/` with our `~/pm/qemu-utm` fork
-- UTM's patch never gets applied!
+- UTM's patch file never gets applied to our fork!
 
-**Solution:** Permanently apply UTM's patches to our fork
+**Solution - CORRECT APPROACH:**
+
+The UTM patch file (`patches/qemu-10.0.2-utm.patch`) is designed for vanilla QEMU 10.0.2,
+but our fork is based on the UTM git fork which already has most patches applied as commits.
+
+What we needed: Only the `gl=es` parameter fix was missing from the fork.
+
+**Applied in commit `b6190fb7ae`:**
 ```bash
 cd ~/pm/qemu-utm
-patch -p1 < ~/pm/UTM/patches/qemu-10.0.2-utm.patch
-git add -A
-git commit -m "Apply UTM patches from qemu-10.0.2-utm.patch"
-git push helixml utm-edition
+# Edit ui/spice-core.c line 513:
+# Change: .type = QEMU_OPT_BOOL,
+# To:     .type = QEMU_OPT_STRING,
+git add ui/spice-core.c
+git commit -m "Apply UTM patch: Change gl parameter from QEMU_OPT_BOOL to QEMU_OPT_STRING
+
+This enables SPICE to accept gl=on|off|es|core instead of just on|off.
+Required for virtio-gpu-gl-pci with Venus/Vulkan support (gl=es).
+
+Source: UTM patches/qemu-10.0.2-utm.patch line 2869-2870"
+git push -f helixml utm-edition  # Force push after history rewrite
 ```
 
-**Committed in:** `767b70311f` - Apply UTM patches from qemu-10.0.2-utm.patch
+**Key Learnings:**
+- Don't apply full patch files to forks that already have commits - causes conflicts
+- Extract only the specific changes needed (in this case, one line)
+- Verify the change matches the patch file exactly
+- Never commit with failed hunks - user caught this early!
 
-**Status:** FIXED - Rebuild in progress
+**Saved Helix Patches:** `~/pm/helix/qemu-patches/` (permanent backup of our 3 commits)
+
+**Status:** Clean patch applied, rebuild in progress (task b7761ba)
 
 ## Options Going Forward
 
