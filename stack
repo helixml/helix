@@ -1778,6 +1778,47 @@ function build-utm() {
 		return 1
 	fi
 
+	# Check Homebrew dependencies
+	echo "🔍 Checking build dependencies..."
+	MISSING_DEPS=()
+
+	# Check for Homebrew
+	if ! command -v brew &> /dev/null; then
+		echo "❌ Homebrew not found - install from https://brew.sh"
+		return 1
+	fi
+
+	# Check bison (need >= 3.0, macOS ships with 2.3)
+	BISON_PATH="/opt/homebrew/opt/bison/bin/bison"
+	if [ ! -f "$BISON_PATH" ]; then
+		MISSING_DEPS+=("bison")
+	else
+		BISON_VERSION=$($BISON_PATH --version | head -1 | awk '{print $4}')
+		echo "  ✓ bison $BISON_VERSION"
+	fi
+
+	# Check libclc (needed for Mesa/Vulkan OpenCL support)
+	if ! brew list libclc &> /dev/null; then
+		MISSING_DEPS+=("libclc")
+	else
+		echo "  ✓ libclc $(brew list --versions libclc | awk '{print $2}')"
+	fi
+
+	# Report missing dependencies
+	if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Homebrew packages:"
+		for dep in "${MISSING_DEPS[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  brew install ${MISSING_DEPS[*]}"
+		return 1
+	fi
+
+	echo ""
+
 	# Check dependencies
 	if [ ! -d "$PROJECTS_ROOT/qemu-utm" ]; then
 		echo "❌ QEMU fork not found at $PROJECTS_ROOT/qemu-utm"
@@ -1884,7 +1925,7 @@ EOF
 	echo "📥 Installing QEMU into UTM.app..."
 
 	# QEMU binaries are in the sysroot
-	QEMU_SYSROOT="$PROJECTS_ROOT/UTM/build-macOS-arm64/sysroot-macos-arm64"
+	QEMU_SYSROOT="$PROJECTS_ROOT/UTM/sysroot-macOS-arm64"
 
 	if [ ! -d "$QEMU_SYSROOT/bin" ]; then
 		echo "❌ QEMU binaries not found in sysroot"
