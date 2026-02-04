@@ -88,7 +88,13 @@ const Projects: FC = () => {
   // Check if org slug is set in the URL
   // const orgSlug = router.params.org_id || ''
 
-  const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '', { enabled: isLoggedIn })
+  const isOrgResolved = !account.organizationTools.orgID || !!account.organizationTools.organization
+  const shouldLoadProjects = isLoggedIn && !account.organizationTools.loading && isOrgResolved
+  const { data: projects = [], isLoading, error } = useListProjects(
+    account.organizationTools.organization?.id || '',
+    { enabled: shouldLoadProjects }
+  )
+  const isProjectsLoading = isLoading || (isLoggedIn && (account.organizationTools.loading || !isOrgResolved))
   const { data: sampleProjects = [] } = useListSampleProjects({ enabled: isLoggedIn })
   const instantiateSampleMutation = useInstantiateSampleProject()
 
@@ -528,7 +534,7 @@ const Projects: FC = () => {
     }
   }
 
-  if (isLoading || reposLoading) {
+  if (isProjectsLoading || reposLoading) {
     return (
       <Page
         breadcrumbTitle="Projects"
@@ -620,6 +626,7 @@ const Projects: FC = () => {
           <ProjectsListView
             projects={projects}
             error={isLoggedIn ? error : null}
+            isLoading={isProjectsLoading}
             searchQuery={projectsSearchQuery}
             onSearchChange={setProjectsSearchQuery}
             page={projectsPage}

@@ -26,6 +26,7 @@ import type { ServerSampleProject } from '../../api/api'
 interface ProjectsListViewProps {
   projects: TypesProject[]
   error: Error | null
+  isLoading: boolean
   searchQuery: string
   onSearchChange: (query: string) => void
   page: number
@@ -46,6 +47,7 @@ interface ProjectsListViewProps {
 const ProjectsListView: FC<ProjectsListViewProps> = ({
   projects,
   error,
+  isLoading,
   searchQuery,
   onSearchChange,
   page,
@@ -125,7 +127,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             Clear Search
           </Button>
         </Box>
-      ) : projects.length === 0 ? (
+      ) : projects.length === 0 && !isLoading ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Box sx={{ color: 'text.disabled', mb: 2 }}>
             <Kanban size={80} />

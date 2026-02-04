@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react'
+import React, { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
@@ -164,7 +164,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const menuWidth = isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth
 
   // Handle click outside and escape key to close expanded menus
-  React.useEffect(() => {
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
       if (!target.closest('[data-compact-user-menu]')) {
@@ -199,7 +199,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [compactExpanded, menuItemsExpanded, sidebarVisible])
 
   // Close compact menu when sidebar becomes visible, and reset menu items state when sidebar becomes hidden
-  React.useEffect(() => {
+  useEffect(() => {
     if (sidebarVisible && compactExpanded) {
       setCompactExpanded(false)
     }
@@ -237,9 +237,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return loadedOrgs
   }, [organizations, account.user])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!account.user) return
-    // if (router.name !== 'projects') return
     if (router.params.org_id) return    
 
     const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)    
@@ -250,7 +249,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [account.user, router.name, router.params.org_id, listOrgs, router])
 
   const handleOrgSelect = (orgSlug: string | undefined) => {
-    console.log('handleOrgSelect called with:', orgSlug)
     if (orgSlug) {
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
     } else {
