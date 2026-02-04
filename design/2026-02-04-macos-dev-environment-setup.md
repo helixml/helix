@@ -188,7 +188,7 @@ This separation allows:
 
 **VM UUID**: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
 
-**UTM Registration**: UTM uses `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup` (symlink to external SSD) to access the primary VM.
+**UTM Registration**: UTM uses `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm` (symlink to external SSD) to access the primary VM.
 
 ### Create Ubuntu VM
 
