@@ -60,12 +60,8 @@ if ! command -v mockgen &> /dev/null; then
     go install go.uber.org/mock/mockgen@v0.4.0
 fi
 
-# Ensure Rust is installed (needed for Zed compilation)
-if ! command -v cargo &> /dev/null; then
-    echo "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
-fi
+# Note: Rust is NOT needed on the host - Zed builds inside a Docker container
+# (zed-builder:ubuntu25) which has its own Rust installation.
 
 # Check for privileged mode (host docker socket)
 # NOTE: We do NOT set DOCKER_HOST here. The ./stack script has its own
