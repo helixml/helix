@@ -171,24 +171,39 @@ This separation allows:
    - Location: External NVMe SSD
    - Disk: 1TB capacity, 506GB used, 1007GB partition
    - CPUs: 20 cores, RAM: 64GB
-   - Status: Expanded and ready for development
+   - **UTM UUID**: `01CECE09-B09D-48A4-BAB6-D046C06E3A68` (use this for utmctl commands)
+   - Config.plist UUID: `17DC4F96-F1A9-4B51-962B-03D85998E0E7` (different from UTM's registration)
+   - Status: Expanded and ready for development, running custom QEMU with helix-frame-export
    - **This is the one to use for all work**
 
 2. **Backup (large)**: `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup.safe`
    - Location: Internal disk (UTM container)
-   - Disk: 506GB (rsync copy from external SSD, created 2026-02-04 15:35)
+   - Disk: 506GB (rsync copy from external SSD, created 2026-02-04 15:35, completed 16:24)
    - Status: Fresh backup created after accidental deletion
    - **Do not delete - this is the safety backup**
 
-3. **Original (small)**: `~/Documents/UTM/Linux.utm`
+3. **Original (small)**: `~/Documents/UTM/Linux.utm.small-backup`
    - Location: Internal disk
-   - Disk: 11GB (original small image)
-   - Status: Original VM before expansion
+   - Disk: 11GB (original small image before expansion)
+   - Status: Original VM, moved out of the way
    - **Keep as reference, do not use for development**
 
-**VM UUID**: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
+**How to control the external SSD VM:**
+```bash
+# List VMs
+/Applications/UTM.app/Contents/MacOS/utmctl list
 
-**UTM Registration**: UTM uses `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm` (symlink to external SSD) to access the primary VM.
+# Start the external SSD VM
+/Applications/UTM.app/Contents/MacOS/utmctl start 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+
+# Stop the VM
+/Applications/UTM.app/Contents/MacOS/utmctl stop 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+
+# Check status
+/Applications/UTM.app/Contents/MacOS/utmctl status 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+```
+
+**Note:** To add the external VM to UTM, use: `open -a UTM "/Volumes/Helix VM/Linux.utm"`
 
 ### Create Ubuntu VM
 

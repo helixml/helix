@@ -26,27 +26,72 @@ Attempted to patch production UTM.app with our custom QEMU containing helix-fram
 install_name_tool -change /path/to/lib.dylib @rpath/lib.framework/Versions/A/lib /path/to/binary
 ```
 
-### Issue 2: Code Signing & Hypervisor Access
+### Issue 2: Code Signing & Team ID Mismatch
 
-**Problem:** After replacing QEMU and re-signing, get error:
+**Problem:** After replacing QEMU and re-signing framework only, get error:
 ```
-qemu-aarch64-softmmu: -accel hvf: Error: ret = HV_DENIED (0xfae94007)
+code signature in '/Applications/UTM.app/.../qemu-aarch64-softmmu' not valid for use in process:
+mapping process and mapped file (non-platform) have different Team IDs
 ```
 
-**Root Cause:** macOS Hypervisor framework requires:
-- Proper code signature with `com.apple.security.virtualization` entitlement
-- Ad-hoc signing (`codesign --sign -`) is NOT sufficient for Hypervisor access
-- Even with entitlements file, ad-hoc signatures are rejected by the kernel
+**Root Cause:** UTM uses XPC services (QEMULauncher.xpc) which check Team IDs. When only the QEMU framework is re-signed ad-hoc, it has a different Team ID than the main app and XPC services.
 
-**Why this happens:**
-1. Hypervisor.framework uses kernel-level access checks
-2. Kernel validates code signatures against Apple's trust chain
-3. Ad-hoc signatures (self-signed) don't meet kernel's trust requirements
-4. Entitlements are only honored for properly signed binaries
+**Solution - Consistent Ad-Hoc Signing (WORKS!):**
+
+Re-sign ALL components of UTM.app with ad-hoc signatures from inside-out:
+
+```bash
+# 1. Stop VM and kill all UTM processes
+killall -9 UTM QEMULauncher 2>/dev/null
+
+# 2. Replace QEMU binary with custom build
+sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
+    /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+
+# 3. Fix library paths (see script at /tmp/fix-qemu-paths.sh)
+/tmp/fix-qemu-paths.sh
+
+# 4. Re-sign ALL XPC services
+sudo find /Applications/UTM.app/Contents/XPCServices -name "*.xpc" -type d | while read f; do
+    sudo codesign --force --deep --sign - "$f"
+done
+
+# 5. Re-sign ALL frameworks
+sudo codesign --force --deep --sign - /Applications/UTM.app/Contents/Frameworks/*.framework
+
+# 6. Re-sign entire UTM.app bundle
+sudo codesign --force --deep --sign - /Applications/UTM.app
+```
+
+**Why this works:**
+- All components now have the same ad-hoc Team ID
+- Hypervisor.framework access DOES work with ad-hoc signing (vmnet doesn't, but we use emulated networking)
+- macOS Gatekeeper must be disabled or set to "Anywhere" (System Settings → Privacy & Security)
+
+### Issue 3: gl=es Parameter Not Supported at Runtime
+
+**Problem:** After successful signing, VM fails to start with:
+```
+qemu-aarch64-softmmu: -spice gl=es: Parameter 'gl' expects 'on' or 'off'
+```
+
+**Investigation:**
+- Our QEMU is built from `helixml/qemu-utm` (`utm-edition` branch)
+- Based on upstream `utmapp/qemu` v10.0.2-utm (commit `886c4e4797`)
+- Help text shows `gl=on|core|es|off` support (compiled in)
+- But runtime rejects `gl=es` parameter
+
+**Possible causes:**
+1. Missing runtime dependencies (EGL/OpenGL ES libraries)
+2. Configure-time option not enabled (e.g., `--enable-opengl`)
+3. SPICE server built without OpenGL ES support
+4. Build used UTM's dependency script but missed some configuration
+
+**Status:** INVESTIGATING - need to check `./stack build-utm` configuration and compare with working UTM binary
 
 ## Options Going Forward
 
-### Option 1: Build Complete UTM.app (RECOMMENDED)
+### Option 1: Fix gl=es Support in Custom Build (IN PROGRESS)
 
 Build the entire UTM.app from source using our custom QEMU:
 ```bash
