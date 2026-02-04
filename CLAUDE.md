@@ -25,6 +25,19 @@ See also: `.cursor/rules/*.mdc`
   4. Never use `git checkout -f` unless you've verified the working tree is clean or matches
 - **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
+### Destructive Filesystem Commands
+- **NEVER** run `rm -rf` without **EXPLICIT USER CONSENT** — always ask first before deleting anything
+- **NEVER** delete backups, VM images, or any files larger than 1GB without asking user
+- **NEVER** run destructive commands on directories you haven't verified are empty or disposable
+- **NEVER** assume a file/directory is safe to delete — always ask user first
+- **ALWAYS** use `mv` to a temp location instead of `rm` when uncertain
+- **ALWAYS** verify disk space and paths before copy operations that could fill disk
+- **Examples of forbidden commands without user consent:**
+  - `rm -rf <any-path>` — ask user first
+  - `rm <backup-file>` — ask user first
+  - `dd if=/dev/zero of=<any-file>` — ask user first
+  - Any command that overwrites or deletes user data
+
 ### Commit Practices
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress

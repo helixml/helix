@@ -159,6 +159,37 @@ This separation allows:
 
 ## Virtual Machine Setup
 
+### VM Disk Image Locations
+
+**CRITICAL: Use the external SSD VM for active development. Always maintain backups before testing.**
+
+**⚠️ Incident 2026-02-04 15:33**: Original backup at `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup` was accidentally deleted with `rm -rf` during UTM patching attempt. New backup created from external SSD to `Linux.utm.backup.safe`. This incident led to adding explicit rules in CLAUDE.md forbidding `rm -rf` without user consent.
+
+**Current VM Images:**
+
+1. **Primary (ACTIVE)**: `/Volumes/Helix VM/Linux.utm`
+   - Location: External NVMe SSD
+   - Disk: 1TB capacity, 506GB used, 1007GB partition
+   - CPUs: 20 cores, RAM: 64GB
+   - Status: Expanded and ready for development
+   - **This is the one to use for all work**
+
+2. **Backup (large)**: `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup.safe`
+   - Location: Internal disk (UTM container)
+   - Disk: 506GB (rsync copy from external SSD, created 2026-02-04 15:35)
+   - Status: Fresh backup created after accidental deletion
+   - **Do not delete - this is the safety backup**
+
+3. **Original (small)**: `~/Documents/UTM/Linux.utm`
+   - Location: Internal disk
+   - Disk: 11GB (original small image)
+   - Status: Original VM before expansion
+   - **Keep as reference, do not use for development**
+
+**VM UUID**: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
+
+**UTM Registration**: UTM uses `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup` (symlink to external SSD) to access the primary VM.
+
 ### Create Ubuntu VM
 
 1. Download Ubuntu ARM64 server ISO
