@@ -1785,10 +1785,34 @@ function build-utm() {
 		return 1
 	fi
 
+	# Auto-clone UTM if needed (it's just a build dependency, not our code)
+	UTM_VERSION="8d34e35b"  # v5.0.1+ - tested working version
 	if [ ! -d "$PROJECTS_ROOT/UTM" ]; then
-		echo "❌ UTM not found at $PROJECTS_ROOT/UTM"
-		echo "   Clone it first: git clone https://github.com/utmapp/UTM $PROJECTS_ROOT/UTM"
-		return 1
+		echo "📦 UTM build scripts not found - cloning automatically..."
+		echo "   (UTM v5.0.1+ at $UTM_VERSION - used for build scripts only)"
+		cd "$PROJECTS_ROOT"
+		git clone https://github.com/utmapp/UTM.git || {
+			echo "❌ Failed to clone UTM"
+			return 1
+		}
+		cd UTM
+		git checkout "$UTM_VERSION" || {
+			echo "❌ Failed to checkout UTM version $UTM_VERSION"
+			return 1
+		}
+		echo "✅ UTM build scripts ready at $PROJECTS_ROOT/UTM"
+	else
+		# Verify we have the right version
+		cd "$PROJECTS_ROOT/UTM"
+		CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+		if [[ "$CURRENT_COMMIT" != "$UTM_VERSION"* ]]; then
+			echo "⚠️  UTM is at commit $CURRENT_COMMIT, expected $UTM_VERSION"
+			echo "   Checking out correct version..."
+			git fetch origin && git checkout "$UTM_VERSION" || {
+				echo "❌ Failed to checkout correct UTM version"
+				return 1
+			}
+		fi
 	fi
 
 	echo "📦 Building QEMU with UTM's build script..."

@@ -12,7 +12,7 @@ The development setup requires 3 repositories under `~/pm/`:
 ~/pm/
 ├── helix/           # Main Helix repository
 ├── qemu-utm/        # Our QEMU fork with helix-frame-export patches
-├── UTM/             # UTM app repository (build scripts)
+├── UTM/             # UTM app repository (auto-cloned, build scripts only)
 ├── zed/             # Zed IDE fork (for custom builds)
 └── qwen-code/       # Qwen Code agent
 ```
@@ -61,13 +61,18 @@ git checkout utm-edition  # Our branch with helix-frame-export
 - Custom virtio-gpu-gl-pci integration for Metal texture sharing
 - vsock server for streaming encoded frames to host
 
-### 3. UTM (Build Scripts)
+### 3. UTM (Build Scripts - Auto-Cloned)
 
 The official UTM app repository provides build scripts for QEMU with all dependencies.
 
+**You do NOT need to clone this manually** - `./stack build-utm` will auto-clone it for you.
+
+If you want to clone it manually:
 ```bash
 cd ~/pm
-git clone --recursive https://github.com/utmapp/UTM.git
+git clone https://github.com/utmapp/UTM.git
+cd UTM
+git checkout 8d34e35b  # v5.0.1+ - tested working version
 ```
 
 **Why needed:**
@@ -75,7 +80,11 @@ git clone --recursive https://github.com/utmapp/UTM.git
 - Provides proper build configuration that matches UTM requirements
 - Includes all patches and build flags needed for macOS ARM64
 
-**Note:** This is **NOT** a fork - it's the official utmapp/UTM repository. We use their build scripts to compile our qemu-utm fork.
+**Important:**
+- This is **NOT** a fork - it's the official utmapp/UTM repository
+- We never modify UTM - it's just a build tool dependency
+- Version pinned to `8d34e35b` (v5.0.1+) for reproducibility
+- Auto-managed by `./stack build-utm`
 
 ### 4. Zed (Optional - for custom IDE builds)
 
