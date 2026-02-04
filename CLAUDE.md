@@ -52,7 +52,9 @@ See also: `.cursor/rules/*.mdc`
 ### Production Frontend Mode
 For demos or slow connections, serve the production build instead of Vite dev server.
 
-**Note:** `SERVE_PROD_FRONTEND_IN_DEV` is an obsolete variable that does nothing. Use `FRONTEND_URL=/www` instead.
+**Note:** The environment may use production frontend mode. If `FRONTEND_URL=/www` is set in `.env`, frontend changes require `yarn build` and a browser refresh to take effect.
+
+**Note:** `SERVE_PROD_FRONTEND_IN_DEV` is an obsolete variable that was reverted. Use `FRONTEND_URL=/www` instead.
 
 ```bash
 # 1. Build the frontend
