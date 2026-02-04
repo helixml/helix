@@ -80,6 +80,7 @@ import {
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
+  useGetStartupScriptHistory,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
 import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
@@ -109,6 +110,13 @@ const SpecTasksPage: FC = () => {
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
+
+  // Startup script history - used to detect if user has modified the default script
+  // Only fetch when we have a project with a default repo
+  const hasDefaultRepo = !!project?.default_repo_id;
+  const { data: startupScriptHistory } = useGetStartupScriptHistory(projectId || '', hasDefaultRepo);
+  // Script is considered "not configured" if there's only 1 commit (the initial auto-generated script)
+  const startupScriptNotConfigured = hasDefaultRepo && (startupScriptHistory?.length ?? 0) <= 1;
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -668,12 +676,12 @@ const SpecTasksPage: FC = () => {
   const handleStartExploratorySession = async () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
-      snackbar.success('Team Desktop started');
-      // Navigate to the Team Desktop page
+      snackbar.success('Human Desktop started');
+      // Navigate to the Human Desktop page
       account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err: any) {
       // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Team Desktop';
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Human Desktop';
       snackbar.error(errorMessage);
     }
   };
@@ -684,11 +692,11 @@ const SpecTasksPage: FC = () => {
     try {
       // Use the mutation hook which properly invalidates the cache
       const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success('Team Desktop resumed');
-      // Navigate to the Team Desktop page
+      snackbar.success('Human Desktop resumed');
+      // Navigate to the Human Desktop page
       account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err) {
-      snackbar.error('Failed to resume Team Desktop');
+      snackbar.error('Failed to resume Human Desktop');
     }
   };
 
@@ -972,7 +980,7 @@ const SpecTasksPage: FC = () => {
                   disabled={startExploratorySessionMutation.isPending}
                   sx={{ flexShrink: 0 }}
                 >
-                  {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Team Desktop'}
+                  {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Human Desktop'}
                 </Button>
               </Tooltip>
             ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
@@ -985,7 +993,7 @@ const SpecTasksPage: FC = () => {
                   disabled={resumeExploratorySessionMutation.isPending}
                   sx={{ flexShrink: 0 }}
                 >
-                  {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Team Desktop'}
+                  {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Human Desktop'}
                 </Button>
               </Tooltip>
             ) : (
@@ -995,12 +1003,12 @@ const SpecTasksPage: FC = () => {
                   color="primary"
                   startIcon={<Play size={18} />}
                   onClick={() => {
-                    // Navigate to the Team Desktop page
+                    // Navigate to the Human Desktop page
                     account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
                   }}
                   sx={{ flexShrink: 0 }}
                 >
-                  View Team Desktop
+                  View Human Desktop
                 </Button>
                 <Button
                   variant="outlined"
@@ -1144,6 +1152,26 @@ const SpecTasksPage: FC = () => {
               }
             >
               No repositories attached. Go to Settings to connect a repository.
+            </Alert>
+          )}
+
+          {/* No startup script warning - show when repo is connected but startup script hasn't been modified */}
+          {projectRepositories.length > 0 && startupScriptNotConfigured && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  onClick={() => account.orgNavigate('project-settings', { id: projectId })}
+                >
+                  Configure Startup Script
+                </Button>
+              }
+            >
+              Set up a startup script to install dependencies and start your dev server.
             </Alert>
           )}
 

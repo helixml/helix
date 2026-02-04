@@ -27,6 +27,7 @@ export {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
   useGetProjectGuidelinesHistory,
+  useGetStartupScriptHistory,
   projectsListQueryKey,
   projectQueryKey,
   projectRepositoriesQueryKey,
@@ -34,6 +35,7 @@ export {
   sampleProjectQueryKey,
   projectExploratorySessionQueryKey,
   projectGuidelinesHistoryQueryKey,
+  projectStartupScriptHistoryQueryKey,
 } from './projectService';
 
 // Guidelines Service
