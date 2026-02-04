@@ -376,7 +376,7 @@ cd ~/pm/UTM
 This ensures all configure flags are set correctly, including SPICE GL support.
 
 **VM Information:**
-- External disk VM: `/Volumes/Helix VM/Linux.utm`
+- VM on Big NVMe: `/Volumes/Big/Linux.utm` (506GB, 4.6 GB/s read/write)
 - Correct UUID: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
 - Config: virtio-gpu-gl-pci, Emulated networking, 20 CPUs, 64GB RAM
 - Design doc had wrong UUID (`01CECE09-B09D-48A4-BAB6-D046C06E3A68`) - that was from an old session
@@ -411,7 +411,7 @@ Possible issues:
 **Next Steps:**
 User should manually test:
 1. Open UTM.app
-2. Select "Linux" VM on external disk
+2. Select "Linux" VM on Big NVMe
 3. Click Play button to start VM
 4. Check for:
    - Security prompts (approve if needed)
@@ -567,9 +567,10 @@ UTM provides a CLI tool for automated VM management:
 ```
 
 **Our VM Details:**
-- Name: Linux (on external disk)
+- Name: Linux (on Big NVMe - 4TB external drive)
 - UUID: `01CECE09-B09D-48A4-BAB6-D046C06E3A68`
-- Path: `/Volumes/Helix VM/Linux.utm`
+- Path: `/Volumes/Big/Linux.utm`
+- Disk Performance: 5.8 GB/s write, 4.6 GB/s sustained (506GB copy in 1m50s)
 
 **Start Command:**
 ```bash
