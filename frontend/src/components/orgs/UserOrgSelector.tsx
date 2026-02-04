@@ -42,6 +42,7 @@ import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
+import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -236,7 +237,25 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return loadedOrgs
   }, [organizations, account.user])
 
+  React.useEffect(() => {
+    if (!account.user) return
+    // if (router.name !== 'projects') return
+    if (router.params.org_id) return    
+
+    const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)    
+    if (!storedOrg || storedOrg === 'default') return    
+    if (listOrgs.length > 0 && !listOrgs.some((org) => org.name === storedOrg)) return
+
+    router.navigateReplace('org_projects', { org_id: storedOrg })
+  }, [account.user, router.name, router.params.org_id, listOrgs, router])
+
   const handleOrgSelect = (orgSlug: string | undefined) => {
+    console.log('handleOrgSelect called with:', orgSlug)
+    if (orgSlug) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
+    } else {
+      localStorage.removeItem(SELECTED_ORG_STORAGE_KEY)
+    }
     const isDefault = orgSlug === 'default'
     // For personal <-> org transitions, navigate first
     if (router.meta.orgRouteAware) {
