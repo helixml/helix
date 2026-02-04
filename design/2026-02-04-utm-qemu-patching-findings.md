@@ -365,7 +365,7 @@ The gl=es parameter patch exists in the source code (`ui/spice-core.c:513` has `
 Our initial build used manual `./configure` which did NOT enable SPICE GL support, so the patch was excluded at compile time. The binary still has the old `QEMU_OPT_BOOL` type, which triggers an assertion when UTM passes `gl=es`.
 
 **Fix:**
-Must rebuild QEMU using UTM's full dependency build script which properly enables SPICE GL. The quick rebuild script (`scripts/build-qemu-only.sh`) uses a minimal configure command without SPICE support.
+Must rebuild QEMU using UTM's full dependency build script which properly enables SPICE GL. The quick rebuild script (`for-mac/qemu-helix/build-qemu-only.sh`) uses a minimal configure command without SPICE support.
 
 **Correct Build Command:**
 ```bash
@@ -386,7 +386,7 @@ This ensures all configure flags are set correctly, including SPICE GL support.
 ## REBUILD COMPLETE (2026-02-04 20:15)
 
 **Rebuild Success:**
-Used UTM's build script (`scripts/build-qemu-only.sh`) which properly configures QEMU with all dependencies including SPICE GL support.
+Used UTM's build script (`for-mac/qemu-helix/build-qemu-only.sh`) which properly configures QEMU with all dependencies including SPICE GL support.
 
 Build completed at 20:13 with proper configuration:
 - ✅ Helix symbols present (all 5 functions)
@@ -480,33 +480,22 @@ cd ~/pm/UTM
 # Output: ~/pm/UTM/sysroot-macOS-arm64/
 ```
 
-### 3. Replace QEMU Source with Our Fork
-```bash
-cd ~/pm/UTM/build-macOS-arm64
-rm -rf qemu-10.0.2-utm
-cp -R ~/pm/qemu-utm qemu-10.0.2-utm
-```
-
-### 4. Rebuild QEMU Only (Fast: 2-3 minutes)
+### 3. Build QEMU with helix-frame-export (Fast: 2-5 minutes)
 ```bash
 cd ~/pm/helix
-./scripts/build-qemu-only.sh
-
-# Or manually:
-cd ~/pm/UTM/build-macOS-arm64/qemu-10.0.2-utm
-make clean
-../configure --prefix=$HOME/pm/UTM/sysroot-macOS-arm64 \
-    --host=aarch64-apple-darwin \
-    --cross-prefix="" \
-    --enable-shared-lib \
-    --disable-cocoa \
-    --cpu=aarch64 \
-    --target-list=aarch64-softmmu
-make -j$(sysctl -n hw.ncpu)
-make install
+./for-mac/qemu-helix/build-qemu-standalone.sh
 ```
 
+**What this does:**
+- Uses our QEMU fork at `~/pm/qemu-utm` (no source copying needed)
+- Generates meson cross-compilation files automatically
+- Configures QEMU with SPICE, virglrenderer, and all UTM features
+- Builds with ninja
+- Installs to sysroot
+
 **Output:** `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib` (33MB)
+
+**Note:** `build-qemu-standalone.sh` is standalone - it doesn't require UTM checkout after initial dependency build. All QEMU build logic is now in `for-mac/qemu-helix/`. You can also use `./stack build-utm` which wraps this script.
 
 ### 5. Install into UTM.app
 ```bash
@@ -522,7 +511,7 @@ sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
         /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
 
 # Fix library paths (script in helix repo)
-~/pm/helix/scripts/fix-qemu-paths.sh
+~/pm/helix/for-mac/qemu-helix/fix-qemu-paths.sh
 ```
 
 ### 6. Test
@@ -539,10 +528,9 @@ cd ~/pm/qemu-utm
 # Make your changes to hw/display/helix/helix-frame-export.m
 git commit -am "Your change"
 
-cd ~/pm/UTM/build-macOS-arm64/qemu-10.0.2-utm
-cp ~/pm/qemu-utm/hw/display/helix/helix-frame-export.m hw/display/helix/
-make -j$(sysctl -n hw.ncpu)
-make install
+# Rebuild (uses incremental ninja builds, only recompiles changed files)
+cd ~/pm/helix
+./for-mac/qemu-helix/build-qemu-standalone.sh
 
 # Re-install into UTM.app (steps 5-6 above)
 ```
@@ -556,7 +544,7 @@ cd ~/pm/helix
 **Key Points:**
 - Dependencies only need building once (or after `make clean` in UTM)
 - QEMU rebuilds take 2-3 minutes with cached dependencies
-- Use `scripts/build-qemu-only.sh` for fast iteration
+- Use `for-mac/qemu-helix/build-qemu-only.sh` for fast iteration
 - Always test in a fresh VM start (existing VMs keep old QEMU)
 - Check crash reports if VM fails to start: `~/Library/Logs/DiagnosticReports/QEMULauncher-*.ips`
 

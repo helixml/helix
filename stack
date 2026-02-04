@@ -1916,29 +1916,16 @@ function build-utm() {
 	fi
 
 	echo ""
-	echo "🔄 Replacing QEMU source with helix-frame-export fork..."
-	QEMU_BUILD_DIR="$BUILD_DIR/qemu-10.0.2-utm"
-
-	# Backup vanilla QEMU if it exists
-	if [ -d "$QEMU_BUILD_DIR" ] && [ ! -d "$QEMU_BUILD_DIR.vanilla" ]; then
-		echo "   📦 Backing up vanilla QEMU to qemu-10.0.2-utm.vanilla"
-		cp -R "$QEMU_BUILD_DIR" "$QEMU_BUILD_DIR.vanilla"
-	fi
-
-	# Replace with our fork
-	rm -rf "$QEMU_BUILD_DIR"
-	cp -R "$PROJECTS_ROOT/qemu-utm" "$QEMU_BUILD_DIR"
-	echo "✅ QEMU source replaced"
-
-	echo ""
-	echo "🔨 Building custom QEMU (2-3 minutes with cached dependencies)..."
+	echo "🔨 Building custom QEMU (2-5 minutes with cached dependencies)..."
 	echo "   • helix-frame-export module for GPU frame sharing"
 	echo "   • SPICE GL support (gl=es parameter)"
 	echo "   • All UTM venus/Vulkan patches"
 	echo ""
+	echo "   Using standalone build from for-mac/qemu-helix/"
+	echo ""
 
-	# Use the fast rebuild script
-	bash "$DIR/scripts/build-qemu-only.sh"
+	# Use the standalone rebuild script (doesn't require UTM checkout)
+	bash "$DIR/for-mac/qemu-helix/build-qemu-standalone.sh"
 
 	if [ $? -ne 0 ]; then
 		echo "❌ QEMU build failed"

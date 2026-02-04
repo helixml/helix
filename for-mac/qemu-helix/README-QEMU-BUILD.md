@@ -7,10 +7,10 @@ This directory contains scripts to build QEMU with the helix-frame-export module
 ```bash
 # 1. Build dependencies (one-time, 30-60 minutes)
 cd ~/pm/helix
-./scripts/build-dependencies.sh
+./for-mac/qemu-helix/build-dependencies.sh
 
 # 2. Build QEMU (2-5 minutes, repeat as needed)
-./scripts/build-qemu-standalone.sh
+./for-mac/qemu-helix/build-qemu-standalone.sh
 
 # 3. Install into UTM.app
 ./scripts/install-qemu-to-utm.sh
@@ -128,7 +128,7 @@ QEMU was built without SPICE support. This means meson didn't find SPICE librari
 
 **Fix:**
 1. Check sysroot exists: `ls ~/pm/UTM/sysroot-macOS-arm64/lib/pkgconfig/spice-*.pc`
-2. Rebuild with: `./scripts/build-qemu-standalone.sh`
+2. Rebuild with: `./for-mac/qemu-helix/build-qemu-standalone.sh`
 3. Check meson log: `grep -i spice ~/pm/qemu-utm/build/meson-logs/meson-log.txt`
 
 ### Error: `spice protocol support: NO`
@@ -149,7 +149,7 @@ ls ~/pm/UTM/sysroot-macOS-arm64/host/bin/pkg-config
 
 You need to build the sysroot first:
 ```bash
-./scripts/build-dependencies.sh
+./for-mac/qemu-helix/build-dependencies.sh
 ```
 
 ## Environment Variables
@@ -159,9 +159,9 @@ Optional overrides:
 ```bash
 # Use different QEMU source location
 export QEMU_SRC=~/my-qemu-fork
-./scripts/build-qemu-standalone.sh
+./for-mac/qemu-helix/build-qemu-standalone.sh
 
 # Use different sysroot location
 export SYSROOT=~/my-sysroot
-./scripts/build-qemu-standalone.sh
+./for-mac/qemu-helix/build-qemu-standalone.sh
 ```
