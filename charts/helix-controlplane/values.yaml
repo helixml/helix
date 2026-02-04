@@ -281,7 +281,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.23"
+    tag: "0.5.24"
     pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)

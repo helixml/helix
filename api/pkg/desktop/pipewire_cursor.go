@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && linux
 
 // Package desktop provides PipeWire cursor metadata reading.
 // This reads cursor information directly from PipeWire buffer metadata,

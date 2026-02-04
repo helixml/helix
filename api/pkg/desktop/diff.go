@@ -76,7 +76,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	var workDir string
 	if workspaceName != "" {
 		// Look for a specific workspace by name
-		workDir = findWorkspaceByName(workspaceName)
+		workDir = findWorkspaceByNameFunc(workspaceName)
 		if workDir == "" {
 			s.logger.Warn("specified workspace not found", "workspace", workspaceName)
 			w.Header().Set("Content-Type", "application/json")
@@ -128,49 +128,58 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// Get current branch name
 	branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	branchCmd.Dir = workDir
-	if branchOut, err := branchCmd.Output(); err == nil {
-		response.Branch = strings.TrimSpace(string(branchOut))
+	branchOut, err := branchCmd.Output()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get current branch: %v", err), http.StatusInternalServerError)
+		return
 	}
+	response.Branch = strings.TrimSpace(string(branchOut))
 
-	// Check if on base branch (no spectask) - still show uncommitted changes
+	// Resolve the actual base branch ref (main, origin/main, master, origin/master)
+	resolvedBase := resolveBaseBranch(workDir, baseBranch)
+
+	// Check if on base branch - still show uncommitted changes
 	onBaseBranch := response.Branch == baseBranch || response.Branch == "origin/"+baseBranch
+
+	if !onBaseBranch && resolvedBase == "" {
+		http.Error(w, fmt.Sprintf("base branch '%s' not found (tried %s, origin/%s)", baseBranch, baseBranch, baseBranch), http.StatusBadRequest)
+		return
+	}
 
 	// Check for uncommitted changes (staged + unstaged + untracked)
 	statusCmd := exec.Command("git", "status", "--porcelain")
 	statusCmd.Dir = workDir
-	if statusOut, err := statusCmd.Output(); err == nil {
-		response.HasUncommittedChanges = len(strings.TrimSpace(string(statusOut))) > 0
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get git status: %v", err), http.StatusInternalServerError)
+		return
+	}
+	response.HasUncommittedChanges = len(strings.TrimSpace(string(statusOut))) > 0
+
+	// Find the merge-base between current HEAD and the base branch
+	var mergeBase string
+	if !onBaseBranch {
+		mergeBaseCmd := exec.Command("git", "merge-base", resolvedBase, "HEAD")
+		mergeBaseCmd.Dir = workDir
+		mergeBaseOut, err := mergeBaseCmd.Output()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to find merge-base between %s and HEAD: %v", resolvedBase, err), http.StatusInternalServerError)
+			return
+		}
+		mergeBase = strings.TrimSpace(string(mergeBaseOut))
 	}
 
 	// Get diff against base branch (committed changes)
 	// Skip if on base branch (no committed changes to show)
-	// Use git diff with --numstat for file-level stats
-	var diffArgs []string
+	var numstatOut []byte
 	if !onBaseBranch {
-		diffArgs = []string{"diff", "--numstat", baseBranch + "...HEAD"}
+		diffArgs := []string{"diff", "--numstat", mergeBase + "..HEAD"}
 		if pathFilter != "" {
 			diffArgs = append(diffArgs, "--", pathFilter)
 		}
-	}
-
-	// Run git diff for committed changes (only if not on base branch)
-	var numstatOut []byte
-	if len(diffArgs) > 0 {
 		numstatCmd := exec.Command("git", diffArgs...)
 		numstatCmd.Dir = workDir
-		var numstatErr error
-		numstatOut, numstatErr = numstatCmd.Output()
-
-		if numstatErr != nil {
-			// Base branch might not exist, try without the ...HEAD
-			diffArgs = []string{"diff", "--numstat", baseBranch}
-			if pathFilter != "" {
-				diffArgs = append(diffArgs, "--", pathFilter)
-			}
-			numstatCmd = exec.Command("git", diffArgs...)
-			numstatCmd.Dir = workDir
-			numstatOut, _ = numstatCmd.Output()
-		}
+		numstatOut, _ = numstatCmd.Output()
 	}
 
 	// Parse numstat output: "additions\tdeletions\tfilename"
@@ -287,9 +296,9 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get file statuses (added, deleted, modified, renamed)
-	// Skip if on base branch (no committed changes)
+	// Skip if on base branch (no committed changes to show)
 	if !onBaseBranch {
-		statusArgs := []string{"diff", "--name-status", baseBranch + "...HEAD"}
+		statusArgs := []string{"diff", "--name-status", mergeBase + "..HEAD"}
 		if pathFilter != "" {
 			statusArgs = append(statusArgs, "--", pathFilter)
 		}
@@ -347,9 +356,9 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			var diffOut []byte
 			var err error
 
-			// First try committed diff against base (skip if on base branch)
+			// First try committed diff against merge-base (skip if on base branch)
 			if !onBaseBranch {
-				diffCmd := exec.Command("git", "diff", baseBranch+"...HEAD", "--", response.Files[i].Path)
+				diffCmd := exec.Command("git", "diff", mergeBase+"..HEAD", "--", response.Files[i].Path)
 				diffCmd.Dir = workDir
 				diffOut, err = diffCmd.Output()
 			}
@@ -441,6 +450,44 @@ func isGitRepo(dir string) bool {
 	}
 	// .git can be a directory (normal repo) or a file (git worktree)
 	return info.IsDir() || info.Mode().IsRegular()
+}
+
+// resolveBaseBranch finds the actual git ref for the base branch
+// It tries the branch name directly, then origin/<branch>, then common defaults
+func resolveBaseBranch(workDir, baseBranch string) string {
+	candidates := []string{baseBranch, "origin/" + baseBranch}
+	addCandidate := func(ref string) {
+		for _, existing := range candidates {
+			if existing == ref {
+				return
+			}
+		}
+		candidates = append(candidates, ref)
+	}
+
+	switch baseBranch {
+	case "main":
+		addCandidate("master")
+		addCandidate("origin/master")
+	case "master":
+		addCandidate("main")
+		addCandidate("origin/main")
+	default:
+		addCandidate("main")
+		addCandidate("origin/main")
+		addCandidate("master")
+		addCandidate("origin/master")
+	}
+
+	for _, ref := range candidates {
+		cmd := exec.Command("git", "rev-parse", "--verify", ref)
+		cmd.Dir = workDir
+		if err := cmd.Run(); err == nil {
+			return ref
+		}
+	}
+
+	return ""
 }
 
 // WorkspaceInfo represents information about a git workspace/repository
@@ -568,6 +615,10 @@ func getWorkspaceInfo(repoPath, name, primaryRepoName string) WorkspaceInfo {
 
 	return ws
 }
+
+// findWorkspaceByNameFunc is the function used to find workspaces by name.
+// It can be overridden in tests.
+var findWorkspaceByNameFunc = findWorkspaceByName
 
 // findWorkspaceByName finds a workspace by its directory name
 func findWorkspaceByName(name string) string {

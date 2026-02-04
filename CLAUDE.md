@@ -56,8 +56,8 @@ For demos or slow connections, serve the production build instead of Vite dev se
 # 1. Build the frontend
 cd frontend && yarn build && cd ..
 
-# 2. Enable production mode (add to .env)
-echo "SERVE_PROD_FRONTEND_IN_DEV=true" >> .env
+# 2. Set FRONTEND_URL to serve from /www instead of proxying to Vite
+echo "FRONTEND_URL=/www" >> .env
 
 # 3. Restart API to pick up the change
 docker compose -f docker-compose.dev.yaml up -d api
@@ -69,7 +69,7 @@ cd frontend && yarn build
 # Then just refresh the browser - no container restart needed
 ```
 
-**IMPORTANT for Claude**: When in production frontend mode (`SERVE_PROD_FRONTEND_IN_DEV=true` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
+**IMPORTANT for Claude**: When in production frontend mode (`FRONTEND_URL=/www` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
 
 **Cache headers** are automatically set:
 - `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
@@ -77,7 +77,7 @@ cd frontend && yarn build
 
 **To switch back to dev mode** (Vite HMR):
 ```bash
-sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
+sed -i '/^FRONTEND_URL=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
 

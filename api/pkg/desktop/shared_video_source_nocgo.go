@@ -1,4 +1,4 @@
-//go:build !cgo
+//go:build !cgo || !linux
 
 // Package desktop provides shared video source stubs for non-CGO builds.
 // The actual implementation is in shared_video_source.go (CGO build only).

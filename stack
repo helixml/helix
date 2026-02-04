@@ -730,10 +730,10 @@ function start() {
     }
   fi
 
-  # Check if SERVE_PROD_FRONTEND_IN_DEV is enabled but frontend not built
-  if grep -q "^SERVE_PROD_FRONTEND_IN_DEV=true" .env 2>/dev/null; then
+  # Check if FRONTEND_URL=/www is set but frontend not built
+  if grep -q "^FRONTEND_URL=/www" .env 2>/dev/null; then
     if [ ! -f "./frontend/dist/index.html" ]; then
-      echo "🔨 SERVE_PROD_FRONTEND_IN_DEV enabled but frontend not built, building..."
+      echo "🔨 FRONTEND_URL=/www set but frontend not built, building..."
       build-frontend || {
         echo "❌ Failed to build frontend. Please check the error messages above."
         exit 1
@@ -1813,7 +1813,7 @@ function update_openapi() {
 }
 
 function build-frontend() {
-	echo "🔄 Building production frontend for SERVE_PROD_FRONTEND_IN_DEV mode..."
+	echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
 	cd "$DIR/frontend"
 	yarn build || {
 		echo "❌ Frontend build failed"

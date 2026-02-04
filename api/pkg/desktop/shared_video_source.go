@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && linux
 
 // Package desktop provides shared video source for multi-client streaming.
 // A SharedVideoSource manages ONE GStreamer pipeline per session and broadcasts
