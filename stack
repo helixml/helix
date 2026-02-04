@@ -1812,7 +1812,24 @@ function update_openapi() {
 }
 
 function build-frontend() {
-	echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
+	local force="${1:-}"
+	local dist_marker="$DIR/frontend/dist/index.html"
+
+	# Check if rebuild is needed (skip if dist is newer than all source files)
+	if [ -f "$dist_marker" ] && [ "$force" != "--force" ]; then
+		# Find any source files newer than the dist marker
+		local newer_files=$(find "$DIR/frontend/src" "$DIR/frontend/package.json" "$DIR/frontend/vite.config.ts" \
+			-newer "$dist_marker" 2>/dev/null | head -1)
+
+		if [ -z "$newer_files" ]; then
+			echo "✅ Frontend already up to date (no source changes)"
+			return 0
+		fi
+		echo "🔄 Frontend source changed, rebuilding..."
+	else
+		echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
+	fi
+
 	(
 		cd "$DIR/frontend" && yarn build
 	) || {
