@@ -1,6 +1,6 @@
 import bluebird from 'bluebird'
 import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext, ReactNode } from 'react'
-import useApi, { TOKEN_REFRESHED_EVENT } from '../hooks/useApi'
+import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
@@ -25,8 +25,6 @@ export interface IAccountContext {
   isOrgMember: boolean,
   user?: IKeycloakUser,
   userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
-  token?: string,
-  tokenUrlEscaped?: string,
   loggingOut?: boolean,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
@@ -114,15 +112,6 @@ export const useAccountContext = (): IAccountContext => {
   const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
   const [hasImageModels, setHasImageModels] = useState(false)
 
-  const token = useMemo(() => {
-    if (user && user.token) {
-      return user.token
-    } else {
-      return ''
-    }
-  }, [
-    user,
-  ])
 
   const isOrgAdmin = useMemo(() => {
     if(admin) return true
@@ -152,10 +141,6 @@ export const useAccountContext = (): IAccountContext => {
     isOrgAdmin,
   ])
 
-  const tokenUrlEscaped = useMemo(() => {
-    if (!token) return '';
-    return encodeURIComponent(token);
-  }, [token]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -291,10 +276,6 @@ export const useAccountContext = (): IAccountContext => {
 
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
-
-    // Clear the in-memory token BEFORE redirecting to logout
-    // This prevents stale tokens from being used if the redirect doesn't fully reload the page
-    api.setToken('')
     setUser(undefined)
 
     try {
@@ -346,7 +327,6 @@ export const useAccountContext = (): IAccountContext => {
       if (authenticated.data.authenticated) {
         const userResponse = await client.v1AuthUserList()
         const user = userResponse.data as IKeycloakUser
-        api.setToken(user.token)
 
         const win = (window as any)
         if (win.setUser) {
@@ -361,11 +341,6 @@ export const useAccountContext = (): IAccountContext => {
         }
 
         setUser(user)
-
-        // Token refresh is handled transparently by the backend
-        // When the backend refreshes a token, it sends X-Token-Refreshed header
-        // The useApi interceptor catches this and dispatches TOKEN_REFRESHED_EVENT
-        // We listen for that event here to update React state
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
@@ -445,22 +420,6 @@ export const useAccountContext = (): IAccountContext => {
     initialize()
   }, [])
 
-  // Listen for token refresh events from useApi interceptor
-  // When the backend transparently refreshes a token, we need to update React state
-  useEffect(() => {
-    const handleTokenRefreshed = (event: Event) => {
-      const customEvent = event as CustomEvent<{ token: string }>
-      const newToken = customEvent.detail?.token
-      if (newToken && user) {
-        console.log('[AUTH] Token refreshed by backend, updating React state')
-        setUser(prevUser => prevUser ? { ...prevUser, token: newToken } : prevUser)
-        api.setToken(newToken)
-      }
-    }
-
-    window.addEventListener(TOKEN_REFRESHED_EVENT, handleTokenRefreshed)
-    return () => window.removeEventListener(TOKEN_REFRESHED_EVENT, handleTokenRefreshed)
-  }, [user, api])
 
   useEffect(() => {
     try {
@@ -479,8 +438,6 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     userMeta,
-    token,
-    tokenUrlEscaped,
     admin,
     loggingOut,
     serverConfig,
