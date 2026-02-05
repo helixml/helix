@@ -798,8 +798,13 @@ function start() {
   fi
 
   # Start sandbox separately to avoid network conflicts
-  echo "🚀 Starting sandbox ($SANDBOX_SERVICE)"
-  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+  # (Skip in Helix-in-Helix mode - sandbox started on host Docker by start_outer_sandbox())
+  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
+    echo "🚀 Starting sandbox ($SANDBOX_SERVICE)"
+    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+  else
+    echo "🚀 Sandbox will start on host Docker (Helix-in-Helix mode)"
+  fi
 
   sleep 2
 
