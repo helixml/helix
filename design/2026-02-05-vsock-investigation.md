@@ -196,9 +196,32 @@ All tests:
 - Set `fe->valid = false` before cleanup to prevent use-after-free ✅
 - Mutex properly initialized/destroyed ✅
 
-### Next Steps: Build Guest-Side Bridge
+## Architecture: Guest-Side Integration
 
-1. **Map PipeWire DmaBuf to virtio-gpu resource ID**
+The guest already has all the needed components:
+
+1. **gst-vsockenc** (in `desktop/gst-vsockenc/`)
+   - GStreamer element that extracts DmaBuf resource IDs
+   - Already implements DRM ioctl (DRM_IOCTL_PRIME_FD_TO_HANDLE)
+   - Sends FrameRequest via socket (UNIX or vsock)
+   - Receives H.264 NALs back
+
+2. **desktop-bridge** (in `api/pkg/desktop/`)
+   - Manages PipeWire ScreenCast sessions
+   - Creates GStreamer pipelines for video streaming
+   - Currently uses: `pipewiresrc → nvh264enc → appsink`
+   - For macOS ARM: `pipewiresrc → vsockenc` (host encodes)
+
+3. **GStreamer pipeline** (for macOS ARM guests)
+   ```
+   pipewiresrc path=<nodeID> ! video/x-raw,format=BGRx ! \
+   vsockenc socket-path=/mnt/helix/helix-frame-export.sock ! \
+   appsink name=videosink
+   ```
+
+### Next Steps: Integration
+
+1. **Expose host socket to guest**
    - PipeWire ScreenCast in containers provides DmaBuf FDs
    - Need to extract virtio-gpu resource ID from DmaBuf
    - Options:
@@ -248,23 +271,23 @@ All tests:
 - UTM supports shared folders in UI
 - Quick way to test protocol before implementing virtserialport
 
-**C) TCP proxy** (Workaround)
-- Run socat on host: `socat TCP-LISTEN:5900,fork UNIX-CONNECT:helix-frame-export.sock`
-- Guest connects to host via virtio-net
-- Not zero-copy, adds latency
-- Only for testing
+**C) 9p/virtfs** (Recommended for UTM)
+- Mount host directory into guest using QEMU 9p filesystem
+- Guest accesses socket directly via mounted path (e.g., `/mnt/helix/helix-frame-export.sock`)
+- No TCP exposure, secure UNIX socket access
+- UTM supports this via Shared Folders feature
+- QEMU args: `-virtfs local,path=/path/on/host,mount_tag=helix,security_model=none -device virtio-9p-pci,fsdev=helix,mount_tag=helix`
 
-**Current solution:** Using TCP proxy via socat for testing:
+**Current solution:** Using 9p/virtfs to expose host socket to guest:
 ```bash
-# On host:
-socat TCP-LISTEN:5900,bind=127.0.0.1,fork,reuseaddr \
-  UNIX-CONNECT:"/Users/luke/Library/Group Containers/WDNLXAD4W8.com.utmapp.UTM/helix-frame-export.sock" &
+# In guest VM, mount the shared folder:
+sudo mount -t 9p -o trans=virtio,version=9p2000.L helix /mnt/helix
 
-# Guest connects to:
-10.0.2.2:5900  # QEMU user-mode networking forwards to host 127.0.0.1:5900
+# Guest accesses socket directly:
+# gst-vsockenc socket-path=/mnt/helix/helix-frame-export.sock
 ```
 
-Verified connection works from guest.
+**Note:** TCP proxy approach (socat) was tested but rejected for security - exposes frame data over network.
 
 **✅ PROTOCOL TESTED AND WORKING!**
 
