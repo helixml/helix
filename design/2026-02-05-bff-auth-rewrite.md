@@ -147,6 +147,38 @@ For user sessions, we'll create a `SessionManager` that follows the same pattern
 - `RefreshSessionIfNeeded()` called when validating session
 - Reuse the existing `auth/oidc.go` OIDC client for token refresh
 
+### Silent Token Renewal (Back-Channel Refresh)
+
+The BFF pattern uses **back-channel refresh** instead of traditional Silent Renew (front-channel):
+
+**How It Works:**
+1. User authenticates via OIDC (Google, Keycloak, etc.)
+2. Backend receives access token + refresh token in callback
+3. Backend stores both tokens in `UserSession` (never exposed to frontend)
+4. On each request, `SessionManager.GetSessionFromRequest()` checks if access token expires soon
+5. If expiring, calls `oidcClient.RefreshAccessToken(refreshToken)` to get new tokens
+6. Session is updated with new tokens - user never knows this happened
+
+**Why This Is Better Than Front-Channel Silent Renew:**
+
+| Aspect | Front-Channel (iframe) | Back-Channel (refresh tokens) |
+|--------|------------------------|------------------------------|
+| Third-party cookies | Requires them (being blocked) | Not needed |
+| Browser support | Breaking in modern browsers | Works everywhere |
+| Complexity | Requires iframe + postMessage | Simple backend API call |
+| Security | Token in browser | Token never in browser |
+| PKCE | Required per request | Used once at login |
+
+**Requirements for Google OIDC:**
+- Set `OIDC_OFFLINE_ACCESS=true` in environment
+- This adds `offline_access` scope which grants a refresh token
+- Without this, access tokens expire in ~1 hour with no renewal option
+
+**Refresh Token Rotation:**
+- Google returns a new refresh token with each refresh (rotation)
+- Backend automatically stores the new refresh token
+- Old refresh tokens become invalid after use
+
 ### Cookie Design
 
 **Single cookie: `helix_session`**
