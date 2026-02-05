@@ -274,14 +274,15 @@ func injectBuildCacheFlags(args []string) []string {
 	}
 
 	// Build new args with builder and cache flags
-	cacheFrom := "--cache-from=type=local,src=" + cacheDir
-	cacheTo := "--cache-to=type=local,dest=" + cacheDir + ",mode=max"
-
+	// Cache export only works with a proper buildx builder (not docker driver)
+	// So we only inject cache flags if we can set up the shared builder
 	result := make([]string, 0, len(args)+4)
 	result = append(result, args[:insertIdx]...)
 
 	// Add --builder flag if shared builder is available and not already specified
-	if !hasBuilderFlag(args) && ensureSharedBuilder() {
+	// Only inject cache flags if we have a builder that supports cache export
+	builderAvailable := !hasBuilderFlag(args) && ensureSharedBuilder()
+	if builderAvailable {
 		result = append(result, "--builder="+SharedBuilderName)
 		// With remote builder, we need --load to get image into local docker
 		// Check if --load or --push already specified
@@ -295,15 +296,23 @@ func injectBuildCacheFlags(args []string) []string {
 		if !hasOutput {
 			result = append(result, "--load")
 		}
+
+		// Add cache flags - only when builder is available
+		cacheFrom := "--cache-from=type=local,src=" + cacheDir
+		cacheTo := "--cache-to=type=local,dest=" + cacheDir + ",mode=max"
+		result = append(result, cacheFrom, cacheTo)
+
+		log.Debug().
+			Str("cache_dir", cacheDir).
+			Str("image", imageName).
+			Msg("Injected BuildKit cache flags with shared builder")
+	} else {
+		log.Debug().
+			Str("image", imageName).
+			Msg("Shared builder not available, skipping cache injection")
 	}
 
-	result = append(result, cacheFrom, cacheTo)
 	result = append(result, args[insertIdx:]...)
-
-	log.Debug().
-		Str("cache_dir", cacheDir).
-		Str("image", imageName).
-		Msg("Injected BuildKit cache flags")
 
 	return result
 }
