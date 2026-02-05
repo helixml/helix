@@ -1633,17 +1633,66 @@ function build-sandbox() {
   echo "✅ helix-sandbox container built successfully"
   echo ""
 
-  # Step 6: Restart sandbox and transfer fresh image
+  # Step 6: Start sandbox and transfer desktop images
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [6/6] Restarting sandbox container..."
+  echo "📝 [6/6] Starting sandbox and transferring desktop images..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Restart sandbox to pick up new image
+  # Load sandbox service name from .env
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
   fi
-  echo "✅ Sandbox image ready - restart services with './stack start' to use new image"
-  echo "   (Skipping automatic restart to avoid network conflicts with running services)"
+  get_sandbox_names
+
+  # Stop and remove sandbox container to ensure fresh start with new image
+  echo "🔄 Stopping existing sandbox container..."
+  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  docker rm -f "$SANDBOX_CONTAINER" 2>/dev/null || true
+
+  # Start sandbox with new image
+  echo "🚀 Starting sandbox container with new image..."
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+  # Wait for sandbox dockerd to be ready
+  echo "⏳ Waiting for sandbox dockerd to start..."
+  local TIMEOUT=30
+  local ELAPSED=0
+  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "❌ ERROR: Sandbox dockerd failed to start within $TIMEOUT seconds"
+      return 1
+    fi
+    echo "   Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+  echo "✅ Sandbox dockerd is ready"
+
+  # Transfer all production desktop images to sandbox
+  echo ""
+  echo "📦 Transferring desktop images to sandbox..."
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📤 Transferring helix-${desktop} to sandbox..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! transfer-desktop-to-sandbox "$desktop"; then
+      echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+    fi
+  done
+
+  # Transfer experimental desktops if built
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📤 Transferring helix-${desktop} to sandbox (experimental)..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! transfer-desktop-to-sandbox "$desktop"; then
+        echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+      fi
+    done
+  fi
 
   echo ""
   echo "📦 Sandbox ready: helix-sandbox:latest"
