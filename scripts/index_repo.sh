@@ -11,8 +11,11 @@ chmod 700 get_helm.sh
 ./get_helm.sh
 
 echo "Indexing repository"
-if [ -f index.yaml ]; then
-  helm repo index --url "${REPO_URL}" --merge index.yaml ./temp
+# The index.yaml is downloaded to temp/ by the previous gsutil rsync step
+if [ -f temp/index.yaml ]; then
+  echo "Merging with existing index.yaml"
+  helm repo index --url "${REPO_URL}" --merge temp/index.yaml ./temp
 else
+  echo "Creating new index.yaml"
   helm repo index --url "${REPO_URL}" ./temp
 fi
