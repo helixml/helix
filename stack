@@ -1637,14 +1637,8 @@ function build-sandbox() {
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
   fi
-  get_sandbox_names
-  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-  # Stop and remove container without touching networks
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-  docker rm -f "$SANDBOX_CONTAINER" 2>/dev/null || true
-  # Create new container (doesn't manage networks) and start it
-  docker compose -f docker-compose.dev.yaml create "$SANDBOX_SERVICE"
-  docker start "$SANDBOX_CONTAINER"
+  echo "✅ Sandbox image ready - restart services with './stack start' to use new image"
+  echo "   (Skipping automatic restart to avoid network conflicts with running services)"
 
   echo "✅ Sandbox container rebuilt and restarted"
 
