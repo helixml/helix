@@ -10,7 +10,7 @@ import (
 // Project represents a Helix project that can contain tasks and agent work
 type Project struct {
 	ID             string   `json:"id" gorm:"primaryKey"`
-	Name           string   `json:"name"`
+	Name           string   `json:"name" gorm:"index"` // Indexed for search prefix matching
 	Description    string   `json:"description"`
 	UserID         string   `json:"user_id" gorm:"index"`
 	OrganizationID string   `json:"organization_id" gorm:"index"`

@@ -302,6 +302,9 @@ const (
 	ResourceTypeDataset           Resource = "Dataset"
 	ResourceProject               Resource = "Project"
 	ResourceGitRepository         Resource = "GitRepository"
+	ResourceSpecTask              Resource = "SpecTask"
+	ResourceSession               Resource = "Session"
+	ResourcePrompt                Resource = "Prompt"
 )
 
 type Action string

@@ -31,10 +31,17 @@ func (s *HelixAPIServer) resourceSearch(_ http.ResponseWriter, r *http.Request) 
 		return nil, system.NewHTTPError400("query is required")
 	}
 
-	// Set owner from authenticated user
-	req.OwnerID = user.ID
+	if req.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(ctx, user, req.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
 
-	resp, err := s.Store.ResourceSearch(ctx, user.ID, &req)
+	// Set owner from authenticated user
+	req.UserID = user.ID
+
+	resp, err := s.Store.ResourceSearch(ctx, &req)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

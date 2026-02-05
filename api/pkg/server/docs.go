@@ -19513,6 +19513,10 @@ const docTemplate = `{
                     "description": "Populated by the cron job controller",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization scope for search",
+                    "type": "string"
+                },
                 "owner": {
                     "description": "User ID",
                     "type": "string"
@@ -21255,6 +21259,10 @@ const docTemplate = `{
                     "description": "When to retry (for exponential backoff)",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization scope for search",
+                    "type": "string"
+                },
                 "pinned": {
                     "description": "Library features for prompt reuse",
                     "type": "boolean"
@@ -21937,10 +21945,7 @@ const docTemplate = `{
                 "limit": {
                     "type": "integer"
                 },
-                "org_id": {
-                    "type": "string"
-                },
-                "owner_id": {
+                "organization_id": {
                     "type": "string"
                 },
                 "query": {
@@ -21951,6 +21956,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Resource"
                     }
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },
@@ -23552,6 +23560,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization scope for search",
+                    "type": "string"
+                },
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
@@ -23646,6 +23658,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_id": {
+                    "description": "Owner user ID for search",
+                    "type": "string"
                 },
                 "user_short_title": {
                     "description": "User override",
@@ -24222,6 +24238,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization scope for search",
+                    "type": "string"
+                },
                 "original_prompt": {
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
@@ -24319,6 +24339,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_id": {
+                    "description": "Owner user ID for search",
+                    "type": "string"
                 },
                 "user_short_title": {
                     "description": "User override",

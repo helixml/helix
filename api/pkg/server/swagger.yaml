@@ -4154,6 +4154,9 @@ definitions:
       next_run:
         description: Populated by the cron job controller
         type: string
+      organization_id:
+        description: Organization scope for search
+        type: string
       owner:
         description: User ID
         type: string
@@ -5374,6 +5377,9 @@ definitions:
       next_retry_at:
         description: When to retry (for exponential backoff)
         type: string
+      organization_id:
+        description: Organization scope for search
+        type: string
       pinned:
         description: Library features for prompt reuse
         type: boolean
@@ -5864,9 +5870,7 @@ definitions:
     properties:
       limit:
         type: integer
-      org_id:
-        type: string
-      owner_id:
+      organization_id:
         type: string
       query:
         type: string
@@ -5874,6 +5878,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Resource'
         type: array
+      user_id:
+        type: string
     type: object
   types.ResourceSearchResponse:
     properties:
@@ -7010,6 +7016,9 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: Organization scope for search
+        type: string
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
@@ -7083,6 +7092,9 @@ definitions:
       use_host_docker:
         description: Use host Docker socket (requires privileged sandbox)
         type: boolean
+      user_id:
+        description: Owner user ID for search
+        type: string
       user_short_title:
         description: User override
         type: string
@@ -7509,6 +7521,9 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: Organization scope for search
+        type: string
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
@@ -7584,6 +7599,9 @@ definitions:
       use_host_docker:
         description: Use host Docker socket (requires privileged sandbox)
         type: boolean
+      user_id:
+        description: Owner user ID for search
+        type: string
       user_short_title:
         description: User override
         type: string

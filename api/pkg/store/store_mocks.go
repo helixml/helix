@@ -521,20 +521,6 @@ func (mr *MockStoreMockRecorder) CreateProjectRepository(ctx, projectID, reposit
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProjectRepository", reflect.TypeOf((*MockStore)(nil).CreateProjectRepository), ctx, projectID, repositoryID, organizationID)
 }
 
-// UpdateProjectRepository mocks base method.
-func (m *MockStore) UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateProjectRepository", ctx, pr)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateProjectRepository indicates an expected call of UpdateProjectRepository.
-func (mr *MockStoreMockRecorder) UpdateProjectRepository(ctx, pr any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProjectRepository", reflect.TypeOf((*MockStore)(nil).UpdateProjectRepository), ctx, pr)
-}
-
 // CreateProviderEndpoint mocks base method.
 func (m *MockStore) CreateProviderEndpoint(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -4296,6 +4282,21 @@ func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetStuckComments", reflect.TypeOf((*MockStore)(nil).ResetStuckComments), ctx)
 }
 
+// ResourceSearch mocks base method.
+func (m *MockStore) ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResourceSearch", ctx, req)
+	ret0, _ := ret[0].(*types.ResourceSearchResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResourceSearch indicates an expected call of ResourceSearch.
+func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
+}
+
 // SearchPrompts mocks base method.
 func (m *MockStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()
@@ -4718,6 +4719,20 @@ func (m *MockStore) UpdateProject(ctx context.Context, project *types.Project) e
 func (mr *MockStoreMockRecorder) UpdateProject(ctx, project any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProject", reflect.TypeOf((*MockStore)(nil).UpdateProject), ctx, project)
+}
+
+// UpdateProjectRepository mocks base method.
+func (m *MockStore) UpdateProjectRepository(ctx context.Context, pr *types.ProjectRepository) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProjectRepository", ctx, pr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProjectRepository indicates an expected call of UpdateProjectRepository.
+func (mr *MockStoreMockRecorder) UpdateProjectRepository(ctx, pr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProjectRepository", reflect.TypeOf((*MockStore)(nil).UpdateProjectRepository), ctx, pr)
 }
 
 // UpdatePromptPin mocks base method.
