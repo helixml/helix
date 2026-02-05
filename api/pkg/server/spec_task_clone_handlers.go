@@ -188,6 +188,8 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 	newTask := &types.SpecTask{
 		ID:                  system.GenerateSpecTaskID(),
 		ProjectID:           projectID,
+		UserID:              userID,
+		OrganizationID:      project.OrganizationID,
 		Name:                source.Name,
 		Description:         source.Description,
 		Type:                source.Type,

@@ -19,4 +19,5 @@ type ResourceSearchResult struct {
 	ResourceName        string   `json:"name"`
 	ResourceDescription string   `json:"description"`
 	Contents            string   `json:"contents"`
+	ParentID            string   `json:"parent_id,omitempty"`
 }

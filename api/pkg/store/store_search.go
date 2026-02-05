@@ -145,6 +145,7 @@ func (s *PostgresStore) searchSpecTasks(ctx context.Context, query string, req *
 			ResourceName:        t.Name,
 			ResourceDescription: t.Description,
 			Contents:            contents,
+			ParentID:            t.ProjectID,
 		})
 	}
 	return results, nil

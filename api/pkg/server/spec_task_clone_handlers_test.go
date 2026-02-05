@@ -32,14 +32,16 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	}
 
 	targetProjectID := "target-project-id"
+	targetOrgID := "org-123"
 	cloneGroupID := "clone-group-id"
 	userID := "user-id"
 	userEmail := "user@example.com"
 
 	// Mock GetProject
 	mockStore.EXPECT().GetProject(gomock.Any(), targetProjectID).Return(&types.Project{
-		ID:   targetProjectID,
-		Name: "Target Project",
+		ID:             targetProjectID,
+		Name:           "Target Project",
+		OrganizationID: targetOrgID,
 	}, nil)
 
 	// Mock GetLatestDesignReview - no design review exists
@@ -74,6 +76,10 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	assert.Equal(t, sourceTask.RequirementsSpec, createdTask.RequirementsSpec)
 	assert.Equal(t, sourceTask.TechnicalDesign, createdTask.TechnicalDesign)
 	assert.Equal(t, sourceTask.ImplementationPlan, createdTask.ImplementationPlan)
+
+	// Verify UserID and OrganizationID are set correctly
+	assert.Equal(t, userID, createdTask.UserID, "UserID should be set from the user creating the clone")
+	assert.Equal(t, targetOrgID, createdTask.OrganizationID, "OrganizationID should be set from the target project")
 }
 
 func TestCloneTaskToProject_WithoutSpecs_DoesNotSetDesignDocsPushedAt(t *testing.T) {

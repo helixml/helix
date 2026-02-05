@@ -1318,6 +1318,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					task := &types.SpecTask{
 						ID:             system.GenerateSpecTaskID(),
 						ProjectID:      createdShapeProject.ID,
+						UserID:         user.ID,
+						OrganizationID: createdShapeProject.OrganizationID,
 						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
 						Description:    taskPrompt.Prompt,
 						Type:           inferTaskType(taskPrompt.Labels),
@@ -1704,13 +1706,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	for i := len(sampleProject.TaskPrompts) - 1; i >= 0; i-- {
 		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
-			ID:          system.GenerateSpecTaskID(),
-			ProjectID:   createdProject.ID,
-			Name:        generateTaskNameFromPrompt(taskPrompt.Prompt),
-			Description: taskPrompt.Prompt, // The description IS the prompt
-			Type:        inferTaskType(taskPrompt.Labels),
-			Priority:    taskPrompt.Priority,
-			Status:      "backlog",
+			ID:             system.GenerateSpecTaskID(),
+			ProjectID:      createdProject.ID,
+			UserID:         user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
+			Description:    taskPrompt.Prompt, // The description IS the prompt
+			Type:           inferTaskType(taskPrompt.Labels),
+			Priority:       taskPrompt.Priority,
+			Status:         "backlog",
 
 			// Store the original prompt, specs will be generated later
 			OriginalPrompt:     taskPrompt.Prompt,
@@ -1718,9 +1722,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			TechnicalDesign:    "", // Will be generated when agent picks up task
 			ImplementationPlan: "", // Will be generated when agent picks up task
 
-			CreatedBy: user.ID,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+			CreatedBy:  user.ID,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Set HelixAppID if we found an agent app
