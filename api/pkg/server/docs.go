@@ -1433,6 +1433,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/session": {
+            "get": {
+                "description": "Returns session info for BFF authentication. The frontend uses this to check if the user is logged in.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get current session info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionInfo"
+                        }
+                    },
+                    "401": {
+                        "description": "Not authenticated",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/update": {
             "post": {
                 "security": [
@@ -21992,6 +22015,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "parent_id": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.Resource"
                 }
@@ -22911,6 +22937,26 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SessionType"
                         }
                     ]
+                }
+            }
+        },
+        "types.SessionInfo": {
+            "type": "object",
+            "properties": {
+                "auth_provider": {
+                    "$ref": "#/definitions/types.AuthProvider"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },
@@ -24814,14 +24860,19 @@ const docTemplate = `{
                 "runner",
                 "oidc",
                 "api_key",
-                "socket"
+                "socket",
+                "session"
             ],
+            "x-enum-comments": {
+                "TokenTypeSession": "BFF session for regular (email/password) auth"
+            },
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
-                "TokenTypeSocket"
+                "TokenTypeSocket",
+                "TokenTypeSession"
             ]
         },
         "types.Tool": {
