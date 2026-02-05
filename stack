@@ -1639,7 +1639,12 @@ function build-sandbox() {
   fi
   get_sandbox_names
   echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-  docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps "$SANDBOX_SERVICE"
+  # Stop and remove container without touching networks
+  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  docker rm -f "$SANDBOX_CONTAINER" 2>/dev/null || true
+  # Create new container (doesn't manage networks) and start it
+  docker compose -f docker-compose.dev.yaml create --no-deps "$SANDBOX_SERVICE"
+  docker start "$SANDBOX_CONTAINER"
 
   echo "✅ Sandbox container rebuilt and restarted"
 
