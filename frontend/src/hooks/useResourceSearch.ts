@@ -29,14 +29,14 @@ export const useResourceSearch = ({
         query,
         types,
         limit,
-        org_id: orgId,
+        organization_id: orgId,
       };
       const response = await client.v1ResourceSearchCreate(request);
       return response.data;
     },
     enabled: enabled && query.length > 0,
-    staleTime: 30 * 1000, // 30 seconds
-    gcTime: 60 * 1000, // 1 minute
+    staleTime: 3 * 1000,
+    gcTime: 60 * 1000,
   });
 };
 
