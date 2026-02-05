@@ -123,6 +123,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
 RUN touch /libgstpipewirezerocopy.so
 
+# Selector stage: choose platform-specific Rust build output
+FROM rust-build-env-${TARGETARCH} AS rust-build-env
+
 # ====================================================================
 # CUDA libraries stage - extract libnvrtc for GStreamer cudascale (amd64 only)
 # ====================================================================
@@ -137,6 +140,9 @@ RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
 # Placeholder stage for arm64 (no CUDA)
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
 RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
+
+# Selector stage: choose platform-specific CUDA libs
+FROM cuda-libs-${TARGETARCH} AS cuda-libs
 
 # ====================================================================
 # wlroots 0.19.0 build stage (from source)
@@ -754,24 +760,21 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # GStreamer zero-copy plugin and CUDA libs (amd64 only)
 # ====================================================================
 # On arm64, zerocopy mode is not available (no NVENC, encoding happens on macOS host)
-COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
-COPY --from=rust-build-env-arm64 /libgstpipewirezerocopy.so /tmp/zerocopy-arm64.so
-COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
-COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
-COPY --from=cuda-libs-arm64 /libnvrtc.so.12 /tmp/libnvrtc-arm64.so.12
-COPY --from=cuda-libs-arm64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins-arm64.so.12.6
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
+COPY --from=cuda-libs /libnvrtc.so.12 /tmp/libnvrtc.so.12
+COPY --from=cuda-libs /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 
 # Install zerocopy plugin and CUDA libs (amd64 only)
+ARG TARGETARCH
 RUN <<_INSTALL_ZEROCOPY
 set -e
-ARCH=$(dpkg --print-architecture)
-if [ "$ARCH" = "amd64" ]; then
+if [ "${TARGETARCH}" = "amd64" ]; then
     echo "=== Installing zerocopy plugin and CUDA libs for amd64 ==="
     LIB_DIR="/usr/lib/x86_64-linux-gnu"
 
     # Install zerocopy plugin (only if real .so file)
-    if file /tmp/zerocopy-amd64.so | grep -q "shared object"; then
-        cp /tmp/zerocopy-amd64.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    if file /tmp/zerocopy.so | grep -q "shared object"; then
+        cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         echo "Zerocopy plugin installed"
     fi
@@ -784,14 +787,14 @@ if [ "$ARCH" = "amd64" ]; then
         ldconfig
         echo "CUDA runtime libs installed"
     fi
-elif [ "$ARCH" = "arm64" ]; then
+elif [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== arm64: Skipping zerocopy plugin (uses native pipewiresrc) ==="
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
     mkdir -p ${LIB_DIR}/gstreamer-1.0
 fi
 
 # Cleanup temp files
-rm -f /tmp/zerocopy-*.so /tmp/libnvrtc*.so*
+rm -f /tmp/zerocopy.so /tmp/libnvrtc*.so*
 _INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
