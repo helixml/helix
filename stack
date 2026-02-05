@@ -290,6 +290,9 @@ function get_sandbox_names() {
   elif [[ "$profile" == *"code-amd-intel"* ]]; then
     export SANDBOX_SERVICE="sandbox-amd-intel"
     export SANDBOX_CONTAINER="helix-sandbox-amd-intel-1"
+  elif [[ "$profile" == *"code-macos"* ]]; then
+    export SANDBOX_SERVICE="sandbox-macos"
+    export SANDBOX_CONTAINER="helix-sandbox-macos-1"
   else
     # Default to NVIDIA (code-nvidia profile)
     export SANDBOX_SERVICE="sandbox-nvidia"
