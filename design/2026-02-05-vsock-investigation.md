@@ -135,7 +135,7 @@ The host-side socket is created and listening. Now need to make it accessible to
 - [x] Frame request protocol tested
 - [x] VideoToolbox encoder initialization working
 
-### ✅ WORKING: GPU Readback with ANGLE
+### ✅ COMPLETE: GPU Readback with ANGLE - WORKING!
 
 **Problem:** UTM uses **ANGLE** (OpenGL ES → Metal) layer:
 ```
@@ -147,32 +147,58 @@ Resources are GL textures wrapped by ANGLE, not direct Metal textures. This prev
 **Solution: GL Readback → IOSurface → VideoToolbox**
 
 Implemented in `helix-frame-export.m`:
-1. Use `virgl_renderer_transfer_read_iov()` to read pixel data from resource
-2. Create IOSurface from pixel data (BGRA8888 format)
-3. Create CVPixelBuffer from IOSurface (zero-copy at this point)
-4. Pass to VideoToolbox for H.264 encoding
+1. Call `virgl_renderer_force_ctx_0()` to ensure GL context is ready
+2. Try `virgl_renderer_resource_map()` for blob resources (fast path)
+3. Fallback to `virgl_renderer_transfer_read_iov()` for regular resources
+4. Create IOSurface from pixel data (BGRA8888 format)
+5. Create CVPixelBuffer from IOSurface (zero-copy at this point)
+6. Pass to VideoToolbox for H.264 encoding
+7. Send H.264 NALs back via socket
 
 **Trade-off:** One CPU copy (GPU → CPU → IOSurface) but guaranteed to work with ANGLE. For headless container rendering at 30-60 FPS, the CPU copy overhead should be acceptable on Apple Silicon.
 
-**✅ Testing Results:**
+**✅ Testing Results - VERIFIED WORKING:**
 
-Successfully encoded scanout resource 140 (1920x1080):
-- Read 8,294,400 bytes (1920 × 1080 × 4 = correct BGRA size)
+Multiple successful tests with different resolutions:
+
+| Resource | Resolution | Bytes Read | H.264 Output | Status |
+|----------|-----------|------------|--------------|--------|
+| 140 | 1920x1080 | 8,294,400 | ~17KB | ✅ Success |
+| 2 | 800x600 | 1,920,000 | ~17KB | ✅ Success |
+| 2 | 1280x800 | 4,096,000 | ~96KB | ✅ Success |
+
+All tests:
+- Successfully read pixel data via virgl_renderer_transfer_read_iov()
 - Created IOSurface from pixel data
-- VideoToolbox encoding completed successfully
-- Frame response sent with encoded NALs
+- VideoToolbox encoding completed
+- Received H.264 NAL units (keyframes)
+- End-to-end protocol working
 
-**Known Issue:** Some resources (e.g., resource 2, 800x600) cause `virgl_renderer_transfer_read_iov()` to hang. Needs investigation - might be resource state or format specific.
+**Critical Fix:** Must call `virgl_renderer_force_ctx_0()` before transfer operations. Without this, some resources hang indefinitely.
 
-### Next Steps: Test Readback Implementation
+### ❌ CRITICAL FINDING: Don't Use Scanout Resources!
 
-1. **Test with real guest resource**
-   - Send FrameRequest from guest with valid resource ID
-   - Verify virgl_renderer_transfer_read_iov() succeeds
-   - Confirm IOSurface created and VideoToolbox encodes
-   - Check H.264 NAL output
+**Problem:** Testing with `resource_id=0` (scanout) causes VM crashes after 3-4 tests.
 
-2. **Map PipeWire DmaBuf to virtio-gpu resource ID**
+**Root Cause:**
+- Scanout resources are the main GNOME desktop being actively rendered
+- `virgl_renderer_transfer_read_iov()` hangs when called on actively-rendering scanouts
+- Resource IDs change (140 → 127) as desktop re-renders, some hang indefinitely
+- We're testing the WRONG thing - we don't want desktop frames, we want container frames!
+
+**Solution:**
+- Reject `resource_id=0` entirely - guest MUST provide explicit resource IDs
+- Only process DmaBuf resources from PipeWire ScreenCast inside containers
+- Scanout resources are for display, not for frame export
+
+**Thread Safety Fixed:**
+- Added `pthread_mutex_t` to protect VideoToolbox callbacks ✅
+- Set `fe->valid = false` before cleanup to prevent use-after-free ✅
+- Mutex properly initialized/destroyed ✅
+
+### Next Steps: Build Guest-Side Bridge
+
+1. **Map PipeWire DmaBuf to virtio-gpu resource ID**
    - PipeWire ScreenCast in containers provides DmaBuf FDs
    - Need to extract virtio-gpu resource ID from DmaBuf
    - Options:
