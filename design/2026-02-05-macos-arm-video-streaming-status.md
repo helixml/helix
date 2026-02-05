@@ -59,11 +59,58 @@ $ ls -lh /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framewor
 1. ✅ Forced recompilation with `touch helix-frame-export.m`
 2. ✅ Verified code in object file
 3. ✅ Installed from sysroot to UTM.app
-4. ❌ Library paths still broken → VM won't start
+4. ✅ Created `scripts/fix-qemu-paths.sh` to fix library paths
+5. ✅ Fixed main QEMU dylib paths (14 libraries)
+6. ✅ Copied dependency libraries to UTM Frameworks
+7. ❌ **Deep dependency chain**: Copied libraries ALSO have sysroot paths
+   - Example: `libspice-server.1.dylib` → `libssl.1.1.dylib` → more deps
+   - Each dylib in the chain needs path fixing
+   - Recursive dependency resolution needed
 
-## Next Steps
+**Blocker Details**:
+The custom QEMU has ~30+ dependency libraries, each with their own dependencies.
+All paths must be recursively fixed to use `@rpath`. This requires:
+- Iterating through all copied dylibs
+- Running `install_name_tool` on each
+- Handling transitive dependencies
+- Testing each iteration
 
-### Option 1: Fix Library Paths (Recommended)
+Estimated effort: 2-4 hours to build robust recursive path fixer.
+
+## Recommended Path Forward
+
+**Priority 1: Test with Stock UTM QEMU** ⭐
+The fastest way to validate the rest of the stack is working:
+
+1. Check if stock UTM has helix-frame-export (it shouldn't)
+2. Test basic streaming to see if vsockenc → QEMU connection works
+3. Verify resource ID extraction from DmaBuf
+4. Expected: May crash on scanout resources, but proves pipeline connectivity
+
+**Priority 2: Build Recursive Library Path Fixer**
+Create enhanced `fix-qemu-paths.sh`:
+```bash
+# Pseudo-code:
+for each dylib in /Applications/UTM.app/Contents/Frameworks/*.dylib:
+    fix_library_paths(dylib)
+
+for each dependency in dylib:
+    if starts_with(dependency, "/Users/"):
+        copy_to_frameworks(dependency)
+        fix_library_paths(dependency)
+        recurse(dependency)
+```
+
+**Priority 3: Alternative - Use UTM's Build System**
+Instead of standalone build, integrate into UTM's own build:
+- Clone UTM repo
+- Add helix-frame-export to UTM's QEMU patches
+- Use `Scripts/build.sh` which handles all library paths correctly
+- Produces UTM.app with custom QEMU pre-integrated
+
+## Next Steps (Original Options)
+
+### Option 1: Recursive Library Path Fixer
 Create `scripts/fix-qemu-paths.sh` to rewrite library paths:
 ```bash
 #!/bin/bash
