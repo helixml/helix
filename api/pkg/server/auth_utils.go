@@ -163,8 +163,6 @@ func addCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-	// Expose X-Token-Refreshed header so frontend can read it for transparent token refresh
-	w.Header().Set("Access-Control-Expose-Headers", "X-Token-Refreshed")
 }
 
 /*
