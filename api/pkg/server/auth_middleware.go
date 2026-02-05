@@ -450,3 +450,55 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		f(w, r)
 	}
 }
+
+// csrfExemptPaths are paths that don't require CSRF protection
+// These are typically auth endpoints or APIs used before/during session creation
+var csrfExemptPaths = map[string]bool{
+	"/api/v1/auth/login":         true, // Login doesn't have CSRF cookie yet
+	"/api/v1/auth/logout":        true, // Logout clears the session
+	"/api/v1/auth/oidc":          true, // OIDC redirect
+	"/api/v1/auth/oidc/callback": true, // OIDC callback
+	"/api/v1/auth/authenticated": true, // Read-only check
+	"/api/v1/auth/session":       true, // Session info (GET-like semantics)
+	"/api/v1/auth/user":          true, // Get user info
+}
+
+// csrfMiddleware validates CSRF tokens for state-changing requests
+// when the request uses cookie-based session authentication.
+// API key and runner token authenticated requests skip CSRF validation.
+func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only check CSRF for state-changing methods
+		if r.Method != "POST" && r.Method != "PUT" && r.Method != "DELETE" && r.Method != "PATCH" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if path is exempt from CSRF
+		if csrfExemptPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if this request was authenticated via session cookie
+		// If using API key or runner token, skip CSRF validation
+		_, err := r.Cookie(SessionCookieName)
+		if err != nil {
+			// No session cookie - this is API key or runner token auth, skip CSRF
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Session cookie exists - validate CSRF token
+		if !ValidateCSRF(r) {
+			log.Warn().
+				Str("path", r.URL.Path).
+				Str("method", r.Method).
+				Msg("CSRF validation failed")
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}

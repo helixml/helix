@@ -6,6 +6,12 @@ import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sess
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateSessionsQuery } from '../services/sessionService';
 
+// CSRF helper - reads the CSRF token from the helix_csrf cookie
+const getCSRFToken = (): string | null => {
+  const match = document.cookie.match(/(^| )helix_csrf=([^;]+)/)
+  return match ? decodeURIComponent(match[2]) : null
+}
+
 interface NewInferenceParams {
   regenerate?: boolean;
   type: ISessionType;
@@ -457,11 +463,18 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     try {
       // With BFF auth, session cookie is sent automatically with same-origin requests
+      // Include CSRF token for protection against cross-site request forgery
+      const csrfToken = getCSRFToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
+
       const response = await fetch('/api/v1/sessions/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         credentials: 'same-origin',
         body: JSON.stringify(sessionChatRequest),
       });
