@@ -58,11 +58,13 @@ func (suite *AuthSuite) SetupTest() {
 	cfg.Auth.Provider = types.AuthProviderOIDC
 	suite.oidcClient = auth.NewMockOIDC(ctrl)
 	suite.authenticator = auth.NewMockAuthenticator(ctrl)
+	sessionManager := NewSessionManager(suite.store, suite.oidcClient, cfg)
 	suite.server = &HelixAPIServer{
-		Cfg:           cfg,
-		oidcClient:    suite.oidcClient,
-		authenticator: suite.authenticator,
-		Store:         suite.store,
+		Cfg:            cfg,
+		oidcClient:     suite.oidcClient,
+		authenticator:  suite.authenticator,
+		Store:          suite.store,
+		sessionManager: sessionManager,
 	}
 }
 
@@ -265,25 +267,33 @@ func (suite *AuthSuite) TestCallback() {
 				mockIDToken := &oidc.IDToken{Nonce: testNonce}
 				suite.oidcClient.EXPECT().Exchange(gomock.Any(), testCode).Return(mockToken, nil)
 				suite.oidcClient.EXPECT().VerifyIDToken(gomock.Any(), mockToken).Return(mockIDToken, nil)
+				// BFF: Now we call ValidateUserToken to get/create user
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(&types.User{
+					ID:    "user-123",
+					Email: testEmail,
+				}, nil)
+				// BFF: CreateUserSession is called to create the session
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).Return(&types.UserSession{
+					ID:     "session-123",
+					UserID: "user-123",
+				}, nil)
 			},
 			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				suite.Equal(testServerURL+"/dashboard", rec.Header().Get("Location"))
-				// Verify access_token and refresh_token are set
+				// Verify helix_session cookie is set (BFF pattern)
 				res := rec.Result()
 				defer res.Body.Close()
+				foundSessionCookie := false
 				for _, cookie := range res.Cookies() {
-					switch cookie.Name {
-					case "access_token":
+					if cookie.Name == "helix_session" {
+						foundSessionCookie = true
 						suite.NotEmpty(cookie.Value)
-						suite.Equal(testAccessToken, cookie.Value)
-						suite.Equal("/", cookie.Path)
-					case "refresh_token":
-						suite.NotEmpty(cookie.Value)
-						suite.Equal(testRefreshToken, cookie.Value)
+						suite.True(cookie.HttpOnly, "Session cookie should be HttpOnly")
 						suite.Equal("/", cookie.Path)
 					}
 				}
+				suite.True(foundSessionCookie, "helix_session cookie should be set")
 			},
 		},
 		{
@@ -300,6 +310,15 @@ func (suite *AuthSuite) TestCallback() {
 				mockIDToken := &oidc.IDToken{Nonce: testNonce}
 				suite.oidcClient.EXPECT().Exchange(gomock.Any(), testCode).Return(mockToken, nil)
 				suite.oidcClient.EXPECT().VerifyIDToken(gomock.Any(), mockToken).Return(mockIDToken, nil)
+				// BFF: ValidateUserToken and CreateUserSession are still called
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(&types.User{
+					ID:    "user-123",
+					Email: testEmail,
+				}, nil)
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).Return(&types.UserSession{
+					ID:     "session-123",
+					UserID: "user-123",
+				}, nil)
 			},
 			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
