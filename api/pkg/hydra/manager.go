@@ -32,6 +32,15 @@ const (
 	// SharedBuildKitCacheDir is the directory for shared BuildKit cache across all sessions
 	// BuildKit uses content-addressed storage, so concurrent access is safe
 	SharedBuildKitCacheDir = "buildkit-cache"
+
+	// SharedBuildKitContainerName is the name of the shared BuildKit container
+	SharedBuildKitContainerName = "helix-buildkit"
+
+	// SharedBuildKitImage is the BuildKit image to use
+	SharedBuildKitImage = "moby/buildkit:latest"
+
+	// SharedBuildxBuilderName is the name of the shared buildx builder
+	SharedBuildxBuilderName = "helix-shared"
 )
 
 // Manager manages multiple dockerd instances
@@ -140,6 +149,14 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
 	}
 
+	// Setup shared BuildKit container and builder for cache sharing
+	// This creates a dedicated BuildKit container with the cache directory mounted,
+	// allowing all dev containers to share build cache
+	if err := m.setupSharedBuildKit(ctx); err != nil {
+		// Log warning but don't fail - builds will still work, just without shared cache
+		log.Warn().Err(err).Msg("Failed to setup shared BuildKit container, builds will work but cache won't be shared")
+	}
+
 	// Start cleanup goroutine
 	m.wg.Add(1)
 	go m.cleanupLoop(ctx)
@@ -174,6 +191,103 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	m.wg.Wait()
 	log.Info().Msg("Hydra manager stopped")
+	return nil
+}
+
+// setupSharedBuildKit creates a shared BuildKit container and buildx builder
+// that all dev containers can use for cached builds.
+// The BuildKit container has the shared cache directory mounted, enabling
+// cache sharing across all dev containers.
+func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
+	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
+
+	// Check if buildkit container already exists and is running
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedBuildKitContainerName)
+	output, err := checkCmd.Output()
+	if err == nil && strings.TrimSpace(string(output)) == "true" {
+		log.Debug().Str("container", SharedBuildKitContainerName).Msg("Shared BuildKit container already running")
+		return m.ensureBuildxBuilder(ctx)
+	}
+
+	// Remove old container if exists (might be stopped)
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedBuildKitContainerName).Run()
+
+	// Create buildkit container with cache directory mounted
+	log.Info().
+		Str("container", SharedBuildKitContainerName).
+		Str("cache_dir", buildkitCacheDir).
+		Msg("Creating shared BuildKit container")
+
+	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
+		"--name", SharedBuildKitContainerName,
+		"--privileged",
+		"-v", buildkitCacheDir+":/buildkit-cache",
+		"-v", "buildkit_state:/var/lib/buildkit",
+		"--restart", "unless-stopped",
+		SharedBuildKitImage,
+		"--addr", "unix:///run/buildkit/buildkitd.sock",
+		"--addr", "tcp://0.0.0.0:1234",
+	)
+
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildkit container: %w, output: %s", err, string(output))
+	}
+
+	// Wait for container to be running
+	time.Sleep(2 * time.Second)
+
+	return m.ensureBuildxBuilder(ctx)
+}
+
+// ensureBuildxBuilder creates or updates the buildx builder pointing to the shared BuildKit container
+func (m *Manager) ensureBuildxBuilder(ctx context.Context) error {
+	// Get buildkit container IP
+	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedBuildKitContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get buildkit container IP: %w", err)
+	}
+	buildkitIP := strings.TrimSpace(string(ipOutput))
+	if buildkitIP == "" {
+		return fmt.Errorf("buildkit container has no IP address")
+	}
+
+	// Check if builder already exists
+	checkCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", SharedBuildxBuilderName)
+	if err := checkCmd.Run(); err == nil {
+		log.Debug().Str("builder", SharedBuildxBuilderName).Msg("Buildx builder already exists")
+		// Set as default
+		_ = exec.CommandContext(ctx, "docker", "buildx", "use", SharedBuildxBuilderName).Run()
+		return nil
+	}
+
+	// Remove stale builder if exists
+	_ = exec.CommandContext(ctx, "docker", "buildx", "rm", SharedBuildxBuilderName).Run()
+
+	// Create buildx builder pointing to the container
+	log.Info().
+		Str("builder", SharedBuildxBuilderName).
+		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Msg("Creating shared buildx builder")
+
+	createCmd := exec.CommandContext(ctx, "docker", "buildx", "create",
+		"--name", SharedBuildxBuilderName,
+		"--driver", "remote",
+		"tcp://"+buildkitIP+":1234",
+		"--use",
+	)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildx builder: %w, output: %s", err, string(output))
+	}
+
+	// Bootstrap the builder
+	bootstrapCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", "--bootstrap", SharedBuildxBuilderName)
+	if output, err := bootstrapCmd.CombinedOutput(); err != nil {
+		log.Warn().Err(err).Str("output", string(output)).Msg("Failed to bootstrap buildx builder")
+	}
+
 	return nil
 }
 
