@@ -135,7 +135,7 @@ The host-side socket is created and listening. Now need to make it accessible to
 - [x] Frame request protocol tested
 - [x] VideoToolbox encoder initialization working
 
-### ✅ Implemented: GPU Readback with ANGLE
+### ✅ WORKING: GPU Readback with ANGLE
 
 **Problem:** UTM uses **ANGLE** (OpenGL ES → Metal) layer:
 ```
@@ -153,6 +153,16 @@ Implemented in `helix-frame-export.m`:
 4. Pass to VideoToolbox for H.264 encoding
 
 **Trade-off:** One CPU copy (GPU → CPU → IOSurface) but guaranteed to work with ANGLE. For headless container rendering at 30-60 FPS, the CPU copy overhead should be acceptable on Apple Silicon.
+
+**✅ Testing Results:**
+
+Successfully encoded scanout resource 140 (1920x1080):
+- Read 8,294,400 bytes (1920 × 1080 × 4 = correct BGRA size)
+- Created IOSurface from pixel data
+- VideoToolbox encoding completed successfully
+- Frame response sent with encoded NALs
+
+**Known Issue:** Some resources (e.g., resource 2, 800x600) cause `virgl_renderer_transfer_read_iov()` to hang. Needs investigation - might be resource state or format specific.
 
 ### Next Steps: Test Readback Implementation
 
