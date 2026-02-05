@@ -467,7 +467,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			os.Getenv("SWAYSOCK") != ""
 
 		// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
-		isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
+		// Detect GPU: GNOME+NVIDIA gets DmaBuf/CUDA, vsock gets DmaBuf, everything else uses SHM
+		// vsockenc requires DMA-BUF to extract resource IDs for VideoToolbox encoding
+		isNvidiaGnome := !isSway && (encoder == "nvenc" || encoder == "vsock" || checkGstElement("nvh264enc"))
 
 		// GNOME + AMD/Intel: Fall back to native pipewiresrc
 		// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
@@ -514,9 +516,14 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			}
 
 			if bufferType == "dmabuf" {
-				// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
-				// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
-				parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+				if encoder == "nvenc" {
+					// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
+					// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
+					parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+				} else {
+					// vsockenc: Use raw DMA-BUF without CUDA caps
+					parts = []string{srcPart}
+				}
 			} else {
 				parts = []string{srcPart}
 			}
