@@ -178,7 +178,19 @@ The host-side socket is created and listening. Now need to make it accessible to
 - Not zero-copy, adds latency
 - Only for testing
 
-**Next action:** Try 9p/virtfs via UTM shared folder to test protocol end-to-end.
+**Current solution:** Using TCP proxy via socat for testing:
+```bash
+# On host:
+socat TCP-LISTEN:5900,bind=127.0.0.1,fork,reuseaddr \
+  UNIX-CONNECT:"/Users/luke/Library/Group Containers/WDNLXAD4W8.com.utmapp.UTM/helix-frame-export.sock" &
+
+# Guest connects to:
+10.0.2.2:5900  # QEMU user-mode networking forwards to host 127.0.0.1:5900
+```
+
+Verified connection works from guest. Ready to test protocol.
+
+**Note:** UTM ignores AdditionalArguments and SharedDirectories config for 9p/virtfs. TCP proxy is sufficient for testing. For production, will implement virtserialport in QEMU code directly.
 
 ### 2. virgl Resource Access
 
