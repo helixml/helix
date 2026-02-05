@@ -520,8 +520,7 @@ services:
     profiles: [code-macos]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # virtio-gpu GPU acceleration (vendor ID 0x1af4)
       - GPU_VENDOR=virtio
