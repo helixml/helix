@@ -193,40 +193,48 @@ func ensureSharedBuilder() error {
 		return nil
 	}
 
-	// Check if BuildKit container exists
-	checkContainerCmd := exec.Command(DockerRealPath, "inspect", SharedBuildKitContainerName)
-	if err := checkContainerCmd.Run(); err != nil {
-		return fmt.Errorf("shared BuildKit container '%s' not found. "+
-			"This container should be started by Hydra. Check that Hydra is running and has set up the BuildKit container. "+
-			"Error: %w", SharedBuildKitContainerName, err)
-	}
+	// Get BuildKit endpoint - prefer BUILDKIT_HOST env var (set by Hydra for dev containers),
+	// fall back to looking up helix-buildkit container directly.
+	// BUILDKIT_HOST is needed because dev containers mount a per-session Docker socket
+	// but helix-buildkit runs on the sandbox's main dockerd.
+	buildkitEndpoint := os.Getenv("BUILDKIT_HOST")
+	if buildkitEndpoint == "" {
+		// Fall back to container lookup (works when Docker socket points to main dockerd)
+		checkContainerCmd := exec.Command(DockerRealPath, "inspect", SharedBuildKitContainerName)
+		if err := checkContainerCmd.Run(); err != nil {
+			return fmt.Errorf("shared BuildKit container '%s' not found and BUILDKIT_HOST not set. "+
+				"This container should be started by Hydra. Check that Hydra is running and has set up the BuildKit container. "+
+				"Error: %w", SharedBuildKitContainerName, err)
+		}
 
-	// Get buildkit container IP
-	ipCmd := exec.Command(DockerRealPath, "inspect", "-f",
-		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-		SharedBuildKitContainerName)
-	ipOutput, err := ipCmd.Output()
-	if err != nil {
-		return fmt.Errorf("could not get IP for BuildKit container '%s': %w",
-			SharedBuildKitContainerName, err)
-	}
-	buildkitIP := strings.TrimSpace(string(ipOutput))
-	if buildkitIP == "" {
-		return fmt.Errorf("BuildKit container '%s' has no IP address. "+
-			"The container may not be connected to a network properly",
+		// Get buildkit container IP
+		ipCmd := exec.Command(DockerRealPath, "inspect", "-f",
+			"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
 			SharedBuildKitContainerName)
+		ipOutput, err := ipCmd.Output()
+		if err != nil {
+			return fmt.Errorf("could not get IP for BuildKit container '%s': %w",
+				SharedBuildKitContainerName, err)
+		}
+		buildkitIP := strings.TrimSpace(string(ipOutput))
+		if buildkitIP == "" {
+			return fmt.Errorf("BuildKit container '%s' has no IP address. "+
+				"The container may not be connected to a network properly",
+				SharedBuildKitContainerName)
+		}
+		buildkitEndpoint = "tcp://" + buildkitIP + ":1234"
 	}
 
 	// Create the builder
 	log.Info().
 		Str("builder", SharedBuilderName).
-		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Str("endpoint", buildkitEndpoint).
 		Msg("Creating shared buildx builder")
 
 	createCmd := exec.Command(DockerRealPath, "buildx", "create",
 		"--name", SharedBuilderName,
 		"--driver", "remote",
-		"tcp://"+buildkitIP+":1234",
+		buildkitEndpoint,
 	)
 	if output, err := createCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create shared builder '%s': %s: %w",
