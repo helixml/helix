@@ -219,9 +219,51 @@ The guest already has all the needed components:
    appsink name=videosink
    ```
 
-### Next Steps: Integration
+## Current Status Summary
 
-1. **Expose host socket to guest**
+**Host side (QEMU helix-frame-export):**
+- ✅ UNIX socket listener created and working
+- ✅ Protocol (PING/PONG, FrameRequest/Response) tested
+- ✅ virgl_renderer_transfer_read_iov() working for pixel readback
+- ✅ IOSurface creation from pixel data working
+- ✅ VideoToolbox H.264 encoding producing valid NALs
+- ✅ Thread safety (pthread_mutex) protecting async callbacks
+- ✅ Reject scanout resources (resource_id=0) - require explicit DmaBuf IDs
+
+**Guest side (existing components):**
+- ✅ gst-vsockenc: DmaBuf → resource ID extraction (DRM_IOCTL_PRIME_FD_TO_HANDLE)
+- ✅ desktop-bridge: PipeWire ScreenCast session management
+- ✅ GStreamer pipeline infrastructure
+
+**Missing:**
+- ❌ Host socket not accessible to guest (need virtserialport or 9p/virtfs)
+- ❌ desktop-bridge not configured to use gst-vsockenc pipeline on macOS ARM
+- ❌ End-to-end test with real PipeWire frames from helix-ubuntu container
+
+### Next Steps: Guest Integration
+
+**CRITICAL:** Stop testing with random scanout resources! Only test with real PipeWire frames from helix-ubuntu containers.
+
+1. **Expose host socket to guest** (pick ONE):
+   - Option A: virtserialport (proper, ~200 lines C code in QEMU)
+   - Option B: 9p/virtfs (requires UTM config modification)
+   - Option C: TCP for testing (works NOW via socat, replace later)
+
+2. **Configure desktop-bridge for macOS ARM**:
+   - Detect if running in macOS ARM guest (check for /dev/virtio-ports/com.helix.frame-export or socket path)
+   - Build GStreamer pipeline: `pipewiresrc → vsockenc → appsink`
+   - gst-vsockenc extracts DmaBuf resource IDs and sends to host
+   - Receive H.264 NALs from host, output to WebSocket
+
+3. **Test end-to-end**:
+   - Start helix-ubuntu session on macOS ARM VM
+   - desktop-bridge should use vsockenc pipeline
+   - Verify video streaming works in browser
+   - Measure FPS and latency vs x86 implementation
+
+### Immediate Action: Build gst-vsockenc Integration
+
+Since TCP proxy (socat) is already running and working, use that for testing. Don't block on virtserialport implementation - that's polish for later.
    - PipeWire ScreenCast in containers provides DmaBuf FDs
    - Need to extract virtio-gpu resource ID from DmaBuf
    - Options:
