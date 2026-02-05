@@ -1640,28 +1640,6 @@ function build-sandbox() {
   echo "✅ Sandbox image ready - restart services with './stack start' to use new image"
   echo "   (Skipping automatic restart to avoid network conflicts with running services)"
 
-  echo "✅ Sandbox container rebuilt and restarted"
-
-  # Wait for sandbox's nested dockerd to be ready
-  echo "⏳ Waiting for sandbox dockerd..."
-  local TIMEOUT=30
-  local ELAPSED=0
-  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
-      break
-    fi
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-  done
-
-  # Transfer desktop images to sandbox via local registry
-  echo ""
-  echo "📦 Transferring desktop images to sandbox..."
-  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    transfer-desktop-to-sandbox "$desktop"
-  done
-
   echo ""
   echo "📦 Sandbox ready: helix-sandbox:latest"
   echo ""
