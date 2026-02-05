@@ -87,15 +87,16 @@ type ZedThreadInfo struct {
 
 // ZedSession represents a single Zed session
 type ZedSession struct {
-	SessionID string    `json:"session_id"` // Session ID (Helix session this agent serves)
-	UserID    string    `json:"user_id"`
+	ProjectID      string    `json:"project_id"` // Project ID
+	SessionID      string    `json:"session_id"` // Session ID (Helix session this agent serves)
+	UserID         string    `json:"user_id"`
 	Status         string    `json:"status"`
 	StartTime      time.Time `json:"start_time"`
 	LastAccess     time.Time `json:"last_access"`
 	ProjectPath    string    `json:"project_path,omitempty"`
-	ContainerAppID string `json:"container_app_id,omitempty"` // Deprecated: legacy field
-	DevContainerID string `json:"dev_container_id,omitempty"` // Container ID for the dev container
-	ContainerName  string `json:"container_name,omitempty"`   // Container hostname for DNS lookup
+	ContainerAppID string    `json:"container_app_id,omitempty"` // Deprecated: legacy field
+	DevContainerID string    `json:"dev_container_id,omitempty"` // Container ID for the dev container
+	ContainerName  string    `json:"container_name,omitempty"`   // Container hostname for DNS lookup
 
 	// Container fields
 	ContainerID string `json:"container_id,omitempty"` // Docker container ID

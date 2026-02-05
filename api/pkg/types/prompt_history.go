@@ -10,11 +10,12 @@ import (
 // Stored per-user, per-spec-task (within a project) for cross-device sync
 type PromptHistoryEntry struct {
 	// Composite primary key: ID is globally unique, but we also index by user+spec_task
-	ID         string    `json:"id" gorm:"primaryKey;size:255"`
-	UserID     string    `json:"user_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
-	ProjectID  string    `json:"project_id" gorm:"not null;size:255;index"` // For reference, but primary grouping is by spec_task
-	SpecTaskID string    `json:"spec_task_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
-	SessionID  string    `json:"session_id" gorm:"size:255;index"` // Optional - which session this was sent to
+	ID             string `json:"id" gorm:"primaryKey;size:255"`
+	UserID         string `json:"user_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
+	OrganizationID string `json:"organization_id" gorm:"size:255;index"` // Organization scope for search
+	ProjectID      string `json:"project_id" gorm:"not null;size:255;index"` // For reference, but primary grouping is by spec_task
+	SpecTaskID     string `json:"spec_task_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
+	SessionID  string `json:"session_id" gorm:"size:255;index"` // Optional - which session this was sent to
 
 	// Content
 	Content string `json:"content" gorm:"type:text;not null"`
@@ -24,8 +25,8 @@ type PromptHistoryEntry struct {
 	Status string `json:"status" gorm:"size:50;not null;default:sent"`
 
 	// Retry tracking for failed prompts
-	RetryCount  int        `json:"retry_count" gorm:"not null;default:0"`       // Number of retry attempts
-	NextRetryAt *time.Time `json:"next_retry_at,omitempty" gorm:"index"`        // When to retry (for exponential backoff)
+	RetryCount  int        `json:"retry_count" gorm:"not null;default:0"` // Number of retry attempts
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty" gorm:"index"`  // When to retry (for exponential backoff)
 
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes
@@ -37,9 +38,9 @@ type PromptHistoryEntry struct {
 
 	// Library features for prompt reuse
 	Pinned     bool       `json:"pinned" gorm:"not null;default:false;index"`      // User pinned this prompt
-	UsageCount int        `json:"usage_count" gorm:"not null;default:0"`            // How many times reused
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`                           // Last time reused
-	Tags       string     `json:"tags,omitempty" gorm:"type:text"`                  // JSON array of user-defined tags
+	UsageCount int        `json:"usage_count" gorm:"not null;default:0"`           // How many times reused
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`                          // Last time reused
+	Tags       string     `json:"tags,omitempty" gorm:"type:text"`                 // JSON array of user-defined tags
 	IsTemplate bool       `json:"is_template" gorm:"not null;default:false;index"` // Saved as a reusable template
 
 	// Timestamps
@@ -107,30 +108,30 @@ type PromptHistorySyncResponse struct {
 
 // UnifiedSearchRequest is the request for searching across all Helix entities
 type UnifiedSearchRequest struct {
-	Query   string   `json:"query"`             // Search query string
-	Types   []string `json:"types,omitempty"`   // Filter by types: "projects", "tasks", "sessions", "prompts"
-	Limit   int      `json:"limit,omitempty"`   // Max results per type (default 10)
-	OrgID   string   `json:"org_id,omitempty"`  // Optional org scope
+	Query   string   `json:"query"`              // Search query string
+	Types   []string `json:"types,omitempty"`    // Filter by types: "projects", "tasks", "sessions", "prompts"
+	Limit   int      `json:"limit,omitempty"`    // Max results per type (default 10)
+	OrgID   string   `json:"org_id,omitempty"`   // Optional org scope
 	OwnerID string   `json:"owner_id,omitempty"` // Optional owner filter
 }
 
 // UnifiedSearchResult represents a single search result
 type UnifiedSearchResult struct {
-	Type        string            `json:"type"`                   // "project", "task", "session", "prompt"
-	ID          string            `json:"id"`                     // Entity ID
-	Title       string            `json:"title"`                  // Display title
-	Description string            `json:"description,omitempty"`  // Brief description/content preview
-	URL         string            `json:"url"`                    // Frontend URL to navigate to
-	Icon        string            `json:"icon,omitempty"`         // Icon hint for UI
-	Metadata    map[string]string `json:"metadata,omitempty"`     // Additional context (status, owner, etc)
-	Score       float64           `json:"score,omitempty"`        // Relevance score
-	CreatedAt   string            `json:"created_at,omitempty"`   // ISO timestamp
-	UpdatedAt   string            `json:"updated_at,omitempty"`   // ISO timestamp
+	Type        string            `json:"type"`                  // "project", "task", "session", "prompt"
+	ID          string            `json:"id"`                    // Entity ID
+	Title       string            `json:"title"`                 // Display title
+	Description string            `json:"description,omitempty"` // Brief description/content preview
+	URL         string            `json:"url"`                   // Frontend URL to navigate to
+	Icon        string            `json:"icon,omitempty"`        // Icon hint for UI
+	Metadata    map[string]string `json:"metadata,omitempty"`    // Additional context (status, owner, etc)
+	Score       float64           `json:"score,omitempty"`       // Relevance score
+	CreatedAt   string            `json:"created_at,omitempty"`  // ISO timestamp
+	UpdatedAt   string            `json:"updated_at,omitempty"`  // ISO timestamp
 }
 
 // UnifiedSearchResponse is the response for unified search
 type UnifiedSearchResponse struct {
 	Results []UnifiedSearchResult `json:"results"`
-	Total   int                   `json:"total"`   // Total results across all types
-	Query   string                `json:"query"`   // Echo back query
+	Total   int                   `json:"total"` // Total results across all types
+	Query   string                `json:"query"` // Echo back query
 }

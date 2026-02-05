@@ -187,9 +187,18 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		originalPrompt = op
 	}
 
+	// Get project to determine organization ID
+	project, err := t.store.GetProject(ctx, projectID)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to get project for spec task creation")
+		return "", fmt.Errorf("failed to get project: %w", err)
+	}
+
 	task := &types.SpecTask{
 		ID:             system.GenerateSpecTaskID(),
 		ProjectID:      projectID,
+		UserID:         meta.UserID,
+		OrganizationID: project.OrganizationID,
 		Name:           name,
 		Description:    description,
 		Type:           taskType,

@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react'
+import React, { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
@@ -21,9 +21,7 @@ import {
   LogOut,
   LogIn,
   FileText,
-  HelpCircle,
-  Activity,
-  GitBranch,
+  HelpCircle,  
   FileQuestionMark,
   MessageCircle,
   Kanban,
@@ -42,6 +40,7 @@ import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
+import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -163,7 +162,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const menuWidth = isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth
 
   // Handle click outside and escape key to close expanded menus
-  React.useEffect(() => {
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
       if (!target.closest('[data-compact-user-menu]')) {
@@ -198,7 +197,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [compactExpanded, menuItemsExpanded, sidebarVisible])
 
   // Close compact menu when sidebar becomes visible, and reset menu items state when sidebar becomes hidden
-  React.useEffect(() => {
+  useEffect(() => {
     if (sidebarVisible && compactExpanded) {
       setCompactExpanded(false)
     }
@@ -214,6 +213,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const currentOrg = account.organizationTools.organization
   const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
+
+  // Add a minimum loading time to prevent flickering
+  const [minLoadingComplete, setMinLoadingComplete] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMinLoadingComplete(true)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [])
 
   const isActive = (path: string | string[]) => {
     const routeName = router.name
@@ -236,7 +244,14 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return loadedOrgs
   }, [organizations, account.user])
 
+
+  // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string | undefined) => {
+    if (orgSlug) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
+    } else {
+      localStorage.removeItem(SELECTED_ORG_STORAGE_KEY)
+    }
     const isDefault = orgSlug === 'default'
     // For personal <-> org transitions, navigate first
     if (router.meta.orgRouteAware) {
@@ -435,9 +450,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const renderCollapsedIcon = () => {
     const tiles = []
 
+    const orgIDFromUrl = account.organizationTools.orgID
+    const isOrgLoading = orgIDFromUrl && !currentOrg
+
     // Wait for auth context to initialize before showing user-specific content
     // This prevents "?" flash during hot reload while auth state is loading
-    if (!account.initialized) {
+    // Also wait if we're on an org route but the org data hasn't loaded yet
+    if (!account.initialized || isOrgLoading) {
       return (
         <Box
           sx={{
@@ -985,13 +1004,17 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             </Box>
           </Box>
           {account.user ? (
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                {account.user.name}
-              </Typography>
-              <Typography variant="caption" sx={{ color: lightTheme.textColorFaded }}>
-                {account.user.email}
-              </Typography>
+            <Box sx={{ flex: 1, minHeight: 36 }}>
+              {minLoadingComplete ? (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {account.user.name}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: lightTheme.textColorFaded }}>
+                    {account.user.email}
+                  </Typography>
+                </>
+              ) : null}
             </Box>
           ) : (
             <ShimmerButton

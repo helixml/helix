@@ -83,20 +83,15 @@ const Projects: FC = () => {
       })
     }
     return map
-  }, [apps.apps])
+  }, [apps.apps])  
 
-  // Check if we're on an org route - if so, wait for organization to load before querying projects
-  // This prevents the query from running with the wrong org_id during loading
-  const isOrgRoute = !!router.params.org_id
-  const orgId = account.organizationTools.organization?.id
-  const orgLoading = account.organizationTools.loading
-
-  // Only enable query when:
-  // 1. User is logged in
-  // 2. If on org route, organization must be loaded (not loading, and has ID)
-  const projectsQueryEnabled = isLoggedIn && (!isOrgRoute || (!!orgId && !orgLoading))
-
-  const { data: projects = [], isLoading, error } = useListProjects(orgId || '', { enabled: projectsQueryEnabled })
+  const isOrgResolved = !account.organizationTools.orgID || !!account.organizationTools.organization
+  const shouldLoadProjects = isLoggedIn && !account.organizationTools.loading && isOrgResolved
+  const { data: projects = [], isLoading, error } = useListProjects(
+    account.organizationTools.organization?.id || '',
+    { enabled: shouldLoadProjects }
+  )
+  const isProjectsLoading = isLoading || (isLoggedIn && (account.organizationTools.loading || !isOrgResolved))
   const { data: sampleProjects = [] } = useListSampleProjects({ enabled: isLoggedIn })
   const instantiateSampleMutation = useInstantiateSampleProject()
 
@@ -138,8 +133,7 @@ const Projects: FC = () => {
   const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false)
   const [linkingFromBrowser, setLinkingFromBrowser] = useState(false)
 
-  // Search and pagination for projects
-  const [projectsSearchQuery, setProjectsSearchQuery] = useState('')
+  // Pagination for projects
   const [projectsPage, setProjectsPage] = useState(0)
   const projectsPerPage = 24
 
@@ -148,11 +142,8 @@ const Projects: FC = () => {
   const [reposPage, setReposPage] = useState(0)
   const reposPerPage = 10
 
-  // Filter and paginate projects
-  const filteredProjects = projects.filter(project =>
-    project.name?.toLowerCase().includes(projectsSearchQuery.toLowerCase()) ||
-    project.description?.toLowerCase().includes(projectsSearchQuery.toLowerCase())
-  )
+  // Paginate projects
+  const filteredProjects = projects
   const paginatedProjects = filteredProjects.slice(
     projectsPage * projectsPerPage,
     (projectsPage + 1) * projectsPerPage
@@ -536,7 +527,7 @@ const Projects: FC = () => {
     }
   }
 
-  if (isLoading || reposLoading) {
+  if (isProjectsLoading || reposLoading) {
     return (
       <Page
         breadcrumbTitle="Projects"
@@ -571,6 +562,8 @@ const Projects: FC = () => {
       breadcrumbParent={currentView !== 'projects' ? { title: 'Projects', routeName: 'projects' } : undefined}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
+      globalSearch={true}
+      organizationId={account.organizationTools.organization?.id}
       topbarContent={currentView === 'projects' ? (
         <CreateProjectButton
           onCreateEmpty={handleNewProject}
@@ -628,8 +621,7 @@ const Projects: FC = () => {
           <ProjectsListView
             projects={projects}
             error={isLoggedIn ? error : null}
-            searchQuery={projectsSearchQuery}
-            onSearchChange={setProjectsSearchQuery}
+            isLoading={isProjectsLoading}
             page={projectsPage}
             onPageChange={setProjectsPage}
             filteredProjects={filteredProjects}
