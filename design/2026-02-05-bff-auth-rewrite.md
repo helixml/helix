@@ -41,34 +41,50 @@ The frontend should only care about ONE thing: **an HTTP-only session cookie**.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         FRONTEND                                 │
+│                    BROWSER / FRONTEND                            │
 │  - No tokens in memory                                          │
 │  - No Authorization headers                                     │
 │  - No localStorage token storage                                │
 │  - Just calls APIs, cookies sent automatically                  │
 └─────────────────────────────────────────────────────────────────┘
                               │
-                              │ HTTP requests (cookies sent automatically)
+                              │ HTTP requests (session cookie)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      HELIX API (BFF)                            │
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              Session Management Layer                    │   │
-│  │  - Validates session cookie (helix_session)              │   │
-│  │  - Extracts user from session                            │   │
-│  │  - Handles OIDC token refresh transparently              │   │
+│  │                 Auth Middleware                          │   │
+│  │  1. Check BFF session cookie (helix_session)             │   │
+│  │  2. If no session, check Authorization header (API key)  │   │
+│  │  3. OIDC token refresh handled transparently             │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                   │
-│          ┌───────────────────┼───────────────────┐              │
-│          ▼                   ▼                   ▼              │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐    │
-│   │   Regular   │    │    OIDC     │    │   API Key       │    │
-│   │   Helix     │    │   (Google)  │    │   (unchanged)   │    │
-│   │   Auth      │    │             │    │                 │    │
-│   └─────────────┘    └─────────────┘    └─────────────────┘    │
+│     Browser auth:            │         CLI/API client auth:      │
+│     ┌────────────────────────┴────────────────────────┐         │
+│     ▼                        ▼                        ▼         │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐  │
+│  │ BFF Session  │    │ BFF Session  │    │   API Key        │  │
+│  │ (Regular)    │    │ (OIDC)       │    │   (unchanged)    │  │
+│  │              │    │              │    │                  │  │
+│  │ Email/pass   │    │ Google etc   │    │ Authorization:   │  │
+│  │ → session    │    │ → session    │    │ Bearer hl-xxx    │  │
+│  └──────────────┘    └──────────────┘    └──────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                                                  ▲
+                                                  │
+                              ┌───────────────────┘
+                              │ Authorization: Bearer hl-xxx
+┌─────────────────────────────────────────────────────────────────┐
+│                     CLI / API CLIENTS                            │
+│  - Uses API keys (hl-xxx) in Authorization header               │
+│  - No cookies, no sessions                                       │
+│  - Runner tokens for internal system auth                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Point:** API keys (`hl-xxx`) and runner tokens continue to work exactly as before.
+The BFF session pattern only applies to browser-based authentication.
 
 ### Session Table Schema
 
@@ -276,19 +292,16 @@ func (s *HelixAPIServer) sessionMiddleware(next http.Handler) http.Handler {
 
 ### Migration Path
 
-1. **Add session table migration**
-2. **Add session middleware** (new code path)
-3. **Update auth endpoints** to create sessions
-4. **Update frontend** to stop using tokens
-5. **Remove old token code** from frontend
-6. **Clean up deprecated endpoints**
+Clean cutover - no backward compatibility with old token-based auth:
 
-### Backward Compatibility
+1. **Add session table** (AutoMigrate)
+2. **Add session middleware** to auth layer
+3. **Update auth endpoints** to create sessions (login, OIDC callback)
+4. **Update frontend** - remove all token management code
+5. **Deploy** - users will need to log in again (acceptable trade-off for simplicity)
 
-During migration:
-- Both old (cookie-based token) and new (session-based) auth work
-- API key auth remains unchanged
-- Runner token auth remains unchanged
+**Note:** API keys and runner tokens continue to work unchanged. Only browser-based
+authentication is affected - users just need to log in again after the update.
 
 ### Security Considerations
 
