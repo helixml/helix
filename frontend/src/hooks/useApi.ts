@@ -18,12 +18,30 @@ import {
   reportError,
 } from '../utils/analytics'
 
+import {
+  getCSRFToken,
+  CSRF_HEADER_NAME,
+} from '../utils/csrf'
+
 const API_MOUNT = ""
 
 export interface IApiOptions {
   snackbar?: boolean,
   loading?: boolean,
   errorCapture?: (err: string) => void,
+}
+
+// CSRF interceptor function - adds X-CSRF-Token header to state-changing requests
+const csrfInterceptor = (config: any) => {
+  const method = config.method?.toUpperCase()
+  // Only add CSRF header for state-changing methods
+  if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
+    const csrfToken = getCSRFToken()
+    if (csrfToken) {
+      config.headers[CSRF_HEADER_NAME] = csrfToken
+    }
+  }
+  return config
 }
 
 // Create a singleton instance of the API client
@@ -35,32 +53,14 @@ const apiClientSingleton = new Api({
   // No securityWorker needed - session cookie is sent automatically
 })
 
+// Add CSRF interceptor to the Api client's axios instance
+apiClientSingleton.instance.interceptors.request.use(csrfInterceptor)
+
 // Configure axios to send cookies with requests (same-origin)
 axios.defaults.withCredentials = true
 
-// CSRF Protection: Add X-CSRF-Token header for state-changing requests
-// The CSRF token is stored in the helix_csrf cookie (readable by JS)
-const CSRF_COOKIE_NAME = 'helix_csrf'
-const CSRF_HEADER_NAME = 'X-CSRF-Token'
-
-// Helper to read a cookie value by name
-const getCookie = (name: string): string | null => {
-  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
-  return match ? decodeURIComponent(match[2]) : null
-}
-
-// Add CSRF token to state-changing requests
-axios.interceptors.request.use((config) => {
-  const method = config.method?.toUpperCase()
-  // Only add CSRF header for state-changing methods
-  if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
-    const csrfToken = getCookie(CSRF_COOKIE_NAME)
-    if (csrfToken) {
-      config.headers[CSRF_HEADER_NAME] = csrfToken
-    }
-  }
-  return config
-})
+// Add CSRF token to state-changing requests (for direct axios usage)
+axios.interceptors.request.use(csrfInterceptor)
 
 // Helper function to check if an error is auth-related
 const isAuthError = (error: any): boolean => {

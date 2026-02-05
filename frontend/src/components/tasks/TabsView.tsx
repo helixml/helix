@@ -62,6 +62,7 @@ import NewSpecTaskForm from "./NewSpecTaskForm";
 import { useStreaming } from "../../contexts/streaming";
 import { SESSION_TYPE_TEXT } from "../../types";
 import useAccount from "../../hooks/useAccount";
+import { getCSRFToken } from "../../utils/csrf";
 
 // Pulse animation for active agent indicator
 const activePulse = keyframes`
@@ -819,9 +820,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${activeTask.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
+      const csrfToken = getCSRFToken();
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken && { "X-CSRF-Token": csrfToken }),
+        },
         credentials: "include",
       });
       if (!response.ok) {
