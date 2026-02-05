@@ -26,6 +26,8 @@ enum {
     PROP_SOCKET_PATH,
     PROP_CID,
     PROP_PORT,
+    PROP_TCP_HOST,
+    PROP_TCP_PORT,
     PROP_BITRATE,
     PROP_KEYFRAME_INTERVAL,
 };
@@ -33,6 +35,8 @@ enum {
 #define DEFAULT_SOCKET_PATH NULL
 #define DEFAULT_CID 2  /* VMADDR_CID_HOST */
 #define DEFAULT_PORT 5000
+#define DEFAULT_TCP_HOST NULL
+#define DEFAULT_TCP_PORT 5900
 #define DEFAULT_BITRATE 4000000
 #define DEFAULT_KEYFRAME_INTERVAL 60
 
@@ -109,6 +113,18 @@ gst_vsockenc_class_init(GstVsockEncClass *klass)
             0, G_MAXUINT, DEFAULT_PORT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+    g_object_class_install_property(gobject_class, PROP_TCP_HOST,
+        g_param_spec_string("tcp-host", "TCP Host",
+            "TCP hostname for testing (e.g., 10.0.2.2 for QEMU user-mode networking)",
+            DEFAULT_TCP_HOST,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+    g_object_class_install_property(gobject_class, PROP_TCP_PORT,
+        g_param_spec_uint("tcp-port", "TCP Port",
+            "TCP port number (default 5900)",
+            0, G_MAXUINT, DEFAULT_TCP_PORT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
     g_object_class_install_property(gobject_class, PROP_BITRATE,
         g_param_spec_int("bitrate", "Bitrate",
             "Target bitrate in bits per second",
@@ -145,6 +161,8 @@ gst_vsockenc_init(GstVsockEnc *self)
     self->socket_path = NULL;
     self->cid = DEFAULT_CID;
     self->port = DEFAULT_PORT;
+    self->tcp_host = NULL;
+    self->tcp_port = DEFAULT_TCP_PORT;
     self->bitrate = DEFAULT_BITRATE;
     self->keyframe_interval = DEFAULT_KEYFRAME_INTERVAL;
     self->socket_fd = -1;
@@ -163,6 +181,7 @@ gst_vsockenc_finalize(GObject *object)
     GstVsockEnc *self = GST_VSOCKENC(object);
 
     g_free(self->socket_path);
+    g_free(self->tcp_host);
     g_mutex_clear(&self->lock);
     g_cond_clear(&self->cond);
     g_queue_free(self->pending_frames);
@@ -186,6 +205,13 @@ gst_vsockenc_set_property(GObject *object, guint prop_id,
             break;
         case PROP_PORT:
             self->port = g_value_get_uint(value);
+            break;
+        case PROP_TCP_HOST:
+            g_free(self->tcp_host);
+            self->tcp_host = g_value_dup_string(value);
+            break;
+        case PROP_TCP_PORT:
+            self->tcp_port = g_value_get_uint(value);
             break;
         case PROP_BITRATE:
             self->bitrate = g_value_get_int(value);
@@ -215,6 +241,12 @@ gst_vsockenc_get_property(GObject *object, guint prop_id,
         case PROP_PORT:
             g_value_set_uint(value, self->port);
             break;
+        case PROP_TCP_HOST:
+            g_value_set_string(value, self->tcp_host);
+            break;
+        case PROP_TCP_PORT:
+            g_value_set_uint(value, self->tcp_port);
+            break;
         case PROP_BITRATE:
             g_value_set_int(value, self->bitrate);
             break;
@@ -234,7 +266,7 @@ gst_vsockenc_connect(GstVsockEnc *self)
         return TRUE;
 
     if (self->socket_path) {
-        /* Connect via UNIX socket (for QEMU/UTM) */
+        /* Connect via UNIX socket (for 9p/virtfs) */
         struct sockaddr_un addr;
 
         self->socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -255,6 +287,37 @@ gst_vsockenc_connect(GstVsockEnc *self)
             self->socket_fd = -1;
             return FALSE;
         }
+        GST_INFO_OBJECT(self, "Connected via UNIX socket: %s", self->socket_path);
+    } else if (self->tcp_host) {
+        /* Connect via TCP (for QEMU user-mode networking) */
+        struct sockaddr_in addr;
+
+        self->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (self->socket_fd < 0) {
+            GST_ERROR_OBJECT(self, "Failed to create TCP socket: %s",
+                             g_strerror(errno));
+            return FALSE;
+        }
+
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(self->tcp_port);
+
+        if (inet_pton(AF_INET, self->tcp_host, &addr.sin_addr) <= 0) {
+            GST_ERROR_OBJECT(self, "Invalid TCP host address: %s", self->tcp_host);
+            close(self->socket_fd);
+            self->socket_fd = -1;
+            return FALSE;
+        }
+
+        if (connect(self->socket_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+            GST_ERROR_OBJECT(self, "Failed to connect to %s:%u: %s",
+                             self->tcp_host, self->tcp_port, g_strerror(errno));
+            close(self->socket_fd);
+            self->socket_fd = -1;
+            return FALSE;
+        }
+        GST_INFO_OBJECT(self, "Connected via TCP to %s:%u", self->tcp_host, self->tcp_port);
     } else {
         /* Connect via native vsock */
         struct sockaddr_vm addr;
@@ -278,10 +341,10 @@ gst_vsockenc_connect(GstVsockEnc *self)
             self->socket_fd = -1;
             return FALSE;
         }
+        GST_INFO_OBJECT(self, "Connected via vsock to %u:%u", self->cid, self->port);
     }
 
     self->connected = TRUE;
-    GST_INFO_OBJECT(self, "Connected to host encoder");
     return TRUE;
 }
 

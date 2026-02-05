@@ -25,9 +25,11 @@ struct _GstVsockEnc {
     GstVideoEncoder parent;
 
     /* Properties */
-    gchar *socket_path;     /* vsock socket path (for QEMU/UTM) */
-    guint cid;              /* vsock CID (for native vsock) */
+    gchar *socket_path;     /* UNIX socket path (for 9p/virtfs) */
+    guint cid;              /* vsock CID (for native vsock, not available on macOS) */
     guint port;             /* vsock port */
+    gchar *tcp_host;        /* TCP hostname (e.g., "10.0.2.2" for QEMU user-mode networking) */
+    guint tcp_port;         /* TCP port (default 5900) */
     gint bitrate;           /* Target bitrate in bps */
     gint keyframe_interval; /* Keyframe interval in frames */
 

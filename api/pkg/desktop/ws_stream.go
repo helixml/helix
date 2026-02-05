@@ -573,14 +573,17 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// vsockenc delegates to host VideoToolbox via vsock for zero-copy encoding
 		// The encoder connects to QEMU's helix-frame-export module running on the host
 		//
-		// Pipeline: PipeWire DMA-BUF → vsockenc (extracts resource ID, sends via vsock)
-		//           → host QEMU (resource → MTLTexture → VideoToolbox H.264)
-		//           → H.264 NAL units back via vsock
+		// Pipeline: PipeWire DMA-BUF → vsockenc (extracts resource ID, sends via TCP)
+		//           → host QEMU (resource → pixels → VideoToolbox H.264)
+		//           → H.264 NAL units back via TCP
 		//
 		// vsockenc accepts video/x-raw with DMA-BUF memory from PipeWire
 		// No videoconvert needed - vsockenc handles format internally
+		//
+		// Connection: TCP to 10.0.2.2:5900 (QEMU user-mode networking to host)
+		// TODO: Replace with virtserialport once implemented
 		parts = append(parts,
-			fmt.Sprintf("vsockenc bitrate=%d keyframe-interval=%d",
+			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=5900 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
 			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
