@@ -469,15 +469,29 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
 		// Detect GPU: GNOME+NVIDIA gets DmaBuf/CUDA, vsock gets DmaBuf, everything else uses SHM
 		// vsockenc requires DMA-BUF to extract resource IDs for VideoToolbox encoding
-		isNvidiaGnome := !isSway && (encoder == "nvenc" || encoder == "vsock" || checkGstElement("nvh264enc"))
+		isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
 
 		// GNOME + AMD/Intel: Fall back to native pipewiresrc
 		// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
 		// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
 		// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
+		// vsockenc: use native pipewiresrc with DMA-BUF (no always-copy)
+		isVsockGnome := !isSway && encoder == "vsock"
+
 		isAmdGnome := !isSway && !isNvidiaGnome
 
-		if isAmdGnome {
+		if isVsockGnome {
+			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy
+			// This allows DMA-BUF negotiation so vsockenc can extract resource IDs
+			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with DMA-BUF")
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{srcPart}
+			v.useRealtimeClock = true
+		} else if isAmdGnome {
+
 			// Case 2: GNOME + AMD/Intel → use native pipewiresrc with always-copy=true
 			// This forces SHM path (like Sway) instead of DmaBuf which has latency issues.
 			// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
