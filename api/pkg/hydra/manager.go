@@ -144,9 +144,14 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Create shared BuildKit cache directory for all sessions
 	// This allows docker build cache to be shared across dockerd instances
+	// Use 0777 permissions so dev containers running as non-root can create subdirectories
 	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-	if err := os.MkdirAll(buildkitCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(buildkitCacheDir, 0777); err != nil {
 		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
+	}
+	// Ensure permissions are correct even if directory already existed
+	if err := os.Chmod(buildkitCacheDir, 0777); err != nil {
+		log.Warn().Err(err).Str("dir", buildkitCacheDir).Msg("Failed to set buildkit cache directory permissions")
 	}
 
 	// Setup shared BuildKit container and builder for cache sharing
