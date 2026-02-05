@@ -293,12 +293,6 @@ func (auth *authMiddleware) getUserFromSession(ctx context.Context, r *http.Requ
 
 	dbUser.Admin = auth.isAdminWithContext(ctx, dbUser.ID)
 
-	log.Debug().
-		Str("session_id", session.ID).
-		Str("user_id", dbUser.ID).
-		Str("auth_provider", string(session.AuthProvider)).
-		Msg("Authenticated user via BFF session")
-
 	return dbUser, nil
 }
 
