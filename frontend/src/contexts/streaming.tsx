@@ -1,7 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
-import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
@@ -47,7 +46,6 @@ export const useStreaming = (): StreamingContextType => {
 };
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const account = useAccount();
   const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -288,7 +286,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [currentSessionId]);
 
   useEffect(() => {
-    if (!account.token || !currentSessionId) return;
+    // With BFF auth, session cookie is automatically sent with WebSocket connections
+    if (!currentSessionId) return;
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
@@ -329,7 +328,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         invalidateTimerRef.current = null;
       }
     };
-  }, [account.token, currentSessionId, handleWebsocketEvent, queryClient]);
+  }, [currentSessionId]);
 
   const NewInference = async ({
     regenerate = false,
@@ -457,12 +456,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     });
 
     try {
+      // With BFF auth, session cookie is sent automatically with same-origin requests
       const response = await fetch('/api/v1/sessions/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${account.token}`,
         },
+        credentials: 'same-origin',
         body: JSON.stringify(sessionChatRequest),
       });
 

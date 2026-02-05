@@ -171,7 +171,7 @@ export const InteractionInference: FC<{
       {serverConfig?.filestore_prefix &&
         imageURLs
           .filter((file) => {
-            return account.token ? true : false;
+            return account.user ? true : false;
           })
           .map((imageURL: string) => {
             const useURL = getFileURL(imageURL);
